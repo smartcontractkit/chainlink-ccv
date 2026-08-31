@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.6.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.5.0...v0.6.0) (2026-08-28)
+
+
+### Features
+
+* **evm:** batch block header fetches ([#1381](https://github.com/smartcontractkit/chainlink-ccv/issues/1381)) ([4b7db6f](https://github.com/smartcontractkit/chainlink-ccv/commit/4b7db6f8d6e53a825483be4847357ca1bb9236d1))
+
+## [0.5.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.4.0...v0.5.0) (2026-08-25)
+
+
+### Features
+
+* Batch chain status updates ([#1373](https://github.com/smartcontractkit/chainlink-ccv/issues/1373)) ([2c733db](https://github.com/smartcontractkit/chainlink-ccv/commit/2c733dbd7182c8951cc31a211bb38bfecf605b97))
+* **evm:** Derive RMN Remote addresses from ramp contracts' on-chain static config ([#1357](https://github.com/smartcontractkit/chainlink-ccv/issues/1357)) ([32d9d53](https://github.com/smartcontractkit/chainlink-ccv/commit/32d9d534ef3c2d083443b6045f4f649836b0ad65))
+* refactor token verifier factory ([#1365](https://github.com/smartcontractkit/chainlink-ccv/issues/1365)) ([5d5c08c](https://github.com/smartcontractkit/chainlink-ccv/commit/5d5c08cc5b59266a4528a14402f9152567540dd5))
+* **standalone:** staging migration prep ([#1369](https://github.com/smartcontractkit/chainlink-ccv/issues/1369)) ([5adf356](https://github.com/smartcontractkit/chainlink-ccv/commit/5adf35643a31dba82c93e29bf5e2ea2add504994))
+* token-verifier: Support Solana format for Lombard ([#1366](https://github.com/smartcontractkit/chainlink-ccv/issues/1366)) ([f58abe6](https://github.com/smartcontractkit/chainlink-ccv/commit/f58abe613a63cc80f186274a4f9b6f82aca8d1ae))
+
+
+### Bug Fixes
+
+* **deps:** bump chain-selectors ([#1347](https://github.com/smartcontractkit/chainlink-ccv/issues/1347)) ([694608e](https://github.com/smartcontractkit/chainlink-ccv/commit/694608e509526c17b9dec1da566c4599655d60a3))
+* **evm:** extract load config functionality away from init ([#1375](https://github.com/smartcontractkit/chainlink-ccv/issues/1375)) ([fd4de11](https://github.com/smartcontractkit/chainlink-ccv/commit/fd4de1180dbf90f9e1fed3669c281e2d2add196d))
+* **executor:** fail on pyroscope start errors, settle deprecated [Monitoring] ([#1352](https://github.com/smartcontractkit/chainlink-ccv/issues/1352)) ([01a8773](https://github.com/smartcontractkit/chainlink-ccv/commit/01a87733ff1aa7e4f3e61563c46ec4089ac4de08))
+* **indexer:** no hmac if empty/default api pair ([#1368](https://github.com/smartcontractkit/chainlink-ccv/issues/1368)) ([00f1fb9](https://github.com/smartcontractkit/chainlink-ccv/commit/00f1fb9a5eeff410e5f360c33ec3e978cb1aa2ed))
+* Remove EVM specific address validation for CCTP transaction hash  ([#1371](https://github.com/smartcontractkit/chainlink-ccv/issues/1371)) ([c5fefe6](https://github.com/smartcontractkit/chainlink-ccv/commit/c5fefe6e1d29c26e10821fb67589a93081b747e8))
+* **standalone:** executor o11y ([#1349](https://github.com/smartcontractkit/chainlink-ccv/issues/1349)) ([8f97557](https://github.com/smartcontractkit/chainlink-ccv/commit/8f975576ee60d8680c041dbfac073c97e33bdd65))
+* **verifier:** unify poll timing, drop dead SourceConfig.RMNRemoteAddress ([#1351](https://github.com/smartcontractkit/chainlink-ccv/issues/1351)) ([eb69b02](https://github.com/smartcontractkit/chainlink-ccv/commit/eb69b02119278da6a24d2be21bc60f367decf998))
+
 ## [0.4.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.3.0...v0.4.0) (2026-08-13)
 
 

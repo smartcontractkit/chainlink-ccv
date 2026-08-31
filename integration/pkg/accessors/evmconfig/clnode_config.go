@@ -1,12 +1,14 @@
 // Conversion of a Chainlink node's EVM configuration into the standalone operator config. A node
-// operator moving off CL mode mounts the config file their node already runs with; loadConfig
+// operator moving off CL mode mounts the config file their node already runs with; LoadConfigFile
 // detects it and converts it here, so the endpoints and finality behavior carry over without anyone
 // hand-writing a second file.
-package evm
+package evmconfig
 
 import (
 	"fmt"
 	"net/url"
+	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -25,10 +27,15 @@ import (
 //
 // Warnings are ordered as the operator wrote the config: by chain, then by node within the chain,
 // then by setting. A converted config with no warnings is normal and does not mean no conversion
-// happened, which is why loadConfig reports the conversion itself rather than the warning count.
+// happened, which is why LoadConfigFile reports the conversion itself rather than the warning count.
 type Conversion struct {
 	Config   Config
 	Warnings []string
+	// WarningsByChainID holds the same warnings grouped by the chain that produced them, so a
+	// per-chain view — `ccv migrate inspect-config --chain-selector` — narrows them without parsing
+	// the message text. Keyed by chain ID rather than selector because a warning is written before
+	// the chain's selector is resolved, and because a chain the node has disabled never gets one.
+	WarningsByChainID map[string][]string
 }
 
 // nodeConfigFile is the sliver of a Chainlink node's TOML that this conversion reads. Every other
@@ -57,12 +64,31 @@ func convertChainlinkNodeConfig(nodeTOML []byte) (Conversion, error) {
 	}
 
 	var warnings []string
+	warningsByChainID := make(map[string][]string, len(merged))
 	chains := make(map[string]ChainConfig, len(merged))
+	// Every warning is attributable to the chain being converted, so each iteration collects its own
+	// and the flat list is built from those. The two views cannot drift.
 	for _, cfg := range merged {
 		chainID := cfg.ChainID.String()
 		if !cfg.IsEnabled() {
-			warnings = append(warnings, fmt.Sprintf("chain %s: skipped, the node has it disabled", chainID))
+			skipped := fmt.Sprintf("chain %s: skipped, the node has it disabled", chainID)
+			warnings = append(warnings, skipped)
+			warningsByChainID[chainID] = []string{skipped}
 			continue
+		}
+
+		var chainWarnings []string
+
+		// The set-detection runs first because convertFinality below puts cfg.Chain through
+		// evmtoml.Defaults, after which an operator-set field and a defaulted one are
+		// indistinguishable. A disabled chain is skipped whole rather than converted, so its
+		// settings are not conversion drops and only the skip above is warned about. Emitting
+		// ahead of the node warnings keeps the chain's warnings in the operator's file order:
+		// [[EVM]] settings come before its [[EVM.Nodes]] entries.
+		if dropped := setChainSettingPaths(&cfg.Chain); len(dropped) > 0 {
+			chainWarnings = append(chainWarnings, fmt.Sprintf(
+				"chain %s: dropped set chain-level settings with no standalone equivalent: %s",
+				chainID, strings.Join(dropped, ", ")))
 		}
 
 		details, err := chainsel.GetChainDetailsByChainIDAndFamily(chainID, chainsel.FamilyEVM)
@@ -74,7 +100,7 @@ func convertChainlinkNodeConfig(nodeTOML []byte) (Conversion, error) {
 		if err != nil {
 			return Conversion{}, err
 		}
-		warnings = append(warnings, nodeWarnings...)
+		chainWarnings = append(chainWarnings, nodeWarnings...)
 
 		finalityDepth, err := convertFinality(cfg)
 		if err != nil {
@@ -86,12 +112,20 @@ func convertChainlinkNodeConfig(nodeTOML []byte) (Conversion, error) {
 			FinalityDepth: finalityDepth,
 			TXMBlockTime:  txmBlockTimeOverride(cfg),
 		}
+		if len(chainWarnings) > 0 {
+			warnings = append(warnings, chainWarnings...)
+			warningsByChainID[chainID] = chainWarnings
+		}
 	}
 
 	if len(chains) == 0 {
 		return Conversion{}, fmt.Errorf("config declares no enabled EVM chains")
 	}
-	return Conversion{Config: Config{Chains: chains}, Warnings: warnings}, nil
+	return Conversion{
+		Config:            Config{Chains: chains},
+		Warnings:          warnings,
+		WarningsByChainID: warningsByChainID,
+	}, nil
 }
 
 // mergeByChainID collapses repeated [[EVM]] blocks for the same chain, later blocks overriding
@@ -121,6 +155,58 @@ func mergeByChainID(configs evmtoml.EVMConfigs) ([]*evmtoml.EVMConfig, error) {
 		out = append(out, byID[id])
 	}
 	return out, nil
+}
+
+// carriedOverChainSettings lists, by dotted path within evmtoml.Chain, the chain-level settings the
+// conversion carries over: the finality pair read by convertFinality and the TXM v2 block time read
+// by txmBlockTimeOverride. Every other chain-level setting the operator set is dropped and must be
+// surfaced by setChainSettingPaths rather than disappearing quietly.
+var carriedOverChainSettings = map[string]struct{}{
+	"FinalityDepth":      {},
+	"FinalityTagEnabled": {},
+	"Transactions.TransactionManagerV2.BlockTime": {},
+}
+
+// setChainSettingPaths implements "warn on any set-but-dropped chain-level setting": it walks the
+// merged chain config and returns the sorted dotted paths of the settings the operator explicitly
+// set that the conversion does not carry over. After mergeByChainID, "explicitly set" is exactly
+// "non-nil pointer", so a non-nil pointer field — even a pointer to struct — is recorded as one set
+// leaf without recursing into it, value-struct sections (Transactions, GasEstimator.BlockHistory,
+// ...) are recursed into, and a non-empty slice (KeySpecific, CustomURLs) counts as set. Non-pointer
+// scalar leaves are skipped: their presence cannot be told apart from an unset field.
+//
+// It must run before convertFinality applies the node's defaults to the chain: defaults fill these
+// same pointers, and afterwards every defaulted setting would look operator-set.
+func setChainSettingPaths(chain *evmtoml.Chain) []string {
+	var paths []string
+	var walk func(v reflect.Value, prefix string)
+	walk = func(v reflect.Value, prefix string) {
+		for i := 0; i < v.NumField(); i++ {
+			path := v.Type().Field(i).Name
+			if prefix != "" {
+				path = prefix + "." + path
+			}
+			if _, carried := carriedOverChainSettings[path]; carried {
+				continue
+			}
+			field := v.Field(i)
+			switch field.Kind() {
+			case reflect.Pointer:
+				if !field.IsNil() {
+					paths = append(paths, path)
+				}
+			case reflect.Struct:
+				walk(field, path)
+			case reflect.Slice:
+				if field.Len() > 0 {
+					paths = append(paths, path)
+				}
+			}
+		}
+	}
+	walk(reflect.ValueOf(chain).Elem(), "")
+	sort.Strings(paths)
+	return paths
 }
 
 // convertNodes maps the node's RPC endpoints onto CCV's narrower node type. CCV models one HTTP

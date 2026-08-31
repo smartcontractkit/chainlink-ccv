@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"maps"
 	"math/big"
 	"time"
 
@@ -25,6 +24,23 @@ type PostgresJobQueue[T Jobable] struct {
 	tableName   string
 	archiveName string
 	ownerID     string
+	// signal wakes a waiting consumer when this process makes a job available.
+	// It is an optimization, never a record: every row stays reachable by a poll, so a
+	// signal that is never delivered costs latency and never costs a job.
+	signal *workSignal
+	// testOnlyOnSignal is a test seam and is never set in production. It runs at the
+	// moment work is signaled, so a test can read the database from another connection
+	// and prove the transaction has already committed by then.
+	testOnlyOnSignal func()
+}
+
+// signalWork announces that this process has made work available, once the transaction
+// that made it available has committed.
+func (q *PostgresJobQueue[T]) signalWork(delay time.Duration) {
+	if q.testOnlyOnSignal != nil {
+		q.testOnlyOnSignal()
+	}
+	q.signal.notifyAfter(delay)
 }
 
 // NewPostgresJobQueue creates a new PostgreSQL-backed job queue.
@@ -45,8 +61,13 @@ func NewPostgresJobQueue[T Jobable](
 		tableName:   config.Name,
 		archiveName: config.Name + "_archive",
 		ownerID:     config.OwnerID,
+		signal:      newWorkSignal(),
 	}, nil
 }
+
+// Signals returns the channel that reports newly available work. It implements
+// the JobQueue interface.
+func (q *PostgresJobQueue[T]) Signals() <-chan struct{} { return q.signal.C() }
 
 // Publish adds jobs to the queue.
 func (q *PostgresJobQueue[T]) Publish(ctx context.Context, jobs ...T) error {
@@ -120,6 +141,11 @@ func (q *PostgresJobQueue[T]) PublishWithDelay(ctx context.Context, delay time.D
 		return err
 	}
 
+	// Signal only after the transaction has committed. A signal sent from inside the
+	// transaction lets the consumer run its query on another pooled connection, read
+	// pre-commit state, find nothing, and never be woken again for these rows.
+	q.signalWork(delay)
+
 	q.logger.Debugw("Published jobs to queue",
 		"queue", q.config.Name,
 		"count", len(jobs),
@@ -129,26 +155,54 @@ func (q *PostgresJobQueue[T]) PublishWithDelay(ctx context.Context, delay time.D
 	return nil
 }
 
-// Consume retrieves and locks jobs for processing.
-// Jobs stuck in 'processing' longer than the configured LockDuration are automatically reclaimed.
+// ConsumePending retrieves and locks up to batchSize jobs that are available now. It does
+// not reclaim stale jobs; ReclaimStale runs those on its own schedule. It implements
+// the JobQueue interface.
+func (q *PostgresJobQueue[T]) ConsumePending(ctx context.Context, batchSize int) ([]Job[T], error) {
+	jobs, failed, err := q.consumePending(ctx, time.Now(), batchSize)
+	if err != nil {
+		return nil, err
+	}
+	q.archiveDeserializationFailures(ctx, failed)
+
+	q.logger.Debugw("Consumed pending jobs from queue",
+		"queue", q.config.Name,
+		"count", len(jobs),
+		"requested", batchSize,
+	)
+
+	return jobs, nil
+}
+
+// ReclaimStale retrieves and locks up to batchSize jobs that have been in 'processing'
+// longer than the configured LockDuration.
 //
-// Two separate queries replace the former single OR query. Combining both predicates
-// (pending + stale-processing) in one OR forced a full Seq Scan + external-merge disk sort
-// on every poll because the planner could not use either partial index. Each query below
-// targets its own dedicated partial index and allows Postgres to stream rows in index order
-// with FOR UPDATE SKIP LOCKED — O(batchSize) instead of O(table size).
-//
-// Stale reclamation always runs first with the full batchSize limit. The pending limit is
-// then computed in memory as batchSize - len(staleJobs), so pending always fills a full
-// batch when there are no stale jobs, and stale jobs can never be starved by pending backlog.
-func (q *PostgresJobQueue[T]) Consume(ctx context.Context, batchSize int) ([]Job[T], error) {
-	now := time.Now()
+// Stale work is produced by the passage of time rather than by any publish, so no signal
+// can announce it. This path is driven by a timer only.
+func (q *PostgresJobQueue[T]) ReclaimStale(ctx context.Context, batchSize int) ([]Job[T], error) {
+	jobs, failed, err := q.consumeStale(ctx, time.Now(), batchSize)
+	if err != nil {
+		return nil, err
+	}
+	q.archiveDeserializationFailures(ctx, failed)
+
+	if len(jobs) > 0 {
+		q.logger.Infow("Reclaimed stale jobs from queue",
+			"queue", q.config.Name,
+			"count", len(jobs),
+		)
+	}
+
+	return jobs, nil
+}
+
+// consumeStale reclaims stale processing jobs (crashed-worker recovery).
+// Uses idx_stale (owner_id, started_at, id) WHERE status='processing' AND started_at IS NOT NULL.
+func (q *PostgresJobQueue[T]) consumeStale(
+	ctx context.Context, now time.Time, batchSize int,
+) ([]Job[T], map[string]error, error) {
 	staleBefore := now.Add(-q.config.LockDuration)
 
-	// Phase 1: reclaim stale processing jobs (crashed-worker recovery) — always runs first.
-	// Running stale before pending lets us compute the exact remaining capacity for pending
-	// in memory, so pending always fills up to batchSize when there are no stale jobs.
-	// Uses idx_stale (owner_id, started_at, id) WHERE status='processing' AND started_at IS NOT NULL.
 	staleQuery := fmt.Sprintf(`
 		UPDATE %[1]s
 		SET status = $1,
@@ -176,14 +230,17 @@ func (q *PostgresJobQueue[T]) Consume(ctx context.Context, batchSize int) ([]Job
 		batchSize,           // $6
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to reclaim stale jobs: %w", err)
+		return nil, nil, fmt.Errorf("failed to reclaim stale jobs: %w", err)
 	}
 
-	// Phase 2: pending jobs — always fills remaining capacity up to batchSize.
-	// pendingLimit is computed in memory from the stale result: when stale returns nothing,
-	// pending gets the full batchSize; when stale is at quota, pending gets batchSize - staleQuota.
-	// Uses idx_consume (owner_id, available_at, id) WHERE status='pending'.
-	pendingLimit := batchSize - len(jobs)
+	return jobs, failedToDeserialize, nil
+}
+
+// consumePending retrieves jobs whose available_at has passed.
+// Uses idx_consume (owner_id, available_at, id) WHERE status='pending'.
+func (q *PostgresJobQueue[T]) consumePending(
+	ctx context.Context, now time.Time, limit int,
+) ([]Job[T], map[string]error, error) {
 	pendingQuery := fmt.Sprintf(`
 		UPDATE %[1]s
 		SET status = $1,
@@ -201,48 +258,47 @@ func (q *PostgresJobQueue[T]) Consume(ctx context.Context, batchSize int) ([]Job
 		RETURNING id, job_id, task_data, attempt_count, retry_deadline, created_at, started_at, chain_selector, message_id
 	`, q.tableName)
 
-	pendingJobs, pendingFailures, err := q.runConsumeQuery(ctx, pendingQuery,
+	jobs, failedToDeserialize, err := q.runConsumeQuery(ctx, pendingQuery,
 		JobStatusProcessing, // $1
 		now,                 // $2 started_at
 		q.ownerID,           // $3
 		JobStatusPending,    // $4
 		now,                 // $5 available_at <=
-		pendingLimit,        // $6
+		limit,               // $6
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to consume pending jobs: %w", err)
-	}
-	jobs = append(jobs, pendingJobs...)
-	maps.Copy(failedToDeserialize, pendingFailures)
-
-	// Mark jobs that failed to deserialize as permanently failed
-	// to prevent them from being stuck in 'processing' state forever.
-	if len(failedToDeserialize) > 0 {
-		failedJobIDs := make([]string, 0, len(failedToDeserialize))
-		for jobID := range failedToDeserialize {
-			failedJobIDs = append(failedJobIDs, jobID)
-		}
-
-		q.logger.Errorw("Jobs failed to deserialize, marking as failed",
-			"count", len(failedJobIDs),
-			"queue", q.config.Name,
-		)
-
-		if err := q.Fail(ctx, failedToDeserialize, failedJobIDs...); err != nil {
-			q.logger.Errorw("Failed to mark deserialization-failed jobs as failed",
-				"error", err,
-				"count", len(failedJobIDs),
-			)
-		}
+		return nil, nil, fmt.Errorf("failed to consume pending jobs: %w", err)
 	}
 
-	q.logger.Debugw("Consumed jobs from queue",
+	return jobs, failedToDeserialize, nil
+}
+
+// archiveDeserializationFailures marks jobs that could not be deserialized as permanently
+// failed, so they do not stay in 'processing' forever.
+//
+// This path deliberately does not signal. Fail moves rows to the archive and can never
+// make a row pending, so a signal here would only wake the consumer to find nothing.
+func (q *PostgresJobQueue[T]) archiveDeserializationFailures(ctx context.Context, failed map[string]error) {
+	if len(failed) == 0 {
+		return
+	}
+
+	failedJobIDs := make([]string, 0, len(failed))
+	for jobID := range failed {
+		failedJobIDs = append(failedJobIDs, jobID)
+	}
+
+	q.logger.Errorw("Jobs failed to deserialize, marking as failed",
+		"count", len(failedJobIDs),
 		"queue", q.config.Name,
-		"count", len(jobs),
-		"requested", batchSize,
 	)
 
-	return jobs, nil
+	if err := q.Fail(ctx, failed, failedJobIDs...); err != nil {
+		q.logger.Errorw("Failed to mark deserialization-failed jobs as failed",
+			"error", err,
+			"count", len(failedJobIDs),
+		)
+	}
 }
 
 // runConsumeQuery executes a consume UPDATE query and scans the RETURNING rows into
@@ -470,6 +526,15 @@ func (q *PostgresJobQueue[T]) Retry(ctx context.Context, delay time.Duration, er
 	})
 	if err != nil {
 		return err
+	}
+
+	// Retried jobs go back to 'pending' with available_at = now + delay, so they are work
+	// this process has made available and the consumer must be told. The wake is scheduled
+	// for the delay rather than sent now: sending now would wake the consumer before the
+	// rows are due, and leaving it to the fallback poll would stretch a short retry delay
+	// out to the fallback interval.
+	if len(retried) > 0 {
+		q.signalWork(delay)
 	}
 
 	q.logger.Debugw("Retried jobs",

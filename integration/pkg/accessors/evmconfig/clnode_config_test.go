@@ -1,4 +1,4 @@
-package evm
+package evmconfig
 
 import (
 	"math/big"
@@ -200,6 +200,50 @@ IsLoadBalancedRPC = true
 		assert.Len(t, got.Config.Chains[sepoliaSelector].Nodes, 1)
 	})
 
+	t.Run("warns about set chain-level settings with no standalone equivalent", func(t *testing.T) {
+		t.Parallel()
+		got, err := convertChainlinkNodeConfig([]byte(`
+[[EVM]]
+ChainID = '` + sepoliaChainID + `'
+[EVM.GasEstimator]
+Mode = 'BlockHistory'
+[EVM.HeadTracker]
+HistoryDepth = 100
+[[EVM.Nodes]]
+Name = 'primary'
+HTTPURL = 'https://sepolia.example.com'
+`))
+		require.NoError(t, err)
+		require.Len(t, got.Warnings, 1, "one warning per chain, listing every dropped setting")
+		assert.Equal(t, "chain "+sepoliaChainID+": dropped set chain-level settings with no standalone equivalent: "+
+			"GasEstimator.Mode, HeadTracker.HistoryDepth", got.Warnings[0])
+	})
+
+	t.Run("carried-over or unset chain-level settings produce no dropped-settings warning", func(t *testing.T) {
+		t.Parallel()
+		onlyBlockTime, err := convertChainlinkNodeConfig([]byte(`
+[[EVM]]
+ChainID = '` + sepoliaChainID + `'
+[EVM.Transactions.TransactionManagerV2]
+BlockTime = '7s'
+[[EVM.Nodes]]
+Name = 'primary'
+HTTPURL = 'https://sepolia.example.com'
+`))
+		require.NoError(t, err)
+		assert.Empty(t, onlyBlockTime.Warnings, "the TXM block time carries over, so nothing was dropped")
+
+		nothingExtra, err := convertChainlinkNodeConfig([]byte(`
+[[EVM]]
+ChainID = '` + sepoliaChainID + `'
+[[EVM.Nodes]]
+Name = 'primary'
+HTTPURL = 'https://sepolia.example.com'
+`))
+		require.NoError(t, err)
+		assert.Empty(t, nothingExtra.Warnings)
+	})
+
 	t.Run("carries over per-node Order as the selection priority", func(t *testing.T) {
 		t.Parallel()
 		got, err := convertChainlinkNodeConfig([]byte(`
@@ -287,6 +331,19 @@ HTTPURLExtraWrite = 'https://sepolia-write.example.com'
 	}, got.Warnings)
 	assert.Equal(t, int32(50), got.Config.Chains[arbSepSelector].Nodes[0].Order,
 		"Order is carried, not warned about")
+
+	// The grouped view carries the same warnings, so a per-chain report (`ccv migrate
+	// inspect-config --chain-selector`) narrows them without parsing the message text.
+	assert.Equal(t, map[string][]string{
+		arbSepChainID: {
+			"chain " + arbSepChainID + " node zeta: dropped HTTPURLExtraWrite, standalone CCV does not expose it",
+			"chain " + arbSepChainID + " node zeta: dropped IsLoadBalancedRPC, standalone CCV does not expose it",
+			"chain " + arbSepChainID + " node alpha: dropped, SendOnly nodes have no standalone equivalent",
+		},
+		sepoliaChainID: {
+			"chain " + sepoliaChainID + " node primary: dropped HTTPURLExtraWrite, standalone CCV does not expose it",
+		},
+	}, got.WarningsByChainID)
 }
 
 // TestConvertedConfigLoadsStrictly encodes a conversion the way the CLI does and decodes it the way

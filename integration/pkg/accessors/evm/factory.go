@@ -31,6 +31,9 @@ type runtimeBuilder func(
 type factory struct {
 	lggr logger.Logger
 
+	// rmnRemoteAddresses carries the deprecated configured RMN Remote addresses, passed to the
+	// readers only so they can warn when a configured value disagrees with the address derived
+	// from the ramp's on-chain static config. It is not required.
 	onRampAddresses    map[protocol.ChainSelector]string
 	rmnRemoteAddresses map[protocol.ChainSelector]string
 	destChainConfigs   map[protocol.ChainSelector]chainaccess.DestinationChainConfig
@@ -83,12 +86,15 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 	onRampAddress := f.onRampAddresses[chainSelector]
 	rmnRemoteAddress := f.rmnRemoteAddresses[chainSelector]
 	destCfg := f.destChainConfigs[chainSelector]
-	hasSourceReaderConfig := isValidAddress(onRampAddress) && isValidAddress(rmnRemoteAddress)
+	hasSourceReaderConfig := isValidAddress(onRampAddress)
+	// A configured rmn_address without an off-ramp address signals destination intent too: it
+	// fails the gate below rather than being silently ignored, since rmn_address on its own
+	// cannot construct destination services.
 	hasAnyDestinationConfig := destCfg.OffRampAddress != "" || destCfg.RmnAddress != ""
-	hasDestinationConfig := isValidAddress(destCfg.OffRampAddress) && isValidAddress(destCfg.RmnAddress)
+	hasDestinationConfig := isValidAddress(destCfg.OffRampAddress)
 	if hasAnyDestinationConfig && !hasDestinationConfig {
 		return nil, fmt.Errorf(
-			"cannot get accessor for chain %d: destination services require valid non-zero off-ramp and RMN remote addresses",
+			"cannot get accessor for chain %d: destination services require a valid non-zero off-ramp address",
 			chainSelector,
 		)
 	}
@@ -117,9 +123,9 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 		return nil, errors.Join(fmt.Errorf("failed to get EVM chain client for chain %d: client is nil", chainSelector), closeErr)
 	}
 
-	// SourceReader is optional: if on-ramp or RMN-remote addresses are absent
-	// (for example, executor-only config), the runtime can still provide the
-	// destination reader and transmitter.
+	// SourceReader is optional: if the on-ramp address is absent (for example,
+	// executor-only config), the runtime can still provide the destination
+	// reader and transmitter.
 	var evmSourceReader chainaccess.SourceReader
 	if hasSourceReaderConfig {
 		headTracker, err := runtime.HeadTracker()
@@ -132,6 +138,7 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 			return nil, errors.Join(fmt.Errorf("failed to get EVM head tracker for chain %d: tracker is nil", chainSelector), closeErr)
 		}
 		sr, err := NewEVMSourceReader(
+			ctx,
 			chainClient,
 			headTracker,
 			common.HexToAddress(onRampAddress),
@@ -139,6 +146,7 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 			onramp.OnRampCCIPMessageSent{}.Topic().Hex(),
 			chainSelector,
 			chainLggr,
+			runtime.SourceReaderHeaderFetchBatchSize(),
 			nil,
 		)
 		if err != nil {
@@ -152,7 +160,7 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 	var offRampAddr common.Address
 	if hasDestinationConfig {
 		offRampAddr = common.HexToAddress(destCfg.OffRampAddress)
-		dr, err := destinationreader.NewEvmDestinationReader(destinationreader.Params{
+		dr, err := destinationreader.NewEvmDestinationReader(ctx, destinationreader.Params{
 			Lggr:                      chainLggr,
 			ChainSelector:             chainSelector,
 			ChainClient:               chainClient,

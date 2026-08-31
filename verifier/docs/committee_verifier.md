@@ -178,7 +178,7 @@ The committee verifier is configured through the job spec TOML. Key fields from 
 | `VerifierID` | Unique identifier for this verifier instance; scopes all PostgreSQL state |
 | `CommitteeVerifierAddresses` | Map of chain selector → onchain verifier proxy address |
 | `DefaultExecutorOnRampAddresses` | Map of chain selector → default executor contract address |
-| `RMNRemoteAddresses` | Map of chain selector → RMN Remote contract address |
+| `RMNRemoteAddresses` | DEPRECATED: map of chain selector → RMN Remote contract address. Derived from each OnRamp's on-chain static config; still decoded and a mismatch with the derived address is logged as a warning |
 | `AggregatorAddress` | gRPC endpoint of the Aggregator (e.g. `aggregator.internal:8080`) |
 | `InsecureAggregatorConnection` | Set `true` for plaintext gRPC (dev/test only) |
 | `AggregatorMaxSendMsgSizeBytes` | gRPC send message size limit |

@@ -200,6 +200,8 @@ func (f *FakeVerifierMetricLabeler) SetLocalChainGlobalCursed(ctx context.Contex
 func (f *FakeVerifierMetricLabeler) SetMessageDisablementRulesRefreshFailure(context.Context, int64) {
 }
 
+func (f *FakeVerifierMetricLabeler) RecordMessageDisablementRulesMismatch(context.Context) {}
+
 func (f *FakeVerifierMetricLabeler) IncrementActiveRequestsCounter(context.Context) {}
 
 func (f *FakeVerifierMetricLabeler) IncrementHTTPRequestCounter(context.Context) {}

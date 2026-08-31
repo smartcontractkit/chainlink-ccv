@@ -163,9 +163,19 @@ func (d *ObservabilityDecorator[T]) PublishWithDelay(ctx context.Context, delay 
 	return d.queue.PublishWithDelay(ctx, delay, jobs...)
 }
 
-// Consume retrieves and locks up to batchSize jobs for processing.
-func (d *ObservabilityDecorator[T]) Consume(ctx context.Context, batchSize int) ([]Job[T], error) {
-	return d.queue.Consume(ctx, batchSize)
+// Signals reports newly available work from the wrapped queue.
+func (d *ObservabilityDecorator[T]) Signals() <-chan struct{} {
+	return d.queue.Signals()
+}
+
+// ConsumePending retrieves and locks up to batchSize jobs that are available now.
+func (d *ObservabilityDecorator[T]) ConsumePending(ctx context.Context, batchSize int) ([]Job[T], error) {
+	return d.queue.ConsumePending(ctx, batchSize)
+}
+
+// ReclaimStale retrieves and locks up to batchSize stale jobs.
+func (d *ObservabilityDecorator[T]) ReclaimStale(ctx context.Context, batchSize int) ([]Job[T], error) {
+	return d.queue.ReclaimStale(ctx, batchSize)
 }
 
 // Complete marks jobs as successfully processed and removes them from active queue.

@@ -47,6 +47,7 @@ func buildVerifierSpecsForTest(t *testing.T, consolidate bool) shared.NOPJobSpec
 		nil,
 		"evm",
 		consolidate,
+		defaultApplyVerifierConfigApplyOverrides(),
 	)
 	require.NoError(t, err)
 	return specs
@@ -157,6 +158,7 @@ func buildVerifierJobSpecWithMode(t *testing.T, mode shared.NOPMode) string {
 		nil,
 		"evm",
 		true, // consolidated: one job per NOP
+		defaultApplyVerifierConfigApplyOverrides(),
 	)
 	require.NoError(t, err)
 	require.Len(t, specs["nop1"], 1)

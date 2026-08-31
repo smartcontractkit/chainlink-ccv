@@ -35,7 +35,7 @@ Jobs transition through the following states:
 │        │                                                               │
 │        v                                                               │
 │   ┌─────────┐                ┌────────────┐                            │
-│   │ pending │───Consume─────>│ processing │                            │
+│   │ pending │──ConsumePending──>│ processing │                        │
 │   └─────────┘                └──────┬─────┘                            │
 │        ^                            │                                  │
 │        │                            │                                  │
@@ -73,15 +73,25 @@ err := queue.Publish(ctx, job1, job2, job3)
 - Sets `retry_deadline` based on `RetryDuration` config
 - Jobs become immediately available for consumption
 
-### 2. Consume: Pending → Processing
+### 2. Consuming: Pending → Processing
+
+Consumption has two halves, each its own query against its own partial index, and each
+taking the full `batchSize`:
 
 ```go
-jobs, err := queue.Consume(ctx, batchSize)
+jobs, err := queue.ConsumePending(ctx, batchSize) // jobs whose available_at has passed
+jobs, err := queue.ReclaimStale(ctx, batchSize)   // locks held past LockDuration
 ```
 
-**Execution order (two queries, always both run):**
-1. **Stale reclamation** — jobs in `processing` state where `started_at + LockDuration <= NOW()`, up to `batchSize`. Runs unconditionally so crashed-worker jobs are always reclaimed even under persistent pending backlog.
-2. **Pending** — jobs in `pending` state where `available_at <= NOW()`, up to `batchSize - len(staleJobs)`. Fills the remaining capacity computed in memory from the stale result, so a full batch is returned whenever there are no stale jobs.
+They are separate because they are driven differently. Pending work is announced by a
+signal, so a consumer can wait for it. Stale work is produced only by the passage of time,
+so nothing can announce it and a consumer must sweep for it on a timer. See
+[Waking a consumer](#waking-a-consumer).
+
+- **`ConsumePending`** — jobs in `pending` state where `available_at <= NOW()`, ordered by
+  `available_at`, using `idx_consume`.
+- **`ReclaimStale`** — jobs in `processing` state where
+  `started_at + LockDuration <= NOW()`, ordered by `started_at`, using `idx_stale`.
 
 **Effects (both paths):**
 - Updates status to `processing`
@@ -146,18 +156,53 @@ This design ensures:
 
 ## Stale Lock Recovery
 
-If a worker crashes while processing a job, the job remains in `processing` state. The queue always reclaims these "stale" jobs on the next `Consume` call regardless of how many pending jobs are waiting:
+If a worker crashes while processing a job, the job remains in `processing` state.
+`ReclaimStale` recovers it:
 
 ```
-Worker A: Consume job → started_at = 10:00 AM → [CRASH]
-Worker B: Consume (at 10:15 AM) → stale query runs first, detects started_at + LockDuration <= NOW()
-Worker B: Reclaims job → attempt_count++, then fills remaining batch capacity with pending jobs
+Worker A: ConsumePending → started_at = 10:00 AM → [CRASH]
+Worker B: ReclaimStale (at 10:15 AM) → detects started_at + LockDuration <= NOW()
+Worker B: Reclaims job → attempt_count++
 ```
 
-The stale query always executes first with the full `batchSize` limit. The pending query then uses the remaining capacity (`batchSize - staleCount`). This ordering guarantees stale jobs are never crowded out by a persistently backlogged pending queue.
+Because it runs on its own timer with its own `batchSize`, a stale sweep can never be
+crowded out by a persistently backlogged pending queue.
 
 **Configuration:**
 - `LockDuration`: How long a job can stay in `processing` before being reclaimed (default: 1 minute)
+
+A consumer that schedules the two halves separately sweeps for stale locks on its own
+timer, because stale work is produced by the passage of time and no signal can announce
+it. Worst-case reclaim is then `LockDuration` plus the sweep interval.
+
+## Waking a consumer
+
+The queue signals in process when it makes work available, so a consumer does not have to
+poll for it. `Signals`, `ConsumePending` and `ReclaimStale` are part of `JobQueue[T]`, so
+every implementation provides them.
+
+**The signal is a hint, never a record.** Every row stays reachable by `ConsumePending`, so
+a signal that is lost costs latency and never costs a job. Three rules follow from that:
+
+1. **A consumer must keep a fallback poll.** Three producers create work without any
+   in-process signal: a restart where `ON CONFLICT DO NOTHING` drops the re-published
+   rows, the out-of-process `ccv job-queue reschedule` CLI, and any other process sharing
+   the same `owner_id`.
+2. **Signals coalesce.** The channel holds at most one token, so a burst of any size
+   arrives as one wakeup. A consumer must therefore look again whenever a batch came back
+   full, or it will process one batch and leave the rest of the burst for the fallback.
+3. **Signals are sent after the transaction commits.** A signal sent from inside the
+   transaction would wake a consumer that reads pre-commit state on another connection,
+   finds nothing, and is never woken for those rows again.
+
+`Publish` signals immediately. `PublishWithDelay` and `Retry` schedule the wake for when
+the rows actually become available, so a short retry delay is not stretched out to the
+fallback interval. `Complete`, `Fail` and `Cleanup` never signal, because none of them can
+make a row pending.
+
+Stale reclamation is driven by a timer rather than a signal, because stale work is
+produced by the passage of time. Worst-case reclaim is `LockDuration` plus the sweep
+interval.
 
 ## Configuration
 
@@ -190,8 +235,8 @@ queue, err := jobqueue.NewPostgresJobQueue[MyJob](
 // 2. Publish jobs
 err = queue.Publish(ctx, job1, job2, job3)
 
-// 3. Worker: Consume and process
-jobs, err := queue.Consume(ctx, 10) // batch of up to 10 jobs
+// 3. Worker: consume and process
+jobs, err := queue.ConsumePending(ctx, 10) // batch of up to 10 jobs
 for _, job := range jobs {
     err := processJob(job)
     if err == nil {

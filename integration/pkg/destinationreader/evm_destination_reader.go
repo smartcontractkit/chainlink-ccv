@@ -36,7 +36,7 @@ type EvmDestinationReader struct {
 	services.StateMachine
 	cancelFunc             context.CancelFunc
 	offRampCaller          offramp.OffRampCaller
-	rmnRemoteCaller        rmn_remote.RMNRemoteCaller
+	rmnRemoteCaller        rmn_remote.RMNRemoteCaller // Bound at the address derived from the OffRamp static config.
 	lggr                   logger.Logger
 	client                 bind.ContractCaller
 	chainSelector          protocol.ChainSelector
@@ -62,29 +62,42 @@ func (dr *EvmDestinationReader) HealthReport() map[string]error {
 }
 
 type Params struct {
-	Lggr                      logger.Logger
-	ChainSelector             protocol.ChainSelector
-	ChainClient               client.Client
-	OfframpAddress            string
+	Lggr           logger.Logger
+	ChainSelector  protocol.ChainSelector
+	ChainClient    client.Client
+	OfframpAddress string
+	// RmnRemoteAddress is DEPRECATED: the RMN Remote address is derived from the OffRamp's
+	// on-chain static config, which is authoritative. It is still accepted so callers and
+	// configs from before the derivation cutover keep working; when set and it disagrees with
+	// the derived address, a warning is logged and the derived address is used.
 	RmnRemoteAddress          string
 	ExecutionVisabilityWindow time.Duration
 	Monitoring                monitoring.Monitoring
 }
 
-func NewEvmDestinationReader(params Params) (*EvmDestinationReader, error) {
+func NewEvmDestinationReader(ctx context.Context, params Params) (*EvmDestinationReader, error) {
+	// Construction now performs an on-chain read, so misconfiguration has to fail here with a
+	// config-shaped error rather than downstream as an opaque RPC failure. common.HexToAddress is
+	// permissive — it left-pads short input and maps anything invalid to the zero address — so the
+	// off-ramp address is checked before it is parsed.
 	var errs []error
-	appendIfNil := func(field any, fieldName string) {
-		if field == nil {
-			errs = append(errs, fmt.Errorf("%s is not set", fieldName))
-		}
+	if params.ChainSelector == 0 {
+		errs = append(errs, errors.New("chainSelector is not set"))
 	}
-
-	appendIfNil(params.ChainSelector, "chainSelector")
-	appendIfNil(params.OfframpAddress, "offrampAddress")
-	appendIfNil(params.RmnRemoteAddress, "rmnRemoteAddress")
-	appendIfNil(params.ChainClient, "chainClient")
-	appendIfNil(params.Lggr, "logger")
-	appendIfNil(params.ExecutionVisabilityWindow, "executionVisabilityWindow")
+	switch {
+	case params.OfframpAddress == "":
+		errs = append(errs, errors.New("offrampAddress is not set"))
+	case !common.IsHexAddress(params.OfframpAddress):
+		errs = append(errs, fmt.Errorf("offrampAddress %q is not a valid EVM address", params.OfframpAddress))
+	case common.HexToAddress(params.OfframpAddress) == (common.Address{}):
+		errs = append(errs, errors.New("offrampAddress is the zero address"))
+	}
+	if params.ChainClient == nil {
+		errs = append(errs, errors.New("chainClient is not set"))
+	}
+	if params.Lggr == nil {
+		errs = append(errs, errors.New("logger is not set"))
+	}
 
 	if len(errs) > 0 {
 		return nil, errors.Join(errs...)
@@ -96,7 +109,23 @@ func NewEvmDestinationReader(params Params) (*EvmDestinationReader, error) {
 		return nil, fmt.Errorf("failed to create offramp caller for chain %d: %w", params.ChainSelector, err)
 	}
 
-	rmnRemoteAddr := common.HexToAddress(params.RmnRemoteAddress)
+	// One-shot read of an immutable value, so a short timeout suffices.
+	deriveCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	rmnRemoteAddr, err := deriveRMNRemoteFromOffRamp(deriveCtx, offRamp)
+	if err != nil {
+		return nil, err
+	}
+	params.Lggr.Infow("Derived RMN Remote address from OffRamp static config",
+		"chain", params.ChainSelector,
+		"rmnRemoteAddress", rmnRemoteAddr.Hex())
+	if params.RmnRemoteAddress != "" && common.HexToAddress(params.RmnRemoteAddress) != rmnRemoteAddr {
+		params.Lggr.Warnw("Configured rmn_address does not match the OffRamp static config; using the derived address",
+			"chain", params.ChainSelector,
+			"configuredRmnRemoteAddress", params.RmnRemoteAddress,
+			"rmnRemoteAddress", rmnRemoteAddr.Hex())
+	}
+
 	rmnRemote, err := rmn_remote.NewRMNRemoteCaller(rmnRemoteAddr, params.ChainClient)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create rmn remote caller for chain %d: %w", params.ChainSelector, err)
@@ -122,6 +151,26 @@ func NewEvmDestinationReader(params Params) (*EvmDestinationReader, error) {
 		executionAttemptPoller: executionAttemptPoller,
 		monitoring:             params.Monitoring,
 	}, nil
+}
+
+// offRampStaticConfigGetter is the slice of the OffRamp binding the destination reader needs,
+// defined as an interface so the RMN derivation is unit-testable.
+type offRampStaticConfigGetter interface {
+	GetStaticConfig(opts *bind.CallOpts) (offramp.OffRampStaticConfig, error)
+}
+
+// deriveRMNRemoteFromOffRamp reads the chain's RMN Remote address from the OffRamp's
+// constructor-set static config. The on-chain value is authoritative: it is the RMN the OffRamp
+// itself enforces, so it cannot drift from a stale or mistyped configured address.
+func deriveRMNRemoteFromOffRamp(ctx context.Context, offRamp offRampStaticConfigGetter) (common.Address, error) {
+	cfg, err := offRamp.GetStaticConfig(&bind.CallOpts{Context: ctx})
+	if err != nil {
+		return common.Address{}, fmt.Errorf("failed to read OffRamp static config: %w", err)
+	}
+	if cfg.RmnRemote == (common.Address{}) {
+		return common.Address{}, errors.New("OffRamp static config has a zero RMN Remote address")
+	}
+	return cfg.RmnRemote, nil
 }
 
 func (dr *EvmDestinationReader) Start(ctx context.Context) error {
@@ -219,7 +268,6 @@ func (dr *EvmDestinationReader) GetMessageSuccess(ctx context.Context, message p
 	execState, err := dr.offRampCaller.GetExecutionState(
 		&bind.CallOpts{
 			Context: ctx,
-			// TODO: Add FTF to this check
 		},
 		message.MustMessageID(),
 	)

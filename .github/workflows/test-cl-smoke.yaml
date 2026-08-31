@@ -192,6 +192,10 @@ jobs:
           # - name: TestE2EReorg
           #   profile: standard.src-auto-mine.clnode.ci.profile
           #   timeout: 5m
+          - name: Test_OnrampUpgrade
+            pattern: Test_OnrampUpgrade
+            profile: standard.clnode.ci.profile
+            timeout: 5m
     steps:
       - name: Enable S3 Cache for Self-Hosted Runners
         uses: runs-on/action@cd2b598b0515d39d78c38a02d529db87d2196d1e # v2.0.3

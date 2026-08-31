@@ -3,128 +3,25 @@ package evm
 import (
 	"context"
 	"fmt"
-	"os"
-	"strconv"
-
-	"github.com/BurntSushi/toml"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
+// Importing this package registers the EVM accessor factory with chainaccess, so a process that
+// does not run EVM chains must not import it: chainaccess.NewRegistry constructs every registered
+// factory eagerly and CreateEVMAccessorFactory fails when no EVM config is mounted. Tooling that
+// only needs to read or convert EVM config imports
+// github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig instead, which
+// registers nothing.
 func init() {
 	chainaccess.Register(chainsel.FamilyEVM, CreateEVMAccessorFactory)
 }
 
 var _ chainaccess.AccessorFactoryConstructor = CreateEVMAccessorFactory
-
-// loadConfig reads the mounted EVM config, accepting either the standalone format or a Chainlink
-// node's own TOML.
-//
-// Accepting the node's file directly is what keeps the CL-to-standalone migration free of a
-// conversion step: an operator mounts the config their node already runs with and starts the
-// process. Settings standalone CCV has no equivalent for are dropped, and the conversion's warnings
-// say which, so nothing goes missing silently.
-//
-// The two formats are told apart by their top-level table: `chains` is the standalone format,
-// `EVM` is a node config. Anything with neither is rejected by the strict decode below.
-//
-// The second return is the conversion, or nil when the file was already in the standalone format.
-// Whether a conversion happened cannot be inferred from the warnings, since a node config that
-// converts cleanly produces none.
-func loadConfig(path string) (*Config, *Conversion, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // G304: operator-provided config path
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to read config file %s: %w", path, err)
-	}
-
-	isNodeConfig, err := isChainlinkNodeConfig(data)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to inspect config file %s: %w", path, err)
-	}
-	if isNodeConfig {
-		conversion, cerr := convertChainlinkNodeConfig(data)
-		if cerr != nil {
-			return nil, nil, fmt.Errorf("failed to convert Chainlink node config %s: %w", path, cerr)
-		}
-		return &conversion.Config, &conversion, nil
-	}
-
-	var cfg Config
-	md, err := toml.Decode(string(data), &cfg)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to unmarshal config file %s: %w", path, err)
-	}
-	if len(md.Undecoded()) > 0 {
-		return nil, nil, fmt.Errorf("unknown fields in config: %v", md.Undecoded())
-	}
-
-	return &cfg, nil, nil
-}
-
-// isChainlinkNodeConfig reports whether the file carries a Chainlink node's EVM sections rather than
-// the standalone `chains` table.
-//
-// The test is presence of the top-level EVM key, not whether it holds any chains. A file with an
-// empty or malformed EVM key is a node config the operator got wrong, and routing it to the
-// converter produces an error that says so; treating it as a standalone config instead would report
-// the node's own section as an unknown field. Decoding into Primitive defers the shape check, so the
-// table and array forms both classify rather than failing here.
-//
-// A file with both top-level keys is neither — a concatenation accident the converter would
-// otherwise "fix" by silently ignoring the standalone section — so it is rejected outright.
-func isChainlinkNodeConfig(data []byte) (bool, error) {
-	var probe map[string]toml.Primitive
-	if _, err := toml.Decode(string(data), &probe); err != nil {
-		return false, err
-	}
-	_, hasEVM := probe["EVM"]
-	_, hasChains := probe["chains"]
-	if hasEVM && hasChains {
-		return false, fmt.Errorf(
-			"config has both a top-level 'EVM' table and a top-level 'chains' table: it is neither " +
-				"a Chainlink node config nor a standalone one — mount one, not a concatenation of both")
-	}
-	return hasEVM, nil
-}
-
-func resolveConfigPath() string {
-	if configPath := os.Getenv(EVMConfigPathEnv); configPath != "" {
-		return configPath
-	}
-	return DefaultEVMConfigPath
-}
-
-// toInfos reconstructs the accessor's Infos[Info] from the operator-local config, deriving each
-// chain's ID and family from its selector. Only operator-owned connection and
-// runtime settings live in the mounted file; enumeration metadata is recovered here.
-func (c Config) toInfos() (chainaccess.Infos[Info], error) {
-	infos := make(chainaccess.Infos[Info], len(c.Chains))
-	for selector, chain := range c.Chains {
-		sel, err := strconv.ParseUint(selector, 10, 64)
-		if err != nil {
-			return nil, fmt.Errorf("invalid chain selector %q: %w", selector, err)
-		}
-		chainID, err := chainsel.GetChainIDFromSelector(sel)
-		if err != nil {
-			return nil, fmt.Errorf("chain selector %s: %w", selector, err)
-		}
-		family, err := chainsel.GetSelectorFamily(sel)
-		if err != nil {
-			return nil, fmt.Errorf("chain selector %s: %w", selector, err)
-		}
-		infos[selector] = Info{
-			ChainID:       chainID,
-			Family:        family,
-			Nodes:         chain.Nodes,
-			FinalityDepth: chain.FinalityDepth,
-			TXMBlockTime:  chain.TXMBlockTime,
-		}
-	}
-	return infos, nil
-}
 
 // CreateEVMAccessorFactory is registered with chainaccess.Register to construct EVM accessors.
 //
@@ -144,14 +41,14 @@ func (c Config) toInfos() (chainaccess.Infos[Info], error) {
 //
 // Chain ID, family, and chain type are derived from the selector. Shared
 // application settings from chainaccess.GenericConfig (for example on-ramp or
-// RMN remote addresses) are supplied separately through genericConfig and used
-// when constructing the accessor factory.
+// deprecated RMN remote addresses) are supplied separately through genericConfig
+// and used when constructing the accessor factory.
 //
 // It will take all config values it needs from all available config. Note that it would be
 // very unusual for a config to have more than one of Committee/Token/Executor configs.
 func CreateEVMAccessorFactory(lggr logger.Logger, genericConfig chainaccess.GenericConfig) (chainaccess.AccessorFactory, error) {
-	configPath := resolveConfigPath()
-	evmConfig, conversion, err := loadConfig(configPath)
+	configPath := evmconfig.ResolveConfigPath()
+	evmCfg, conversion, err := evmconfig.LoadConfigFile(configPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load EVM config: %w", err)
 	}
@@ -162,7 +59,7 @@ func CreateEVMAccessorFactory(lggr logger.Logger, genericConfig chainaccess.Gene
 			lggr.Warnw("converted Chainlink node EVM config", "detail", warning)
 		}
 	}
-	infos, err := evmConfig.toInfos()
+	infos, err := evmCfg.ToInfos()
 	if err != nil {
 		return nil, fmt.Errorf("failed to build EVM chain infos: %w", err)
 	}
@@ -182,6 +79,8 @@ func CreateAccessorFactory(
 	infos chainaccess.Infos[Info],
 ) (chainaccess.AccessorFactory, error) {
 	onRampInfos := chainaccess.Infos[string](generic.OnRampAddresses).GetAllInfos()
+	// Deprecated configured RMN remotes are carried through only so the readers can warn when
+	// one disagrees with the address derived from the ramp's on-chain static config.
 	rmnRemoteInfos := chainaccess.Infos[string](generic.RMNRemoteAddresses).GetAllInfos()
 	destChainConfigs := chainaccess.Infos[chainaccess.DestinationChainConfig](generic.ChainConfiguration).GetAllInfos()
 

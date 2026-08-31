@@ -68,8 +68,51 @@ A `.profile` file encodes the full environment configuration — mode, config fi
 | `standard.one-exec-per-chain.profile` | Standalone + one executor per chain |
 | `standard.ha.clnode.profile` | High-availability + Chainlink nodes |
 | `phased.clnode.profile` | Phased runtime + Chainlink nodes |
+| `standard.rpc-failover.profile` | Standalone + RPC failover proxies |
+| `phased.rpc-failover.profile` | Phased runtime + RPC failover proxies |
 
 > **CI profiles** (`*.ci.profile`) reference CI-specific image tags and paths. Do not use them locally.
+
+### Local networks
+
+The `[local_networks]` section layers chain-family-owned extensions on top of the
+blockchains devenv launches. Today the only extension is RPC failover: a primary
+and a secondary reverse proxy in front of each chain's RPC endpoint. Standalone
+services see only the proxies and the secondary starts stopped, so a chaos test
+can stop the endpoint the services are using and watch the multi-node client move
+to the other one. Test-side clients keep the direct endpoint at index 0 of the
+blockchain output, which no proxy outage can take away.
+
+Enable it per family:
+
+```toml
+[local_networks]
+version = 1
+
+[local_networks.evm.input.rpc_failover]
+enabled = true
+```
+
+The orchestration in `localnetwork/` is family-agnostic — it derives the proxy
+listeners from the chain's own node URLs, so a family that serves RPC and
+WebSocket on separate ports (Solana: 8899/8900) gets one listener per port. A
+family opts in by registering the shared configurator, in this repo or in a
+product repo that imports it:
+
+```go
+chainreg.Register(chainsel.FamilySolana, chainreg.Registration{
+    LocalNetworkConfigurator: localnetwork.Configurator(chainsel.FamilySolana),
+})
+```
+
+Tests drive the proxies through `tests/e2e/tcapi/chaos`, which resolves the
+container names from the environment output by chain selector:
+
+```go
+proxies, err := chaos.RPCFailoverChainFor(cfg, selector)
+err = chaos.SetRPCProxyRunning(ctx, proxies.PrimaryContainerName, false)
+t.Cleanup(func() { chaos.RestoreRPCProxies(ctx, proxies) })
+```
 
 ### `ccv test` flags
 

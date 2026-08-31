@@ -137,6 +137,45 @@ func TestPostgresChainStatusManager(t *testing.T) {
 		assert.True(t, result[1].Disabled)
 	})
 
+	t.Run("duplicate chain in one batch keeps the last value", func(t *testing.T) {
+		manager := NewPostgresChainStatusManager(store, "test-dup-batch")
+		_, _ = db.Exec("DELETE FROM ccv_chain_statuses WHERE verifier_id = 'test-dup-batch'")
+
+		// One statement now upserts the whole batch. Postgres rejects an ON CONFLICT
+		// DO UPDATE that touches one row two times, so duplicates must be removed.
+		err := manager.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{
+			{ChainSelector: 1, FinalizedBlockHeight: big.NewInt(100), Disabled: false},
+			{ChainSelector: 2, FinalizedBlockHeight: big.NewInt(50), Disabled: false},
+			{ChainSelector: 1, FinalizedBlockHeight: big.NewInt(300), Disabled: true},
+		})
+		require.NoError(t, err)
+
+		result, err := manager.ReadChainStatuses(ctx, []protocol.ChainSelector{1, 2})
+		require.NoError(t, err)
+		require.Len(t, result, 2)
+
+		// The last value for chain 1 wins.
+		assert.Equal(t, 0, big.NewInt(300).Cmp(result[1].FinalizedBlockHeight))
+		assert.True(t, result[1].Disabled)
+		assert.Equal(t, 0, big.NewInt(50).Cmp(result[2].FinalizedBlockHeight))
+	})
+
+	t.Run("nil block height in a batch writes nothing", func(t *testing.T) {
+		manager := NewPostgresChainStatusManager(store, "test-nil-batch")
+		_, _ = db.Exec("DELETE FROM ccv_chain_statuses WHERE verifier_id = 'test-nil-batch'")
+
+		err := manager.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{
+			{ChainSelector: 1, FinalizedBlockHeight: big.NewInt(100), Disabled: false},
+			{ChainSelector: 2, FinalizedBlockHeight: nil, Disabled: false},
+		})
+		require.Error(t, err)
+
+		// The batch is one statement, so the valid row is not written either.
+		result, err := manager.ReadChainStatuses(ctx, []protocol.ChainSelector{1, 2})
+		require.NoError(t, err)
+		assert.Empty(t, result)
+	})
+
 	t.Run("read non-existent chain selectors returns empty map", func(t *testing.T) {
 		manager := NewPostgresChainStatusManager(store, "test-nonexistent")
 		_, _ = db.Exec("DELETE FROM ccv_chain_statuses WHERE verifier_id = 'test-nonexistent'")

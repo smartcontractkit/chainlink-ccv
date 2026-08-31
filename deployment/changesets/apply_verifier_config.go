@@ -12,10 +12,10 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 
+	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
 
-	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/operations/fetch_signing_keys"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/sequences"
@@ -66,7 +66,11 @@ type ApplyVerifierConfigInput struct {
 // The input is imperative — callers pass the committee description and the
 // participating NOPs directly, with no *EnvironmentTopology.
 func ApplyVerifierConfig() deployment.ChangeSetV2[ApplyVerifierConfigInput] {
-	validate := func(e deployment.Environment, cfg ApplyVerifierConfigInput) error {
+	return deployment.CreateChangeSet(createApplyVerifierConfigApplyFunc(), createApplyVerifierConfigValidateFunc())
+}
+
+func createApplyVerifierConfigValidateFunc() func(e deployment.Environment, cfg ApplyVerifierConfigInput) error {
+	return func(e deployment.Environment, cfg ApplyVerifierConfigInput) error {
 		if cfg.CommitteeQualifier == "" {
 			return fmt.Errorf("committee qualifier is required")
 		}
@@ -120,8 +124,82 @@ func ApplyVerifierConfig() deployment.ChangeSetV2[ApplyVerifierConfigInput] {
 
 		return nil
 	}
+}
 
-	apply := func(e deployment.Environment, cfg ApplyVerifierConfigInput) (deployment.ChangesetOutput, error) {
+type applyVerifierConfigApplyOverrides struct {
+	contractAddressOverrider func(contractAddresses map[string]*adapters.VerifierContractAddresses) map[string]*adapters.VerifierContractAddresses
+	jobSuffix                string
+	jobScopeFactory          func(committeeQualifier string) shared.JobScope
+}
+
+func (a *applyVerifierConfigApplyOverrides) applySuffix(jobID shared.JobID) shared.JobID {
+	if a.jobSuffix == "" {
+		return jobID
+	}
+
+	return shared.JobID(fmt.Sprintf("%s-%s", jobID, a.jobSuffix))
+}
+
+func defaultApplyVerifierConfigApplyOverrides() *applyVerifierConfigApplyOverrides {
+	return &applyVerifierConfigApplyOverrides{
+		contractAddressOverrider: func(contractAddresses map[string]*adapters.VerifierContractAddresses) map[string]*adapters.VerifierContractAddresses {
+			return contractAddresses
+		},
+		jobSuffix: "",
+		jobScopeFactory: func(committeeQualifier string) shared.JobScope {
+			return shared.VerifierJobScope{
+				CommitteeQualifier: committeeQualifier,
+			}
+		},
+	}
+}
+
+type ApplyVerifierConfigApplyOption func(*applyVerifierConfigApplyOverrides)
+
+func WithDifferentOnramp(onramps map[string]string) ApplyVerifierConfigApplyOption {
+	return func(o *applyVerifierConfigApplyOverrides) {
+		o.contractAddressOverrider = func(contractAddresses map[string]*adapters.VerifierContractAddresses) map[string]*adapters.VerifierContractAddresses {
+			overridden := make(map[string]*adapters.VerifierContractAddresses, len(contractAddresses))
+
+			for chainSelector, addrs := range contractAddresses {
+				if addrs == nil {
+					overridden[chainSelector] = nil
+					continue
+				}
+
+				addrsCopy := *addrs
+
+				if onramp, ok := onramps[chainSelector]; ok {
+					addrsCopy.OnRampAddress = onramp
+				}
+
+				overridden[chainSelector] = &addrsCopy
+			}
+
+			return overridden
+		}
+	}
+}
+
+func WithJobSuffix(suffix string) ApplyVerifierConfigApplyOption {
+	return func(o *applyVerifierConfigApplyOverrides) {
+		o.jobSuffix = suffix
+		o.jobScopeFactory = func(committeeQualifier string) shared.JobScope {
+			return shared.VerifierJobSuffixScope{
+				CommitteeQualifier: committeeQualifier,
+				Suffix:             suffix,
+			}
+		}
+	}
+}
+
+func createApplyVerifierConfigApplyFunc(opts ...ApplyVerifierConfigApplyOption) func(e deployment.Environment, cfg ApplyVerifierConfigInput) (deployment.ChangesetOutput, error) {
+	return func(e deployment.Environment, cfg ApplyVerifierConfigInput) (deployment.ChangesetOutput, error) {
+		overrides := defaultApplyVerifierConfigApplyOverrides()
+		for _, opt := range opts {
+			opt(overrides)
+		}
+
 		selectors, err := committeeChainSelectorsFromInput(cfg.Committee)
 		if err != nil {
 			return deployment.ChangesetOutput{}, err
@@ -131,7 +209,7 @@ func ApplyVerifierConfig() deployment.ChangeSetV2[ApplyVerifierConfigInput] {
 			return runOrphanJobCleanup(
 				e,
 				cfg.RevokeOrphanedJobs,
-				shared.VerifierJobScope{CommitteeQualifier: cfg.CommitteeQualifier},
+				overrides.jobScopeFactory(cfg.CommitteeQualifier),
 				map[string]string{"job_type": "verifier", "committee": cfg.CommitteeQualifier},
 				buildNOPModes(cfg.NOPs),
 				cfg.TargetNOPs,
@@ -162,19 +240,25 @@ func ApplyVerifierConfig() deployment.ChangeSetV2[ApplyVerifierConfigInput] {
 			return deployment.ChangesetOutput{}, err
 		}
 
-		contractAddresses, executorOnRampAddrs, err := buildVerifierContractConfigs(e, selectors, cfg.CommitteeQualifier, cfg.DefaultExecutorQualifier)
+		contractAddresses, executorOnRampAddrs, err := buildVerifierContractConfigs(
+			e,
+			selectors,
+			cfg.CommitteeQualifier,
+			cfg.DefaultExecutorQualifier,
+		)
 		if err != nil {
 			return deployment.ChangesetOutput{}, err
 		}
 
+		contractAddresses = overrides.contractAddressOverrider(contractAddresses)
+
 		nopInputs := mergeSigningKeysIntoNOPInputs(cfg.NOPs, signingKeysByNOP, signerFamily)
-		// Default Committee.Qualifier from CommitteeQualifier so VerifierJobScope
-		// and downstream metadata are always non-empty. Validation already enforces
-		// equality when both are set.
+
 		committeeForBuild := cfg.Committee
 		if committeeForBuild.Qualifier == "" {
 			committeeForBuild.Qualifier = cfg.CommitteeQualifier
 		}
+
 		committeeInternal := toVerifierCommitteeInput(committeeForBuild, cfg.NOPs)
 
 		jobSpecs, scope, err := buildVerifierJobSpecs(
@@ -187,6 +271,7 @@ func ApplyVerifierConfig() deployment.ChangeSetV2[ApplyVerifierConfigInput] {
 			cfg.DisableFinalityCheckers,
 			signerFamily,
 			cfg.ConsolidateAggregators,
+			overrides,
 		)
 		if err != nil {
 			return deployment.ChangesetOutput{}, err
@@ -240,8 +325,6 @@ func ApplyVerifierConfig() deployment.ChangeSetV2[ApplyVerifierConfigInput] {
 			DataStore: manageReport.Output.DataStore,
 		}, nil
 	}
-
-	return deployment.CreateChangeSet(apply, validate)
 }
 
 // getSignerFamilyFromRegistry returns the signing key family implied by the selected
@@ -350,10 +433,13 @@ func buildVerifierJobSpecs(
 	disableFinalityCheckers []string,
 	signerFamily string,
 	consolidateAggregators bool,
-) (shared.NOPJobSpecs, shared.VerifierJobScope, error) {
-	scope := shared.VerifierJobScope{
+	overrides *applyVerifierConfigApplyOverrides,
+) (shared.NOPJobSpecs, shared.JobScope, error) {
+	verifierScope := shared.VerifierJobScope{
 		CommitteeQualifier: committee.Qualifier,
 	}
+
+	affectedScope := overrides.jobScopeFactory(committee.Qualifier)
 
 	nopByAlias := make(map[shared.NOPAlias]verifierNOPInput, len(environmentNOPs))
 	for _, nop := range environmentNOPs {
@@ -372,7 +458,11 @@ func buildVerifierJobSpecs(
 	for chainSel, addrs := range contractAddresses {
 		committeeVerifierAddrs[chainSel] = addrs.CommitteeVerifierAddress
 		onRampAddrs[chainSel] = addrs.OnRampAddress
-		rmnRemoteAddrs[chainSel] = addrs.RMNRemoteAddress
+		// Deprecated: only emitted when the adapter resolved an RMN proxy, so chains without
+		// one get no entry rather than an empty one. Nodes derive the RMN Remote on-chain.
+		if addrs.RMNRemoteAddress != "" {
+			rmnRemoteAddrs[chainSel] = addrs.RMNRemoteAddress
+		}
 	}
 
 	jobSpecs := make(shared.NOPJobSpecs)
@@ -380,7 +470,7 @@ func buildVerifierJobSpecs(
 	for _, nopAlias := range nopAliases {
 		nop, ok := nopByAlias[nopAlias]
 		if !ok {
-			return nil, scope, fmt.Errorf("NOP %q not found in input", nopAlias)
+			return nil, affectedScope, fmt.Errorf("NOP %q not found in input", nopAlias)
 		}
 
 		nopChains := getNOPChainMembership(nopAlias, committee.ChainNOPAliases)
@@ -391,7 +481,7 @@ func buildVerifierJobSpecs(
 
 		signerAddress := nop.SignerAddressByFamily[signerFamily]
 		if signerAddress == "" {
-			return nil, scope, fmt.Errorf("NOP %q missing signer address for family %s", nop.Alias, signerFamily)
+			return nil, affectedScope, fmt.Errorf("NOP %q missing signer address for family %s", nop.Alias, signerFamily)
 		}
 		// Canonicalise at the boundary, whatever the address's provenance. It reaches here either
 		// inline from the topology or fetched from JD, which stores an OCR bundle's signing address
@@ -403,7 +493,7 @@ func buildVerifierJobSpecs(
 
 		mode, err := resolveNOPMode(nop.Mode, nopAlias)
 		if err != nil {
-			return nil, scope, err
+			return nil, affectedScope, err
 		}
 
 		sortedFinalityCheckers := slices.Clone(disableFinalityCheckers)
@@ -420,7 +510,9 @@ func buildVerifierJobSpecs(
 			// Monitoring is intentionally not set here: monitoring config is operator-provided via the
 			// bootstrap config, not the JD-shipped app config. See bootstrap.Config.Monitoring.
 			CommitteeConfig: chainaccess.CommitteeConfig{
-				OnRampAddresses:    filterAddressesByChains(onRampAddrs, nopChains),
+				OnRampAddresses: filterAddressesByChains(onRampAddrs, nopChains),
+				// Deprecated: kept in the emitted spec so binaries that predate the on-chain
+				// RMN derivation keep loading it; empty when no RMN proxy was resolved.
 				RMNRemoteAddresses: filterAddressesByChains(rmnRemoteAddrs, nopChains),
 			},
 		}
@@ -432,7 +524,7 @@ func buildVerifierJobSpecs(
 			}
 
 			var jobSpec string
-			jobID := verifierJobID.ToJobID()
+			jobID := overrides.applySuffix(verifierJobID.ToJobID())
 			if mode == shared.NOPModeStandalone {
 				// standalone mode bootstrapper expects "appConfig" field
 				jobSpec = fmt.Sprintf(`schemaVersion = 1
@@ -462,13 +554,13 @@ committeeVerifierConfig = '''
 
 		if consolidateAggregators {
 			// One consolidated job per NOP writing to all aggregators via the Aggregators list.
-			verifierJobID := shared.NewConsolidatedVerifierJobID(nopAlias, scope)
+			verifierJobID := shared.NewConsolidatedVerifierJobID(nopAlias, verifierScope)
 			aggregators := make([]commit.AggregatorConnection, len(committee.Aggregators))
 			for i, agg := range committee.Aggregators {
 				// SecretName is the per-aggregator credential lookup key. We reuse the legacy
 				// per-aggregator verifier_id so operators' existing secrets (keyed by that id)
 				// keep working without re-provisioning when a NOP moves to a consolidated job.
-				secretName := shared.NewVerifierJobID(nopAlias, agg.Name, scope).GetVerifierID()
+				secretName := shared.NewVerifierJobID(nopAlias, agg.Name, verifierScope).GetVerifierID()
 				aggregators[i] = commit.AggregatorConnection{
 					Name:               agg.Name,
 					SecretName:         secretName,
@@ -480,25 +572,25 @@ committeeVerifierConfig = '''
 			verifierCfg.VerifierID = verifierJobID.GetVerifierID()
 			verifierCfg.Aggregators = aggregators
 			if err := emitJob(verifierJobID, verifierCfg, "consolidated"); err != nil {
-				return nil, scope, err
+				return nil, affectedScope, err
 			}
 			continue
 		}
 
 		// Legacy topology: one job per aggregator, each carrying a single AggregatorAddress.
 		for _, agg := range committee.Aggregators {
-			verifierJobID := shared.NewVerifierJobID(nopAlias, agg.Name, scope)
+			verifierJobID := shared.NewVerifierJobID(nopAlias, agg.Name, verifierScope)
 			verifierCfg := baseCfg
 			verifierCfg.VerifierID = verifierJobID.GetVerifierID()
 			verifierCfg.AggregatorAddress = agg.Address
 			verifierCfg.InsecureAggregatorConnection = agg.InsecureAggregatorConnection
 			if err := emitJob(verifierJobID, verifierCfg, agg.Name); err != nil {
-				return nil, scope, err
+				return nil, affectedScope, err
 			}
 		}
 	}
 
-	return jobSpecs, scope, nil
+	return jobSpecs, affectedScope, nil
 }
 
 // fetchSigningKeysForNOPInputs fetches signing keys from JD for NOPs that are missing

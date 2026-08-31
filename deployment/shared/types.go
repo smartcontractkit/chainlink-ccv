@@ -128,6 +128,22 @@ func (scope ExecutorJobScope) IsJobInScope(jobID JobID) bool {
 	return strings.HasSuffix(string(jobID), fmt.Sprintf("-%s-executor", scope.ExecutorQualifier))
 }
 
+type VerifierJobSuffixScope struct {
+	CommitteeQualifier string
+	Suffix             string
+}
+
+func (scope VerifierJobSuffixScope) IsJobInScope(jobID JobID) bool {
+	return strings.HasSuffix(
+		string(jobID),
+		fmt.Sprintf(
+			"-%s-verifier-%s",
+			scope.CommitteeQualifier,
+			scope.Suffix,
+		),
+	)
+}
+
 type VerifierJobScope struct {
 	CommitteeQualifier string
 }

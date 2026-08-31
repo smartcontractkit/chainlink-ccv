@@ -9,6 +9,7 @@ import (
 	"log"
 	"math/rand/v2"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -18,11 +19,48 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/wasp"
 )
 
-// TODO: Make these configurable via environment variables or test parameters.
-const IndexerURI = "http://localhost:8102"
+// DefaultIndexerURI is the indexer read API on the default devenv port
+// (services.DefaultIndexerHTTPPort). Used when neither GunConfig.IndexerURL nor
+// EnvVarIndexerURL is set.
+const DefaultIndexerURI = "http://localhost:8102"
 
-// TODO: Figure out what is at localhost:9111.
+// EnvVarIndexerURL overrides the indexer read API URL, for environments where the
+// indexer is not on the default host port.
+const EnvVarIndexerURL = "INDEXER_URL"
+
+// SomethingURI is the fake offchain storage API on the "fake" service
+// (ccv-fakes, services.DefaultFakePort). The gun writes messages to POST /message
+// and the indexer ingests them via GET /messages.
+// TODO: Make this configurable via environment variables or test parameters.
 const SomethingURI = "http://localhost:9111"
+
+const (
+	DefaultMaxConcurrentVerifications = 100
+	// MinConnsPerHost is the floor for the per-host connection pool.
+	MinConnsPerHost = 200
+)
+
+// GunConfig holds the tunable load parameters for IndexerLoadGun.
+type GunConfig struct {
+	// IndexerURL is the indexer read API. When empty it falls back to
+	// EnvVarIndexerURL, then DefaultIndexerURI.
+	IndexerURL                 string
+	RPS                        int64
+	Duration                   time.Duration
+	MaxConcurrentVerifications int
+}
+
+// indexerURL resolves the indexer read API URL: explicit test parameter first,
+// then environment variable, then the devenv default port.
+func (c GunConfig) indexerURL() string {
+	if c.IndexerURL != "" {
+		return c.IndexerURL
+	}
+	if fromEnv := os.Getenv(EnvVarIndexerURL); fromEnv != "" {
+		return fromEnv
+	}
+	return DefaultIndexerURI
+}
 
 type IndexerLoadGun struct {
 	sentTimes       map[protocol.Bytes32]time.Time
@@ -45,29 +83,40 @@ type Metrics struct {
 	Latency        time.Duration
 }
 
-func NewIndexerLoadGun() (*IndexerLoadGun, error) {
+func NewIndexerLoadGun(cfg GunConfig) (*IndexerLoadGun, error) {
+	// Create semaphore to limit concurrent verification requests
+	// This prevents overwhelming the API with too many concurrent requests
+	maxConcurrentVerifications := cfg.MaxConcurrentVerifications
+	if maxConcurrentVerifications <= 0 {
+		maxConcurrentVerifications = DefaultMaxConcurrentVerifications
+	}
+
+	verifySemaphore := make(chan struct{}, maxConcurrentVerifications)
+
+	// Size the connection pool off the semaphore so it stays the only limiter on
+	// in-flight verifications; otherwise a high MaxConcurrentVerifications just
+	// blocks goroutines on the pool instead. The floor keeps the default profile
+	// at the pool size this test has always used.
+	maxConnsPerHost := max(2*maxConcurrentVerifications, MinConnsPerHost)
+
 	// Create HTTP client with larger connection pool to prevent connection exhaustion
 	transport := &http.Transport{
-		MaxIdleConns:        200,
-		MaxIdleConnsPerHost: 200,
-		MaxConnsPerHost:     200,
+		MaxIdleConns:        MinConnsPerHost,
+		MaxIdleConnsPerHost: maxConnsPerHost,
+		MaxConnsPerHost:     maxConnsPerHost,
 		IdleConnTimeout:     90 * time.Second,
 		DisableKeepAlives:   false, // Keep connections alive but with larger pool
 	}
-
-	// Create semaphore to limit concurrent verification requests
-	// This prevents overwhelming the API with too many concurrent requests
-	maxConcurrentVerifications := 100
-	verifySemaphore := make(chan struct{}, maxConcurrentVerifications)
 
 	httpClient := &http.Client{
 		Timeout:   10 * time.Second,
 		Transport: transport,
 	}
 
-	indexerClient, err := client.NewIndexerClient(IndexerURI, httpClient)
+	indexerURL := cfg.indexerURL()
+	indexerClient, err := client.NewIndexerClient(indexerURL, httpClient)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create IndexerClient: %v", err)
+		return nil, fmt.Errorf("failed to create IndexerClient for %s: %v", indexerURL, err)
 	}
 
 	gun := &IndexerLoadGun{

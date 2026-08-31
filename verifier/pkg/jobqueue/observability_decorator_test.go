@@ -92,7 +92,7 @@ func TestObservabilityDecorator(t *testing.T) {
 		assert.Equal(t, 1, size)
 
 		// Test Consume
-		jobs, err := decorator.Consume(ctx, 10)
+		jobs, err := decorator.ConsumePending(ctx, 10)
 		require.NoError(t, err)
 		assert.Len(t, jobs, 1)
 
@@ -114,7 +114,7 @@ func TestObservabilityDecorator(t *testing.T) {
 		time.Sleep(150 * time.Millisecond)
 
 		// Test Retry
-		jobs, err = decorator.Consume(ctx, 10)
+		jobs, err = decorator.ConsumePending(ctx, 10)
 		require.NoError(t, err)
 		require.Len(t, jobs, 1)
 
@@ -126,7 +126,7 @@ func TestObservabilityDecorator(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 
 		// Test Fail
-		jobs, err = decorator.Consume(ctx, 10)
+		jobs, err = decorator.ConsumePending(ctx, 10)
 		require.NoError(t, err)
 		require.Len(t, jobs, 1)
 
@@ -179,7 +179,7 @@ func TestObservabilityDecorator(t *testing.T) {
 		time.Sleep(250 * time.Millisecond)
 
 		// Consume jobs to change the size
-		jobs, err := decorator.Consume(ctx, 2)
+		jobs, err := decorator.ConsumePending(ctx, 2)
 		require.NoError(t, err)
 		assert.Len(t, jobs, 2)
 

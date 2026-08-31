@@ -57,6 +57,10 @@ func AssertMessagesAsync(vc VerificationContext, msgs <-chan SentMessage, overal
 			// Always record sent messages for accurate totals, even after timeout.
 			msgIDHex := "0x" + hex.EncodeToString(sentMsg.MessageID[:])
 			totalSent.Add(1)
+			if sentMsg.Failed {
+				// Counts as sent but is not tracked by sequence number, to avoid SeqNo collisions among failed sends.
+				continue
+			}
 			sentMessages.Store(sentMsg.SeqNo, msgIDHex)
 
 			select {

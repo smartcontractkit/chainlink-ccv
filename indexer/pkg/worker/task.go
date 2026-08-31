@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -87,6 +88,7 @@ func (t *Task) collectVerifierResults(ctx context.Context, verifierReaders []*re
 			select {
 			case result, ok := <-ch:
 				if !ok {
+					t.logger.Warn("verifier task result is not ok")
 					return
 				}
 				if result.Err() == nil {
@@ -102,6 +104,8 @@ func (t *Task) collectVerifierResults(ctx context.Context, verifierReaders []*re
 					}
 					results = append(results, verifierResultWithMetadata)
 					mu.Unlock()
+				} else if !errors.Is(result.Err(), readers.ErrVerificationNotFound) {
+					t.logger.Warnw("verifier task result error", "err", result.Err())
 				}
 			case <-ctx.Done():
 				return

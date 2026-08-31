@@ -50,11 +50,10 @@ worker_count = 100
 # Omitted from marshaled job specs when unset so CL-mode specs are unchanged.
 http_listen_port = 8101
 
-# Monitoring is DEPRECATED. Monitoring config is operator-provided and now sourced from the bootstrap
-# config (bootstrap.Config.Monitoring), not the JD-shipped app config. This field is retained only so
-# that pre-existing JD job specs still carrying a [Monitoring] section continue to decode (app config
-# decoding is strict); the executor reads it only as a fallback when the bootstrap config does not
-# configure monitoring. Remove once all deployments source monitoring from the bootstrap config.
+# Monitoring is deprecated and ignored. Standalone monitoring comes from the bootstrap
+# config's [Monitoring] section and CL-mode monitoring from the node; this section has no
+# consumer in either mode. It is retained so older job specs still decode, and it is
+# intentionally not validated.
 [Monitoring]
   # LogLevel specifies the logging level for service logger
   LogLevel = ""
@@ -94,6 +93,11 @@ http_listen_port = 8101
     # off_ramp_address is the address of the OffRamp contract on the destination chain.
     off_ramp_address = "0x00000000000000000000000000000000000000ff"
     # rmn_address is the address of the RMN Remote contract on the destination chain.
+    # DEPRECATED: the RMN Remote address is derived from the OffRamp's on-chain static config,
+    # which is authoritative. This field is retained so that job specs written before the
+    # derivation cutover still decode; when set and it disagrees with the derived address, a
+    # warning is logged and the derived address is used. Remove once deployed specs no longer
+    # carry it.
     rmn_address = "0x00000000000000000000000000000000000000ab"
     # transmitter_key_name is the family-specific keystore key name used to sign and submit
     # transactions to the OffRamp on this chain. If empty, accessors fall back to their

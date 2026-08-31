@@ -55,7 +55,7 @@ func TestProcessorDB_ProcessTasksSuccessfully(t *testing.T) {
 		require.NoError(t, err)
 
 		mockVerifier := &fakeVerifierDB{}
-		processor, err := taskverifier.NewProcessorWithPollInterval(
+		processor, err := taskverifier.NewProcessor(
 			lggr,
 			ownerID,
 			mockVerifier,
@@ -64,7 +64,7 @@ func TestProcessorDB_ProcessTasksSuccessfully(t *testing.T) {
 			taskQueue,
 			resultQueue,
 			10,
-			50*time.Millisecond,
+			taskverifier.WithPendingFallbackInterval(50*time.Millisecond),
 		)
 		require.NoError(t, err)
 
@@ -134,7 +134,7 @@ func TestProcessorDB_ProcessTasksSuccessfully(t *testing.T) {
 		require.NoError(t, err)
 
 		mockVerifier := &fakeVerifierDB{}
-		processor, err := taskverifier.NewProcessorWithPollInterval(
+		processor, err := taskverifier.NewProcessor(
 			lggr,
 			ownerID,
 			mockVerifier,
@@ -143,7 +143,7 @@ func TestProcessorDB_ProcessTasksSuccessfully(t *testing.T) {
 			taskQueue,
 			resultQueue,
 			5,
-			50*time.Millisecond,
+			taskverifier.WithPendingFallbackInterval(50*time.Millisecond),
 		)
 		require.NoError(t, err)
 
@@ -231,7 +231,7 @@ func TestProcessorDB_RetryFailedTasks(t *testing.T) {
 			messageID.String(): {Task: task, Retryable: true, Delay: &fastRetry},
 		})
 
-		processor, err := taskverifier.NewProcessorWithPollInterval(
+		processor, err := taskverifier.NewProcessor(
 			lggr,
 			ownerID,
 			mockVerifier,
@@ -240,7 +240,7 @@ func TestProcessorDB_RetryFailedTasks(t *testing.T) {
 			taskQueue,
 			resultQueue,
 			10,
-			50*time.Millisecond,
+			taskverifier.WithPendingFallbackInterval(50*time.Millisecond),
 		)
 		require.NoError(t, err)
 
@@ -251,8 +251,12 @@ func TestProcessorDB_RetryFailedTasks(t *testing.T) {
 
 		require.NoError(t, taskQueue.Publish(ctx, task))
 
-		// Wait a bit for retries to occur
-		time.Sleep(200 * time.Millisecond)
+		// Wait for the task to be attempted (and fail with the retryable error)
+		// before clearing errors. Clearing too early lets the first attempt
+		// succeed, which would defeat the retry under test.
+		require.Eventually(t, func() bool {
+			return mockVerifier.GetProcessedCount() >= 1
+		}, tests.WaitTimeout(t), 50*time.Millisecond, "Expected the task to be attempted while errors are set")
 
 		// Now clear the error so the next retry succeeds
 		mockVerifier.SetErrors(nil)
@@ -313,7 +317,7 @@ func TestProcessorDB_RetryFailedTasks(t *testing.T) {
 			},
 		})
 
-		processor, err := taskverifier.NewProcessorWithPollInterval(
+		processor, err := taskverifier.NewProcessor(
 			lggr,
 			ownerID,
 			mockVerifier,
@@ -322,7 +326,7 @@ func TestProcessorDB_RetryFailedTasks(t *testing.T) {
 			taskQueue,
 			resultQueue,
 			10,
-			50*time.Millisecond,
+			taskverifier.WithPendingFallbackInterval(50*time.Millisecond),
 		)
 		require.NoError(t, err)
 
@@ -396,7 +400,7 @@ func TestProcessorDB_RetryFailedTasks(t *testing.T) {
 			messageID.String(): {Task: task, Retryable: true, Delay: &fastRetry, Error: errors.New("transient error")},
 		})
 
-		processor, err := taskverifier.NewProcessorWithPollInterval(
+		processor, err := taskverifier.NewProcessor(
 			lggr,
 			ownerID,
 			mockVerifier,
@@ -405,7 +409,7 @@ func TestProcessorDB_RetryFailedTasks(t *testing.T) {
 			taskQueue,
 			resultQueue,
 			10,
-			50*time.Millisecond,
+			taskverifier.WithPendingFallbackInterval(50*time.Millisecond),
 		)
 		require.NoError(t, err)
 
@@ -464,7 +468,7 @@ func TestProcessorDB_Cleanup(t *testing.T) {
 		require.NoError(t, err)
 
 		mockVerifier := &fakeVerifierDB{}
-		processor, err := taskverifier.NewProcessorWithPollInterval(
+		processor, err := taskverifier.NewProcessor(
 			lggr,
 			ownerID,
 			mockVerifier,
@@ -473,7 +477,7 @@ func TestProcessorDB_Cleanup(t *testing.T) {
 			taskQueue,
 			resultQueue,
 			10,
-			50*time.Millisecond,
+			taskverifier.WithPendingFallbackInterval(50*time.Millisecond),
 		)
 		require.NoError(t, err)
 
@@ -587,7 +591,7 @@ func TestProcessorDB_StaleJobRecovery(t *testing.T) {
 
 		// Now start processor - it should reclaim the stale job
 		mockVerifier := &fakeVerifierDB{}
-		processor, err := taskverifier.NewProcessorWithPollInterval(
+		processor, err := taskverifier.NewProcessor(
 			lggr,
 			ownerID,
 			mockVerifier,
@@ -596,7 +600,7 @@ func TestProcessorDB_StaleJobRecovery(t *testing.T) {
 			taskQueue,
 			resultQueue,
 			10,
-			50*time.Millisecond,
+			taskverifier.WithPendingFallbackInterval(50*time.Millisecond),
 		)
 		require.NoError(t, err)
 
@@ -651,7 +655,7 @@ func TestProcessorDB_Shutdown(t *testing.T) {
 		require.NoError(t, err)
 
 		mockVerifier := &fakeVerifierDB{}
-		processor, err := taskverifier.NewProcessorWithPollInterval(
+		processor, err := taskverifier.NewProcessor(
 			lggr,
 			ownerID,
 			mockVerifier,
@@ -660,7 +664,7 @@ func TestProcessorDB_Shutdown(t *testing.T) {
 			taskQueue,
 			resultQueue,
 			10,
-			50*time.Millisecond,
+			taskverifier.WithPendingFallbackInterval(50*time.Millisecond),
 		)
 		require.NoError(t, err)
 
@@ -675,9 +679,11 @@ func TestProcessorDB_Shutdown(t *testing.T) {
 		}
 		require.NoError(t, taskQueue.Publish(ctx, task))
 
-		time.Sleep(200 * time.Millisecond)
+		// Wait for the processor to pick up and process the first task.
+		require.Eventually(t, func() bool {
+			return mockVerifier.GetProcessedCount() > 0
+		}, tests.WaitTimeout(t), 200*time.Millisecond, "Expected the processor to process the published task before close")
 		initialCount := mockVerifier.GetProcessedCount()
-		require.Greater(t, initialCount, 0)
 
 		// Close processor
 		require.NoError(t, processor.Close())
@@ -839,7 +845,7 @@ func TestProcessorDB_CustomRetryDelays(t *testing.T) {
 			},
 		})
 
-		processor, err := taskverifier.NewProcessorWithPollInterval(
+		processor, err := taskverifier.NewProcessor(
 			lggr,
 			ownerID,
 			mockVerifier,
@@ -848,7 +854,7 @@ func TestProcessorDB_CustomRetryDelays(t *testing.T) {
 			taskQueue,
 			resultQueue,
 			10,
-			50*time.Millisecond,
+			taskverifier.WithPendingFallbackInterval(50*time.Millisecond),
 		)
 		require.NoError(t, err)
 
@@ -939,7 +945,7 @@ func TestProcessorDB_CustomRetryDelays(t *testing.T) {
 			"0x03": {Retryable: true, Delay: &longDelay, Error: errors.New("error3")},  // Different delay
 		})
 
-		processor, err := taskverifier.NewProcessorWithPollInterval(
+		processor, err := taskverifier.NewProcessor(
 			lggr,
 			ownerID,
 			mockVerifier,
@@ -948,7 +954,7 @@ func TestProcessorDB_CustomRetryDelays(t *testing.T) {
 			taskQueue,
 			resultQueue,
 			10,
-			50*time.Millisecond,
+			taskverifier.WithPendingFallbackInterval(50*time.Millisecond),
 		)
 		require.NoError(t, err)
 
@@ -1033,7 +1039,7 @@ func TestProcessorDB_PublishFailureHandling(t *testing.T) {
 		// Use a verifier that succeeds (normal case)
 		mockVerifier := &fakeVerifierDB{}
 
-		processor, err := taskverifier.NewProcessorWithPollInterval(
+		processor, err := taskverifier.NewProcessor(
 			lggr,
 			ownerID,
 			mockVerifier,
@@ -1042,7 +1048,7 @@ func TestProcessorDB_PublishFailureHandling(t *testing.T) {
 			taskQueue,
 			resultQueue,
 			10,
-			50*time.Millisecond,
+			taskverifier.WithPendingFallbackInterval(50*time.Millisecond),
 		)
 		require.NoError(t, err)
 

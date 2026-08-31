@@ -34,17 +34,24 @@ func (a *EVMCCVTokenVerifierConfigAdapter) ResolveTokenVerifierAddresses(
 		return nil, fmt.Errorf("failed to get on ramp address for chain %d: %w", chainSelector, err)
 	}
 
-	rmnRemoteAddr, err := dsutils.FindAndFormatRef(ds, datastore.AddressRef{
-		Type:    datastore.ContractType(rmn_proxy.ContractType),
-		Version: rmn_proxy.Version,
-	}, chainSelector, toAddress)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get RMNProxy address for chain %d: %w", chainSelector, err)
+	result := &ccvdeploymentadapters.TokenVerifierChainAddresses{
+		OnRampAddress: onRampAddr,
 	}
 
-	result := &ccvdeploymentadapters.TokenVerifierChainAddresses{
-		OnRampAddress:    onRampAddr,
-		RMNRemoteAddress: rmnRemoteAddr,
+	// The RMN proxy is resolved best-effort: the field it feeds is deprecated (nodes derive the
+	// RMN Remote from the ramps' on-chain static config), so its absence from the datastore is
+	// not an error. It is still emitted when present so generated configs keep working for node
+	// binaries that predate the derivation cutover.
+	rmnProxyRefs := ds.Addresses().Filter(
+		datastore.AddressRefByChainSelector(chainSelector),
+		datastore.AddressRefByType(datastore.ContractType(rmn_proxy.ContractType)),
+		datastore.AddressRefByVersion(rmn_proxy.Version),
+	)
+	if len(rmnProxyRefs) > 1 {
+		return nil, fmt.Errorf("chain %d: expected at most 1 RMNProxy, found %d", chainSelector, len(rmnProxyRefs))
+	}
+	if len(rmnProxyRefs) == 1 {
+		result.RMNRemoteAddress = rmnProxyRefs[0].Address
 	}
 
 	cctpVerifierRefs := ds.Addresses().Filter(

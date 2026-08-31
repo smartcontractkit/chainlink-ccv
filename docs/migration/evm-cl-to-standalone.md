@@ -60,8 +60,16 @@ docker run --rm --network host -v "$PWD/migration:/out" <verifier-image> \
   ccv migrate export \
     --node-url <node-url> \
     --api-creds /out/api-creds.txt \
-    --out-dir /out
+    --out-dir /out \
+    --expected-id <jd-signing-address>
 ```
+
+`<jd-signing-address>` is your signing address as Chainlink Labs reads it from your JD record
+(`OnchainSigningAddress`); they send it to you when the cutover is scheduled. The export fails if
+the exported key does not carry exactly that address — the decode check alone cannot catch picking
+the wrong OCR2 bundle, because any bundle decodes to a self-consistent identity. If it fails, stop
+and tell Chainlink Labs; do not retry with a different value. A failed export deletes the key and
+password it had already written, so there is nothing left in `./migration/` to mount by accident.
 
 This writes three files into `./migration/`:
 
@@ -69,15 +77,16 @@ This writes three files into `./migration/`:
 - `export-password.txt` — its password.
 - `verifier.key_import.toml` — a config snippet to paste in step 3.
 
-**Check:** the command printed a signing address, and all three files exist. If the command errors,
-read the error and stop — it is telling you something is wrong with the node or the flags.
+**Check:** the command printed a signing address that matches `<jd-signing-address>`, and all three
+files exist. If the command errors, read the error and stop — it is telling you something is wrong
+with the node or the flags.
 
 ## Step 3: configure the verifier and executor
 
 Do all six:
 
 1. Mount your Chainlink node's TOML config file into **both** containers as their EVM config. Do not
-   edit it.
+   edit it, apart from a per-chain value you and Chainlink Labs agree on in the settings diff below.
 2. Mount a different bootstrap secrets file into each process. Its default path is
    `/etc/bootstrap/secrets.toml`; `BOOTSTRAPPER_SECRETS_PATH` overrides the path. Each file contains
    that process's bootstrap `[db].url` and `[keystore].password`.
@@ -114,6 +123,30 @@ ccv migrate inspect \
 ```
 
 **Check:** the address it prints matches `expected_id` in the block you pasted.
+
+Then diff the effective chain settings, once, before anything starts:
+
+```sh
+docker run --rm -v "$PWD:/cfg" <verifier-image> \
+  ccv migrate inspect-config --config /cfg/<your-node-config.toml>
+```
+
+This runs the same conversion the standalone processes run at startup and prints what each chain
+will effectively run: finality, the TXM block time (`txm_block_time_is_default: true` flags the 2s
+fallback, which is wrong for a slow chain), head-tracker persistence, and the RPC node set. Go
+through the output with Chainlink Labs. Two kinds of finding come out of it, and they are handled
+differently:
+
+- The `warnings` list names settings your node config carries that standalone has no equivalent for
+  (`GasEstimator.Mode`, `HeadTracker.HistoryDepth`, send-only nodes, and so on). There is nothing to
+  correct in the config for these: standalone will not read them whatever you write. Record that you
+  accept each one, or raise it with Chainlink Labs if a deviation is not acceptable.
+- The per-chain settings standalone does honor are worth changing now if they are wrong. Those are
+  the TXM block time and the finality pair, and they carry over from the node config, so an agreed
+  value goes in as `[EVM.Transactions.TransactionManagerV2] BlockTime` or `FinalityDepth` /
+  `FinalityTagEnabled` under that chain's `[[EVM]]` block before the containers start.
+
+This is the pre-cutover settings review, not an optional extra.
 
 ## Step 4: stop the Chainlink node
 
@@ -198,6 +231,9 @@ If you have already done this, contact Chainlink Labs rather than deleting anyth
 ---
 
 # Part 2: Chainlink Labs steps
+
+When scheduling several operators, keep at most (committee size − threshold) of them mid-cutover at
+once — see [How many operators can migrate at once](#how-many-operators-can-migrate-at-once).
 
 ## Step 8: hand over the JD record and register the executor
 
@@ -340,7 +376,9 @@ needs no reconfiguration.
 JD does learn the address — the bootstrapper publishes the declared secp256k1 key as the signing
 address on its own chain configs, and on the executor that key is the transmitter — but the executor
 does that itself. Nothing about the transmitter is transcribed or handed over. The only thing the
-operator does with it is fund it.
+operator does with it is fund it. That self-publication is also why the executor needs no identity
+check comparable to the verifier's `signer_address` guard: the address JD registers is the one the
+executor published, and the operator's funding in step 7 confirms it is the intended account.
 
 ## Why the node's TOML is reused as-is
 
@@ -353,9 +391,30 @@ moving onto finality tags.
 Per-node `Order` carries over, so a converted node keeps the RPC prioritization the operator set. A
 node with no `Order` stays at the pool's lowest priority, which is how chainlink-evm treats it too.
 
+Chain-level tuning beyond finality — gas estimation, node pool, head tracker, and
+transaction-manager settings — does not carry over, with one exception:
+`Transactions.TransactionManagerV2.BlockTime`. Whatever the node config sets that the conversion
+drops is logged by name at startup, so custom tuning surfaces instead of silently reverting to
+chain defaults.
+
+If the node config sets no TXM v2 block time, standalone runs a 2-second block time, which retries
+and fee-bumps far more aggressively than the node did on a slow chain. The fallback is loud: the
+process that writes to a chain logs it at warn when that chain's TXM starts (a chain it only reads
+from runs no TXM and says nothing), and `ccv migrate inspect-config` flags it as
+`txm_block_time_is_default` in the step 3 diff, for every chain, before anything starts. Agree a
+per-chain value with Chainlink Labs before the cutover; the
+[TXM v2 assessment](txm-v2-assessment.md) explains the fallback.
+
 Send-only nodes and the per-node `HTTPURLExtraWrite` and `IsLoadBalancedRPC` settings have no
 standalone equivalent and are dropped. Each one is logged at startup. An operator relying on a
 send-only endpoint should add it as a full node.
+
+## Finality checking stays on
+
+The job spec accepts `disable_finality_checkers`, but only standalone mode honors it; CL mode
+ignores it and always runs finality checkers. Do not set it on an EVM job: the node never disabled
+checking, so the cutover must not either. The field exists for chain families whose standalone
+deployments predate this procedure.
 
 ## Stopping the node mid-flight
 
@@ -407,10 +466,25 @@ For a Kubernetes deployment: point the liveness probe at the application `/healt
 readiness probe at the bootstrapper's `/ready` if you gate rollout on the job having started. Do
 not use the bootstrapper's `/health` for either — it cannot fail while the process runs.
 
+## How many operators can migrate at once
+
+The committee keeps verifying as long as `threshold` members are up. From step 4 (node stopped)
+until the standalone verifier is confirmed (steps 9 and 10), an operator counts toward neither side,
+so the number that can be mid-cutover at once is the committee size minus the threshold — for the
+default committee, 16 − 9 = 7.
+
+Derive the number from the committee's live configuration rather than reusing 7: it moves with
+committee size and threshold. Because the signing key carries over, a migrated operator counts
+toward the threshold again as soon as its standalone verifier is up; the window that consumes
+budget is steps 4 to 9.
+
 ## Flagged for update
 
 - **CCIP-12871** adds a `ccv migrate` command for step 7: it reads the transmitter address and routes
   the balances from the node's legacy per-chain transmitters into it. Step 7 becomes one command.
 - **EVM service state.** The verifier application database already persists chain statuses and
   queues, separately from its bootstrap database. EVM head-tracker and TXM state remain in memory;
-  see the [TXM v2 assessment](txm-v2-assessment.md) for the transaction-recovery risk.
+  see the [TXM v2 assessment](txm-v2-assessment.md) for the transaction-recovery risk. The known
+  delta until then: a restart starts the head tracker cold — it re-syncs from RPC instead of
+  resuming from persisted heads the way the node did, which costs catch-up time on restart, not
+  correctness.

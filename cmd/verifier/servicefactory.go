@@ -15,6 +15,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/messagerules"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader"
@@ -241,8 +242,11 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		StorageBatchSize:    50,
 		StorageBatchTimeout: 100 * time.Millisecond,
 		StorageRetryDelay:   2 * time.Second,
-		CursePollInterval:   2 * time.Second,  // Poll RMN Remotes for curse status every 2s
-		HeartbeatInterval:   10 * time.Second, // Send heartbeat to aggregator every 10s
+		CursePollInterval:   cursechecker.DEFAULT_POLL_INTERVAL, // Poll RMN Remotes for curse status
+		HeartbeatInterval:   10 * time.Second,                   // Send heartbeat to aggregator every 10s
+		// How often buffered chain statuses are written. A disabled status is written immediately.
+		ChainStatusFlushInterval:  chainstatus.DefaultFlushInterval,
+		ChainStatusFlushThreshold: chainstatus.DefaultFlushThreshold,
 	}
 
 	signer, _, signerAddress, err := commit.NewSignerFromKeystore(ctx, deps.Keystore, commit.DefaultECDSASigningKeyName)
@@ -346,13 +350,14 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		namedPollers = append(namedPollers, messagerules.NewNamedPoller(a.Label(), poller))
 	}
 
-	messageRulesPoller, err := messagerules.NewUnionPollerService(
-		logger.With(lggr, "component", "UnionMessageRulesPoller"),
+	messageRulesPoller, err := messagerules.NewMultiAggregatorRulesChecker(
+		logger.With(lggr, "component", "MultiAggregatorMessageRulesChecker"),
+		verifierMonitoring.Metrics(),
 		namedPollers...,
 	)
 	if err != nil {
-		lggr.Errorw("Failed to create union message rules poller", "error", err)
-		return fmt.Errorf("failed to create union message rules poller: %w", err)
+		lggr.Errorw("Failed to create multi-aggregator message rules checker", "error", err)
+		return fmt.Errorf("failed to create multi-aggregator message rules checker: %w", err)
 	}
 
 	messageTracker := monitoring.NewMessageLatencyTracker(
@@ -484,8 +489,7 @@ func (f *factory) Stop(ctx context.Context) error {
 		}
 	}
 
-	// Stop aggregator writer
-	// TODO: is this stopped by the coordinator?
+	// Stop aggregator writer.
 	if f.aggregatorWriter != nil {
 		if err := f.aggregatorWriter.Close(); err != nil {
 			f.lggr.Errorw("Aggregator writer stop error", "error", err)
@@ -519,7 +523,8 @@ func createChainStatusManager(lggr logger.Logger, verifierID string, monitoring 
 	}
 	chainStatusStore := chainstatus.NewPostgresChainStatusStore(sqlDB, lggr)
 	chainStatusManager := chainstatus.NewPostgresChainStatusManager(chainStatusStore, verifierID)
-	// Wrap with monitoring decorator to track query durations
+	// Wrap with monitoring decorator to track query durations. The Coordinator
+	// adds the batcher on top of this, so the metrics measure real database calls.
 	monitoredManager := chainstatus.NewMonitoredChainStatusManager(chainStatusManager, monitoring.Metrics())
 	return monitoredManager, sqlDB, nil
 }

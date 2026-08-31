@@ -325,25 +325,20 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	// Compare map lengths first
-	if len(c.OnRampAddresses) != len(c.CommitteeVerifierAddresses) ||
-		len(c.OnRampAddresses) != len(c.RMNRemoteAddresses) {
+	// Compare map lengths first.
+	if len(c.OnRampAddresses) != len(c.CommitteeVerifierAddresses) {
 		return fmt.Errorf(
-			"invalid verifier configuration, mismatched lengths for onramp (%d), committee verifier (%d), and RMN Remote addresses (%d)",
+			"invalid verifier configuration, mismatched lengths for onramp (%d) and committee verifier addresses (%d)",
 			len(c.OnRampAddresses),
 			len(c.CommitteeVerifierAddresses),
-			len(c.RMNRemoteAddresses),
 		)
 	}
 
-	// Compare map keys (they should all be equal)
-	// Since lengths are equal, checking if all keys from one map exist in the others is sufficient.
+	// Compare map keys (they should all be equal).
+	// Since lengths are equal, checking if all keys from one map exist in the other is sufficient.
 	for k := range c.OnRampAddresses {
 		if _, ok := c.CommitteeVerifierAddresses[k]; !ok {
 			return fmt.Errorf("invalid verifier configuration, chain selector in onramp (%s) not in committee verifier addresses", k)
-		}
-		if _, ok := c.RMNRemoteAddresses[k]; !ok {
-			return fmt.Errorf("invalid verifier configuration, chain selector in onramp (%s) not in RMN Remote addresses", k)
 		}
 	}
 

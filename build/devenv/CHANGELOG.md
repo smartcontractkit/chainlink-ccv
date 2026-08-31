@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.5.0](https://github.com/smartcontractkit/chainlink-ccv/compare/build/devenv/v0.4.0...build/devenv/v0.5.0) (2026-08-31)
+
+
+### Features
+
+* Batch chain status updates ([#1373](https://github.com/smartcontractkit/chainlink-ccv/issues/1373)) ([2c733db](https://github.com/smartcontractkit/chainlink-ccv/commit/2c733dbd7182c8951cc31a211bb38bfecf605b97))
+* devenv: Allow setting token verifier modifiers ([#1379](https://github.com/smartcontractkit/chainlink-ccv/issues/1379)) ([7fd4cfe](https://github.com/smartcontractkit/chainlink-ccv/commit/7fd4cfe03ca03c9f051348539f86c158e7a98b4f))
+* **devenv:** agnostic infra for failover tests ([#1378](https://github.com/smartcontractkit/chainlink-ccv/issues/1378)) ([a066cf5](https://github.com/smartcontractkit/chainlink-ccv/commit/a066cf58abb015a4fdaf91a6875964a1e3ac7a87))
+* Scope config to chains for that verifier's chain family ([#1384](https://github.com/smartcontractkit/chainlink-ccv/issues/1384)) ([49be32a](https://github.com/smartcontractkit/chainlink-ccv/commit/49be32a9332eb43df343e4291a7254f0ddb6b18e))
+
+## [0.4.0](https://github.com/smartcontractkit/chainlink-ccv/compare/build/devenv/v0.3.0...build/devenv/v0.4.0) (2026-08-21)
+
+
+### Features
+
+* add evm fire-forget flag ([#1359](https://github.com/smartcontractkit/chainlink-ccv/issues/1359)) ([40b5304](https://github.com/smartcontractkit/chainlink-ccv/commit/40b5304d670fecfd03d7f586e4fafc4e0803dfde))
+* add onramp upgrade verifier config changeset and refactor ApplyVerifierConfig with options ([#1356](https://github.com/smartcontractkit/chainlink-ccv/issues/1356)) ([b740c6d](https://github.com/smartcontractkit/chainlink-ccv/commit/b740c6d6fa7afce3923ca4d04698db77a3c9b0f8))
+* bump verifier_executor.json dash w/ new panels ([#1337](https://github.com/smartcontractkit/chainlink-ccv/issues/1337)) ([870200f](https://github.com/smartcontractkit/chainlink-ccv/commit/870200f58cb67508a6ef930092f4cbac01601a3b))
+* **cli:** ccv migrate export/inspect commands ([#1320](https://github.com/smartcontractkit/chainlink-ccv/issues/1320)) ([e72f479](https://github.com/smartcontractkit/chainlink-ccv/commit/e72f479c52122c5eec86a2e0b2bea57423644acc))
+* **devenv:** CL-to-standalone cutover tooling and migration e2e ([#1319](https://github.com/smartcontractkit/chainlink-ccv/issues/1319)) ([e8cbe91](https://github.com/smartcontractkit/chainlink-ccv/commit/e8cbe91f55bb31829ff8f804a089b8c84058501c))
+* **evm:** Derive RMN Remote addresses from ramp contracts' on-chain static config ([#1357](https://github.com/smartcontractkit/chainlink-ccv/issues/1357)) ([32d9d53](https://github.com/smartcontractkit/chainlink-ccv/commit/32d9d534ef3c2d083443b6045f4f649836b0ad65))
+* **evm:** drive restart-orphaned transactions to completion ([#1332](https://github.com/smartcontractkit/chainlink-ccv/issues/1332)) ([c20ed8a](https://github.com/smartcontractkit/chainlink-ccv/commit/c20ed8ad084b30e7bc504238fa60bd6b0c84e3e1))
+* **executor:** add pipeline state metrics ([#1339](https://github.com/smartcontractkit/chainlink-ccv/issues/1339)) ([b25bb1a](https://github.com/smartcontractkit/chainlink-ccv/commit/b25bb1a6e9f79ea05daaf17b253a12fc7f7a60a0))
+* Make the CSA key mode/backend-driven ([#1322](https://github.com/smartcontractkit/chainlink-ccv/issues/1322)) ([d8bcf56](https://github.com/smartcontractkit/chainlink-ccv/commit/d8bcf56adae5972c7f7dc654a9946a6cbb90f053))
+
+
+### Bug Fixes
+
+* bump ccip, fix RMN refs ([#1335](https://github.com/smartcontractkit/chainlink-ccv/issues/1335)) ([ec35bc0](https://github.com/smartcontractkit/chainlink-ccv/commit/ec35bc0213d36e160e1f59db2286eb8fe07352b0))
+* **deps:** bump chain-selectors ([#1347](https://github.com/smartcontractkit/chainlink-ccv/issues/1347)) ([694608e](https://github.com/smartcontractkit/chainlink-ccv/commit/694608e509526c17b9dec1da566c4599655d60a3))
+* **devenv:** retry tx receipt fetch with exponential backoff ([#1361](https://github.com/smartcontractkit/chainlink-ccv/issues/1361)) ([348cf20](https://github.com/smartcontractkit/chainlink-ccv/commit/348cf204a17ebdd945f356a5eb4f3ef52923112b))
+* **evm:** harden standalone cutover parity ([#1343](https://github.com/smartcontractkit/chainlink-ccv/issues/1343)) ([8bff61f](https://github.com/smartcontractkit/chainlink-ccv/commit/8bff61f994cdcec4808ce0c5bbbf4bedeb410c97))
+* update lombard and cctp verifier tags to use v2.1.0 ([#1340](https://github.com/smartcontractkit/chainlink-ccv/issues/1340)) ([42174dd](https://github.com/smartcontractkit/chainlink-ccv/commit/42174dd7851db594f319a376caff44747fdfbe4b))
+
 ## [0.3.0](https://github.com/smartcontractkit/chainlink-ccv/compare/build/devenv/v0.2.0...build/devenv/v0.3.0) (2026-07-30)
 
 

@@ -10,6 +10,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-ccv/common/monitoring/logging"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/messagerules"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader"
@@ -63,6 +64,8 @@ func NewVerificationCoordinator(
 		lggr.Errorw("Invalid CCV configuration, failed to map verifier addresses.", "error", err)
 		return nil, fmt.Errorf("invalid ccv configuration: failed to map verifier addresses: %w", err)
 	}
+	// Deprecated: derived from each OnRamp's on-chain static config. Still parsed when present
+	// so the source reader can warn on a mismatch with the derived address.
 	rmnRemoteAddrs, err := mapAddresses(cfg.RMNRemoteAddresses)
 	if err != nil {
 		lggr.Errorw("Invalid CCV configuration, failed to map RMN Remote addresses.", "error", err)
@@ -76,7 +79,6 @@ func NewVerificationCoordinator(
 
 	protocol.InitChainSelectorCache()
 
-	// TODO: monitoring config home
 	verifierMonitoring, err := monitoring.InitMonitoring("committee_verifier")
 	if err != nil {
 		lggr.Errorw("Failed to initialize verifier monitoring", "error", err)
@@ -101,15 +103,21 @@ func NewVerificationCoordinator(
 			"chain_name", sel.ChainName(),
 		)
 		sourceReader, err := evm.NewEVMSourceReader(
+			// This CL entry point has no context parameter (its signature is consumed by the
+			// Chainlink node repo and must stay unchanged); the reader bounds the one-shot
+			// static-config read with its own timeout.
+			context.Background(),
 			chain.Client(),
 			chain.HeadTracker(),
 			// TODO: use UnknownAddress instead of ethereum address.
 			common.HexToAddress(onRampAddrs[sel].String()),
+			// Deprecated configured RMN Remote, zero when unset: the reader derives the
+			// authoritative address on-chain and warns if this disagrees with it.
 			common.HexToAddress(rmnRemoteAddrs[sel].String()),
-			// TODO: does this need to be configurable?
 			onramp.OnRampCCIPMessageSent{}.Topic().Hex(),
 			sel,
 			logger.With(lggr, "component", "SourceReader", "chainID", sel),
+			evmconfig.DefaultSourceReaderHeaderFetchBatchSize,
 			func(ctx context.Context) {
 				chainMetrics.IncrementCriticalSourceInvariantViolations(ctx)
 			},
@@ -207,6 +215,9 @@ func NewVerificationCoordinator(
 		StorageBatchTimeout: 100 * time.Millisecond,
 		StorageRetryDelay:   2 * time.Second,
 		HeartbeatInterval:   10 * time.Second,
+		// How often buffered chain statuses are written. A disabled status is written immediately.
+		ChainStatusFlushInterval:  chainstatus.DefaultFlushInterval,
+		ChainStatusFlushThreshold: chainstatus.DefaultFlushThreshold,
 	}
 
 	// Create commit verifier (with ECDSA signer)
@@ -266,13 +277,14 @@ func NewVerificationCoordinator(
 		namedPollers = append(namedPollers, messagerules.NewNamedPoller(a.Label(), poller))
 	}
 
-	messageRulesPoller, err := messagerules.NewUnionPollerService(
-		logger.With(lggr, "component", "UnionMessageRulesPoller"),
+	messageRulesPoller, err := messagerules.NewMultiAggregatorRulesChecker(
+		logger.With(lggr, "component", "MultiAggregatorMessageRulesChecker"),
+		verifierMonitoring.Metrics(),
 		namedPollers...,
 	)
 	if err != nil {
-		lggr.Errorw("Failed to create union message rules poller", "error", err)
-		return nil, fmt.Errorf("failed to create union message rules poller: %w", err)
+		lggr.Errorw("Failed to create multi-aggregator message rules checker", "error", err)
+		return nil, fmt.Errorf("failed to create multi-aggregator message rules checker: %w", err)
 	}
 
 	messageTracker := monitoring.NewMessageLatencyTracker(

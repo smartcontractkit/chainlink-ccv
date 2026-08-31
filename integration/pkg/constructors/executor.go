@@ -1,6 +1,7 @@
 package constructors
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -67,9 +68,14 @@ func NewExecutorCoordinator(
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse offramp address '%s': %w", chainConfig.OffRampAddress, err)
 		}
-		rmnAddresses[sel], err = protocol.NewUnknownAddressFromHex(chainConfig.RmnAddress)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse rmn address '%s': %w", chainConfig.RmnAddress, err)
+		// rmn_address is deprecated (the RMN Remote is derived from the OffRamp's on-chain
+		// static config); parse it only when present so the destination reader can warn on a
+		// mismatch with the derived address.
+		if chainConfig.RmnAddress != "" {
+			rmnAddresses[sel], err = protocol.NewUnknownAddressFromHex(chainConfig.RmnAddress)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse rmn address '%s': %w", chainConfig.RmnAddress, err)
+			}
 		}
 		execPool[sel] = chainConfig.ExecutorPool
 		execIntervals[sel] = chainConfig.ExecutionInterval
@@ -108,12 +114,16 @@ func NewExecutorCoordinator(
 		)
 
 		evmDestReader, err := destinationreader.NewEvmDestinationReader(
+			// This CL entry point has no context parameter (its signature is consumed by the
+			// Chainlink node repo and must stay unchanged); the reader bounds the one-shot
+			// static-config read with its own timeout.
+			context.Background(),
 			destinationreader.Params{
 				Lggr:                      logger.With(lggr, "component", "DestinationReader"),
 				ChainSelector:             sel,
 				ChainClient:               chain.Client(),
 				OfframpAddress:            offRampAddresses[sel].String(), // TODO: use UnknownAddress instead of string?
-				RmnRemoteAddress:          rmnAddresses[sel].String(),
+				RmnRemoteAddress:          rmnAddresses[sel].String(),     // Deprecated: empty when unconfigured.
 				ExecutionVisabilityWindow: cfg.MaxRetryDuration,
 				Monitoring:                executorMonitoring,
 			})

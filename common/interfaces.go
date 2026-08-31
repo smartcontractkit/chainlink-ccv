@@ -61,6 +61,9 @@ type MessageRulesChecker interface {
 type MessageRulesCheckerMetrics interface {
 	// SetMessageDisablementRulesRefreshFailure records whether the latest registry refresh failed.
 	SetMessageDisablementRulesRefreshFailure(ctx context.Context, failed int64)
+	// RecordMessageDisablementRulesMismatch increments a counter when aggregators disagree on
+	// whether a message is disabled (rules are assumed identical across aggregators).
+	RecordMessageDisablementRulesMismatch(ctx context.Context)
 }
 
 type MessageRulesCheckerService interface {

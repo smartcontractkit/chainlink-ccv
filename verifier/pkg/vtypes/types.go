@@ -41,9 +41,10 @@ type SourceConfig struct {
 	DisableFinalityChecker bool                    `json:"disable_finality_checker"`
 }
 
-// SourceReaderPollInterval is the source-reader poll interval used by both verifier
-// constructors, CL mode and standalone. One value is shared deliberately so the modes
-// cannot drift (they previously differed: 2s CL, 1s standalone).
+// SourceReaderPollInterval is the source-reader poll interval used by every verifier
+// constructor: committee verifier in CL mode and standalone, and the token verifier. One
+// value is shared deliberately so the modes cannot drift (they previously differed: 2s CL,
+// 1s standalone and token).
 const SourceReaderPollInterval = 2 * time.Second
 
 // CoordinatorConfig contains configuration for the verification coordinator.
@@ -53,9 +54,15 @@ type CoordinatorConfig struct {
 	StorageBatchSize    int                                     `json:"storage_batch_size"`    // Maximum number of CCVData items to batch before writing to storage (default: 50)
 	StorageBatchTimeout time.Duration                           `json:"storage_batch_timeout"` // Maximum duration to wait before flushing incomplete storage batch (default: 100ms)
 	StorageRetryDelay   time.Duration                           `json:"storage_retry_delay"`   // Delay before retrying failed storage writes (default: 2s)
-	CursePollInterval   time.Duration                           `json:"curse_poll_interval"`   // How often to poll RMN Remote contracts for curse status (default: 2s)
+	CursePollInterval   time.Duration                           `json:"curse_poll_interval"`   // How often to poll RMN Remote contracts for curse status (default: 10s)
 	CurseRPCTimeout     time.Duration                           `json:"curse_rpc_timeout"`     // Timeout for each RMN RPC call (default: 5s)
 	HeartbeatInterval   time.Duration                           `json:"heartbeat_interval"`    // How often to send heartbeat to aggregator (default: 10s, 0 disables heartbeat)
+	// ChainStatusFlushInterval is how often buffered chain statuses are written to
+	// the database (default: 30s). A disabled status is always written immediately.
+	ChainStatusFlushInterval time.Duration `json:"chain_status_flush_interval"`
+	// ChainStatusFlushThreshold is how many chains may wait in the buffer before the
+	// batcher writes them without waiting for the next tick (default: 10).
+	ChainStatusFlushThreshold int `json:"chain_status_flush_threshold"`
 }
 
 // VerificationError represents an error that occurred during message verification.

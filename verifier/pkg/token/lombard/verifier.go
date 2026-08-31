@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
@@ -104,7 +105,21 @@ func (v *Verifier) VerifyMessages(
 			continue
 		}
 
-		verifierFormat, err := attestation.ToVerifierFormat()
+		destFamily, err := chainsel.GetSelectorFamily(uint64(task.Message.DestChainSelector))
+		if err != nil {
+			lggr.Errorw("Failed to determine destination chain family", "err", err)
+			verificationError := v.errorRetry(err, task)
+			results = append(results, verifier.VerificationResult{Error: &verificationError})
+			continue
+		}
+		var verifierFormat protocol.ByteSlice
+		if destFamily == chainsel.FamilySolana {
+			// Solana only requires the payloadHash, the protocol itself delivers the payload to the mailbox
+			// and verifies the proofs out of bound
+			verifierFormat, err = attestation.PayloadHash()
+		} else {
+			verifierFormat, err = attestation.ToVerifierFormat()
+		}
 		if err != nil {
 			lggr.Errorw("Failed to decode attestation data", "err", err)
 			verificationError := v.errorRetry(err, task)

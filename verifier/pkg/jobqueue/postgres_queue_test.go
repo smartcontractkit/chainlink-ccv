@@ -128,7 +128,7 @@ func Test_PostgresQueueOps(t *testing.T) {
 		require.NoError(t, q.Publish(ctx, jobs...))
 
 		// Consume all
-		consumed, err := q.Consume(ctx, 10)
+		consumed, err := q.ConsumePending(ctx, 10)
 		require.NoError(t, err)
 		require.Len(t, consumed, 3)
 
@@ -152,59 +152,59 @@ func Test_PostgresQueueOps(t *testing.T) {
 		require.NoError(t, q.Publish(ctx))
 	})
 
-	t.Run("ConsumeEmpty", func(t *testing.T) {
+	t.Run("ConsumePendingEmpty", func(t *testing.T) {
 		q := newQueue(t)
-		consumed, err := q.Consume(ctx, 10)
+		consumed, err := q.ConsumePending(ctx, 10)
 		require.NoError(t, err)
 		assert.Empty(t, consumed)
 	})
 
-	t.Run("ConsumeRespectsAvailableAt", func(t *testing.T) {
+	t.Run("ConsumePendingRespectsAvailableAt", func(t *testing.T) {
 		q := newQueue(t)
 
 		// Publish with a 1-hour delay – should NOT be consumable now
 		require.NoError(t, q.PublishWithDelay(ctx, time.Hour, testJob{Chain: 1, Message: []byte("delayed"), Data: "d"}))
 
-		consumed, err := q.Consume(ctx, 10)
+		consumed, err := q.ConsumePending(ctx, 10)
 		require.NoError(t, err)
 		assert.Empty(t, consumed)
 	})
 
-	t.Run("ConsumeBatchSizeLimit", func(t *testing.T) {
+	t.Run("ConsumePendingBatchSizeLimit", func(t *testing.T) {
 		q := newQueue(t)
 
 		for i := range 5 {
 			require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: fmt.Appendf(nil, "m-%d", i), Data: "x"}))
 		}
 
-		consumed, err := q.Consume(ctx, 2)
+		consumed, err := q.ConsumePending(ctx, 2)
 		require.NoError(t, err)
 		assert.Len(t, consumed, 2)
 	})
 
-	t.Run("ConsumeDoesNotReturnProcessingJobs", func(t *testing.T) {
+	t.Run("ConsumePendingDoesNotReturnProcessingJobs", func(t *testing.T) {
 		q := newQueue(t)
 
 		require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte("m1"), Data: "x"}))
 
 		// First consume locks the job
-		first, err := q.Consume(ctx, 10)
+		first, err := q.ConsumePending(ctx, 10)
 		require.NoError(t, err)
 		require.Len(t, first, 1)
 
 		// Second consume should return nothing – job is processing
-		second, err := q.Consume(ctx, 10)
+		second, err := q.ConsumePending(ctx, 10)
 		require.NoError(t, err)
 		assert.Empty(t, second)
 	})
 
-	t.Run("ConsumeReclaimsStaleLock", func(t *testing.T) {
+	t.Run("ReclaimStaleReclaimsExpiredLock", func(t *testing.T) {
 		q := newQueue(t)
 
 		require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte("m1"), Data: "x"}))
 
 		// Consume the job (LockDuration=1min won't expire naturally during the test).
-		first, err := q.Consume(ctx, 1)
+		first, err := q.ConsumePending(ctx, 1)
 		require.NoError(t, err)
 		require.Len(t, first, 1)
 		jobID := first[0].ID
@@ -224,19 +224,19 @@ func Test_PostgresQueueOps(t *testing.T) {
 		}, logger.Test(t))
 		require.NoError(t, err)
 
-		notReclaimed, err := qLong.Consume(ctx, 1)
+		notReclaimed, err := qLong.ReclaimStale(ctx, 1)
 		require.NoError(t, err)
 		assert.Empty(t, notReclaimed, "job should not be reclaimed when lock has not expired")
 
 		// Original queue with 1-minute lock SHOULD reclaim (started_at is 10 min ago, 10 > 1).
-		reclaimed, err := q.Consume(ctx, 1)
+		reclaimed, err := q.ReclaimStale(ctx, 1)
 		require.NoError(t, err)
 		require.Len(t, reclaimed, 1)
 		assert.Equal(t, jobID, reclaimed[0].ID)
 		assert.Equal(t, 2, reclaimed[0].AttemptCount, "attempt_count should be incremented on reclaim")
 	})
 
-	t.Run("ConsumeDoesNotReclaimFreshProcessingJob", func(t *testing.T) {
+	t.Run("ReclaimStaleIgnoresFreshProcessingJob", func(t *testing.T) {
 		q := newQueue(t, func(c *jobqueue.QueueConfig) {
 			c.LockDuration = time.Hour
 		})
@@ -244,17 +244,17 @@ func Test_PostgresQueueOps(t *testing.T) {
 		require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte("m1"), Data: "x"}))
 
 		// Consume with the configured long lock duration.
-		first, err := q.Consume(ctx, 1)
+		first, err := q.ConsumePending(ctx, 1)
 		require.NoError(t, err)
 		require.Len(t, first, 1)
 
 		// A second consume should not reclaim because started_at is fresh.
-		second, err := q.Consume(ctx, 1)
+		second, err := q.ReclaimStale(ctx, 1)
 		require.NoError(t, err)
 		assert.Empty(t, second, "freshly consumed job should not be reclaimed while lock is still valid")
 	})
 
-	t.Run("ConsumeReclaimMultipleStaleJobs", func(t *testing.T) {
+	t.Run("ReclaimStaleReclaimsMultipleStaleJobs", func(t *testing.T) {
 		q := newQueue(t, func(c *jobqueue.QueueConfig) {
 			c.LockDuration = 10 * time.Minute
 		})
@@ -269,7 +269,7 @@ func Test_PostgresQueueOps(t *testing.T) {
 		}
 
 		// Consume all 5 (simulating a worker that will crash).
-		consumed, err := q.Consume(ctx, 10)
+		consumed, err := q.ConsumePending(ctx, 10)
 		require.NoError(t, err)
 		require.Len(t, consumed, 5)
 
@@ -280,7 +280,7 @@ func Test_PostgresQueueOps(t *testing.T) {
 		}
 
 		// Consume should reclaim exactly the 3 stale jobs.
-		reclaimed, err := q.Consume(ctx, 10)
+		reclaimed, err := q.ReclaimStale(ctx, 10)
 		require.NoError(t, err)
 		assert.Len(t, reclaimed, 3)
 
@@ -304,7 +304,7 @@ func Test_PostgresQueueOps(t *testing.T) {
 
 		require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte("m1"), Data: "x"}))
 
-		consumed, err := q.Consume(ctx, 1)
+		consumed, err := q.ConsumePending(ctx, 1)
 		require.NoError(t, err)
 		require.Len(t, consumed, 1)
 
@@ -333,7 +333,7 @@ func Test_PostgresQueueOps(t *testing.T) {
 
 		require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte("m1"), Data: "x"}))
 
-		consumed, err := q.Consume(ctx, 1)
+		consumed, err := q.ConsumePending(ctx, 1)
 		require.NoError(t, err)
 		require.Len(t, consumed, 1)
 		jobID := consumed[0].ID
@@ -346,7 +346,7 @@ func Test_PostgresQueueOps(t *testing.T) {
 		assert.Equal(t, 1, countRowsWithOwner(t, db, "ccv_task_verifier_jobs", jobqueue.JobStatusPending, t.Name()))
 
 		// Consume again (attempt 2)
-		consumed2, err := q.Consume(ctx, 1)
+		consumed2, err := q.ConsumePending(ctx, 1)
 		require.NoError(t, err)
 		require.Len(t, consumed2, 1)
 		assert.Equal(t, 2, consumed2[0].AttemptCount)
@@ -362,7 +362,7 @@ func Test_PostgresQueueOps(t *testing.T) {
 		// Small sleep to ensure retry_deadline has passed
 		time.Sleep(5 * time.Millisecond)
 
-		consumed, err := q.Consume(ctx, 1)
+		consumed, err := q.ConsumePending(ctx, 1)
 		require.NoError(t, err)
 		require.Len(t, consumed, 1)
 		jobID := consumed[0].ID
@@ -383,7 +383,7 @@ func Test_PostgresQueueOps(t *testing.T) {
 
 		require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte("m1"), Data: "x"}))
 
-		consumed, err := q.Consume(ctx, 1)
+		consumed, err := q.ConsumePending(ctx, 1)
 		require.NoError(t, err)
 		require.Len(t, consumed, 1)
 
@@ -392,7 +392,7 @@ func Test_PostgresQueueOps(t *testing.T) {
 		require.NoError(t, q.Retry(ctx, time.Hour, errs, consumed[0].ID))
 
 		// Job is pending but available_at is in the future → not consumable
-		second, err := q.Consume(ctx, 10)
+		second, err := q.ConsumePending(ctx, 10)
 		require.NoError(t, err)
 		assert.Empty(t, second)
 	})
@@ -402,7 +402,7 @@ func Test_PostgresQueueOps(t *testing.T) {
 
 		require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte("m1"), Data: "x"}))
 
-		consumed, err := q.Consume(ctx, 1)
+		consumed, err := q.ConsumePending(ctx, 1)
 		require.NoError(t, err)
 		require.Len(t, consumed, 1)
 		jobID := consumed[0].ID
@@ -428,7 +428,7 @@ func Test_PostgresQueueOps(t *testing.T) {
 
 		require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte("m1"), Data: "x"}))
 
-		consumed, err := q.Consume(ctx, 1)
+		consumed, err := q.ConsumePending(ctx, 1)
 		require.NoError(t, err)
 		require.Len(t, consumed, 1)
 		jobID := consumed[0].ID
@@ -443,7 +443,7 @@ func Test_PostgresQueueOps(t *testing.T) {
 		assert.Equal(t, 1, countRowsWithOwner(t, db, "ccv_task_verifier_jobs_archive", jobqueue.JobStatusFailed, t.Name()))
 
 		// Should NOT be consumable again
-		consumed2, err := q.Consume(ctx, 10)
+		consumed2, err := q.ConsumePending(ctx, 10)
 		require.NoError(t, err)
 		assert.Empty(t, consumed2, "failed jobs should not be consumed")
 	})
@@ -453,7 +453,7 @@ func Test_PostgresQueueOps(t *testing.T) {
 
 		// Publish, consume, and complete a job so it lands in the archive
 		require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte("m1"), Data: "x"}))
-		consumed, err := q.Consume(ctx, 1)
+		consumed, err := q.ConsumePending(ctx, 1)
 		require.NoError(t, err)
 		require.Len(t, consumed, 1)
 		require.NoError(t, q.Complete(ctx, consumed[0].ID))
@@ -476,7 +476,7 @@ func Test_PostgresQueueOps(t *testing.T) {
 		q := newQueue(t)
 
 		require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte("m1"), Data: "x"}))
-		consumed, err := q.Consume(ctx, 1)
+		consumed, err := q.ConsumePending(ctx, 1)
 		require.NoError(t, err)
 		require.NoError(t, q.Complete(ctx, consumed[0].ID))
 
@@ -511,7 +511,7 @@ func Test_PostgresQueueOps(t *testing.T) {
 		assert.Equal(t, 5, size)
 
 		// Consume 3 jobs (now processing)
-		consumed, err := q.Consume(ctx, 3)
+		consumed, err := q.ConsumePending(ctx, 3)
 		require.NoError(t, err)
 		require.Len(t, consumed, 3)
 
@@ -538,7 +538,7 @@ func Test_PostgresQueueOps(t *testing.T) {
 
 		// Consume remaining jobs - should only get the 2 pending jobs
 		// Failed jobs are archived and NOT consumed
-		consumed2, err := q.Consume(ctx, 10)
+		consumed2, err := q.ConsumePending(ctx, 10)
 		require.NoError(t, err)
 		require.Len(t, consumed2, 2) // Only 2 pending jobs (failed job was archived)
 
@@ -563,7 +563,7 @@ func Test_PostgresQueueOps(t *testing.T) {
 		require.NoError(t, q.Publish(ctx, testJob{Chain: 42, Message: []byte("lifecycle-1"), Data: "step1"}))
 
 		// 2. Consume (attempt 1)
-		consumed, err := q.Consume(ctx, 1)
+		consumed, err := q.ConsumePending(ctx, 1)
 		require.NoError(t, err)
 		require.Len(t, consumed, 1)
 		jobID := consumed[0].ID
@@ -573,7 +573,7 @@ func Test_PostgresQueueOps(t *testing.T) {
 		require.NoError(t, q.Retry(ctx, 0, map[string]error{jobID: errors.New("timeout")}, jobID))
 
 		// 4. Consume (attempt 2)
-		consumed2, err := q.Consume(ctx, 1)
+		consumed2, err := q.ConsumePending(ctx, 1)
 		require.NoError(t, err)
 		require.Len(t, consumed2, 1)
 		assert.Equal(t, jobID, consumed2[0].ID)
@@ -601,7 +601,7 @@ func Test_PostgresQueueOps(t *testing.T) {
 		for i := range 3 {
 			require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: fmt.Appendf(nil, "cl-%d", i), Data: "x"}))
 		}
-		consumed, err := q.Consume(ctx, 3)
+		consumed, err := q.ConsumePending(ctx, 3)
 		require.NoError(t, err)
 		require.Len(t, consumed, 3)
 
@@ -625,9 +625,51 @@ func Test_PostgresQueueOps(t *testing.T) {
 		assert.Equal(t, 2, deleted)
 		assert.Equal(t, 1, countAllRowsWithOwner(t, db, "ccv_task_verifier_jobs_archive", t.Name()))
 	})
+
+	// ConsumePending and ReclaimStale are the two halves a signal-driven consumer runs on
+	// separate schedules: pending work is announced by a signal, stale work only by the
+	// passage of time. Each must stay in its own lane, or one schedule would silently do
+	// the other's job.
+	t.Run("ConsumePendingIgnoresStaleJobs", func(t *testing.T) {
+		q := newQueue(t)
+
+		require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte("cp-1"), Data: "x"}))
+		jobs, err := q.ConsumePending(ctx, 10)
+		require.NoError(t, err)
+		require.Len(t, jobs, 1)
+
+		// Age the lock out. Only ReclaimStale may pick it back up.
+		_, err = db.ExecContext(ctx, `
+			UPDATE ccv_task_verifier_jobs
+			SET started_at = NOW() - INTERVAL '10 minutes'
+			WHERE job_id = $1`, jobs[0].ID)
+		require.NoError(t, err)
+
+		again, err := q.ConsumePending(ctx, 10)
+		require.NoError(t, err)
+		assert.Empty(t, again, "ConsumePending must never reclaim a stale lock")
+
+		stale, err := q.ReclaimStale(ctx, 10)
+		require.NoError(t, err)
+		assert.Len(t, stale, 1)
+	})
+
+	t.Run("ReclaimStaleIgnoresPendingJobs", func(t *testing.T) {
+		q := newQueue(t)
+
+		require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte("rs-1"), Data: "x"}))
+
+		stale, err := q.ReclaimStale(ctx, 10)
+		require.NoError(t, err)
+		assert.Empty(t, stale, "ReclaimStale must never return pending jobs")
+
+		jobs, err := q.ConsumePending(ctx, 10)
+		require.NoError(t, err)
+		assert.Len(t, jobs, 1)
+	})
 }
 
-func TestConsumeReclaimConcurrentNoDuplicates(t *testing.T) {
+func TestReclaimStaleConcurrentNoDuplicates(t *testing.T) {
 	q, db := newTestQueue(t, func(c *jobqueue.QueueConfig) {
 		c.LockDuration = 10 * time.Minute
 	})
@@ -644,7 +686,7 @@ func TestConsumeReclaimConcurrentNoDuplicates(t *testing.T) {
 	}
 
 	// Consume all, then back-date to make them stale.
-	consumed, err := q.Consume(ctx, numJobs)
+	consumed, err := q.ConsumePending(ctx, numJobs)
 	require.NoError(t, err)
 	require.Len(t, consumed, numJobs)
 
@@ -662,7 +704,7 @@ func TestConsumeReclaimConcurrentNoDuplicates(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for {
-				batch, err := q.Consume(ctx, 5)
+				batch, err := q.ReclaimStale(ctx, 5)
 				if err != nil {
 					return
 				}
@@ -696,7 +738,7 @@ func TestComplete(t *testing.T) {
 
 	require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte("m1"), Data: "x"}))
 
-	consumed, err := q.Consume(ctx, 1)
+	consumed, err := q.ConsumePending(ctx, 1)
 	require.NoError(t, err)
 	require.Len(t, consumed, 1)
 
@@ -726,7 +768,7 @@ func TestRetry(t *testing.T) {
 
 	require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte("m1"), Data: "x"}))
 
-	consumed, err := q.Consume(ctx, 1)
+	consumed, err := q.ConsumePending(ctx, 1)
 	require.NoError(t, err)
 	require.Len(t, consumed, 1)
 	jobID := consumed[0].ID
@@ -739,7 +781,7 @@ func TestRetry(t *testing.T) {
 	assert.Equal(t, 1, countRows(t, db, "ccv_task_verifier_jobs", jobqueue.JobStatusPending))
 
 	// Consume again (attempt 2)
-	consumed2, err := q.Consume(ctx, 1)
+	consumed2, err := q.ConsumePending(ctx, 1)
 	require.NoError(t, err)
 	require.Len(t, consumed2, 1)
 	assert.Equal(t, 2, consumed2[0].AttemptCount)
@@ -756,7 +798,7 @@ func TestRetryExceedsDeadline(t *testing.T) {
 	// Small sleep to ensure retry_deadline has passed
 	time.Sleep(5 * time.Millisecond)
 
-	consumed, err := q.Consume(ctx, 1)
+	consumed, err := q.ConsumePending(ctx, 1)
 	require.NoError(t, err)
 	require.Len(t, consumed, 1)
 	jobID := consumed[0].ID
@@ -775,7 +817,7 @@ func TestRetryWithDelay(t *testing.T) {
 
 	require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte("m1"), Data: "x"}))
 
-	consumed, err := q.Consume(ctx, 1)
+	consumed, err := q.ConsumePending(ctx, 1)
 	require.NoError(t, err)
 	require.Len(t, consumed, 1)
 
@@ -784,7 +826,7 @@ func TestRetryWithDelay(t *testing.T) {
 	require.NoError(t, q.Retry(ctx, time.Hour, errs, consumed[0].ID))
 
 	// Job is pending but available_at is in the future → not consumable
-	second, err := q.Consume(ctx, 10)
+	second, err := q.ConsumePending(ctx, 10)
 	require.NoError(t, err)
 	assert.Empty(t, second)
 }
@@ -795,7 +837,7 @@ func TestFail(t *testing.T) {
 
 	require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte("m1"), Data: "x"}))
 
-	consumed, err := q.Consume(ctx, 1)
+	consumed, err := q.ConsumePending(ctx, 1)
 	require.NoError(t, err)
 	require.Len(t, consumed, 1)
 	jobID := consumed[0].ID
@@ -822,7 +864,7 @@ func TestFailedJobsAreNotReconsumed(t *testing.T) {
 
 	require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte("m1"), Data: "x"}))
 
-	consumed, err := q.Consume(ctx, 1)
+	consumed, err := q.ConsumePending(ctx, 1)
 	require.NoError(t, err)
 	require.Len(t, consumed, 1)
 
@@ -830,14 +872,14 @@ func TestFailedJobsAreNotReconsumed(t *testing.T) {
 	require.NoError(t, q.Fail(ctx, map[string]error{consumed[0].ID: errors.New("err")}, consumed[0].ID))
 
 	// Must NOT be consumable again — it is already in the archive.
-	consumed2, err := q.Consume(ctx, 1)
+	consumed2, err := q.ConsumePending(ctx, 1)
 	require.NoError(t, err)
 	require.Empty(t, consumed2)
 }
 
 // TestConsumeMarksDeserializationFailuresAsFailed ensures that jobs with malformed JSON
 // are marked as failed instead of being stuck in processing state forever.
-func TestConsumeMarksDeserializationFailuresAsFailed(t *testing.T) {
+func TestConsumePendingMarksDeserializationFailuresAsFailed(t *testing.T) {
 	q, db := newTestQueue(t)
 	ctx := context.Background()
 
@@ -868,7 +910,7 @@ func TestConsumeMarksDeserializationFailuresAsFailed(t *testing.T) {
 	require.NoError(t, q.Publish(ctx, testJob{Chain: 2, Message: []byte("valid-msg"), Data: "valid"}))
 
 	// Consume - should get only the valid job
-	consumed, err := q.Consume(ctx, 10)
+	consumed, err := q.ConsumePending(ctx, 10)
 	require.NoError(t, err)
 	require.Len(t, consumed, 1, "Should only consume the valid job")
 	assert.Equal(t, "valid", consumed[0].Payload.Data)
@@ -890,7 +932,7 @@ func TestCleanup(t *testing.T) {
 
 	// Publish, consume, and complete a job so it lands in the archive
 	require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte("m1"), Data: "x"}))
-	consumed, err := q.Consume(ctx, 1)
+	consumed, err := q.ConsumePending(ctx, 1)
 	require.NoError(t, err)
 	require.Len(t, consumed, 1)
 	require.NoError(t, q.Complete(ctx, consumed[0].ID))
@@ -912,7 +954,7 @@ func TestCleanupRetainsRecentJobs(t *testing.T) {
 	ctx := context.Background()
 
 	require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte("m1"), Data: "x"}))
-	consumed, err := q.Consume(ctx, 1)
+	consumed, err := q.ConsumePending(ctx, 1)
 	require.NoError(t, err)
 	require.NoError(t, q.Complete(ctx, consumed[0].ID))
 
@@ -948,7 +990,7 @@ func TestSize(t *testing.T) {
 	assert.Equal(t, 5, size)
 
 	// Consume 3 jobs (now processing)
-	consumed, err := q.Consume(ctx, 3)
+	consumed, err := q.ConsumePending(ctx, 3)
 	require.NoError(t, err)
 	require.Len(t, consumed, 3)
 
@@ -974,7 +1016,7 @@ func TestSize(t *testing.T) {
 	assert.Equal(t, 2, size)
 
 	// Consume remaining jobs — only the 2 pending jobs; the failed job is gone.
-	consumed2, err := q.Consume(ctx, 10)
+	consumed2, err := q.ConsumePending(ctx, 10)
 	require.NoError(t, err)
 	require.Len(t, consumed2, 2) // 2 pending only
 
@@ -1000,7 +1042,7 @@ func TestFullLifecycle(t *testing.T) {
 	require.NoError(t, q.Publish(ctx, testJob{Chain: 42, Message: []byte("lifecycle-1"), Data: "step1"}))
 
 	// 2. Consume (attempt 1)
-	consumed, err := q.Consume(ctx, 1)
+	consumed, err := q.ConsumePending(ctx, 1)
 	require.NoError(t, err)
 	require.Len(t, consumed, 1)
 	jobID := consumed[0].ID
@@ -1010,7 +1052,7 @@ func TestFullLifecycle(t *testing.T) {
 	require.NoError(t, q.Retry(ctx, 0, map[string]error{jobID: errors.New("timeout")}, jobID))
 
 	// 4. Consume (attempt 2)
-	consumed2, err := q.Consume(ctx, 1)
+	consumed2, err := q.ConsumePending(ctx, 1)
 	require.NoError(t, err)
 	require.Len(t, consumed2, 1)
 	assert.Equal(t, jobID, consumed2[0].ID)
@@ -1029,7 +1071,7 @@ func TestFullLifecycle(t *testing.T) {
 	assert.Equal(t, 1, deleted)
 }
 
-func TestConcurrentPublishAndConsume(t *testing.T) {
+func TestConcurrentPublishAndConsumePending(t *testing.T) {
 	q, db := newTestQueue(t)
 	ctx := context.Background()
 
@@ -1076,7 +1118,7 @@ func TestConcurrentPublishAndConsume(t *testing.T) {
 			for {
 				// Random sleep to simulate work
 				time.Sleep(time.Duration(rand.IntN(3)) * time.Millisecond)
-				batch, err := q.Consume(ctx, batchSize)
+				batch, err := q.ConsumePending(ctx, batchSize)
 				if err != nil {
 					t.Errorf("consume error: %v", err)
 					return
@@ -1139,7 +1181,7 @@ func TestConcurrentConsumersNoDuplicates(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for {
-				batch, err := q.Consume(ctx, 3)
+				batch, err := q.ConsumePending(ctx, 3)
 				if err != nil {
 					return
 				}
@@ -1197,14 +1239,14 @@ func TestConcurrentRetryAndFail(t *testing.T) {
 			rng := rand.New(rand.NewPCG(uint64(workerID), uint64(workerID+1)))
 
 			for {
-				batch, err := q.Consume(ctx, 5)
+				batch, err := q.ConsumePending(ctx, 5)
 				if err != nil {
 					return
 				}
 				if len(batch) == 0 {
 					// Give retried jobs time to become available
 					time.Sleep(20 * time.Millisecond)
-					batch, err = q.Consume(ctx, 5)
+					batch, err = q.ConsumePending(ctx, 5)
 					if err != nil || len(batch) == 0 {
 						return
 					}
@@ -1265,7 +1307,7 @@ func TestRetryDeadlineExhaustionCycle(t *testing.T) {
 	var jobID string
 
 	// Attempt 1: consume → retry (deadline not yet reached)
-	consumed, err := q.Consume(ctx, 1)
+	consumed, err := q.ConsumePending(ctx, 1)
 	require.NoError(t, err)
 	require.Len(t, consumed, 1)
 	jobID = consumed[0].ID
@@ -1273,7 +1315,7 @@ func TestRetryDeadlineExhaustionCycle(t *testing.T) {
 	require.NoError(t, q.Retry(ctx, 0, map[string]error{jobID: errors.New("err1")}, jobID))
 
 	// Attempt 2: consume → retry (deadline not yet reached)
-	consumed, err = q.Consume(ctx, 1)
+	consumed, err = q.ConsumePending(ctx, 1)
 	require.NoError(t, err)
 	require.Len(t, consumed, 1)
 	assert.Equal(t, 2, consumed[0].AttemptCount)
@@ -1283,7 +1325,7 @@ func TestRetryDeadlineExhaustionCycle(t *testing.T) {
 	time.Sleep(60 * time.Millisecond)
 
 	// Attempt 3: consume → retry (deadline has now passed, should fail permanently and archive)
-	consumed, err = q.Consume(ctx, 1)
+	consumed, err = q.ConsumePending(ctx, 1)
 	require.NoError(t, err)
 	require.Len(t, consumed, 1)
 	assert.Equal(t, 3, consumed[0].AttemptCount)
@@ -1388,7 +1430,7 @@ func TestEndToEndConcurrentWithRandomWork(t *testing.T) {
 				default:
 				}
 
-				batch, err := q.Consume(ctx, 4)
+				batch, err := q.ConsumePending(ctx, 4)
 				if err != nil {
 					return
 				}

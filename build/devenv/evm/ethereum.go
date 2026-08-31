@@ -172,3 +172,14 @@ func waitMinedFast(ctx context.Context, b bind.DeployBackend, txHash common.Hash
 		}
 	}
 }
+
+// BlockTime returns the timestamp of the given block from the provided backend.
+// Falls back to time.Now() if the header cannot be fetched.
+func BlockTime(ctx context.Context, backend bind.ContractBackend, blockNumber *big.Int) time.Time {
+	header, err := backend.HeaderByNumber(ctx, blockNumber)
+	if err != nil {
+		return time.Now()
+	}
+	// #nosec G115 -- block timestamps are epoch seconds and well within int64 range.
+	return time.Unix(int64(header.Time), 0)
+}

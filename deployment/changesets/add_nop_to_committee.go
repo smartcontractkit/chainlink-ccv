@@ -375,6 +375,7 @@ func provisionVerifierJobForNOP(
 		cfg.DisableFinalityCheckers,
 		signerFamily,
 		cfg.ConsolidateAggregators,
+		defaultApplyVerifierConfigApplyOverrides(),
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to build verifier job specs: %w", err)
