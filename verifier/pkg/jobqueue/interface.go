@@ -55,19 +55,29 @@ type JobQueue[T Jobable] interface {
 	// PublishWithDelay adds jobs that become available after the specified delay.
 	// Useful for implementing retry backoff strategies.
 	PublishWithDelay(ctx context.Context, delay time.Duration, jobs ...T) error
-	// Consume retrieves and locks up to batchSize jobs for processing.
-	// Jobs in 'pending' status that are past their available_at time are eligible.
-	// Additionally, jobs stuck in 'processing' for longer than the configured LockDuration
-	// are considered stale (e.g. from a crashed worker) and are automatically reclaimed.
-	// Returns empty slice if no jobs are available.
+	// ConsumePending retrieves and locks up to batchSize jobs that are available now.
+	// It does not reclaim stale jobs.
 	//
-	// Note: Jobs in 'failed' status are NOT consumed. Fail() and Retry() (when the retry
-	// deadline is exceeded) immediately move jobs to the archive table, so failed jobs
-	// never appear in the active queue and cannot be retried.
+	// A consumer that waits on Signals uses this together with ReclaimStale, so the two
+	// halves run on schedules that suit them: pending work is announced by a signal,
+	// while stale work is only produced by the passage of time.
+	ConsumePending(ctx context.Context, batchSize int) ([]Job[T], error)
+	// ReclaimStale retrieves and locks up to batchSize jobs that have been in
+	// 'processing' for longer than the configured LockDuration.
 	//
-	// The implementation should use SELECT FOR UPDATE SKIP LOCKED to ensure
-	// concurrent consumers don't compete for the same jobs.
-	Consume(ctx context.Context, batchSize int) ([]Job[T], error)
+	// No signal can announce stale work, so a consumer must drive this from a timer.
+	ReclaimStale(ctx context.Context, batchSize int) ([]Job[T], error)
+	// Signals reports newly available work, so a consumer can wait instead of polling.
+	//
+	// The signal is a hint, never a record. Every row stays reachable by ConsumePending,
+	// so a signal that is never delivered costs latency and never costs a job. A consumer
+	// must therefore keep a slow fallback poll: work can also become available without any
+	// signal, from a republish that ON CONFLICT DO NOTHING drops after a restart, from the
+	// out-of-process job queue CLI, or from another process sharing the same owner_id.
+	//
+	// Signals coalesce, so one wakeup can stand for any amount of work. A consumer must
+	// look again whenever its last look returned anything.
+	Signals() <-chan struct{}
 	// Complete marks jobs as successfully processed and removes them from active queue.
 	// Completed jobs may be moved to an archive table for audit purposes.
 	Complete(ctx context.Context, jobIDs ...string) error

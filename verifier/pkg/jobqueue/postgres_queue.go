@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"maps"
 	"math/big"
 	"time"
 
@@ -67,7 +66,7 @@ func NewPostgresJobQueue[T Jobable](
 }
 
 // Signals returns the channel that reports newly available work. It implements
-// SignalDrivenQueue.
+// the JobQueue interface.
 func (q *PostgresJobQueue[T]) Signals() <-chan struct{} { return q.signal.C() }
 
 // Publish adds jobs to the queue.
@@ -156,54 +155,9 @@ func (q *PostgresJobQueue[T]) PublishWithDelay(ctx context.Context, delay time.D
 	return nil
 }
 
-// Consume retrieves and locks jobs for processing.
-// Jobs stuck in 'processing' longer than the configured LockDuration are automatically reclaimed.
-//
-// Two separate queries replace the former single OR query. Combining both predicates
-// (pending + stale-processing) in one OR forced a full Seq Scan + external-merge disk sort
-// on every poll because the planner could not use either partial index. Each query below
-// targets its own dedicated partial index and allows Postgres to stream rows in index order
-// with FOR UPDATE SKIP LOCKED — O(batchSize) instead of O(table size).
-//
-// Stale reclamation always runs first with the full batchSize limit. The pending limit is
-// then computed in memory as batchSize - len(staleJobs), so pending always fills a full
-// batch when there are no stale jobs, and stale jobs can never be starved by pending backlog.
-//
-// A consumer that drives the two phases on separate schedules calls ConsumePending and
-// ReclaimStale instead. Consume keeps both phases and the shared batchSize budget for
-// callers that want one call and one combined result.
-func (q *PostgresJobQueue[T]) Consume(ctx context.Context, batchSize int) ([]Job[T], error) {
-	now := time.Now()
-
-	jobs, failedToDeserialize, err := q.consumeStale(ctx, now, batchSize)
-	if err != nil {
-		return nil, err
-	}
-
-	// The pending limit is computed in memory from the stale result, so pending gets the
-	// full batchSize when stale returns nothing. This keeps one Consume call bounded at
-	// batchSize in total, which is what a caller that batches the result downstream needs.
-	pendingJobs, pendingFailures, err := q.consumePending(ctx, now, batchSize-len(jobs))
-	if err != nil {
-		return nil, err
-	}
-	jobs = append(jobs, pendingJobs...)
-	maps.Copy(failedToDeserialize, pendingFailures)
-
-	q.archiveDeserializationFailures(ctx, failedToDeserialize)
-
-	q.logger.Debugw("Consumed jobs from queue",
-		"queue", q.config.Name,
-		"count", len(jobs),
-		"requested", batchSize,
-	)
-
-	return jobs, nil
-}
-
 // ConsumePending retrieves and locks up to batchSize jobs that are available now. It does
 // not reclaim stale jobs; ReclaimStale runs those on its own schedule. It implements
-// SignalDrivenQueue.
+// the JobQueue interface.
 func (q *PostgresJobQueue[T]) ConsumePending(ctx context.Context, batchSize int) ([]Job[T], error) {
 	jobs, failed, err := q.consumePending(ctx, time.Now(), batchSize)
 	if err != nil {
@@ -221,7 +175,7 @@ func (q *PostgresJobQueue[T]) ConsumePending(ctx context.Context, batchSize int)
 }
 
 // ReclaimStale retrieves and locks up to batchSize jobs that have been in 'processing'
-// longer than the configured LockDuration. It implements SignalDrivenQueue.
+// longer than the configured LockDuration.
 //
 // Stale work is produced by the passage of time rather than by any publish, so no signal
 // can announce it. This path is driven by a timer only.

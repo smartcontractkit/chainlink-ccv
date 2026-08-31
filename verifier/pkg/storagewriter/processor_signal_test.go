@@ -2,6 +2,7 @@ package storagewriter
 
 import (
 	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -19,28 +20,18 @@ import (
 
 // neverSignals wraps a queue and reports a channel that nothing ever writes to.
 //
-// This is how a lost signal is simulated: the consumer still runs the signal-driven loop,
-// but its signal arm never fires. It must therefore fall back on the pending poll. The
-// channel is non-nil on purpose, because a nil channel would instead make the consumer
-// choose the legacy polling loop and the test would prove nothing.
+// This is how a lost signal is simulated: the consumer still runs its normal loop, but the
+// signal arm never fires, so only the fallback poll can reach the work.
 type neverSignals struct {
-	jobqueue.SignalDrivenQueue[protocol.VerifierNodeResult]
 	jobqueue.JobQueue[protocol.VerifierNodeResult]
 	dead chan struct{}
 }
 
-func newNeverSignals(q *jobqueue.PostgresJobQueue[protocol.VerifierNodeResult]) *neverSignals {
-	return &neverSignals{
-		SignalDrivenQueue: q,
-		JobQueue:          q,
-		dead:              make(chan struct{}),
-	}
+func newNeverSignals(q jobqueue.JobQueue[protocol.VerifierNodeResult]) *neverSignals {
+	return &neverSignals{JobQueue: q, dead: make(chan struct{})}
 }
 
 func (n *neverSignals) Signals() <-chan struct{} { return n.dead }
-
-// Name resolves the method that both embedded interfaces declare.
-func (n *neverSignals) Name() string { return n.JobQueue.Name() }
 
 func newResultQueue(t *testing.T, db *sqlx.DB, owner string) *jobqueue.PostgresJobQueue[protocol.VerifierNodeResult] {
 	t.Helper()
@@ -77,14 +68,21 @@ func startProcessor(
 	t.Cleanup(func() { require.NoError(t, p.Close()) })
 }
 
-// results returns n distinct results.
+// resultSeq hands out sequence numbers that stay unique for the whole package run.
 //
-// The sequence numbers come from a counter shared across the package because a result's
-// MessageID is derived from its sequence number, and the fake writer keys its map by
-// MessageID. Two publishes that reuse a sequence number collapse into one stored entry,
-// so any count expecting them to be distinct would never be reached.
+// A result's MessageID is derived from its sequence number, and the fake writer stores
+// results in a map keyed by MessageID. Reusing a sequence number would make two publishes
+// collapse into one stored entry, so a count expecting them to be distinct could never be
+// reached.
+var resultSeq atomic.Uint64
+
+// results returns n distinct results.
 func results(n int) []protocol.VerifierNodeResult {
-	return uniqueResults(n)
+	out := make([]protocol.VerifierNodeResult, n)
+	for i := range out {
+		out[i] = createTestVerifierNodeResult(resultSeq.Add(1))
+	}
+	return out
 }
 
 // Test_SignalDrivenLiveness covers the paths where a signal is absent or unreliable. The
@@ -222,37 +220,4 @@ func Test_SignalDrivenBurstDrain(t *testing.T) {
 		return storage.GetStoredCount() == total
 	}, tests.WaitTimeout(t), 50*time.Millisecond,
 		"the burst must drain on one signal; %d batches were needed", total/batchSize)
-}
-
-// Test_ForcedPollingModeIsUnchanged proves the legacy constructor still selects the poll
-// loop, which is what keeps every existing caller behaving exactly as before.
-func Test_ForcedPollingModeIsUnchanged(t *testing.T) {
-	db := testutil.NewTestDB(t)
-	ctx := t.Context()
-
-	owner := "test-" + t.Name()
-	queue := newResultQueue(t, db, owner)
-	storage := NewFakeCCVNodeDataWriter()
-
-	p, err := NewProcessorWithPollInterval(
-		logger.Test(t),
-		owner,
-		verifiermonitoring.NewFakeVerifierMonitoring(),
-		testutil.NoopLatencyTracker{},
-		storage,
-		queue,
-		verifier.CoordinatorConfig{StorageBatchSize: 10, StorageRetryDelay: 100 * time.Millisecond},
-		50*time.Millisecond,
-	)
-	require.NoError(t, err)
-	require.True(t, p.forcePolling, "NewProcessorWithPollInterval must keep the legacy loop")
-
-	require.NoError(t, p.Start(ctx))
-	t.Cleanup(func() { require.NoError(t, p.Close()) })
-
-	require.NoError(t, queue.Publish(ctx, results(3)...))
-
-	require.Eventually(t, func() bool {
-		return storage.GetStoredCount() == 3
-	}, tests.WaitTimeout(t), 25*time.Millisecond)
 }

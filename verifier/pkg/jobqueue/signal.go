@@ -1,9 +1,6 @@
 package jobqueue
 
-import (
-	"context"
-	"time"
-)
+import "time"
 
 // DefaultPendingFallbackInterval is how often a consumer polls for pending work while
 // it waits for a signal. It is the liveness net for rows that become available without
@@ -64,37 +61,4 @@ func (s *workSignal) notifyAfter(d time.Duration) {
 	}
 	// The closure captures only s, so a pending timer holds nothing but a channel.
 	time.AfterFunc(d, s.notify)
-}
-
-// SignalDrivenQueue is the optional capability set that a JobQueue implementation may
-// expose so a consumer can wait for work instead of polling for it. An implementation
-// provides all of it or none of it.
-//
-// It is deliberately one interface rather than three. With separate interfaces a
-// decorator could forward ConsumePending but not ReclaimStale, and stale reclamation
-// would then stop without any signal that it had.
-//
-// Consumer contract: signal-driven consumption requires both a successful type assertion
-// and a non-nil Signals channel. A decorator that wraps a queue which cannot signal
-// satisfies this interface statically but returns nil, which the consumer must read as
-// "not supported" and fall back to polling.
-// Compile-time proof that both implementations expose the capability. The consumers
-// receive the decorator and never the queue itself, so a decorator that stopped
-// forwarding would quietly force every consumer back to polling. This makes that a
-// build failure instead.
-var (
-	_ SignalDrivenQueue[Jobable] = (*PostgresJobQueue[Jobable])(nil)
-	_ SignalDrivenQueue[Jobable] = (*ObservabilityDecorator[Jobable])(nil)
-)
-
-type SignalDrivenQueue[T Jobable] interface {
-	// Signals returns the channel that reports newly available work, or nil when the
-	// underlying queue cannot signal.
-	Signals() <-chan struct{}
-	// ConsumePending retrieves and locks up to batchSize jobs that are available now.
-	// It does not reclaim stale jobs.
-	ConsumePending(ctx context.Context, batchSize int) ([]Job[T], error)
-	// ReclaimStale retrieves and locks up to batchSize jobs that have been in
-	// 'processing' for longer than the configured LockDuration.
-	ReclaimStale(ctx context.Context, batchSize int) ([]Job[T], error)
 }

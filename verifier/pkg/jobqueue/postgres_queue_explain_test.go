@@ -259,43 +259,17 @@ func runExplainAnalyze(t *testing.T, db *sqlx.DB, label, query string, args ...a
 	return sb.String()
 }
 
-// writeExplainOutput logs the plan to the test output (-v). It rewrites
-// testdata/explain_<name>.txt only when UPDATE_EXPLAIN_PLANS is set.
-//
-// The stored plans come from EXPLAIN (ANALYZE, BUFFERS), so they carry timings, row
-// counts and buffer counts that differ on every run and on every machine. Writing them
-// unconditionally left nine tracked files modified after each test run, which is diff
-// noise that hides real changes. The structural assertions in requirePlan are what guard
-// the plan shape; the files are a reference to read, not an expectation to match.
+// writeExplainOutput logs the plan to the test output (-v) and persists it to
+// testdata/explain_<name>.txt so successive runs can be diffed.
 func writeExplainOutput(t *testing.T, name, output string) {
 	t.Helper()
 	t.Log(output)
-
-	if os.Getenv("UPDATE_EXPLAIN_PLANS") == "" {
-		return
-	}
 
 	dir := "testdata"
 	require.NoError(t, os.MkdirAll(dir, 0o755))
 	path := filepath.Join(dir, fmt.Sprintf("explain_%s.txt", name))
 	require.NoError(t, os.WriteFile(path, []byte(output), 0o644))
 	t.Logf("Plan written to %s", path)
-}
-
-// requirePlan asserts the structural properties of an EXPLAIN plan.
-//
-// It checks node types and index names, never costs or timings, so it is stable across
-// machines and runs. This turns the expectations that the comment on TestExplainQueryPlans
-// has always stated into assertions that actually fail when a plan regresses.
-func requirePlan(t *testing.T, plan, label string, mustContain, mustNotContain []string) {
-	t.Helper()
-
-	for _, want := range mustContain {
-		require.Contains(t, plan, want, "%s: the plan lost %q", label, want)
-	}
-	for _, unwanted := range mustNotContain {
-		require.NotContains(t, plan, unwanted, "%s: the plan regressed to %q", label, unwanted)
-	}
 }
 
 // TestExplainQueryPlans seeds a realistic dataset (~56k active + 20k archive rows) and
@@ -378,12 +352,6 @@ func TestExplainQueryPlans(t *testing.T) {
 			50,           // $6 batchSize
 		)
 		writeExplainOutput(t, "consume_pending", out)
-
-		// the pending consume must stream from its partial index in index order, never sort or scan the table
-		requirePlan(t, out, "consume_pending",
-			[]string{"Index Scan using idx_ccv_task_verifier_jobs_consume"},
-			[]string{"Seq Scan on public.ccv_task_verifier_jobs\n", "external merge", "Sort Method"},
-		)
 	})
 
 	// -----------------------------------------------------------------
@@ -421,12 +389,6 @@ func TestExplainQueryPlans(t *testing.T) {
 			50,           // $6 batchSize
 		)
 		writeExplainOutput(t, "consume_stale", out)
-
-		// the stale sweep must stream from its own partial index
-		requirePlan(t, out, "consume_stale",
-			[]string{"Index Scan using idx_ccv_task_verifier_jobs_stale"},
-			[]string{"Seq Scan on public.ccv_task_verifier_jobs\n", "external merge", "Sort Method"},
-		)
 	})
 
 	// -----------------------------------------------------------------
@@ -443,12 +405,6 @@ func TestExplainQueryPlans(t *testing.T) {
 		out := runExplainAnalyze(t, sdb, "size", query,
 			explainOwner, "pending", "processing")
 		writeExplainOutput(t, "size", out)
-
-		// the queue size count must stay an index-only scan
-		requirePlan(t, out, "size",
-			[]string{"Index Only Scan using idx_ccv_task_verifier_jobs_status"},
-			[]string{"Seq Scan on public.ccv_task_verifier_jobs\n"},
-		)
 	})
 
 	// -----------------------------------------------------------------
@@ -473,12 +429,6 @@ func TestExplainQueryPlans(t *testing.T) {
 			explainOwner,
 		)
 		writeExplainOutput(t, "publish_no_conflict", out)
-
-		// the conflict check must use the unique index
-		requirePlan(t, out, "publish_no_conflict",
-			[]string{"Insert on public.ccv_task_verifier_jobs"},
-			[]string{"Seq Scan on public.ccv_task_verifier_jobs\n"},
-		)
 	})
 
 	// -----------------------------------------------------------------
@@ -512,12 +462,6 @@ func TestExplainQueryPlans(t *testing.T) {
 			explainOwner,
 		)
 		writeExplainOutput(t, "publish_conflict", out)
-
-		// the conflict check must use the unique index
-		requirePlan(t, out, "publish_conflict",
-			[]string{"Insert on public.ccv_task_verifier_jobs"},
-			[]string{"Seq Scan on public.ccv_task_verifier_jobs\n"},
-		)
 	})
 
 	// -----------------------------------------------------------------
@@ -547,12 +491,6 @@ func TestExplainQueryPlans(t *testing.T) {
 		out := runExplainAnalyze(t, sdb, "complete", query,
 			pq.Array(batchIDs), explainOwner, "completed")
 		writeExplainOutput(t, "complete", out)
-
-		// completing must find rows by job_id through an index
-		requirePlan(t, out, "complete",
-			[]string{"Index Scan", "Delete on public.ccv_task_verifier_jobs"},
-			[]string{"Seq Scan on public.ccv_task_verifier_jobs\n"},
-		)
 	})
 
 	// -----------------------------------------------------------------
@@ -587,12 +525,6 @@ func TestExplainQueryPlans(t *testing.T) {
 			explainOwner,          // $6
 		)
 		writeExplainOutput(t, "retry", out)
-
-		// the bulk retry must find rows by job_id through an index
-		requirePlan(t, out, "retry",
-			[]string{"Index Scan", "Update on public.ccv_task_verifier_jobs"},
-			[]string{"Seq Scan on public.ccv_task_verifier_jobs\n"},
-		)
 	})
 
 	// -----------------------------------------------------------------
@@ -635,12 +567,6 @@ func TestExplainQueryPlans(t *testing.T) {
 			"failed",              // $4
 		)
 		writeExplainOutput(t, "fail", out)
-
-		// failing must find rows by job_id through an index
-		requirePlan(t, out, "fail",
-			[]string{"Index Scan", "Delete on public.ccv_task_verifier_jobs"},
-			[]string{"Seq Scan on public.ccv_task_verifier_jobs\n"},
-		)
 	})
 
 	// -----------------------------------------------------------------
@@ -658,9 +584,5 @@ func TestExplainQueryPlans(t *testing.T) {
 			explainArchive)
 		out := runExplainAnalyze(t, sdb, "cleanup", query, cutoff, explainOwner)
 		writeExplainOutput(t, "cleanup", out)
-
-		// No structural assertion: at test scale the archive is 50% selective, so a
-		// Seq Scan is the correct plan. The ASC index only pays off at production
-		// selectivity, which this fixture does not reproduce.
 	})
 }

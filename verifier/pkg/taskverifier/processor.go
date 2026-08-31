@@ -22,10 +22,6 @@ import (
 )
 
 const (
-	// defaultTaskPollInterval is how frequently the task verifier polls for new verification
-	// tasks. It applies only to the legacy polling loop, which NewProcessorWithPollInterval
-	// selects; NewProcessor waits for a signal instead.
-	defaultTaskPollInterval = 500 * time.Millisecond
 	// defaultTaskPendingFallbackInterval is how often the signal-driven loop polls for
 	// pending work anyway. It is the liveness net for tasks that become available without
 	// an in-process signal, so it bounds how late such a task can be picked up.
@@ -88,15 +84,10 @@ type Processor struct {
 	resultQueue jobqueue.JobQueue[protocol.VerifierNodeResult]
 
 	// Configuration
-	pollInterval    time.Duration
 	cleanupInterval time.Duration
 	retentionPeriod time.Duration
 	batchSize       int
 
-	// forcePolling keeps the legacy poll loop even when the queue can signal.
-	// NewProcessorWithPollInterval sets it, so every caller written against the polling
-	// behavior keeps exactly that behavior.
-	forcePolling bool
 	// pendingFallbackInterval and staleReclaimInterval drive the signal-driven loop.
 	pendingFallbackInterval time.Duration
 	staleReclaimInterval    time.Duration
@@ -116,31 +107,11 @@ func NewProcessor(
 	opts ...Option,
 ) (*Processor, error) {
 	p := newProcessor(
-		lggr, verifierID, verifier, monitoring, messageTracker, taskQueue, resultQueue, batchSize, defaultTaskPollInterval,
+		lggr, verifierID, verifier, monitoring, messageTracker, taskQueue, resultQueue, batchSize,
 	)
 	for _, opt := range opts {
 		opt(p)
 	}
-	return p, nil
-}
-
-// NewProcessorWithPollInterval creates a task verifier that always polls, at the given
-// interval, even when the queue can signal.
-func NewProcessorWithPollInterval(
-	lggr logger.Logger,
-	verifierID string,
-	verifier verifier.Verifier,
-	monitoring verifier.Monitoring,
-	messageTracker verifier.MessageLatencyTracker,
-	taskQueue jobqueue.JobQueue[verifier.VerificationTask],
-	resultQueue jobqueue.JobQueue[protocol.VerifierNodeResult],
-	batchSize int,
-	pollInterval time.Duration,
-) (*Processor, error) {
-	p := newProcessor(
-		lggr, verifierID, verifier, monitoring, messageTracker, taskQueue, resultQueue, batchSize, pollInterval,
-	)
-	p.forcePolling = true
 	return p, nil
 }
 
@@ -153,7 +124,6 @@ func newProcessor(
 	taskQueue jobqueue.JobQueue[verifier.VerificationTask],
 	resultQueue jobqueue.JobQueue[protocol.VerifierNodeResult],
 	batchSize int,
-	pollInterval time.Duration,
 ) *Processor {
 	return &Processor{
 		lggr:                    lggr,
@@ -163,7 +133,6 @@ func newProcessor(
 		messageTracker:          messageTracker,
 		taskQueue:               taskQueue,
 		resultQueue:             resultQueue,
-		pollInterval:            pollInterval,
 		cleanupInterval:         defaultTaskCleanupInterval,
 		retentionPeriod:         defaultTaskRetentionPeriod,
 		batchSize:               batchSize,
@@ -194,65 +163,16 @@ func (p *Processor) run() {
 	ctx, cancel := p.stopCh.NewCtx()
 	defer cancel()
 
-	// Signal-driven consumption needs both a queue that offers the capability and a live
-	// channel. A decorator wrapping a queue that cannot signal satisfies the interface but
-	// returns nil, which means "not supported".
-	sdq, ok := p.taskQueue.(jobqueue.SignalDrivenQueue[verifier.VerificationTask])
-	if p.forcePolling || !ok || sdq.Signals() == nil {
-		p.lggr.Infow("Task verifier queue consumption mode",
-			"mode", "polling",
-			"forced", p.forcePolling,
-			"capable", ok,
-			"pollInterval", p.pollInterval,
-		)
-		p.runPolling(ctx)
-		return
-	}
-
-	p.lggr.Infow("Task verifier queue consumption mode",
-		"mode", "signal-driven",
+	p.lggr.Infow("Task verifier consuming from job queue",
 		"pendingFallbackInterval", p.pendingFallbackInterval,
 		"staleReclaimInterval", p.staleReclaimInterval,
 	)
-	p.runSignalDriven(ctx, sdq)
-}
 
-// runPolling is the legacy loop. It consumes both pending and stale jobs on one timer.
-func (p *Processor) runPolling(ctx context.Context) {
-	ticker := time.NewTicker(p.pollInterval)
-	defer ticker.Stop()
+	signals := p.taskQueue.Signals()
 
-	cleanupTicker := time.NewTicker(p.cleanupInterval)
-	defer cleanupTicker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			p.lggr.Infow("Processor close signal received, shutting down")
-			return
-
-		case <-ticker.C:
-			if err := p.processBatch(ctx); err != nil {
-				p.lggr.Errorw("Error processing verification batch", "error", err)
-			}
-
-		case <-cleanupTicker.C:
-			if err := p.cleanup(ctx); err != nil {
-				p.lggr.Errorw("Error running cleanup", "error", err)
-			}
-		}
-	}
-}
-
-// runSignalDriven waits for the queue to report new work, and keeps two timers as the
-// paths that no signal can cover: a fallback poll for pending jobs, and a sweep for stale
-// locks.
-func (p *Processor) runSignalDriven(ctx context.Context, sdq jobqueue.SignalDrivenQueue[verifier.VerificationTask]) {
-	signals := sdq.Signals()
-
-	pendingTicker := jobqueue.NewJitteredTicker(p.pendingFallbackInterval, jobqueue.DefaultTickerJitter)
+	pendingTicker := time.NewTicker(p.pendingFallbackInterval)
 	defer pendingTicker.Stop()
-	staleTicker := jobqueue.NewJitteredTicker(p.staleReclaimInterval, jobqueue.DefaultTickerJitter)
+	staleTicker := time.NewTicker(p.staleReclaimInterval)
 	defer staleTicker.Stop()
 
 	cleanupTicker := time.NewTicker(p.cleanupInterval)
@@ -277,18 +197,16 @@ func (p *Processor) runSignalDriven(ctx context.Context, sdq jobqueue.SignalDriv
 			return
 
 		case <-signals:
-			p.consumePendingBatch(ctx, sdq, pendingRearm)
+			p.consumePendingBatch(ctx, pendingRearm)
 		case <-pendingRearm:
-			p.consumePendingBatch(ctx, sdq, pendingRearm)
-		case <-pendingTicker.C():
-			pendingTicker.Reset()
-			p.consumePendingBatch(ctx, sdq, pendingRearm)
+			p.consumePendingBatch(ctx, pendingRearm)
+		case <-pendingTicker.C:
+			p.consumePendingBatch(ctx, pendingRearm)
 
 		case <-staleRearm:
-			p.reclaimStaleBatch(ctx, sdq, staleRearm)
-		case <-staleTicker.C():
-			staleTicker.Reset()
-			p.reclaimStaleBatch(ctx, sdq, staleRearm)
+			p.reclaimStaleBatch(ctx, staleRearm)
+		case <-staleTicker.C:
+			p.reclaimStaleBatch(ctx, staleRearm)
 
 		case <-cleanupTicker.C:
 			if err := p.cleanup(ctx); err != nil {
@@ -299,20 +217,25 @@ func (p *Processor) runSignalDriven(ctx context.Context, sdq jobqueue.SignalDriv
 }
 
 // consumePendingBatch consumes one batch of pending jobs and asks for another look when
-// the batch was not empty.
+// the batch came back full.
 //
-// The re-arm rule is "the last look found something", not "the batch was full". Signals
-// coalesce, so one token can stand for any amount of work, and a full batch is not a
-// reliable marker either: runConsumeQuery drops rows that fail to deserialize, so a batch
-// can come back short even when the query returned a full one. Re-arming on any progress
-// covers both. It cannot spin, because consumed jobs leave the pending state.
+// Signals coalesce, so one token can stand for any amount of work: a consumer that stopped
+// after one batch would leave the rest of a burst waiting for the fallback poll. A full
+// batch means the query hit its limit and there is very likely more behind it. A short
+// batch means the queue drained, and re-arming there would spend an extra empty query on
+// every single arrival.
+//
+// One gap is accepted here: runConsumeQuery drops rows that fail to deserialize, so a batch
+// can come back short even when the query did fill. Those rows are archived on the spot so
+// it does not repeat, and the fallback poll picks up whatever was behind them.
+//
+// It cannot spin, because consumed jobs leave the pending state.
 func (p *Processor) consumePendingBatch(
 	ctx context.Context,
-	sdq jobqueue.SignalDrivenQueue[verifier.VerificationTask],
 	rearm chan<- struct{},
 ) {
 	consumeCtx, cancel := context.WithTimeout(ctx, verifier.DefaultJobQueueOperationTimeout)
-	jobs, err := sdq.ConsumePending(consumeCtx, p.batchSize)
+	jobs, err := p.taskQueue.ConsumePending(consumeCtx, p.batchSize)
 	cancel()
 	if err != nil {
 		p.lggr.Errorw("Failed to consume pending verification tasks", "error", err)
@@ -323,9 +246,11 @@ func (p *Processor) consumePendingBatch(
 	}
 
 	// Re-arm before processing, so a batch that fails part way still gets another look.
-	select {
-	case rearm <- struct{}{}:
-	default:
+	if len(jobs) == p.batchSize {
+		select {
+		case rearm <- struct{}{}:
+		default:
+		}
 	}
 
 	if err := p.processJobs(ctx, jobs); err != nil {
@@ -334,15 +259,15 @@ func (p *Processor) consumePendingBatch(
 }
 
 // reclaimStaleBatch reclaims one batch of stale locks, and asks for another look when the
-// batch was not empty so a large backlog left by a crash drains at full speed instead of
-// one batch per sweep.
+// batch came back full, so a large backlog left by a crash drains at full speed instead of
+// one batch per sweep. No signal can announce stale work, so without this the sweep
+// interval alone would bound how fast a crash is recovered from.
 func (p *Processor) reclaimStaleBatch(
 	ctx context.Context,
-	sdq jobqueue.SignalDrivenQueue[verifier.VerificationTask],
 	rearm chan<- struct{},
 ) {
 	consumeCtx, cancel := context.WithTimeout(ctx, verifier.DefaultJobQueueOperationTimeout)
-	jobs, err := sdq.ReclaimStale(consumeCtx, p.batchSize)
+	jobs, err := p.taskQueue.ReclaimStale(consumeCtx, p.batchSize)
 	cancel()
 	if err != nil {
 		p.lggr.Errorw("Failed to reclaim stale verification tasks", "error", err)
@@ -352,27 +277,17 @@ func (p *Processor) reclaimStaleBatch(
 		return
 	}
 
-	select {
-	case rearm <- struct{}{}:
-	default:
+	// Re-arm before processing, so a batch that fails part way still gets another look.
+	if len(jobs) == p.batchSize {
+		select {
+		case rearm <- struct{}{}:
+		default:
+		}
 	}
 
 	if err := p.processJobs(ctx, jobs); err != nil {
 		p.lggr.Errorw("Error processing reclaimed verification batch", "error", err)
 	}
-}
-
-func (p *Processor) processBatch(ctx context.Context) error {
-	// Consume batch of tasks from queue
-	consumeCtx, cancel := context.WithTimeout(ctx, verifier.DefaultJobQueueOperationTimeout)
-	defer cancel()
-
-	jobs, err := p.taskQueue.Consume(consumeCtx, p.batchSize)
-	if err != nil {
-		return fmt.Errorf("failed to consume from task queue: %w", err)
-	}
-
-	return p.processJobs(ctx, jobs)
 }
 
 // processJobs verifies a batch of tasks that has already been consumed and locked. Every

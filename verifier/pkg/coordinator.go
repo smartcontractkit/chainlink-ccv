@@ -39,12 +39,7 @@ const (
 	// this value plus storagewriter's stale reclaim interval.
 	resultQueueLockDuration = 1 * time.Minute
 	// queueObservabilityInterval is how often queue size metrics are logged and recorded.
-	//
-	// Each tick runs one COUNT(*) per queue. Once the consumers stopped polling, this
-	// became the largest remaining source of idle database work, so the interval is set
-	// for the cost of the query rather than for metric resolution. Queue depth changes
-	// slowly enough that a minute still shows a backlog forming.
-	queueObservabilityInterval = 60 * time.Second
+	queueObservabilityInterval = 10 * time.Second
 )
 
 type Coordinator struct {
