@@ -675,9 +675,11 @@ func TestProcessorDB_Shutdown(t *testing.T) {
 		}
 		require.NoError(t, taskQueue.Publish(ctx, task))
 
-		time.Sleep(200 * time.Millisecond)
+		// Wait for the processor to pick up and process the first task.
+		require.Eventually(t, func() bool {
+			return mockVerifier.GetProcessedCount() > 0
+		}, tests.WaitTimeout(t), 200*time.Millisecond, "Expected the processor to process the published task before close")
 		initialCount := mockVerifier.GetProcessedCount()
-		require.Greater(t, initialCount, 0)
 
 		// Close processor
 		require.NoError(t, processor.Close())
