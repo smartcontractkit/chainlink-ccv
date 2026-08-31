@@ -99,6 +99,21 @@ func TestConfig_Validate_Success(t *testing.T) {
 				},
 			},
 		},
+		{
+			// The opt-out flag is accepted by validation and defaults to false (rules enabled).
+			name: "message disablement rules disabled flag",
+			config: Config{
+				MessageDisablementRulesDisabled: true,
+				CommitteeVerifierAddresses: map[string]string{
+					"1": "0xCommittee1",
+				},
+				CommitteeConfig: chainaccess.CommitteeConfig{
+					OnRampAddresses: map[string]string{
+						"1": "0xOnRamp1",
+					},
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -399,6 +414,35 @@ address = "b:50051"
 		var back Config
 		require.NoError(t, burntsushi.Unmarshal(b, &back))
 		assert.Equal(t, want, back.Aggregators)
+	})
+}
+
+// TestConfig_MessageDisablementRulesDisabledTOML guards the design risk that the
+// message_disablement_rules_disabled boolean must decode cleanly under BOTH TOML libraries used in
+// this repo: BurntSushi/toml (standalone / devenv / changeset marshal) and pelletier/go-toml
+// (Chainlink node job-spec decoding).
+func TestConfig_MessageDisablementRulesDisabledTOML(t *testing.T) {
+	const tomlDoc = `
+verifier_id = "v1"
+message_disablement_rules_disabled = true
+`
+
+	t.Run("BurntSushi", func(t *testing.T) {
+		var c Config
+		require.NoError(t, burntsushi.Unmarshal([]byte(tomlDoc), &c))
+		assert.True(t, c.MessageDisablementRulesDisabled)
+	})
+
+	t.Run("pelletier", func(t *testing.T) {
+		var c Config
+		require.NoError(t, pelletier.Unmarshal([]byte(tomlDoc), &c))
+		assert.True(t, c.MessageDisablementRulesDisabled)
+	})
+
+	t.Run("Defaults to false when absent", func(t *testing.T) {
+		var c Config
+		require.NoError(t, burntsushi.Unmarshal([]byte("verifier_id = \"v1\"\n"), &c))
+		assert.False(t, c.MessageDisablementRulesDisabled)
 	})
 }
 
