@@ -497,6 +497,39 @@ func (_c *MockMetricLabeler_RecordHeartbeatDuration_Call) RunAndReturn(run func(
 	return _c
 }
 
+// RecordMessageDisablementRulesMismatch provides a mock function with given fields: ctx
+func (_m *MockMetricLabeler) RecordMessageDisablementRulesMismatch(ctx context.Context) {
+	_m.Called(ctx)
+}
+
+// MockMetricLabeler_RecordMessageDisablementRulesMismatch_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RecordMessageDisablementRulesMismatch'
+type MockMetricLabeler_RecordMessageDisablementRulesMismatch_Call struct {
+	*mock.Call
+}
+
+// RecordMessageDisablementRulesMismatch is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *MockMetricLabeler_Expecter) RecordMessageDisablementRulesMismatch(ctx interface{}) *MockMetricLabeler_RecordMessageDisablementRulesMismatch_Call {
+	return &MockMetricLabeler_RecordMessageDisablementRulesMismatch_Call{Call: _e.mock.On("RecordMessageDisablementRulesMismatch", ctx)}
+}
+
+func (_c *MockMetricLabeler_RecordMessageDisablementRulesMismatch_Call) Run(run func(ctx context.Context)) *MockMetricLabeler_RecordMessageDisablementRulesMismatch_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *MockMetricLabeler_RecordMessageDisablementRulesMismatch_Call) Return() *MockMetricLabeler_RecordMessageDisablementRulesMismatch_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockMetricLabeler_RecordMessageDisablementRulesMismatch_Call) RunAndReturn(run func(context.Context)) *MockMetricLabeler_RecordMessageDisablementRulesMismatch_Call {
+	_c.Run(run)
+	return _c
+}
+
 // RecordMessageE2ELatency provides a mock function with given fields: ctx, duration
 func (_m *MockMetricLabeler) RecordMessageE2ELatency(ctx context.Context, duration time.Duration) {
 	_m.Called(ctx, duration)

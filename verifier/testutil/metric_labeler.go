@@ -51,6 +51,7 @@ func (n *NoopMetricLabeler) SetLocalChainGlobalCursed(_ context.Context, _ proto
 }
 
 func (n *NoopMetricLabeler) SetMessageDisablementRulesRefreshFailure(_ context.Context, _ int64) {}
+func (n *NoopMetricLabeler) RecordMessageDisablementRulesMismatch(_ context.Context)            {}
 
 func (n *NoopMetricLabeler) IncrementActiveRequestsCounter(_ context.Context) {}
 func (n *NoopMetricLabeler) IncrementHTTPRequestCounter(_ context.Context)    {}

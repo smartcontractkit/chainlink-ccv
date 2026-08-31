@@ -352,6 +352,7 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 
 	messageRulesPoller, err := messagerules.NewMultiAggregatorRulesChecker(
 		logger.With(lggr, "component", "MultiAggregatorMessageRulesChecker"),
+		verifierMonitoring.Metrics(),
 		namedPollers...,
 	)
 	if err != nil {

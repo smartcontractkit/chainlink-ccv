@@ -5,9 +5,11 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/common"
+	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -29,7 +31,7 @@ func (s *stubChecker) Name() string                   { return "stub" }
 
 func checkerOf(t *testing.T, checkers ...NamedPoller) *MultiAggregatorRulesChecker {
 	t.Helper()
-	m, err := NewMultiAggregatorRulesChecker(logger.Test(t), checkers...)
+	m, err := NewMultiAggregatorRulesChecker(logger.Test(t), nil, checkers...)
 	require.NoError(t, err)
 	return m
 }
@@ -68,6 +70,12 @@ func TestMultiAggregatorRulesChecker_IsMessageDisabled(t *testing.T) {
 			wantErr:      nil,
 		},
 		{
+			name:         "reachable sources disagree (one disabled, one enabled) -> disabled (more restrictive)",
+			checkers:     []*stubChecker{{disabled: true}, {disabled: false}},
+			wantDisabled: true,
+			wantErr:      nil,
+		},
+		{
 			name:         "only unknown sources -> blocked (fail closed)",
 			checkers:     []*stubChecker{{err: unknown}, {err: unknown}},
 			wantDisabled: true,
@@ -95,8 +103,53 @@ func TestMultiAggregatorRulesChecker_IsMessageDisabled(t *testing.T) {
 }
 
 func TestMultiAggregatorRulesChecker_RequiresAtLeastOne(t *testing.T) {
-	_, err := NewMultiAggregatorRulesChecker(logger.Test(t))
+	_, err := NewMultiAggregatorRulesChecker(logger.Test(t), nil)
 	require.Error(t, err)
+}
+
+func TestMultiAggregatorRulesChecker_RecordsMismatchMetric(t *testing.T) {
+	newChecker := func(metrics common.MessageRulesCheckerMetrics, checkers ...*stubChecker) *MultiAggregatorRulesChecker {
+		named := make([]NamedPoller, len(checkers))
+		for i, c := range checkers {
+			named[i] = NewNamedPoller("agg", c)
+		}
+		m, err := NewMultiAggregatorRulesChecker(logger.Test(t), metrics, named...)
+		require.NoError(t, err)
+		return m
+	}
+
+	t.Run("disagreement records a mismatch", func(t *testing.T) {
+		metrics := mocks.NewMockMessageRulesCheckerMetrics(t)
+		metrics.EXPECT().RecordMessageDisablementRulesMismatch(mock.Anything).Once()
+		m := newChecker(metrics, &stubChecker{disabled: true}, &stubChecker{disabled: false})
+		disabled, err := m.IsMessageDisabled(context.Background(), protocol.Message{})
+		require.NoError(t, err)
+		assert.True(t, disabled)
+	})
+
+	t.Run("agreement records no mismatch", func(t *testing.T) {
+		metrics := mocks.NewMockMessageRulesCheckerMetrics(t)
+		m := newChecker(metrics, &stubChecker{disabled: true}, &stubChecker{disabled: true})
+		disabled, err := m.IsMessageDisabled(context.Background(), protocol.Message{})
+		require.NoError(t, err)
+		assert.True(t, disabled)
+	})
+
+	t.Run("unknown source with agreement records no mismatch", func(t *testing.T) {
+		metrics := mocks.NewMockMessageRulesCheckerMetrics(t)
+		m := newChecker(metrics, &stubChecker{disabled: false}, &stubChecker{err: common.ErrMessageRulesStateUnknown})
+		disabled, err := m.IsMessageDisabled(context.Background(), protocol.Message{})
+		require.NoError(t, err)
+		assert.False(t, disabled)
+	})
+
+	t.Run("all-unknown fail-closed records no mismatch", func(t *testing.T) {
+		metrics := mocks.NewMockMessageRulesCheckerMetrics(t)
+		m := newChecker(metrics, &stubChecker{err: common.ErrMessageRulesStateUnknown})
+		disabled, err := m.IsMessageDisabled(context.Background(), protocol.Message{})
+		require.ErrorIs(t, err, common.ErrMessageRulesStateUnknown)
+		assert.True(t, disabled)
+	})
 }
 
 func TestMultiAggregatorRulesChecker_StartCloseWiring(t *testing.T) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -34,16 +35,17 @@ type NamedPoller struct {
 type MultiAggregatorRulesChecker struct {
 	services.StateMachine
 	pollers []NamedPoller
+	metrics common.MessageRulesCheckerMetrics
 	lggr    logger.Logger
 }
 
 // NewMultiAggregatorRulesChecker builds a checker over the given per-aggregator pollers. At least
 // one poller is required.
-func NewMultiAggregatorRulesChecker(lggr logger.Logger, pollers ...NamedPoller) (*MultiAggregatorRulesChecker, error) {
+func NewMultiAggregatorRulesChecker(lggr logger.Logger, metrics common.MessageRulesCheckerMetrics, pollers ...NamedPoller) (*MultiAggregatorRulesChecker, error) {
 	if len(pollers) == 0 {
 		return nil, fmt.Errorf("multi-aggregator rules checker requires at least one aggregator poller")
 	}
-	return &MultiAggregatorRulesChecker{pollers: pollers, lggr: lggr}, nil
+	return &MultiAggregatorRulesChecker{pollers: pollers, metrics: metrics, lggr: lggr}, nil
 }
 
 // NewNamedPoller pairs a poller with an aggregator label for use with
@@ -83,27 +85,71 @@ func (m *MultiAggregatorRulesChecker) Close() error {
 }
 
 // IsMessageDisabled checks across all aggregator pollers under the identical-rules assumption.
-// Sources with unknown rules are skipped in favor of any source that has reported rules; the
-// checker only fails closed (ErrMessageRulesStateUnknown) when no source has rules.
+// All sources are consulted concurrently. Sources with unknown rules are skipped in favor of any
+// source that has reported rules; the checker fails closed (ErrMessageRulesStateUnknown) only when
+// no source has rules.
+//
+// Reachable sources that DISAGREE on the message — the identical-rules assumption violated — are
+// surfaced (logged and metered) and resolved toward the more restrictive outcome: a message is
+// disabled if any reachable source disables it.
 func (m *MultiAggregatorRulesChecker) IsMessageDisabled(ctx context.Context, message protocol.Message) (bool, error) {
-	anySuccessful := false
-	for _, p := range m.pollers {
-		disabled, err := p.poller.IsMessageDisabled(ctx, message)
-		if err != nil {
+	type sourceResult struct {
+		index    int
+		disabled bool
+		err      error
+	}
+
+	results := make([]sourceResult, len(m.pollers))
+	var wg sync.WaitGroup
+	for i, p := range m.pollers {
+		wg.Add(1)
+		go func(i int, p NamedPoller) {
+			defer wg.Done()
+			results[i].index = i
+			results[i].disabled, results[i].err = p.poller.IsMessageDisabled(ctx, message)
+		}(i, p)
+	}
+	wg.Wait()
+
+	var (
+		anySuccessful  bool
+		anyDisabled    bool
+		anyEnabled     bool
+		disabledLabels []string
+		enabledLabels  []string
+	)
+	for _, r := range results {
+		if r.err != nil {
 			// Unknown state (or any other error): this aggregator is unreachable or has not
 			// successfully polled yet. Assume all aggregators hold identical rules, so skip it
 			// and rely on any source that has reported rules.
 			continue
 		}
 		anySuccessful = true
-		if disabled {
-			return true, nil
+		label := m.pollers[r.index].label
+		if r.disabled {
+			anyDisabled = true
+			disabledLabels = append(disabledLabels, label)
+		} else {
+			anyEnabled = true
+			enabledLabels = append(enabledLabels, label)
 		}
 	}
 	if !anySuccessful {
 		return true, common.ErrMessageRulesStateUnknown
 	}
-	return false, nil
+	if anyDisabled && anyEnabled {
+		if m.metrics != nil {
+			m.metrics.RecordMessageDisablementRulesMismatch(ctx)
+		}
+		m.lggr.Warnw("Aggregators disagree on message disablement; assuming disabled (more restrictive)",
+			protocol.LogKeyMessageID, message.MustMessageID().String(),
+			protocol.LogKeySourceChain, message.SourceChainSelector,
+			protocol.LogKeyDestChain, message.DestChainSelector,
+			"disabledAggregators", disabledLabels,
+			"enabledAggregators", enabledLabels)
+	}
+	return anyDisabled, nil
 }
 
 func (m *MultiAggregatorRulesChecker) HealthReport() map[string]error {

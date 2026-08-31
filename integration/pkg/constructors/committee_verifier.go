@@ -279,6 +279,7 @@ func NewVerificationCoordinator(
 
 	messageRulesPoller, err := messagerules.NewMultiAggregatorRulesChecker(
 		logger.With(lggr, "component", "MultiAggregatorMessageRulesChecker"),
+		verifierMonitoring.Metrics(),
 		namedPollers...,
 	)
 	if err != nil {
