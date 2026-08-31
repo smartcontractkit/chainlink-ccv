@@ -56,7 +56,9 @@ address = "agg-2:50051"
 ```
 
 Each result is written to **all** aggregators (all-must-ack; idempotent retries),
-heartbeats fan out to all, and disablement rules use a fail-safe union across all.
+heartbeats fan out to all, and disablement rules are read from any reachable aggregator
+(assuming identical rules across all, so an unreachable one is skipped rather than blocking
+the job).
 
 ---
 
