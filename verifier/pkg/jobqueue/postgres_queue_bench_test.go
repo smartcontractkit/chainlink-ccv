@@ -107,7 +107,7 @@ func BenchmarkJobQueueThroughput(b *testing.B) {
 					default:
 					}
 
-					batch, err := q.Consume(ctx, batchConsume)
+					batch, err := q.ConsumePending(ctx, batchConsume)
 					if err != nil {
 						require.NoError(b, err, "consumer %d: consume error", cid)
 						return

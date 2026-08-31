@@ -40,10 +40,6 @@ func (q *fakeTaskQueue) PublishWithDelay(_ context.Context, _ time.Duration, tas
 	return q.Publish(context.Background(), tasks...)
 }
 
-func (q *fakeTaskQueue) Consume(_ context.Context, _ int) ([]jobqueue.Job[verifier.VerificationTask], error) {
-	return nil, nil
-}
-
 func (q *fakeTaskQueue) Complete(_ context.Context, _ ...string) error { return nil }
 func (q *fakeTaskQueue) Retry(_ context.Context, _ time.Duration, _ map[string]error, _ ...string) error {
 	return nil
@@ -52,6 +48,18 @@ func (q *fakeTaskQueue) Fail(_ context.Context, _ map[string]error, _ ...string)
 func (q *fakeTaskQueue) Cleanup(_ context.Context, _ time.Duration) (int, error)       { return 0, nil }
 func (q *fakeTaskQueue) Name() string                                                  { return "fake-task-queue" }
 func (q *fakeTaskQueue) Size(_ context.Context) (int, error)                           { return 0, nil }
+
+// The queue interface now covers signal-driven consumption. This fake is a producer only,
+// so the consume side stays inert.
+func (q *fakeTaskQueue) ConsumePending(_ context.Context, _ int) ([]jobqueue.Job[verifier.VerificationTask], error) {
+	return nil, nil
+}
+
+func (q *fakeTaskQueue) ReclaimStale(_ context.Context, _ int) ([]jobqueue.Job[verifier.VerificationTask], error) {
+	return nil, nil
+}
+
+func (q *fakeTaskQueue) Signals() <-chan struct{} { return nil }
 
 func (q *fakeTaskQueue) Published() []verifier.VerificationTask {
 	q.mu.Lock()
