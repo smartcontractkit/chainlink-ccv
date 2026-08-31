@@ -29,13 +29,22 @@ const (
 	// taskQueueRetryDuration is how long verification tasks are retried before giving up.
 	taskQueueRetryDuration = 7 * 24 * time.Hour // 7 days
 	// taskQueueLockDuration is how long a task can remain in 'processing' before being reclaimed.
+	// The consumer sweeps for stale locks on its own timer, so the worst-case reclaim is
+	// this value plus taskverifier's stale reclaim interval.
 	taskQueueLockDuration = 2 * time.Minute
 	// resultQueueRetryDuration is how long verification results are retried before giving up.
 	resultQueueRetryDuration = 7 * 24 * time.Hour // 7 days
 	// resultQueueLockDuration is how long a job can remain in 'processing' before being reclaimed.
+	// The consumer sweeps for stale locks on its own timer, so the worst-case reclaim is
+	// this value plus storagewriter's stale reclaim interval.
 	resultQueueLockDuration = 1 * time.Minute
 	// queueObservabilityInterval is how often queue size metrics are logged and recorded.
-	queueObservabilityInterval = 10 * time.Second
+	//
+	// Each tick runs one COUNT(*) per queue. Once the consumers stopped polling, this
+	// became the largest remaining source of idle database work, so the interval is set
+	// for the cost of the query rather than for metric resolution. Queue depth changes
+	// slowly enough that a minute still shows a backlog forming.
+	queueObservabilityInterval = 60 * time.Second
 )
 
 type Coordinator struct {

@@ -30,6 +30,12 @@ type ObservabilityDecorator[T Jobable] struct {
 	interval         time.Duration
 	queue            JobQueue[T]
 	recordSizeMetric func(ctx context.Context, size int64)
+	// signalDriven is the wrapped queue when it can signal, and nil otherwise. It is
+	// resolved once at construction so the decorator does not hide the capability from
+	// the consumer: the processors receive this decorator, never the queue itself, so a
+	// decorator that failed to forward would silently force every consumer back to
+	// polling.
+	signalDriven SignalDrivenQueue[T]
 }
 
 // NewObservabilityDecorator creates a new observability decorator for a JobQueue.
@@ -54,12 +60,19 @@ func NewObservabilityDecorator[T Jobable](
 		interval = DefaultObservabilityInterval
 	}
 
+	// A queue that cannot signal leaves this nil, which Signals reports to the consumer.
+	var signalDriven SignalDrivenQueue[T]
+	if sdq, ok := queue.(SignalDrivenQueue[T]); ok {
+		signalDriven = sdq
+	}
+
 	return &ObservabilityDecorator[T]{
 		stopCh:           make(chan struct{}),
 		queue:            queue,
 		lggr:             lggr,
 		interval:         interval,
 		recordSizeMetric: recordSizeMetric,
+		signalDriven:     signalDriven,
 	}, nil
 }
 
@@ -166,6 +179,41 @@ func (d *ObservabilityDecorator[T]) PublishWithDelay(ctx context.Context, delay 
 // Consume retrieves and locks up to batchSize jobs for processing.
 func (d *ObservabilityDecorator[T]) Consume(ctx context.Context, batchSize int) ([]Job[T], error) {
 	return d.queue.Consume(ctx, batchSize)
+}
+
+// Signals returns the wrapped queue's work signal, or nil when it cannot signal.
+// It implements SignalDrivenQueue.
+func (d *ObservabilityDecorator[T]) Signals() <-chan struct{} {
+	if d.signalDriven == nil {
+		return nil
+	}
+	return d.signalDriven.Signals()
+}
+
+// ConsumePending retrieves and locks up to batchSize jobs that are available now.
+// It implements SignalDrivenQueue.
+//
+// A wrapped queue that cannot split the two phases falls back to Consume, which still
+// returns pending jobs. The fallback keeps the decorator correct for any implementation
+// rather than only for PostgresJobQueue.
+func (d *ObservabilityDecorator[T]) ConsumePending(ctx context.Context, batchSize int) ([]Job[T], error) {
+	if d.signalDriven == nil {
+		return d.queue.Consume(ctx, batchSize)
+	}
+	return d.signalDriven.ConsumePending(ctx, batchSize)
+}
+
+// ReclaimStale retrieves and locks up to batchSize stale jobs.
+// It implements SignalDrivenQueue.
+//
+// A wrapped queue that cannot split the two phases returns nothing here, because its
+// Consume already reclaims stale jobs on every call and doing it twice would be wasted
+// work rather than extra safety.
+func (d *ObservabilityDecorator[T]) ReclaimStale(ctx context.Context, batchSize int) ([]Job[T], error) {
+	if d.signalDriven == nil {
+		return nil, nil
+	}
+	return d.signalDriven.ReclaimStale(ctx, batchSize)
 }
 
 // Complete marks jobs as successfully processed and removes them from active queue.

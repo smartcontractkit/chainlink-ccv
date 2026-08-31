@@ -75,13 +75,24 @@ err := queue.Publish(ctx, job1, job2, job3)
 
 ### 2. Consume: Pending → Processing
 
+The queue offers the two halves of consumption together or separately. Both use the same
+SQL; only the scheduling differs.
+
 ```go
-jobs, err := queue.Consume(ctx, batchSize)
+jobs, err := queue.Consume(ctx, batchSize)        // both halves, one shared budget
+
+jobs, err := queue.ConsumePending(ctx, batchSize) // pending only, full budget
+jobs, err := queue.ReclaimStale(ctx, batchSize)   // stale only, full budget
 ```
 
-**Execution order (two queries, always both run):**
+**`Consume` execution order (two queries, always both run):**
 1. **Stale reclamation** — jobs in `processing` state where `started_at + LockDuration <= NOW()`, up to `batchSize`. Runs unconditionally so crashed-worker jobs are always reclaimed even under persistent pending backlog.
 2. **Pending** — jobs in `pending` state where `available_at <= NOW()`, up to `batchSize - len(staleJobs)`. Fills the remaining capacity computed in memory from the stale result, so a full batch is returned whenever there are no stale jobs.
+
+**`ConsumePending` and `ReclaimStale`** each run one of those queries with the full
+`batchSize`. A consumer that drives the two halves on separate schedules uses these, so a
+stale sweep can fill a batch of its own while a pending backlog is still waiting. See
+[Waking a consumer](#waking-a-consumer).
 
 **Effects (both paths):**
 - Updates status to `processing`
@@ -158,6 +169,45 @@ The stale query always executes first with the full `batchSize` limit. The pendi
 
 **Configuration:**
 - `LockDuration`: How long a job can stay in `processing` before being reclaimed (default: 1 minute)
+
+A consumer that schedules the two halves separately sweeps for stale locks on its own
+timer, because stale work is produced by the passage of time and no signal can announce
+it. Worst-case reclaim is then `LockDuration` plus the sweep interval.
+
+## Waking a consumer
+
+The queue signals in process when it makes work available, so a consumer does not have to
+poll for it. `PostgresJobQueue` and `ObservabilityDecorator` both implement:
+
+```go
+type SignalDrivenQueue[T Jobable] interface {
+    Signals() <-chan struct{}
+    ConsumePending(ctx context.Context, batchSize int) ([]Job[T], error)
+    ReclaimStale(ctx context.Context, batchSize int) ([]Job[T], error)
+}
+```
+
+`JobQueue[T]` is unchanged. A consumer obtains the capability by type assertion and falls
+back to polling when the assertion fails or `Signals()` returns nil.
+
+**The signal is a hint, never a record.** Every row stays reachable by a poll, so a signal
+that is lost costs latency and never costs a job. Three rules follow from that:
+
+1. **A consumer must keep a fallback poll.** Three producers create work without any
+   in-process signal: a restart where `ON CONFLICT DO NOTHING` drops the re-published
+   rows, the out-of-process `ccv job-queue reschedule` CLI, and any other process sharing
+   the same `owner_id`.
+2. **Signals coalesce.** The channel holds at most one token, so a burst of any size
+   arrives as one wakeup. A consumer must therefore look again whenever its last look
+   returned anything, or it will process one batch and wait for the fallback.
+3. **Signals are sent after the transaction commits.** A signal sent from inside the
+   transaction would wake a consumer that reads pre-commit state on another connection,
+   finds nothing, and is never woken for those rows again.
+
+`Publish` signals immediately. `PublishWithDelay` and `Retry` schedule the wake for when
+the rows actually become available, so a short retry delay is not stretched out to the
+fallback interval. `Complete`, `Fail` and `Cleanup` never signal, because none of them can
+make a row pending.
 
 ## Configuration
 
