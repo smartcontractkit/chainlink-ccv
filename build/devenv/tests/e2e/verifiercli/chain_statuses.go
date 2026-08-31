@@ -2,9 +2,22 @@ package verifiercli
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
+)
+
+const (
+	// chainStatusRowWaitTimeout bounds how long the wait helpers poll the
+	// chain-statuses table. It must comfortably exceed the verifier's
+	// chain-status batcher flush interval (DefaultFlushInterval, 30s) plus
+	// source-reader startup so a row is guaranteed to appear.
+	chainStatusRowWaitTimeout = 90 * time.Second
+	// chainStatusRowWaitInterval is the poll interval while waiting for
+	// chain-status rows.
+	chainStatusRowWaitInterval = 2 * time.Second
 )
 
 // ChainStatusesSubcommand is the CLI path used to reach the
@@ -69,6 +82,74 @@ func (s ChainStatusesClient) SetFinalizedHeight(ctx context.Context, sel ChainSe
 		"--chain-selector", string(sel),
 		"--verifier-id", verifierID,
 		"--block-height", string(height))
+}
+
+// WaitForFirstRow polls `chain-statuses list` until at least one row is
+// present and returns the first row's chain selector.
+//
+// The CLI reads a Postgres table that the running verifier fills only on
+// its chain-status batcher flush (default 30s), so a freshly started (or
+// just restarted) verifier can expose an empty table for a little while.
+// Tests that then go on to disable / set-finalized-height - operations
+// that UPDATE an existing row - must wait for the row to appear first so
+// the CLI does not fail with "no row found".
+func (s ChainStatusesClient) WaitForFirstRow(ctx context.Context) (ChainSelector, error) {
+	lastOut, err := s.waitFor(ctx, func(out string) bool {
+		_, ok := ParseFirstListRow(out)
+		return ok
+	})
+	if err != nil {
+		return "", fmt.Errorf(
+			"no chain status row present for %s within %s; last list output: %s",
+			s.client.Container(), chainStatusRowWaitTimeout, lastOut)
+	}
+	sel, _ := ParseFirstListRow(lastOut)
+	return sel, nil
+}
+
+// WaitForRow polls `chain-statuses list` until a row for want is present.
+// The verifier's batcher flushes all monitored chains in a single flush,
+// so this also guarantees the rest of the table is populated.
+func (s ChainStatusesClient) WaitForRow(ctx context.Context, want ChainSelector) error {
+	lastOut, err := s.waitFor(ctx, func(out string) bool {
+		_, ok := ParseFirstListRow(out)
+		return ok && strings.Contains(out, string(want))
+	})
+	if err != nil {
+		return fmt.Errorf(
+			"no chain status row for selector %s within %s (container %s); last list output: %s",
+			want, chainStatusRowWaitTimeout, s.client.Container(), lastOut)
+	}
+	return nil
+}
+
+// waitFor polls `chain-statuses list` until predicate returns true for the
+// output, bounded by chainStatusRowWaitTimeout. On timeout it returns the
+// most recently seen list output so callers can include it in their error.
+func (s ChainStatusesClient) waitFor(ctx context.Context, predicate func(out string) bool) (string, error) {
+	waitCtx, cancel := context.WithTimeout(ctx, chainStatusRowWaitTimeout)
+	defer cancel()
+
+	ticker := time.NewTicker(chainStatusRowWaitInterval)
+	defer ticker.Stop()
+
+	var lastOut string
+	for {
+		select {
+		case <-waitCtx.Done():
+			return lastOut, waitCtx.Err()
+		case <-ticker.C:
+			out, err := s.List(waitCtx)
+			if err != nil {
+				// The CLI may still be booting; keep polling.
+				continue
+			}
+			lastOut = out
+			if predicate(out) {
+				return out, nil
+			}
+		}
+	}
 }
 
 // ParseFirstListRow extracts the chain selector from the first data row
