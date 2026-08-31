@@ -153,7 +153,7 @@ func (m *noopMetricLabeler) SetLocalChainGlobalCursed(ctx context.Context, local
 }
 
 func (m *noopMetricLabeler) SetMessageDisablementRulesRefreshFailure(context.Context, int64) {}
-func (m *noopMetricLabeler) RecordMessageDisablementRulesMismatch(context.Context)          {}
+func (m *noopMetricLabeler) RecordMessageDisablementRulesMismatch(context.Context)           {}
 
 func (m *noopMetricLabeler) IncrementHeartbeatsSent(ctx context.Context)                           {}
 func (m *noopMetricLabeler) IncrementHeartbeatsFailed(ctx context.Context)                         {}
