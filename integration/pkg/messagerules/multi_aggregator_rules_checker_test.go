@@ -27,14 +27,14 @@ func (s *stubChecker) Ready() error                   { return nil }
 func (s *stubChecker) HealthReport() map[string]error { return map[string]error{} }
 func (s *stubChecker) Name() string                   { return "stub" }
 
-func unionOf(t *testing.T, checkers ...NamedPoller) *UnionPollerService {
+func checkerOf(t *testing.T, checkers ...NamedPoller) *MultiAggregatorRulesChecker {
 	t.Helper()
-	u, err := NewUnionPollerService(logger.Test(t), checkers...)
+	m, err := NewMultiAggregatorRulesChecker(logger.Test(t), checkers...)
 	require.NoError(t, err)
-	return u
+	return m
 }
 
-func TestUnionPoller_IsMessageDisabled(t *testing.T) {
+func TestMultiAggregatorRulesChecker_IsMessageDisabled(t *testing.T) {
 	unknown := common.ErrMessageRulesStateUnknown
 
 	tests := []struct {
@@ -56,14 +56,20 @@ func TestUnionPoller_IsMessageDisabled(t *testing.T) {
 			wantErr:      nil,
 		},
 		{
-			name:         "disabled wins over unknown",
+			name:         "disabled wins over unknown from another source",
 			checkers:     []*stubChecker{{err: unknown}, {disabled: true}},
 			wantDisabled: true,
 			wantErr:      nil,
 		},
 		{
-			name:         "any unknown and none disable -> blocked (strict fail-safe)",
+			name:         "one up not disabled, one unknown -> relies on the up source, not disabled",
 			checkers:     []*stubChecker{{disabled: false}, {err: unknown}},
+			wantDisabled: false,
+			wantErr:      nil,
+		},
+		{
+			name:         "only unknown sources -> blocked (fail closed)",
+			checkers:     []*stubChecker{{err: unknown}, {err: unknown}},
 			wantDisabled: true,
 			wantErr:      unknown,
 		},
@@ -75,9 +81,9 @@ func TestUnionPoller_IsMessageDisabled(t *testing.T) {
 			for i, c := range tt.checkers {
 				named[i] = NewNamedPoller("agg", c)
 			}
-			u := unionOf(t, named...)
+			m := checkerOf(t, named...)
 
-			disabled, err := u.IsMessageDisabled(context.Background(), protocol.Message{})
+			disabled, err := m.IsMessageDisabled(context.Background(), protocol.Message{})
 			assert.Equal(t, tt.wantDisabled, disabled)
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
@@ -88,16 +94,16 @@ func TestUnionPoller_IsMessageDisabled(t *testing.T) {
 	}
 }
 
-func TestUnionPoller_RequiresAtLeastOne(t *testing.T) {
-	_, err := NewUnionPollerService(logger.Test(t))
+func TestMultiAggregatorRulesChecker_RequiresAtLeastOne(t *testing.T) {
+	_, err := NewMultiAggregatorRulesChecker(logger.Test(t))
 	require.Error(t, err)
 }
 
-func TestUnionPoller_StartCloseWiring(t *testing.T) {
-	u := unionOf(t,
+func TestMultiAggregatorRulesChecker_StartCloseWiring(t *testing.T) {
+	m := checkerOf(t,
 		NewNamedPoller("a", &stubChecker{}),
 		NewNamedPoller("b", &stubChecker{}),
 	)
-	require.NoError(t, u.Start(context.Background()))
-	require.NoError(t, u.Close())
+	require.NoError(t, m.Start(context.Background()))
+	require.NoError(t, m.Close())
 }
