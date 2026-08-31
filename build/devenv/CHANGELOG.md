@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.5.0](https://github.com/smartcontractkit/chainlink-ccv/compare/build/devenv/v0.4.0...build/devenv/v0.5.0) (2026-08-31)
+
+
+### Features
+
+* Batch chain status updates ([#1373](https://github.com/smartcontractkit/chainlink-ccv/issues/1373)) ([2c733db](https://github.com/smartcontractkit/chainlink-ccv/commit/2c733dbd7182c8951cc31a211bb38bfecf605b97))
+* devenv: Allow setting token verifier modifiers ([#1379](https://github.com/smartcontractkit/chainlink-ccv/issues/1379)) ([7fd4cfe](https://github.com/smartcontractkit/chainlink-ccv/commit/7fd4cfe03ca03c9f051348539f86c158e7a98b4f))
+* **devenv:** agnostic infra for failover tests ([#1378](https://github.com/smartcontractkit/chainlink-ccv/issues/1378)) ([a066cf5](https://github.com/smartcontractkit/chainlink-ccv/commit/a066cf58abb015a4fdaf91a6875964a1e3ac7a87))
+* Scope config to chains for that verifier's chain family ([#1384](https://github.com/smartcontractkit/chainlink-ccv/issues/1384)) ([49be32a](https://github.com/smartcontractkit/chainlink-ccv/commit/49be32a9332eb43df343e4291a7254f0ddb6b18e))
+
 ## [0.4.0](https://github.com/smartcontractkit/chainlink-ccv/compare/build/devenv/v0.3.0...build/devenv/v0.4.0) (2026-08-21)
 
 
