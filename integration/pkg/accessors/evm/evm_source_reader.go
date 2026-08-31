@@ -303,10 +303,7 @@ func (r *SourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, to
 				endArg = new(big.Int).SetUint64(end)
 			}
 		} else {
-			end = from + maxRange - 1
-			if end > to {
-				end = to
-			}
+			end = min(from+maxRange-1, to)
 			endArg = new(big.Int).SetUint64(end)
 		}
 
