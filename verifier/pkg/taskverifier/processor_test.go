@@ -251,8 +251,12 @@ func TestProcessorDB_RetryFailedTasks(t *testing.T) {
 
 		require.NoError(t, taskQueue.Publish(ctx, task))
 
-		// Wait a bit for retries to occur
-		time.Sleep(200 * time.Millisecond)
+		// Wait for the task to be attempted (and fail with the retryable error)
+		// before clearing errors. Clearing too early lets the first attempt
+		// succeed, which would defeat the retry under test.
+		require.Eventually(t, func() bool {
+			return mockVerifier.GetProcessedCount() >= 1
+		}, tests.WaitTimeout(t), 50*time.Millisecond, "Expected the task to be attempted while errors are set")
 
 		// Now clear the error so the next retry succeeds
 		mockVerifier.SetErrors(nil)
