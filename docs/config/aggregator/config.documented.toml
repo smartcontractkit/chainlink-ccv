@@ -110,25 +110,35 @@ maxCommitVerifierNodeResultRequestsPerBatch = 100
   # refreshInterval controls how often the in-memory registry is refreshed from the database.
   refreshInterval = "30s"
 
-# orphanRecovery configures recovery of orphaned aggregation records.
+# orphanRecovery configures automatic recovery of orphaned aggregation records:
+# commit-verification records committed without a matching aggregated report. When
+# enabled, a background process periodically re-triggers aggregation for them, for
+# example after transient aggregation failures or after migrating verification
+# records into this database. Opt-in via orphanRecovery.enabled.
 [orphanRecovery]
-  # enabled controls whether orphan recovery is enabled
+  # enabled controls whether the orphan-recovery background process runs.
+  # Enable it to self-heal verifications that failed to aggregate due to transient
+  # errors, or after migrating/restoring commit-verification records without their
+  # aggregated reports. Disabled by default because scanning adds load on the database.
   enabled = false
-  # interval controls how often orphan recovery runs
+  # interval controls how often orphan-recovery scans run. Defaults to 5m.
   interval = "5m0s"
   # checkAggregationTimeout is the timeout for each check aggregation operation.
   # Example: "5s", "100ms", "1m"
   checkAggregationTimeout = "5s"
-  # maxAge is the maximum age of orphan records to consider for recovery.
-  # Records older than this are filtered out from recovery attempts.
+  # maxAge is the maximum age of orphaned records to consider for recovery.
+  # Only records committed within the last MaxAge (i.e. newer than now - MaxAge) are
+  # recovered; older orphans are left untouched. Defaults to 168h (7 days).
   maxAge = "168h0m0s"
-  # scanTimeout is the timeout for each orphan recovery scan.
+  # scanTimeout bounds each orphan-recovery scan. Defaults to 4m.
   scanTimeout = "4m0s"
   # maxConsecutiveErrors is the maximum number of consecutive errors allowed before the orphan recovery is considered failed
   maxConsecutiveErrors = 3
   # maxOrphansPerScan caps the total number of orphans processed per scan cycle.
+  # Defaults to 10000.
   maxOrphansPerScan = 10000
   # pageSize controls the number of orphaned keys fetched per database page during scans.
+  # Defaults to 100.
   pageSize = 100
 
 # heartbeat configures the heartbeat monitoring.
