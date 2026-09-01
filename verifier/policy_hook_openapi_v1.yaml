@@ -72,7 +72,10 @@ components:
         - decision
       type: object
     Message:
-      description: The decoded CCIP message. Byte fields are hex-encoded with an 0x prefix; an empty byte field is "0x".
+      description: |
+        The decoded CCIP message. Byte fields are hex-encoded with an 0x prefix; an empty byte field is "0x".
+
+        Chain selectors are decimal strings, not JSON numbers. They are opaque 64-bit identifiers drawn from the whole uint64 range, and a JSON number is a float64 in JavaScript and in most schema-generated clients, which is exact only to 2^53. Parsing one as a number silently loses precision - about a quarter of the registered selectors are above 2^63 alone. Parse them as strings, or as a 64-bit unsigned integer if your language has one. Counters bounded by a real chain (block numbers, sequence numbers, gas limits) are JSON numbers, because they cannot reach 2^53.
       properties:
         ccip_receive_gas_limit:
           description: Gas limit reserved for the receiver's ccipReceive call on the destination chain.
@@ -89,10 +92,10 @@ components:
           description: The destination-chain execution blob.
           type: string
         dest_chain_selector:
-          description: CCIP selector of the destination chain.
-          format: int64
-          minimum: 0
-          type: integer
+          description: CCIP selector of the destination chain, as a decimal string. See the schema description for why this is not a JSON number.
+          example: "12922642891491394802"
+          pattern: "^[0-9]+$"
+          type: string
         execution_gas_limit:
           description: Gas limit reserved for execution on the destination chain.
           format: int32
@@ -121,10 +124,10 @@ components:
           minimum: 0
           type: integer
         source_chain_selector:
-          description: CCIP selector of the source chain.
-          format: int64
-          minimum: 0
-          type: integer
+          description: CCIP selector of the source chain, as a decimal string. See the schema description for why this is not a JSON number.
+          example: "3379446385462418246"
+          pattern: "^[0-9]+$"
+          type: string
         token_transfer:
           $ref: "#/components/schemas/TokenTransfer"
         version:
@@ -278,9 +281,10 @@ paths:
       description: |
         Evaluate one CCIP message and return a binary verdict.
 
-        The verifier POSTs to the exact URL configured as the verifier's policy_hook.endpoint_url
-        and appends nothing to it, so the operator may mount this operation at any path. The path
-        shown here is the recommended one.
+        The operator configures a base URL as the verifier's policy_hook.base_url, and the verifier
+        POSTs to that base with this operation's path appended. A base may carry a path prefix, so
+        an endpoint behind a gateway that routes on one is configured as
+        "https://acme.example/compliance" and serves "/compliance/v1/evaluate".
       operationId: policy-evaluate
       requestBody:
         content:
@@ -304,5 +308,5 @@ security:
     HmacSignature: []
     HmacTimestamp: []
 servers:
-  - description: The operator-hosted policy endpoint. Must be https outside local development.
+  - description: The operator-hosted policy endpoint, configured on the verifier as policy_hook.base_url. Must be https outside local development. A base may carry a path prefix.
     url: https://policy.example.com

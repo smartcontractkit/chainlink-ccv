@@ -53,6 +53,17 @@ const (
 	maxReasonLength = 256
 )
 
+// EvaluatePath is where the verifier expects the evaluate operation to be mounted, relative to
+// the operator's configured base_url. It is part of the published contract (the operationId in
+// verifier/policy_hook_openapi_v1.yaml) rather than something an operator chooses.
+//
+// The verifier used to POST the configured URL verbatim, which let an operator mount the
+// operation anywhere and made a client generated from the spec unusable, since a generated client
+// appends the operation path to a base. Splitting the two gives both: the operator still chooses
+// the base, including any prefix their gateway imposes, and the path is fixed so the spec
+// describes the request that is actually sent.
+const EvaluatePath = "/v1/evaluate"
+
 // Config is the [policy_hook] section of the committee verifier config. Its presence enables
 // the hook; a verifier with no section runs exactly as it did before the hook existed.
 //
@@ -65,9 +76,16 @@ const (
 // strings into time.Duration. Standalone decoding uses github.com/BurntSushi/toml, which does.
 // Strings keep both deployment modes and changeset marshaling on one representation.
 type Config struct {
-	// EndpointURL is the operator's policy endpoint, called once per message with a POST.
-	// Required, and must be https unless insecure_connection is set.
-	EndpointURL string `toml:"endpoint_url"`
+	// BaseURL is the root the operator serves the policy operation under. The verifier POSTs to
+	// base_url + "/v1/evaluate", once per message. Required, and must be https unless
+	// insecure_connection is set. A base that already ends in the operation path is rejected at
+	// startup rather than turned into a 404 on every message.
+	//
+	// A path prefix is allowed, so an endpoint behind a gateway that routes on one is configured
+	// as "https://acme.example/compliance" and served at "/compliance/v1/evaluate". A query
+	// string is not: it would have to survive path concatenation, and no part of the contract
+	// needs one.
+	BaseURL string `toml:"base_url"`
 	// RequestTimeout bounds one call to the endpoint, as a Go duration string (e.g. "5s").
 	// Empty uses the 5s default, and 15s is the maximum: a batch of policy calls has to finish
 	// inside the task queue's job lock, and a batch that outruns it is reclaimed and evaluated
@@ -108,25 +126,18 @@ func (c *Config) Validate() error {
 		return nil
 	}
 
-	raw := strings.TrimSpace(c.EndpointURL)
-	if raw == "" {
-		return fmt.Errorf("invalid policy_hook configuration: endpoint_url is required when the section is present")
-	}
-	parsed, err := url.Parse(raw)
+	parsed, err := c.parseBaseURL()
 	if err != nil {
-		return fmt.Errorf("invalid policy_hook configuration: endpoint_url %q is not a valid URL: %w", c.EndpointURL, err)
-	}
-	if parsed.Host == "" {
-		return fmt.Errorf("invalid policy_hook configuration: endpoint_url %q has no host", c.EndpointURL)
+		return err
 	}
 	switch parsed.Scheme {
 	case "https":
 	case "http":
 		if !c.InsecureConnection {
-			return fmt.Errorf("invalid policy_hook configuration: endpoint_url %q is http; set insecure_connection to allow it outside production", c.EndpointURL)
+			return fmt.Errorf("invalid policy_hook configuration: base_url %q is http; set insecure_connection to allow it outside production", c.BaseURL)
 		}
 	default:
-		return fmt.Errorf("invalid policy_hook configuration: endpoint_url %q must use http or https, got scheme %q", c.EndpointURL, parsed.Scheme)
+		return fmt.Errorf("invalid policy_hook configuration: base_url %q must use http or https, got scheme %q", c.BaseURL, parsed.Scheme)
 	}
 
 	timeout, err := c.RequestTimeoutDuration()
@@ -150,6 +161,48 @@ func (c *Config) Validate() error {
 	}
 
 	return nil
+}
+
+// EvaluateURL is the URL the verifier POSTs to: the configured base with the contract's operation
+// path appended. It is derived rather than configured so the spec and the request agree.
+func (c *Config) EvaluateURL() (string, error) {
+	parsed, err := c.parseBaseURL()
+	if err != nil {
+		return "", err
+	}
+	parsed.Path = strings.TrimSuffix(parsed.Path, "/") + EvaluatePath
+	return parsed.String(), nil
+}
+
+// parseBaseURL validates base_url and returns it parsed. It rejects the shapes that would make
+// appending EvaluatePath produce a URL the operator did not mean: a query or a fragment would end
+// up before the path rather than after it.
+func (c *Config) parseBaseURL() (*url.URL, error) {
+	raw := strings.TrimSpace(c.BaseURL)
+	if raw == "" {
+		return nil, fmt.Errorf("invalid policy_hook configuration: base_url is required when the section is present")
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return nil, fmt.Errorf("invalid policy_hook configuration: base_url %q is not a valid URL: %w", c.BaseURL, err)
+	}
+	if parsed.Host == "" {
+		return nil, fmt.Errorf("invalid policy_hook configuration: base_url %q has no host", c.BaseURL)
+	}
+	if parsed.RawQuery != "" || parsed.ForceQuery {
+		return nil, fmt.Errorf(
+			"invalid policy_hook configuration: base_url %q has a query string; the verifier appends %s to the base, so a query cannot be carried",
+			c.BaseURL, EvaluatePath)
+	}
+	if parsed.Fragment != "" {
+		return nil, fmt.Errorf("invalid policy_hook configuration: base_url %q has a fragment", c.BaseURL)
+	}
+	if strings.HasSuffix(strings.TrimSuffix(parsed.Path, "/"), EvaluatePath) {
+		return nil, fmt.Errorf(
+			"invalid policy_hook configuration: base_url %q already ends in %s; configure the base the operation is mounted under, which the verifier appends %s to",
+			c.BaseURL, EvaluatePath, EvaluatePath)
+	}
+	return parsed, nil
 }
 
 func parseDuration(value, field string, fallback time.Duration) (time.Duration, error) {

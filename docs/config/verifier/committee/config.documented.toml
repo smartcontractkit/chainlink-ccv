@@ -141,9 +141,15 @@ disable_finality_checkers = []
 # section is omitted from marshaled job specs when unset, so specs are unchanged for a
 # verifier that does not use it.
 [policy_hook]
-  # endpoint_url is the operator's policy endpoint, called once per message with a POST.
-  # Required, and must be https unless insecure_connection is set.
-  endpoint_url = "https://policy.example.com/v1/evaluate"
+  # base_url is the root the operator serves the policy operation under. The verifier POSTs to
+  # base_url + "/v1/evaluate", once per message. Required, and must be https unless
+  # insecure_connection is set. A base that already ends in the operation path is rejected at
+  # startup rather than turned into a 404 on every message.
+  # A path prefix is allowed, so an endpoint behind a gateway that routes on one is configured
+  # as "https://acme.example/compliance" and served at "/compliance/v1/evaluate". A query
+  # string is not: it would have to survive path concatenation, and no part of the contract
+  # needs one.
+  base_url = "https://policy.example.com"
   # request_timeout bounds one call to the endpoint, as a Go duration string (e.g. "5s").
   # Empty uses the 5s default, and 15s is the maximum: a batch of policy calls has to finish
   # inside the task queue's job lock, and a batch that outruns it is reclaimed and evaluated

@@ -69,13 +69,21 @@ type EvaluateRequest struct {
 // hex-encoded with an 0x prefix. It is a deliberate copy of the on-the-wire message rather than
 // a re-export of protocol.Message: the published contract is frozen at v1 and must not shift
 // when the internal message format gains fields.
+//
+// Numeric encoding follows one rule, and the reason is the endpoint side rather than ours. A JSON
+// number is a float64 in JavaScript and in most schema-generated clients, which is exact only up
+// to 2^53. Chain selectors are opaque 64-bit identifiers drawn from the whole range - a quarter of
+// the registered ones are above 2^63, let alone 2^53 - so they are decimal strings, as the token
+// amount already is. Counters bounded by a real chain (block numbers, sequence numbers, gas
+// limits) stay JSON numbers, because they cannot reach 2^53 and a string would only make them
+// harder to compare.
 type MessageV1 struct {
 	// Version is the CCIP message format version.
 	Version uint8 `json:"version"`
-	// SourceChainSelector is the CCIP selector of the source chain.
-	SourceChainSelector uint64 `json:"source_chain_selector"`
-	// DestChainSelector is the CCIP selector of the destination chain.
-	DestChainSelector uint64 `json:"dest_chain_selector"`
+	// SourceChainSelector is the CCIP selector of the source chain, as a decimal string.
+	SourceChainSelector string `json:"source_chain_selector"`
+	// DestChainSelector is the CCIP selector of the destination chain, as a decimal string.
+	DestChainSelector string `json:"dest_chain_selector"`
 	// SequenceNumber is the per-lane sequence number of the message.
 	SequenceNumber uint64 `json:"sequence_number"`
 	// OnRampAddress is the source-chain onRamp that emitted the message.
@@ -168,8 +176,8 @@ func blockDepth(blockNumber, finalizedBlock uint64) uint64 {
 func newMessageV1(message protocol.Message) MessageV1 {
 	out := MessageV1{
 		Version:             message.Version,
-		SourceChainSelector: uint64(message.SourceChainSelector),
-		DestChainSelector:   uint64(message.DestChainSelector),
+		SourceChainSelector: message.SourceChainSelector.String(),
+		DestChainSelector:   message.DestChainSelector.String(),
 		SequenceNumber:      uint64(message.SequenceNumber),
 		OnRampAddress:       hexAddress(message.OnRampAddress),
 		OffRampAddress:      hexAddress(message.OffRampAddress),

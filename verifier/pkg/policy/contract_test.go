@@ -49,8 +49,10 @@ func TestNewEvaluateRequest(t *testing.T) {
 	assert.Equal(t, uint64(15), req.BlockDepth)
 
 	assert.Equal(t, uint8(1), req.Message.Version)
-	assert.Equal(t, uint64(3379446385462418246), req.Message.SourceChainSelector)
-	assert.Equal(t, uint64(12922642891491394802), req.Message.DestChainSelector)
+	// Decimal strings, not JSON numbers: a selector above 2^53 is not exact as a JSON number
+	// on the endpoint side, and a quarter of the registered ones are above 2^63.
+	assert.Equal(t, "3379446385462418246", req.Message.SourceChainSelector)
+	assert.Equal(t, "12922642891491394802", req.Message.DestChainSelector)
 	assert.Equal(t, uint64(7), req.Message.SequenceNumber)
 	assert.Equal(t, "0x0102", req.Message.OnRampAddress)
 	assert.Equal(t, "0x0304", req.Message.OffRampAddress)

@@ -24,7 +24,10 @@ import (
 )
 
 const (
-	// EvaluatePath is the endpoint a verifier is pointed at with policy_hook.endpoint_url.
+	// EvaluatePath is where the fake serves the published operation. The "/policy" half is the
+	// base a verifier is pointed at with policy_hook.base_url, exercising the path-prefix case
+	// an operator behind a gateway has; "/v1/evaluate" is the contract's own path, which the
+	// verifier appends.
 	EvaluatePath = "/policy/v1/evaluate"
 	// ControlPath is the test-only control surface. It is not part of the published contract.
 	ControlPath = "/policy/v1/control"

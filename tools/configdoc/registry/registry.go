@@ -152,7 +152,7 @@ func committeeVerifierConfigInstance() any {
 		DefaultExecutorOnRampAddresses:       map[string]string{"1": "0x00000000000000000000000000000000000000e1"},
 		DisableFinalityCheckers:              []string{},
 		PolicyHook: &policy.Config{
-			EndpointURL:    "https://policy.example.com/v1/evaluate",
+			BaseURL:        "https://policy.example.com",
 			RequestTimeout: "5s",
 			RetryDelay:     "10s",
 		},

@@ -70,12 +70,12 @@ entry and re-apply the verifier config:
 alias = "acme-verifier-1"
 name = "acme-verifier-1"
   [environment_topology.nop_topology.nops.policy_hook]
-  endpoint_url = "https://policy.internal.acme.example/v1/evaluate"
+  base_url = "https://policy.internal.acme.example"
   request_timeout = "5s"
   retry_delay = "10s"
 ```
 
-`endpoint_url` is required and must be `https` unless `insecure_connection = true`, which exists for
+`base_url` is required and must be `https` unless `insecure_connection = true`, which exists for
 local development against a plain-HTTP fake. A malformed section fails config validation at job
 load, not at the first message. Operator-facing documentation is in `verifier/docs/policy_hook.md`.
 
@@ -84,7 +84,7 @@ load, not at the first message. Operator-facing documentation is in `verifier/do
 ### config-section
 
 `commit.Config.PolicyHook *policy.Config` (`toml:"policy_hook,omitempty"`). `policy.Config` has
-`endpoint_url`, `request_timeout` (default 5s, rejected above `policy.MaxRequestTimeout` of 15s),
+`base_url`, `request_timeout` (default 5s, rejected above `policy.MaxRequestTimeout` of 15s),
 `retry_delay` (default 10s), `insecure_connection`, and `require_auth`. The timeout ceiling exists because a batch
 of up to 50 messages evaluated 8 at a time is up to seven sequential waves of calls, and a batch
 that outruns the task queue's two-minute job lock is reclaimed and evaluated a second time. Durations are strings because the Chainlink node decodes the committee
@@ -99,6 +99,26 @@ that validation also runs where a job spec is built rather than run, on a machin
 verifier secrets. No credential material goes in this section: it is marshaled into the job spec and
 stored in Job Distributor.
 
+### wire contract decisions
+
+Two things about the published shape, both settled before v1 goes out because neither is cheap to
+change afterwards.
+
+Chain selectors are decimal strings, not JSON numbers. A JSON number is a float64 in JavaScript and
+in most schema-generated clients, exact only to 2^53, and 64 of the 250 registered chain selectors
+are above 2^63 alone, so an endpoint parsing one as a number corrupts it silently. The token
+`amount` was already a string for the same reason. Counters a real chain bounds (block numbers,
+sequence numbers, gas limits) stay JSON numbers. `indexer/pkg/client/internal/client.go` is the
+worked example of getting this wrong: generated from `format: int64`, its `Message` model types
+both selectors as Go `int64`.
+
+`endpoint_url` is now `base_url`, and the verifier POSTs to `base_url` + `policy.EvaluatePath`
+(`/v1/evaluate`) rather than to the configured URL verbatim. A base may carry a path prefix, so an
+endpoint behind a gateway that routes on one is configured as `https://acme.example/compliance` and
+serves `/compliance/v1/evaluate`. A base that already ends in `/v1/evaluate` and a base with a query
+string are both rejected at startup. Posting the URL verbatim was the one shape a client generated
+from the spec could not produce, since a generated client appends the operation path to a base.
+
 ### authentication
 
 Authentication of the verifier to the endpoint is optional and off unless a credential is
@@ -106,8 +126,7 @@ configured. When one is, `hmac.SignHTTPRequest` adds the three headers the aggre
 uses (`protocol/common/hmac`): `authorization` with the API key, `x-authorization-timestamp` with a
 millisecond epoch, and `x-authorization-signature-sha256` with an HMAC-SHA256 over
 `POST <request-target> <sha256-hex-of-body> <api-key> <timestamp-ms>`. The request target is
-`URL.RequestURI()`, so a path and any query in `endpoint_url` are covered and a pathless URL signs
-`/`, which is the target Go puts on the wire. The signer is new in `protocol/common/hmac`, as the
+`URL.RequestURI()`, so a gateway prefix carried in `base_url` is covered by the signature. The signer is new in `protocol/common/hmac`, as the
 HTTP counterpart of the gRPC `NewClientInterceptor` already there: one scheme, one implementation
 per transport, so an operator implements one thing and there is one place to review.
 

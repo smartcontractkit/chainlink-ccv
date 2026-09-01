@@ -122,8 +122,6 @@ func TestResolveCredential_Rejects(t *testing.T) {
 // does not match. A change to what the verifier signs fails here rather than in production
 // against an endpoint that starts rejecting every call.
 func TestHTTPChecker_SignsRequest(t *testing.T) {
-	const path = "/v1/evaluate"
-
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
@@ -158,7 +156,7 @@ func TestHTTPChecker_SignsRequest(t *testing.T) {
 	defer srv.Close()
 
 	checker, err := NewHTTPChecker(logger.Test(t), &Config{
-		EndpointURL:        srv.URL + path,
+		BaseURL:            srv.URL,
 		InsecureConnection: true,
 	}, testCredential())
 	require.NoError(t, err)
@@ -203,22 +201,28 @@ func TestHTTPChecker_NoCredentialSendsNoAuthHeaders(t *testing.T) {
 	assert.Empty(t, got.Get(hmac.HeaderSignature))
 }
 
-// The published contract promises the signature covers the request target, so an endpoint_url
-// carrying a path or a query signs it too. hmac.SignHTTPRequest has its own test; this one pins
-// the promise the contract makes to an operator, which is what would break silently if the shared
-// signer ever changed what it covers.
-func TestSignRequest_CoversPathAndQuery(t *testing.T) {
+// The published contract tells an endpoint to recompute the signature over the request target it
+// received, so what the verifier signs has to be the full path it POSTs, prefix included. An
+// operator behind a gateway that routes on a path prefix is the case that would break silently:
+// the base carries the prefix and the signature has to cover it.
+func TestSignRequest_CoversFullEvaluatePath(t *testing.T) {
 	body := []byte(`{"message_id":"0xabc"}`)
 	now := time.UnixMilli(1780000000000)
 
-	for _, tc := range []struct{ url, wantTarget string }{
-		{url: "https://policy.example.com", wantTarget: "/"},
-		{url: "https://policy.example.com/v1/evaluate", wantTarget: "/v1/evaluate"},
-		{url: "https://policy.example.com/v1/evaluate?tenant=acme", wantTarget: "/v1/evaluate?tenant=acme"},
+	for _, tc := range []struct{ base, wantTarget string }{
+		{base: "https://policy.example.com", wantTarget: "/v1/evaluate"},
+		{base: "https://policy.example.com/", wantTarget: "/v1/evaluate"},
+		{base: "https://acme.example/compliance", wantTarget: "/compliance/v1/evaluate"},
+		{base: "https://acme.example/compliance/", wantTarget: "/compliance/v1/evaluate"},
 	} {
-		t.Run(tc.url, func(t *testing.T) {
-			req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, tc.url, nil)
+		t.Run(tc.base, func(t *testing.T) {
+			endpoint, err := (&Config{BaseURL: tc.base}).EvaluateURL()
 			require.NoError(t, err)
+
+			req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, endpoint, nil)
+			require.NoError(t, err)
+			require.Equal(t, tc.wantTarget, req.URL.RequestURI(),
+				"the verifier must POST the base with the contract's operation path appended")
 			require.NoError(t, hmac.SignHTTPRequest(req, testCredential(), body, now))
 
 			want := hmac.GenerateStringToSign(

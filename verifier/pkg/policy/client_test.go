@@ -22,7 +22,7 @@ func newTestChecker(t *testing.T, srv *httptest.Server, timeout string) *HTTPChe
 	t.Helper()
 
 	checker, err := NewHTTPChecker(logger.Test(t), &Config{
-		EndpointURL:        srv.URL + "/v1/evaluate",
+		BaseURL:            srv.URL,
 		RequestTimeout:     timeout,
 		InsecureConnection: true,
 	}, nil)
@@ -35,7 +35,7 @@ func testRequest() EvaluateRequest {
 		SchemaVersion: SchemaVersion,
 		VerifierID:    "committee-verifier-1",
 		MessageID:     "0xabc",
-		Message:       MessageV1{SourceChainSelector: 1, DestChainSelector: 2},
+		Message:       MessageV1{SourceChainSelector: "1", DestChainSelector: "2"},
 	}
 }
 
@@ -265,7 +265,7 @@ func TestHTTPChecker_Evaluate_Unreachable(t *testing.T) {
 	url := srv.URL
 	srv.Close() // Nothing is listening on that port any more.
 
-	checker, err := NewHTTPChecker(logger.Test(t), &Config{EndpointURL: url, InsecureConnection: true}, nil)
+	checker, err := NewHTTPChecker(logger.Test(t), &Config{BaseURL: url, InsecureConnection: true}, nil)
 	require.NoError(t, err)
 
 	_, err = checker.Evaluate(t.Context(), testRequest())
@@ -313,9 +313,9 @@ func TestNewHTTPChecker_RejectsBadConfig(t *testing.T) {
 
 	_, err = NewHTTPChecker(logger.Test(t), &Config{}, nil)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "endpoint_url is required")
+	assert.Contains(t, err.Error(), "base_url is required")
 
-	_, err = NewHTTPChecker(logger.Test(t), &Config{EndpointURL: "http://policy.example.com"}, nil)
+	_, err = NewHTTPChecker(logger.Test(t), &Config{BaseURL: "http://policy.example.com"}, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "insecure_connection")
 }

@@ -139,15 +139,21 @@ spec.
 
 ```toml
 [policy_hook]
-  endpoint_url = "https://policy.internal.example.com/v1/evaluate"
+  base_url = "https://policy.internal.example.com"
   request_timeout = "5s"
   retry_delay = "10s"
   insecure_connection = false
   require_auth = false
 ```
 
-`endpoint_url` is required and must be `https` unless `insecure_connection` is set, which exists for
+`base_url` is required and must be `https` unless `insecure_connection` is set, which exists for
 local development against a plain-HTTP fake and should never be set in production.
+
+It is the base the operation is mounted under, not the full endpoint: the verifier POSTs to
+`<base_url>/v1/evaluate`. A path prefix is allowed, so an endpoint behind a gateway that routes on
+one is configured as `https://acme.example/compliance` and serves `/compliance/v1/evaluate`. A base
+that already ends in `/v1/evaluate` is rejected at startup rather than turned into a 404 on every
+message. A query string is rejected too, since nothing can be appended after one.
 
 `request_timeout` bounds one call, defaults to 5s, and is rejected above 15s. A node evaluates a
 batch of up to 50 messages 8 at a time, so a batch is up to seven waves of calls, and the whole
@@ -176,16 +182,16 @@ topology, which is where an operator sets their own endpoint:
 alias = "acme-verifier-1"
 name = "acme-verifier-1"
   [environment_topology.nop_topology.nops.policy_hook]
-  endpoint_url = "https://policy.internal.acme.example/v1/evaluate"
+  base_url = "https://policy.internal.acme.example"
 ```
 
 Two NOPs in the same committee can run different policies, or one can run none.
 
 ## Implementing the endpoint
 
-The verifier POSTs JSON to the configured URL verbatim, appending nothing to it, with
-`Content-Type: application/json`. The request carries the decoded CCIP message and its source-chain
-provenance so the endpoint does not have to fetch or decode anything:
+The verifier POSTs JSON to `<base_url>/v1/evaluate` with `Content-Type: application/json`. The
+request carries the decoded CCIP message and its source-chain provenance so the endpoint does not
+have to fetch or decode anything:
 
 ```json
 {
@@ -198,8 +204,8 @@ provenance so the endpoint does not have to fetch or decode anything:
   "block_depth": 15,
   "message": {
     "version": 1,
-    "source_chain_selector": 3379446385462418246,
-    "dest_chain_selector": 12922642891491394802,
+    "source_chain_selector": "3379446385462418246",
+    "dest_chain_selector": "12922642891491394802",
     "sequence_number": 42,
     "sender": "0x...",
     "receiver": "0x...",
@@ -234,6 +240,11 @@ Things worth knowing when building the endpoint:
   whatever the chain family's own rendering is. An EVM transaction hash and a Solana signature both
   arrive as hex; re-encode them yourself if you need the native form, using `source_chain_selector`
   to tell which family you are looking at.
+* Chain selectors are decimal strings, not JSON numbers, as the token `amount` already is. They are
+  opaque 64-bit identifiers using the whole range, and a JSON number is a float64 in JavaScript and
+  in most schema-generated clients, exact only to 2^53. About a quarter of the registered selectors
+  are above 2^63 alone, so parsing one as a number corrupts it silently. Block numbers, sequence
+  numbers, and gas limits stay numbers: a real chain cannot push them near 2^53.
 * `decision` must be spelled `PASS` exactly. `FAIL` is accepted in any case, because reading a
   verdict as unusable only costs a retry while reading one as PASS costs a signature.
 * `HOLD` is reserved and must not be returned. See [holding a message for
@@ -266,8 +277,8 @@ The signed string is five space-separated fields:
 POST <request-target> <sha256-hex-of-body> <api-key> <timestamp-ms>
 ```
 
-`<request-target>` is the path the request arrived on including any query string, and `/` when the
-configured `endpoint_url` has no path. `<sha256-hex-of-body>` is the hex SHA-256 of the exact request
+`<request-target>` is the path the request arrived on, which is `<base_url>`'s path plus
+`/v1/evaluate`, so a gateway prefix is covered by the signature. `<sha256-hex-of-body>` is the hex SHA-256 of the exact request
 body, taken before parsing. The secret is hex-encoded on both sides and decoded to raw bytes before
 use as the HMAC key. The signing itself is `hmac.SignHTTPRequest`, the HTTP counterpart of the gRPC
 interceptor the aggregator clients use.

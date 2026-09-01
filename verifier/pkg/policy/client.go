@@ -46,7 +46,8 @@ type Checker interface {
 	Evaluate(ctx context.Context, req EvaluateRequest) (Verdict, error)
 }
 
-// HTTPChecker calls a single operator-owned HTTPS endpoint over POST.
+// HTTPChecker calls a single operator-owned HTTPS endpoint over POST, at the operator's configured
+// base_url with the contract's EvaluatePath appended.
 //
 // It does not reuse verifier/pkg/token/http, which backs the token attestation clients: that
 // client is a per-URL singleton with a shared cool-down, and it folds every non-200 into one
@@ -80,6 +81,11 @@ func NewHTTPChecker(lggr logger.Logger, cfg *Config, cred *hmac.ClientConfig) (*
 		return nil, err
 	}
 
+	endpoint, err := cfg.EvaluateURL()
+	if err != nil {
+		return nil, err
+	}
+
 	transport, ok := http.DefaultTransport.(*http.Transport)
 	if !ok {
 		return nil, errors.New("unexpected default HTTP transport type")
@@ -88,8 +94,8 @@ func NewHTTPChecker(lggr logger.Logger, cfg *Config, cred *hmac.ClientConfig) (*
 	transport.MaxIdleConnsPerHost = 32
 
 	return &HTTPChecker{
-		lggr:     logger.With(lggr, "component", "PolicyHook", "endpoint", cfg.EndpointURL, "authenticated", cred != nil),
-		endpoint: strings.TrimSpace(cfg.EndpointURL),
+		lggr:     logger.With(lggr, "component", "PolicyHook", "endpoint", endpoint, "authenticated", cred != nil),
+		endpoint: endpoint,
 		cred:     cred,
 		client: &http.Client{
 			Timeout:   timeout,

@@ -20,7 +20,7 @@ alias = "default-verifier-1"
 name = "default-verifier-1"
 mode = "standalone"
   [environment_topology.nop_topology.nops.policy_hook]
-  endpoint_url = "http://fake:9111/policy/v1/evaluate"
+  base_url = "http://fake:9111/policy"
   request_timeout = "5s"
   # Short enough that the retry path is observable inside a test's patience, and still long
   # enough not to hammer the endpoint during an outage.
@@ -33,7 +33,7 @@ alias = "default-verifier-2"
 name = "default-verifier-2"
 mode = "standalone"
   [environment_topology.nop_topology.nops.policy_hook]
-  endpoint_url = "http://fake:9111/policy/v1/evaluate"
+  base_url = "http://fake:9111/policy"
   request_timeout = "5s"
   retry_delay = "5s"
   insecure_connection = true

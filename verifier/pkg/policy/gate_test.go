@@ -382,8 +382,8 @@ func TestWrapVerifier(t *testing.T) {
 
 	t.Run("config wraps the verifier", func(t *testing.T) {
 		got, err := WrapVerifier(lggr, "v", inner, &Config{
-			EndpointURL: "https://policy.example.com/v1/evaluate",
-			RetryDelay:  "3s",
+			BaseURL:    "https://policy.example.com",
+			RetryDelay: "3s",
 		}, mon, nil)
 		require.NoError(t, err)
 
@@ -393,7 +393,7 @@ func TestWrapVerifier(t *testing.T) {
 	})
 
 	t.Run("invalid config fails construction", func(t *testing.T) {
-		_, err := WrapVerifier(lggr, "v", inner, &Config{EndpointURL: "not a url at all"}, mon, nil)
+		_, err := WrapVerifier(lggr, "v", inner, &Config{BaseURL: "not a url at all"}, mon, nil)
 		require.Error(t, err)
 	})
 
@@ -402,7 +402,7 @@ func TestWrapVerifier(t *testing.T) {
 		// never reached the container would otherwise show up as every message on the lane
 		// retrying against a 401.
 		_, err := WrapVerifier(lggr, "v", inner, &Config{
-			EndpointURL: "https://policy.example.com/v1/evaluate",
+			BaseURL:     "https://policy.example.com",
 			RequireAuth: true,
 		}, mon, nil)
 		require.Error(t, err)
@@ -412,7 +412,7 @@ func TestWrapVerifier(t *testing.T) {
 
 	t.Run("require_auth with a credential wraps the verifier", func(t *testing.T) {
 		got, err := WrapVerifier(lggr, "v", inner, &Config{
-			EndpointURL: "https://policy.example.com/v1/evaluate",
+			BaseURL:     "https://policy.example.com",
 			RequireAuth: true,
 		}, mon, testCredential())
 		require.NoError(t, err)

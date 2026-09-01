@@ -330,10 +330,17 @@ func WrapVerifier(
 		return nil, fmt.Errorf("failed to create policy gated verifier: %w", err)
 	}
 
-	// authenticated is logged on every boot: an operator whose endpoint checks signatures needs
-	// to be able to see from the node's own logs that it is sending them.
+	// The endpoint is logged as the full URL the verifier will POST, not as the configured base:
+	// an operator debugging a 404 needs to see the path their server has to serve.
+	//
+	// authenticated is logged on every boot too: an operator whose endpoint checks signatures
+	// needs to be able to see from the node's own logs that it is sending them.
+	endpoint, err := cfg.EvaluateURL()
+	if err != nil {
+		return nil, err
+	}
 	lggr.Infow("Policy hook enabled",
-		"endpoint", cfg.EndpointURL,
+		"endpoint", endpoint,
 		"retryDelay", retryDelay,
 		"authenticated", cred != nil,
 	)
