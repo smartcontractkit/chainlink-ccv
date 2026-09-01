@@ -5,10 +5,12 @@
 // reject one message by ID, or make the endpoint fail outright so the verifier's retry path can
 // be exercised without stopping a container.
 //
-// The fake is written against the published spec rather than the verifier's Go types. An
-// operator builds their endpoint from the spec, not from verifier code, and the fake does the
-// same: it reads the two request fields it acts on and answers with the documented response
-// shape. That also keeps the fakes module free of the verifier's dependency graph.
+// The fake is written against the published spec rather than the verifier's Go types, and the
+// types below are declared here rather than imported from verifier/pkg/policy on purpose. An
+// operator builds their endpoint from the spec, not from verifier code, so a fake that shared the
+// verifier's types would agree with the verifier by construction and could not catch the contract
+// drifting away from what an operator implemented. Declaring them separately is what makes the
+// e2e test an exercise of the wire contract rather than of the verifier talking to itself.
 package policy
 
 import (
@@ -39,8 +41,9 @@ const (
 	decisionFail  = "FAIL"
 )
 
-// evaluateRequest is the subset of the v1 EvaluateRequest the fake acts on. Fields it does not
-// list are accepted and ignored, as the spec allows the verifier to send the full message.
+// evaluateRequest is the subset of the v1 EvaluateRequest the fake acts on, transcribed from the
+// spec rather than imported from verifier/pkg/policy; see the package doc for why. Fields it does
+// not list are accepted and ignored, as the spec allows the verifier to send the full message.
 type evaluateRequest struct {
 	SchemaVersion string `json:"schema_version" binding:"required"`
 	MessageID     string `json:"message_id"     binding:"required"`

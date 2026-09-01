@@ -102,23 +102,44 @@ stored in Job Distributor.
 ### authentication
 
 Authentication of the verifier to the endpoint is optional and off unless a credential is
-configured. When one is, `policy.signRequest` adds the three headers the aggregator scheme already
+configured. When one is, `hmac.SignHTTPRequest` adds the three headers the aggregator scheme already
 uses (`protocol/common/hmac`): `authorization` with the API key, `x-authorization-timestamp` with a
 millisecond epoch, and `x-authorization-signature-sha256` with an HMAC-SHA256 over
 `POST <request-target> <sha256-hex-of-body> <api-key> <timestamp-ms>`. The request target is
 `URL.RequestURI()`, so a path and any query in `endpoint_url` are covered and a pathless URL signs
-`/`, which is the target Go puts on the wire. One scheme, reused rather than invented, so an
-operator implements one thing and there is one implementation to review.
+`/`, which is the target Go puts on the wire. The signer is new in `protocol/common/hmac`, as the
+HTTP counterpart of the gRPC `NewClientInterceptor` already there: one scheme, one implementation
+per transport, so an operator implements one thing and there is one place to review.
 
 `policy.ResolveCredential(fileCred)` reads the pair from the verifier secrets file's new
-`[policy_hook]` table (`vsecrets.PolicyHookSecret`, exposed by `VerifierSecrets.PolicyHookSecret()`)
-or falls back to `VERIFIER_POLICY_HOOK_API_KEY` / `VERIFIER_POLICY_HOOK_SECRET_KEY`, file winning,
-matching how aggregator credentials resolve. An entirely absent pair returns `(nil, nil)` because
-authentication is optional; a half-supplied pair is an error rather than a silent downgrade. Errors
-name the source, never the value. `docs/config/verifier/secrets.documented.toml` carries the table.
-`cmd/verifier/servicefactory.go` resolves from the secrets file; the Chainlink-node path in
-`integration/pkg/constructors/committee_verifier.go` has no secrets file and resolves from the
-environment.
+`[policy_hook]` table (`vsecrets.PolicyHookSecret`, exposed by `VerifierSecrets.PolicyHookSecret()`).
+The file is the only source: the aggregator and database credentials read environment variables for
+deployments that predate the file, and a credential added after it has no such history to keep. An
+entirely absent pair returns `(nil, nil)` because authentication is optional; a half-supplied pair is
+an error rather than a silent downgrade. Errors name the field, never the value.
+`docs/config/verifier/secrets.documented.toml` carries the table.
+
+## Breaking change: `NewVerificationCoordinator` policy credential parameter
+
+`cmd/verifier/servicefactory.go` resolves the credential from the secrets file. The Chainlink-node
+path has no secrets file, so `constructors.NewVerificationCoordinator` takes the credential as a
+parameter, next to the aggregator credentials it already took for the same reason:
+
+```go
+vc, err := constructors.NewVerificationCoordinator(
+    lggr,
+    cfg,
+    aggregatorSecrets,
+    policyHookSecret, // new: *hmac.ClientConfig, nil for an unauthenticated or absent hook
+    signingAddress,
+    signer,
+    relayers,
+    ds,
+)
+```
+
+Pass `nil` to keep today's behavior. A `nil` credential against a `[policy_hook]` section that sets
+`require_auth` fails construction, which is the point of that setting.
 
 ### gate
 

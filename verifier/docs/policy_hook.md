@@ -225,10 +225,15 @@ Things worth knowing when building the endpoint:
 
 * Calls are idempotent from the verifier's side. A retried message arrives again with the same
   `message_id` and the same verdict is expected.
-* `message_id` in the response is optional and echoes the request. Nothing else in a response ties
-  a verdict to the message it answers, so if a cache or a proxy in front of your endpoint ever
-  crosses two responses, the echo is what stops the verifier signing on the wrong verdict. A
-  mismatch is treated as an error and retries. Endpoints that omit the field are unaffected.
+* `message_id` in the response echoes the request. Recommended, not required: nothing else in a
+  response ties a verdict to the message it answers, so if a cache or a proxy in front of your
+  endpoint ever crosses two responses, the echo is what stops the verifier signing on the wrong
+  verdict. A mismatch is treated as an error and retries. Endpoints that omit the field are
+  unaffected, which is why the contract does not require it.
+* `source_tx_hash` is the raw source-chain transaction identifier hex-encoded with an `0x` prefix,
+  whatever the chain family's own rendering is. An EVM transaction hash and a Solana signature both
+  arrive as hex; re-encode them yourself if you need the native form, using `source_chain_selector`
+  to tell which family you are looking at.
 * `decision` must be spelled `PASS` exactly. `FAIL` is accepted in any case, because reading a
   verdict as unusable only costs a retry while reading one as PASS costs a signature.
 * `HOLD` is reserved and must not be returned. See [holding a message for
@@ -264,7 +269,8 @@ POST <request-target> <sha256-hex-of-body> <api-key> <timestamp-ms>
 `<request-target>` is the path the request arrived on including any query string, and `/` when the
 configured `endpoint_url` has no path. `<sha256-hex-of-body>` is the hex SHA-256 of the exact request
 body, taken before parsing. The secret is hex-encoded on both sides and decoded to raw bytes before
-use as the HMAC key.
+use as the HMAC key. The signing itself is `hmac.SignHTTPRequest`, the HTTP counterpart of the gRPC
+interceptor the aggregator clients use.
 
 To verify a request: recompute the string, recompute the HMAC, compare in constant time, and reject
 a timestamp more than 15 seconds from your own clock. The timestamp is what makes a captured request
@@ -280,11 +286,16 @@ verifier's job spec and stored in Job Distributor. It comes from the verifier se
   secret_key = "<64 hex characters>"
 ```
 
-or, when there is no secrets file, from `VERIFIER_POLICY_HOOK_API_KEY` and
-`VERIFIER_POLICY_HOOK_SECRET_KEY`. The file wins over the environment. The API key must be a UUID and
-the secret at least 32 bytes hex-encoded, which is what the shared scheme requires; generate a pair
-with `hmac.GenerateCredentials`. Setting one of the two and not the other is a startup error rather
-than a silent downgrade to no authentication.
+The secrets file is the only source. The aggregator and database credentials also read environment
+variables, but only for deployments that predate the file; this credential is newer than the file
+and has no such history, so there is one place to put it. The API key must be a UUID and the secret
+at least 32 bytes hex-encoded, which is what the shared scheme requires; generate a pair with
+`hmac.GenerateCredentials`. Setting one of the two and not the other is a startup error rather than
+a silent downgrade to no authentication.
+
+A verifier running inside a Chainlink node has no secrets file, so its credential is a parameter to
+`constructors.NewVerificationCoordinator` and the node supplies it, the same way it supplies the
+aggregator credentials.
 
 Set `require_auth = true` on any verifier whose endpoint checks the signature. Without it a
 credential that failed to reach the container leaves the verifier calling unauthenticated, the
@@ -361,3 +372,10 @@ A `HOLD` verdict on the retry path: the enum value is reserved, the behavior is 
 replay path covers the case in the meantime. Authentication schemes beyond the one above: an
 endpoint that needs something else should sit behind a proxy that terminates it, rather than have
 the verifier learn every operator's setup.
+
+A batched request carrying several messages: the verifier does evaluate a batch, so this would cut
+the request count by up to the batch size. It is not in v1 because a batch endpoint has to answer
+partially — some verdicts ready, some not — and every partial answer needs its own rule for what the
+verifier does with the rest. One message per call keeps a verdict, a retry, and a drop attached to
+exactly one message. The call count is bounded meanwhile: 8 in flight per node, HTTP keep-alive on a
+pooled connection, and no call at all for a message the node was not going to sign.

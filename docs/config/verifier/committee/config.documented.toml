@@ -159,10 +159,10 @@ disable_finality_checkers = []
   insecure_connection = false
   # require_auth makes a missing endpoint credential fatal at startup instead of calling the
   # endpoint unauthenticated. The credential itself is never configured here: it comes from
-  # the verifier secrets file or the environment, because this section is marshaled into the
-  # job spec. Set this on any verifier whose endpoint checks the signature, so a credential
-  # that fails to reach the container is a boot failure rather than every message on the lane
-  # retrying against a 401 until the queue's deadline.
+  # the verifier secrets file, because this section is marshaled into the job spec. Set this
+  # on any verifier whose endpoint checks the signature, so a credential that fails to reach
+  # the container is a boot failure rather than every message on the lane retrying against a
+  # 401 until the queue's deadline.
   require_auth = false
 
 # on_ramp_addresses is a map the addresses of the on ramps for each chain selector.

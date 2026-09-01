@@ -101,72 +101,86 @@ func TestE2ESmoke_PolicyHook(t *testing.T) {
 			cciptestinterfaces.MessageFields{Receiver: receiver}, messageOpts, 3)
 	}
 
-	// Phase 1: the endpoint passes, so the message is attested as usual.
-	passed := send()
-	advanceBlocks(verifier.ConfirmationDepth + 5)
-	requireAggregatorResult(t, ctx, aggregatorClient, passed.MessageID,
-		"a message the policy endpoint passed must reach the aggregator")
-	require.Positive(t, policy.callsFor(t, ctx, passed.MessageID),
-		"the endpoint must actually have been consulted, otherwise this test proves nothing about the hook")
+	// The phases share one environment and run in order, but each leaves the endpoint able to
+	// pass everything, so any single one can be run on its own with -run
+	// 'TestE2ESmoke_PolicyHook/<name>' against an environment that is already up.
+	t.Run("pass is transparent", func(t *testing.T) {
+		passed := send()
+		advanceBlocks(verifier.ConfirmationDepth + 5)
+		requireAggregatorResult(t, ctx, aggregatorClient, passed.MessageID,
+			"a message the policy endpoint passed must reach the aggregator")
+		require.Positive(t, policy.callsFor(t, ctx, passed.MessageID),
+			"the endpoint must actually have been consulted, otherwise this test proves nothing about the hook")
+	})
 
-	// Phase 2: the endpoint is down. The message must be held and retried, never dropped, and it
-	// must land on its own once the endpoint recovers - no checkpoint rewind, no operator action.
-	policy.forceStatus(t, ctx, http.StatusServiceUnavailable)
-	held := send()
-	advanceBlocks(verifier.ConfirmationDepth + 5)
+	// The endpoint is down. The message must be held and retried, never dropped, and it must
+	// land on its own once the endpoint recovers - no checkpoint rewind, no operator action.
+	t.Run("endpoint outage retries", func(t *testing.T) {
+		// Whatever this phase asserts, the endpoint has to be passing again by the time it
+		// returns, or every later phase inherits the outage.
+		t.Cleanup(func() { policy.endOutage(t, context.WithoutCancel(ctx)) })
 
-	retryCtx, cancelRetry := context.WithTimeout(ctx, 90*time.Second)
-	defer cancelRetry()
-	_, err = logAssert.WaitForStage(retryCtx, held.MessageID, logasserter.PolicyHookVerdictUnavailable())
-	require.NoError(t, err, "an endpoint outage must be logged as a retry, not a drop")
+		policy.forceStatus(t, ctx, http.StatusServiceUnavailable)
+		held := send()
+		advanceBlocks(verifier.ConfirmationDepth + 5)
 
-	requireNoAggregatorResult(t, ctx, aggregatorClient, held.MessageID,
-		"a message must not be attested while the policy verdict is unknown")
-	require.Greater(t, policy.callsFor(t, ctx, held.MessageID), 2,
-		"with two gated committee nodes, more than two calls means the message was retried rather than abandoned")
+		retryCtx, cancelRetry := context.WithTimeout(ctx, 90*time.Second)
+		defer cancelRetry()
+		_, err := logAssert.WaitForStage(retryCtx, held.MessageID, logasserter.PolicyHookVerdictUnavailable())
+		require.NoError(t, err, "an endpoint outage must be logged as a retry, not a drop")
 
-	policy.endOutage(t, ctx)
-	requireAggregatorResult(t, ctx, aggregatorClient, held.MessageID,
-		"a held message must be attested once the endpoint recovers, with no checkpoint rewind")
+		requireNoAggregatorResult(t, ctx, aggregatorClient, held.MessageID,
+			"a message must not be attested while the policy verdict is unknown")
+		require.Greater(t, policy.callsFor(t, ctx, held.MessageID), 2,
+			"with two gated committee nodes, more than two calls means the message was retried rather than abandoned")
 
-	// Phase 3: the endpoint rejects one message. Register the rejection before the message
-	// reaches finality, since that is when the verifier consults the endpoint.
-	rejected := send()
-	policy.rejectMessage(t, ctx, rejected.MessageID, "sanctioned sender (devenv test)")
-	advanceBlocks(verifier.ConfirmationDepth + 5)
+		policy.endOutage(t, ctx)
+		requireAggregatorResult(t, ctx, aggregatorClient, held.MessageID,
+			"a held message must be attested once the endpoint recovers, with no checkpoint rewind")
+	})
 
-	reachedCtx, cancelReached := context.WithTimeout(ctx, 60*time.Second)
-	defer cancelReached()
-	_, err = logAssert.WaitForStage(reachedCtx, rejected.MessageID, logasserter.MessageReachedVerifier())
-	require.NoError(t, err, "message should reach the verifier before it is dropped")
+	// The endpoint rejects one message. Register the rejection before the message reaches
+	// finality, since that is when the verifier consults the endpoint.
+	t.Run("fail drops and only replay recovers", func(t *testing.T) {
+		rejected := send()
+		policy.rejectMessage(t, ctx, rejected.MessageID, "sanctioned sender (devenv test)")
+		advanceBlocks(verifier.ConfirmationDepth + 5)
 
-	dropCtx, cancelDrop := context.WithTimeout(ctx, 60*time.Second)
-	defer cancelDrop()
-	_, err = logAssert.WaitForStage(dropCtx, rejected.MessageID, logasserter.MessageDroppedByPolicyHook())
-	require.NoError(t, err, "a FAIL verdict must drop the message in the verifier")
+		reachedCtx, cancelReached := context.WithTimeout(ctx, 60*time.Second)
+		defer cancelReached()
+		_, err := logAssert.WaitForStage(reachedCtx, rejected.MessageID, logasserter.MessageReachedVerifier())
+		require.NoError(t, err, "message should reach the verifier before it is dropped")
 
-	requireNoAggregatorResult(t, ctx, aggregatorClient, rejected.MessageID,
-		"a rejected message must not be attested")
+		dropCtx, cancelDrop := context.WithTimeout(ctx, 60*time.Second)
+		defer cancelDrop()
+		_, err = logAssert.WaitForStage(dropCtx, rejected.MessageID, logasserter.MessageDroppedByPolicyHook())
+		require.NoError(t, err, "a FAIL verdict must drop the message in the verifier")
 
-	// Move the checkpoint well past the dropped message, then stop rejecting it. A drop is
-	// terminal: clearing the rejection alone must not bring the message back.
-	advanceBlocks(verifier.ConfirmationDepth*3 + 30)
-	policy.reset(t, ctx)
-	advanceBlocks(verifier.ConfirmationDepth + 5)
-	requireNoAggregatorResult(t, ctx, aggregatorClient, rejected.MessageID,
-		"a dropped message must not reappear just because the endpoint stopped rejecting it")
+		requireNoAggregatorResult(t, ctx, aggregatorClient, rejected.MessageID,
+			"a rejected message must not be attested")
 
-	// Only replay recovers it: rewind the committee checkpoint and let the message be read again.
-	require.NoError(t, committee.RewindFinalizedHeight(ctx,
-		verifiercli.FormatChainSelector(srcSelector), verifiercli.FormatBlockHeight(0)),
-		"rewind committee finalized height")
+		// Move the checkpoint well past the dropped message, then stop rejecting it. A drop is
+		// terminal: clearing the rejection alone must not bring the message back.
+		advanceBlocks(verifier.ConfirmationDepth*3 + 30)
+		policy.reset(t, ctx)
+		advanceBlocks(verifier.ConfirmationDepth + 5)
+		requireNoAggregatorResult(t, ctx, aggregatorClient, rejected.MessageID,
+			"a dropped message must not reappear just because the endpoint stopped rejecting it")
 
-	advanceBlocks(verifier.ConfirmationDepth*2 + 10)
+		// Only replay recovers it: rewind the committee checkpoint and let the message be read
+		// again.
+		require.NoError(t, committee.RewindFinalizedHeight(ctx,
+			verifiercli.FormatChainSelector(srcSelector), verifiercli.FormatBlockHeight(0)),
+			"rewind committee finalized height")
 
-	// The rescan starts at block 0 and re-verifies every message this test sent, so the replay
-	// gets the same budget the curse-recovery test allows rather than the 45s a fresh message gets.
-	replayCtx, cancelReplay := context.WithTimeout(ctx, 120*time.Second)
-	defer cancelReplay()
-	_, err = aggregatorClient.WaitForVerifierResultForMessage(replayCtx, rejected.MessageID, time.Second)
-	require.NoError(t, err, "a dropped message must be recoverable by replaying from a rewound checkpoint")
+		advanceBlocks(verifier.ConfirmationDepth*2 + 10)
+
+		// The rescan starts at block 0 and re-verifies every message this test sent, so the
+		// replay gets the same budget the curse-recovery test allows rather than the 45s a
+		// fresh message gets.
+		replayCtx, cancelReplay := context.WithTimeout(ctx, 120*time.Second)
+		defer cancelReplay()
+		_, err = aggregatorClient.WaitForVerifierResultForMessage(replayCtx, rejected.MessageID, time.Second)
+		require.NoError(t, err, "a dropped message must be recoverable by replaying from a rewound checkpoint")
+	})
 }

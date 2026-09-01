@@ -35,10 +35,16 @@ import (
 // Keying by SecretName (rather than position) avoids any ordering contract with
 // cfg.ResolvedAggregators(); the legacy single-aggregator config has an empty SecretName, so its
 // credential is keyed by "".
+//
+// policyHookSecret is the credential the operator's policy endpoint identifies this verifier by,
+// or nil to call it unauthenticated (and to fail construction when cfg.PolicyHook sets
+// require_auth). It arrives as a parameter for the same reason the aggregator credentials do:
+// this deployment mode has no verifier secrets file, so its caller owns credential resolution.
 func NewVerificationCoordinator(
 	lggr logger.Logger,
 	cfg commit.Config,
 	aggregatorSecrets map[string]*hmac.ClientConfig,
+	policyHookSecret *hmac.ClientConfig,
 	signingAddress protocol.UnknownAddress,
 	signer verifier.MessageSigner,
 	relayers map[protocol.ChainSelector]legacyevm.Chain,
@@ -229,17 +235,9 @@ func NewVerificationCoordinator(
 		return nil, fmt.Errorf("failed to create commit verifier: %w", err)
 	}
 
-	// Resolve the policy endpoint credential. This is the Chainlink-node deployment, which has
-	// no verifier secrets file, so it is the environment or nothing.
-	policyCredential, err := policy.ResolveCredential(nil)
-	if err != nil {
-		lggr.Errorw("Failed to resolve policy hook credential", "error", err)
-		return nil, fmt.Errorf("failed to resolve policy hook credential: %w", err)
-	}
-
 	// Apply the operator's policy hook. With no [policy_hook] section this returns the commit
 	// verifier unchanged.
-	gatedVerifier, err := policy.WrapVerifier(lggr, cfg.VerifierID, commitVerifier, cfg.PolicyHook, verifierMonitoring, policyCredential)
+	gatedVerifier, err := policy.WrapVerifier(lggr, cfg.VerifierID, commitVerifier, cfg.PolicyHook, verifierMonitoring, policyHookSecret)
 	if err != nil {
 		lggr.Errorw("Failed to apply policy hook", "error", err)
 		return nil, fmt.Errorf("failed to apply policy hook: %w", err)

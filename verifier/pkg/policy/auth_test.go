@@ -29,35 +29,42 @@ func testCredential() *hmac.ClientConfig {
 }
 
 func TestResolveCredential_AbsentIsNotAnError(t *testing.T) {
-	// Authentication is optional, so a verifier with no credential anywhere has to start and
-	// call the endpoint unauthenticated rather than fail.
-	t.Setenv(APIKeyEnvVar, "")
-	t.Setenv(SecretKeyEnvVar, "")
-
-	cred, err := ResolveCredential(nil)
-	require.NoError(t, err)
-	assert.Nil(t, cred)
+	// Authentication is optional, so a verifier with no credential has to start and call the
+	// endpoint unauthenticated rather than fail. An operator who wants the absence to be fatal
+	// sets require_auth instead.
+	for _, tc := range []struct {
+		file *vsecrets.PolicyHookSecret
+		name string
+	}{
+		{name: "no [policy_hook] table", file: nil},
+		{name: "empty [policy_hook] table", file: &vsecrets.PolicyHookSecret{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cred, err := ResolveCredential(tc.file)
+			require.NoError(t, err)
+			assert.Nil(t, cred)
+		})
+	}
 }
 
-func TestResolveCredential_FromEnv(t *testing.T) {
-	t.Setenv(APIKeyEnvVar, testAPIKey)
-	t.Setenv(SecretKeyEnvVar, testSecret)
-
-	cred, err := ResolveCredential(nil)
+func TestResolveCredential_FromSecretsFile(t *testing.T) {
+	cred, err := ResolveCredential(&vsecrets.PolicyHookSecret{APIKey: testAPIKey, SecretKey: testSecret})
 	require.NoError(t, err)
 	require.NotNil(t, cred)
 	assert.Equal(t, testAPIKey, cred.APIKey)
 	assert.Equal(t, testSecret, cred.Secret)
 }
 
-func TestResolveCredential_FileWinsOverEnv(t *testing.T) {
-	t.Setenv(APIKeyEnvVar, "11111111-1111-1111-1111-111111111111")
-	t.Setenv(SecretKeyEnvVar, "1111111111111111111111111111111111111111111111111111111111111111")
+// The secrets file is the only source. This credential postdates the file, so unlike the
+// aggregator and database credentials it never had an environment-variable contract to keep, and
+// an operator has exactly one place to look.
+func TestResolveCredential_IgnoresEnvironment(t *testing.T) {
+	t.Setenv("VERIFIER_POLICY_HOOK_API_KEY", testAPIKey)
+	t.Setenv("VERIFIER_POLICY_HOOK_SECRET_KEY", testSecret)
 
-	cred, err := ResolveCredential(&vsecrets.PolicyHookSecret{APIKey: testAPIKey, SecretKey: testSecret})
+	cred, err := ResolveCredential(nil)
 	require.NoError(t, err)
-	require.NotNil(t, cred)
-	assert.Equal(t, testAPIKey, cred.APIKey, "the secrets file must win, as it does for aggregator credentials")
+	assert.Nil(t, cred)
 }
 
 func TestResolveCredential_Rejects(t *testing.T) {
@@ -196,8 +203,10 @@ func TestHTTPChecker_NoCredentialSendsNoAuthHeaders(t *testing.T) {
 	assert.Empty(t, got.Get(hmac.HeaderSignature))
 }
 
-// The signature covers the request target, so an endpoint_url carrying a query signs it too.
-// Getting this wrong would make every call to such an endpoint fail verification.
+// The published contract promises the signature covers the request target, so an endpoint_url
+// carrying a path or a query signs it too. hmac.SignHTTPRequest has its own test; this one pins
+// the promise the contract makes to an operator, which is what would break silently if the shared
+// signer ever changed what it covers.
 func TestSignRequest_CoversPathAndQuery(t *testing.T) {
 	body := []byte(`{"message_id":"0xabc"}`)
 	now := time.UnixMilli(1780000000000)
@@ -210,7 +219,7 @@ func TestSignRequest_CoversPathAndQuery(t *testing.T) {
 		t.Run(tc.url, func(t *testing.T) {
 			req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, tc.url, nil)
 			require.NoError(t, err)
-			require.NoError(t, signRequest(req, testCredential(), body, now))
+			require.NoError(t, hmac.SignHTTPRequest(req, testCredential(), body, now))
 
 			want := hmac.GenerateStringToSign(
 				http.MethodPost, tc.wantTarget, hmac.ComputeBodyHash(body), testAPIKey, "1780000000000")

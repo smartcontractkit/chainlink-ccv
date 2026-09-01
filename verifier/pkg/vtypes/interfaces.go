@@ -37,6 +37,11 @@ type Verifier interface {
 // uses it to skip work on a task that is not going to be signed regardless of what the
 // decorator does. Verifier implementations are not required to provide it.
 //
+// "Validate" and "verify" name the two halves of one operation here, not two different opinions
+// about the task: ValidateTask is the part of VerifyMessages that can run without the signer, and
+// VerifyMessages is that part plus signing. They are not alternatives and a caller does not choose
+// between them.
+//
 // An implementation must run these checks out of the same code its VerifyMessages runs, so that
 // ValidateTask returning nil never accepts more than VerifyMessages accepts. A second copy of
 // the checks that drifted from the first would let a decorator skip its work on a task that

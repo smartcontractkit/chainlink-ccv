@@ -127,15 +127,21 @@ func (g *GatedVerifier) VerifyMessages(ctx context.Context, tasks []vtypes.Verif
 }
 
 // partition splits a batch into the tasks that need a verdict and the tasks the wrapped verifier
-// has already said it will reject. The second group skips the endpoint and goes straight to the
-// wrapped verifier, which fails each one with the error and the accounting an ungated verifier
-// would have produced. The gate never synthesizes that error itself, so there is nothing here to
-// drift out of step with the verifier's own rejection path.
+// has already said it will reject.
 //
-// Skipping is safe in only one direction, and this is the direction: a task the wrapped verifier
-// rejects can never be signed, whatever the endpoint would have said about it. The reverse, a
-// precheck stricter than the verifier, would skip the endpoint on a task that then gets signed,
-// which is why vtypes.TaskValidator requires the two to be one implementation.
+// The second group is still forwarded to the wrapped verifier, and that is the point: the gate
+// has to return one result per task, and the result an invalid task deserves is the verifier's
+// own error, not one the gate made up. So it lets the verifier reject the task itself, which
+// produces the same error string, the same retryable-or-not classification, and the same metrics
+// an ungated verifier would have produced for it. The verifier is going to redo the validation,
+// which is cheap; what is skipped is the endpoint call, which is not. Synthesizing the rejection
+// here instead would save nothing and would give the gate a second copy of the verifier's error
+// handling to keep in step.
+//
+// Skipping the call is safe in only one direction, and this is the direction: a task the wrapped
+// verifier rejects can never be signed, whatever the endpoint would have said about it. The
+// reverse, a precheck stricter than the verifier, would skip the endpoint on a task that then
+// gets signed, which is why vtypes.TaskValidator requires the two to be one implementation.
 func (g *GatedVerifier) partition(ctx context.Context, tasks []vtypes.VerificationTask) (evaluate, invalid []vtypes.VerificationTask) {
 	if g.precheck == nil {
 		return tasks, nil
@@ -303,13 +309,12 @@ func WrapVerifier(
 	if cfg == nil {
 		return inner, nil
 	}
-	// Checked here rather than in Config.Validate because the credential lives in the
-	// environment or the secrets file, and Config.Validate also runs where a job spec is built
-	// rather than run, on a machine that has no business holding the verifier's secrets.
+	// Checked here rather than in Config.Validate because the credential lives in the secrets
+	// file, and Config.Validate also runs where a job spec is built rather than run, on a
+	// machine that has no business holding the verifier's secrets.
 	if cfg.RequireAuth && cred == nil {
-		return nil, fmt.Errorf(
-			"policy_hook sets require_auth but no credential is configured; supply [policy_hook] api_key and secret_key in the verifier secrets file, or the %s* environment variables",
-			envVarPrefix)
+		return nil, errors.New(
+			"policy_hook sets require_auth but no credential is configured; supply [policy_hook] api_key and secret_key in the verifier secrets file")
 	}
 
 	checker, err := NewHTTPChecker(lggr, cfg, cred)

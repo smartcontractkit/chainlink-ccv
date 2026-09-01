@@ -48,7 +48,10 @@ type EvaluateRequest struct {
 	VerifierID string `json:"verifier_id"`
 	// MessageID is the CCIP message ID, 32 bytes hex-encoded with an 0x prefix.
 	MessageID string `json:"message_id"`
-	// SourceTxHash is the hash of the source-chain transaction that emitted the message.
+	// SourceTxHash identifies the source-chain transaction that emitted the message: the raw
+	// identifier bytes the source chain reported, hex-encoded with an 0x prefix, whatever the
+	// chain family's own convention for rendering them is. An endpoint that wants Solana's
+	// base58 signature rather than hex re-encodes these bytes itself.
 	SourceTxHash string `json:"source_tx_hash"`
 	// SourceBlockNumber is the source-chain block the message was emitted in.
 	SourceBlockNumber uint64 `json:"source_block_number"`
@@ -122,11 +125,16 @@ type TokenTransferV1 struct {
 type EvaluateResponse struct {
 	// Decision is PASS or FAIL.
 	Decision Decision `json:"decision"`
-	// MessageID optionally echoes the request's message_id. Nothing else in the response ties a
-	// verdict to the message it was asked about, so an endpoint that sets it lets the verifier
-	// catch a verdict that belongs to a different message - a cache, a proxy, or a load balancer
-	// in front of the endpoint that crossed two requests. A mismatch is an error, which retries;
+	// MessageID echoes the request's message_id. Nothing else in the response ties a verdict to
+	// the message it was asked about, so an endpoint that sets it lets the verifier catch a
+	// verdict that belongs to a different message - a cache, a proxy, or a load balancer in
+	// front of the endpoint that crossed two requests. A mismatch is an error, which retries;
 	// an endpoint that omits the field skips the check.
+	//
+	// Recommended but not required, and omitempty here is what publishes that: it is a safety
+	// net rather than part of the verdict, and requiring it would reject an otherwise correct
+	// endpoint for leaving out a field that only guards against a misconfiguration in front of
+	// it.
 	MessageID string `json:"message_id,omitempty"`
 	// Reason optionally explains a FAIL. It is logged by the verifier and never signed.
 	Reason string `json:"reason,omitempty"`

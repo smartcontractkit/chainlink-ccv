@@ -3,6 +3,7 @@ package policy
 import (
 	"encoding/json"
 	"math/big"
+	"slices"
 	"strings"
 	"testing"
 
@@ -176,4 +177,77 @@ func TestTruncateReason(t *testing.T) {
 	got := truncateReason(long)
 	assert.Len(t, got, maxReasonLength+len("...(truncated)"))
 	assert.True(t, strings.HasSuffix(got, "...(truncated)"))
+}
+
+// MessageV1 and TokenTransferV1 are copies of protocol.Message and protocol.TokenTransfer, frozen
+// at v1 so the published contract does not shift when the internal message format changes. A copy
+// only stays honest if divergence is deliberate, which is what these two tests enforce: every
+// field on the internal type is either carried in the published one under the same JSON name, or
+// listed below as knowingly left out.
+//
+// Adding a field to protocol.Message therefore fails here, and the fix is a decision rather than a
+// rename. Carrying it means adding it to the published type, the spec, and the docs; leaving it
+// out means adding it to the omitted set with the reason. Neither is something to do by accident.
+var (
+	// The length fields are encoding artifacts of protocol.Message.Encode: on the wire each
+	// variable-length field is prefixed with its own length. In JSON the value carries its own
+	// length, so publishing them would put a second, contradictable copy of it in the contract.
+	omittedFromMessageV1 = []string{
+		"data_length",
+		"dest_blob_length",
+		"off_ramp_address_length",
+		"on_ramp_address_length",
+		"receiver_length",
+		"sender_length",
+		"token_transfer_length",
+	}
+	omittedFromTokenTransferV1 = []string{
+		"dest_token_address_length",
+		"extra_data_length",
+		"source_pool_address_length",
+		"source_token_address_length",
+		"token_receiver_length",
+	}
+)
+
+func TestPublishedMessageCoversProtocolMessage(t *testing.T) {
+	for _, tc := range []struct {
+		internal  any
+		published any
+		name      string
+		omitted   []string
+	}{
+		{
+			name:      "Message",
+			internal:  protocol.Message{},
+			published: MessageV1{},
+			omitted:   omittedFromMessageV1,
+		},
+		{
+			name:      "TokenTransfer",
+			internal:  protocol.TokenTransfer{},
+			published: TokenTransferV1{},
+			omitted:   omittedFromTokenTransferV1,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			internal, _ := jsonFields(t, tc.internal)
+			published, _ := jsonFields(t, tc.published)
+
+			want := slices.Clone(published)
+			want = append(want, tc.omitted...)
+			slices.Sort(want)
+
+			assert.Equal(t, want, internal,
+				"every field of the internal %s must be published or listed as deliberately omitted; "+
+					"a field added to protocol.%s needs a decision, not a test edit", tc.name, tc.name)
+
+			// The reverse direction: the published type may not invent a field the internal one
+			// does not have, which would be a contract promising data the verifier cannot fill.
+			for _, name := range published {
+				assert.Contains(t, internal, name,
+					"published %s field %q has no protocol.%s field to fill it", tc.name, name, tc.name)
+			}
+		})
+	}
 }

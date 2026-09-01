@@ -33,9 +33,16 @@ type Verdict struct {
 // must never read it as a rejection: an endpoint outage that dropped messages would be
 // indistinguishable from a compliance decision, and dropped messages need an operator to replay
 // them.
+//
+// An implementation owns its own per-call deadline and must not rely on the caller for one. The
+// ctx it is handed carries cancellation but not necessarily a deadline: GatedVerifier passes the
+// batch's context straight through, so a Checker that waited on ctx alone would let one slow
+// endpoint hold a verification job past the task queue's lock. HTTPChecker bounds each call with
+// Config.RequestTimeout (5s by default, 15s maximum).
 type Checker interface {
 	// Evaluate returns the endpoint's verdict for one message, or an error if no verdict was
-	// obtained. See the interface doc for why an error is not a rejection.
+	// obtained. It must return within its own timeout regardless of ctx, and an error is never
+	// a rejection; see the interface doc for both.
 	Evaluate(ctx context.Context, req EvaluateRequest) (Verdict, error)
 }
 
@@ -112,7 +119,7 @@ func (c *HTTPChecker) Evaluate(ctx context.Context, req EvaluateRequest) (Verdic
 	httpReq.Header.Set("Accept", "application/json")
 	// Signed after the body and the URL are fixed, because the signature covers both.
 	if c.cred != nil {
-		if err := signRequest(httpReq, c.cred, body, time.Now()); err != nil {
+		if err := hmac.SignHTTPRequest(httpReq, c.cred, body, time.Now()); err != nil {
 			return Verdict{}, fmt.Errorf("failed to sign policy request for message %s: %w", req.MessageID, err)
 		}
 	}
