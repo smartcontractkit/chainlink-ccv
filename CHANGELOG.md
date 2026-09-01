@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.7.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.6.0...v0.7.0) (2026-09-01)
+
+
+### Features
+
+* Signal based job queue ([#1391](https://github.com/smartcontractkit/chainlink-ccv/issues/1391)) ([4d0dcce](https://github.com/smartcontractkit/chainlink-ccv/commit/4d0dcce7c395d019ba67247b06b3f8cdd42bcd52))
+
+
+### Bug Fixes
+
+* **verifier:** attest using any reachable aggregator's rules ([#1388](https://github.com/smartcontractkit/chainlink-ccv/issues/1388)) ([84b6b7c](https://github.com/smartcontractkit/chainlink-ccv/commit/84b6b7c8dd4ea6d2a15e599b636e0d6cd43d2795))
+
 ## [0.6.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.5.0...v0.6.0) (2026-08-28)
 
 
