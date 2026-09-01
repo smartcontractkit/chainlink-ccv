@@ -119,27 +119,25 @@ entirely absent pair returns `(nil, nil)` because authentication is optional; a 
 an error rather than a silent downgrade. Errors name the field, never the value.
 `docs/config/verifier/secrets.documented.toml` carries the table.
 
-## Breaking change: `NewVerificationCoordinator` policy credential parameter
+### `NewVerificationCoordinator` policy credential (additive, not breaking)
 
 `cmd/verifier/servicefactory.go` resolves the credential from the secrets file. The Chainlink-node
-path has no secrets file, so `constructors.NewVerificationCoordinator` takes the credential as a
-parameter, next to the aggregator credentials it already took for the same reason:
+path has no secrets file, so `constructors.NewVerificationCoordinator` accepts one from its caller,
+as it already does for the aggregator credentials. It arrives as a variadic option rather than a
+parameter, because the constructor's only caller lives in the Chainlink node repo and the two repos
+cannot land a signature change at the same instant:
 
 ```go
 vc, err := constructors.NewVerificationCoordinator(
-    lggr,
-    cfg,
-    aggregatorSecrets,
-    policyHookSecret, // new: *hmac.ClientConfig, nil for an unauthenticated or absent hook
-    signingAddress,
-    signer,
-    relayers,
-    ds,
+    lggr, cfg, aggregatorSecrets, signingAddress, signer, relayers, ds,
+    constructors.WithPolicyHookCredential(cred), // new, optional
 )
 ```
 
-Pass `nil` to keep today's behavior. A `nil` credential against a `[policy_hook]` section that sets
-`require_auth` fails construction, which is the point of that setting.
+Existing call sites are unchanged and keep compiling. Omitting the option calls the endpoint
+unauthenticated, which is also what an absent credential does in the standalone path; a
+`[policy_hook]` section that sets `require_auth` with no credential fails construction, which is
+the point of that setting.
 
 ### gate
 
