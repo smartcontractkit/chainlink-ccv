@@ -181,24 +181,38 @@ type MessageDisablementRulesConfig struct {
 	RefreshInterval time.Duration `toml:"refreshInterval"`
 }
 
+// OrphanRecoveryConfig configures automatic recovery of "orphaned" verification
+// records: commit-verification records that were committed but never produced an
+// aggregated report. This happens when aggregation fails with a transient error,
+// or when verification records are migrated or restored into the aggregator's
+// database without their aggregated reports. When Enabled, the aggregator runs a
+// background process that periodically scans for these orphans and re-triggers
+// aggregation for them. It is disabled by default and should be enabled only when
+// self-healing of such records is desired, since each scan adds load on the database.
 type OrphanRecoveryConfig struct {
-	// Enabled controls whether orphan recovery is enabled
+	// Enabled controls whether the orphan-recovery background process runs.
+	// Enable it to self-heal verifications that failed to aggregate due to transient
+	// errors, or after migrating/restoring commit-verification records without their
+	// aggregated reports. Disabled by default because scanning adds load on the database.
 	Enabled bool `toml:"enabled"`
-	// Interval controls how often orphan recovery runs
+	// Interval controls how often orphan-recovery scans run. Defaults to 5m.
 	Interval time.Duration `toml:"interval"`
 	// CheckAggregationTimeout is the timeout for each check aggregation operation.
 	// Example: "5s", "100ms", "1m"
 	CheckAggregationTimeout time.Duration `toml:"checkAggregationTimeout"`
-	// MaxAge is the maximum age of orphan records to consider for recovery.
-	// Records older than this are filtered out from recovery attempts.
+	// MaxAge is the maximum age of orphaned records to consider for recovery.
+	// Only records committed within the last MaxAge (i.e. newer than now - MaxAge) are
+	// recovered; older orphans are left untouched. Defaults to 168h (7 days).
 	MaxAge time.Duration `toml:"maxAge"`
-	// ScanTimeout is the timeout for each orphan recovery scan.
+	// ScanTimeout bounds each orphan-recovery scan. Defaults to 4m.
 	ScanTimeout time.Duration `toml:"scanTimeout"`
 	// MaxConsecutiveErrors is the maximum number of consecutive errors allowed before the orphan recovery is considered failed
 	MaxConsecutiveErrors uint `toml:"maxConsecutiveErrors"`
 	// MaxOrphansPerScan caps the total number of orphans processed per scan cycle.
+	// Defaults to 10000.
 	MaxOrphansPerScan int `toml:"maxOrphansPerScan"`
 	// PageSize controls the number of orphaned keys fetched per database page during scans.
+	// Defaults to 100.
 	PageSize int `toml:"pageSize"`
 }
 
@@ -437,7 +451,11 @@ type AggregatorConfig struct {
 	Aggregation AggregationConfig `toml:"aggregation"`
 	// MessageDisablementRules configures the message-disablement registry refresh.
 	MessageDisablementRules MessageDisablementRulesConfig `toml:"messageDisablementRules"`
-	// OrphanRecovery configures recovery of orphaned aggregation records.
+	// OrphanRecovery configures automatic recovery of orphaned aggregation records:
+	// commit-verification records committed without a matching aggregated report. When
+	// enabled, a background process periodically re-triggers aggregation for them, for
+	// example after transient aggregation failures or after migrating verification
+	// records into this database. Opt-in via orphanRecovery.enabled.
 	OrphanRecovery OrphanRecoveryConfig `toml:"orphanRecovery"`
 	// Heartbeat configures the heartbeat monitoring.
 	Heartbeat HeartbeatConfig `toml:"heartbeat"`

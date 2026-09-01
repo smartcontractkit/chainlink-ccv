@@ -16,6 +16,14 @@ import (
 
 var _ protocol.HealthReporter = (*OrphanRecoverer)(nil)
 
+// OrphanRecoverer is a background process that periodically scans the database for
+// "orphaned" commit-verification records — records that were committed but never
+// produced an aggregated report — and re-triggers aggregation for them via
+// RecoverOrphans. It self-heals verifications that failed to aggregate due to
+// transient errors, and also picks up verification records migrated or restored into
+// the database without their aggregated reports. The aggregator server constructs and
+// starts it only when config.OrphanRecovery.Enabled is true; it implements
+// protocol.HealthReporter so the health endpoint reports when repeated scans fail.
 type OrphanRecoverer struct {
 	config        *model.AggregatorConfig
 	aggregator    handlers.AggregationTriggerer
