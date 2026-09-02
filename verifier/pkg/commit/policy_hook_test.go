@@ -102,3 +102,50 @@ func TestPolicyHook_FailNeverSigns(t *testing.T) {
 	require.NotNil(t, results[0].Error)
 	assert.False(t, results[0].Error.Retryable)
 }
+
+// TestPolicyHook_PassCannotBypassVerification is the answer to "are the policy checks purely
+// additive": they are. A PASS is not an instruction to sign. It only lets the task reach the
+// commit verifier, which then applies every check it would have applied with no hook configured.
+//
+// This runs the real commit verifier rather than a stub, against a task it rejects because the
+// source chain is not configured, with an endpoint that answers PASS for everything. The result
+// has to be the verifier's own rejection and no signature. Nothing the endpoint can return moves
+// a message from "would not be signed" to "signed"; the gate's own two outcomes are both errors.
+func TestPolicyHook_PassCannotBypassVerification(t *testing.T) {
+	signer, addr := newTestSigner(t)
+	executorAddr := protocol.UnknownAddress([]byte{0xEE})
+	const (
+		configuredSourceChain protocol.ChainSelector = 1
+		destChain             protocol.ChainSelector = 2
+		// Not in the verifier's config, so the verifier refuses the task whatever the
+		// endpoint says about it.
+		unconfiguredSourceChain protocol.ChainSelector = 99
+	)
+	config := newSingleChainConfig(configuredSourceChain, addr, executorAddr)
+	cv, err := NewCommitVerifier(config, addr, signer, logger.Test(t), monitoring.NewFakeVerifierMonitoring())
+	require.NoError(t, err)
+
+	gated, err := policy.NewGatedVerifier(
+		logger.Test(t), "committee-verifier-1", cv,
+		fixedChecker{verdict: policy.Verdict{Decision: policy.DecisionPass}},
+		monitoring.NewFakeVerifierMonitoring(), 0,
+	)
+	require.NoError(t, err)
+
+	task := newVerifiableTask(t, unconfiguredSourceChain, destChain, addr, []byte{0xAA, 0xBB, 0xCC, 0xDD}, executorAddr)
+	results := gated.VerifyMessages(t.Context(), []verifier.VerificationTask{task})
+
+	require.Len(t, results, 1)
+	assert.Nil(t, results[0].Result, "a PASS must not produce a signature the verifier itself withholds")
+	require.NotNil(t, results[0].Error)
+	// The verifier's own error, not a policy one: the gate did not author this result.
+	assert.NotContains(t, results[0].Error.Error.Error(), "policy hook")
+
+	// The same task on an ungated verifier fails identically, which is what "additive" means:
+	// the hook subtracts signatures and never adds one, so enabling it cannot change this
+	// outcome in either direction.
+	ungated := cv.VerifyMessages(t.Context(), []verifier.VerificationTask{task})
+	require.Len(t, ungated, 1)
+	require.NotNil(t, ungated[0].Error)
+	assert.Equal(t, ungated[0].Error.Error.Error(), results[0].Error.Error.Error())
+}

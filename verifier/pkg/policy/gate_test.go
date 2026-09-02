@@ -131,6 +131,38 @@ func (v *validatingVerifier) VerifyMessages(_ context.Context, tasks []vtypes.Ve
 
 var _ vtypes.TaskValidator = (*validatingVerifier)(nil)
 
+// lateFailingVerifier accepts every task at ValidateTask and then fails it in VerifyMessages.
+// It stands for the checks the real verifier can only make while signing — resolving the
+// signable payload, or the signer itself erroring — which the precheck by construction cannot
+// report. It is the shape that puts a task in front of the endpoint and still refuses to sign it.
+type lateFailingVerifier struct {
+	stubVerifier
+	failVerification map[string]error
+}
+
+func (v *lateFailingVerifier) ValidateTask(*vtypes.VerificationTask) error { return nil }
+
+func (v *lateFailingVerifier) VerifyMessages(_ context.Context, tasks []vtypes.VerificationTask) []vtypes.VerificationResult {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
+	out := make([]vtypes.VerificationResult, 0, len(tasks))
+	for _, task := range tasks {
+		v.seen = append(v.seen, task.MessageID)
+		if err := v.failVerification[task.MessageID]; err != nil {
+			verificationErr := vtypes.NewVerificationError(err, task)
+			out = append(out, vtypes.VerificationResult{Error: &verificationErr})
+			continue
+		}
+		out = append(out, vtypes.VerificationResult{
+			Result: &protocol.VerifierNodeResult{MessageID: mustBytes32(task.MessageID)},
+		})
+	}
+	return out
+}
+
+var _ vtypes.TaskValidator = (*lateFailingVerifier)(nil)
+
 func mustBytes32(id string) protocol.Bytes32 {
 	b, err := protocol.NewBytes32FromString(id)
 	if err != nil {
@@ -495,4 +527,67 @@ func TestGatedVerifier_PrecheckIsDiscoveredFromTheWrappedVerifier(t *testing.T) 
 	gate := newGate(t, &stubChecker{}, &validatingVerifier{})
 	assert.NotNil(t, gate.precheck,
 		"a verifier that implements vtypes.TaskValidator must be used as the precheck, or the hook runs before the verifier's own checks again")
+}
+
+// TestGatedVerifier_PassCannotOverrideVerification is the security property the hook is defined
+// by: it can only subtract a signature, never add one. A PASS is not an instruction to sign. It
+// only forwards the task to the wrapped verifier, which then runs every one of its own checks and
+// signs or refuses on its own terms.
+//
+// Structurally the gate cannot do otherwise: the only results it authors are the two error cases
+// in VerifyMessages, so every non-error result in what it returns came out of
+// inner.VerifyMessages. This test pins that against a refactor, with a verifier that clears the
+// precheck (so the endpoint really is consulted and really does answer PASS) and then fails
+// verification anyway.
+func TestGatedVerifier_PassCannotOverrideVerification(t *testing.T) {
+	signingFailure := errors.New("failed to resolve signable payload: unknown ccv address")
+	checker := &stubChecker{} // PASS for everything.
+	inner := &lateFailingVerifier{failVerification: map[string]error{msgID(1): signingFailure}}
+	gate := newGate(t, checker, inner)
+
+	tasks := []vtypes.VerificationTask{newTask(msgID(1)), newTask(msgID(2))}
+	results := gate.VerifyMessages(t.Context(), tasks)
+
+	// Order is not asserted: the gate evaluates a batch concurrently.
+	require.ElementsMatch(t, []string{msgID(1), msgID(2)}, checker.callsMade(),
+		"both tasks must reach the endpoint, or this proves nothing about what a PASS can do")
+
+	byID := resultsByMessageID(t, results)
+	require.Len(t, byID, len(tasks))
+
+	// The task the verifier refuses stays refused, and keeps the verifier's own error rather
+	// than anything the endpoint had to say about it.
+	require.Nil(t, byID[msgID(1)].Result, "a PASS must not produce a signature the verifier withheld")
+	require.NotNil(t, byID[msgID(1)].Error)
+	assert.Equal(t, signingFailure.Error(), byID[msgID(1)].Error.Error.Error())
+	assert.NotContains(t, byID[msgID(1)].Error.Error.Error(), "policy")
+
+	// And the gate is not simply failing everything: the task the verifier accepts is signed.
+	require.NotNil(t, byID[msgID(2)].Result)
+}
+
+// The gate authors results in exactly one place, and both of its cases are errors. Anything with
+// a Result came from the wrapped verifier. A change that let the gate build a Result would make
+// a PASS able to manufacture a signature, so it is worth failing a test over.
+func TestGatedVerifier_NeverAuthorsASuccessfulResult(t *testing.T) {
+	checker := &stubChecker{
+		verdicts: map[string]Verdict{msgID(2): {Decision: DecisionFail}},
+		errs:     map[string]error{msgID(3): errors.New("endpoint down")},
+	}
+	// Forwarded tasks all fail, so every result in the batch has to be an error: the two the
+	// gate authors plus the one the verifier authors.
+	inner := &lateFailingVerifier{failVerification: map[string]error{
+		msgID(1): errors.New("receiver cannot be empty"),
+	}}
+	gate := newGate(t, checker, inner)
+
+	results := gate.VerifyMessages(t.Context(), []vtypes.VerificationTask{
+		newTask(msgID(1)), newTask(msgID(2)), newTask(msgID(3)),
+	})
+
+	require.Len(t, results, 3)
+	for _, r := range results {
+		assert.Nil(t, r.Result, "no successful result can originate in the gate")
+		require.NotNil(t, r.Error)
+	}
 }
