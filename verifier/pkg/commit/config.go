@@ -190,7 +190,12 @@ type Config struct {
 	// MessageDisablementRulesClientTimeout is the RPC timeout for message-disablement-rules requests, as a Go duration string; empty uses the integration default.
 	MessageDisablementRulesClientTimeout string `toml:"message_disablement_rules_client_timeout"`
 
-	// SignerAddress is the on-chain address of the verifier's result-signing key.
+	// SignerAddress is the on-chain address of the verifier's result-signing key. When set to a hex
+	// address it is validated strictly on boot: the keystore's key must match, or the verifier fails
+	// loudly. Set it to the literal "auto" (the AutoSignerAddress constant) to explicitly opt out and
+	// adopt whatever address the keystore holds (the postgres auto-generate backend's first boot).
+	// Empty is an error: it means the value was forgotten, not that auto-adoption was chosen, and is
+	// never conflated with it.
 	SignerAddress string `toml:"signer_address"`
 
 	// PyroscopeURL is the Pyroscope server URL for continuous profiling; empty disables it.
