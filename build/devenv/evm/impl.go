@@ -2061,8 +2061,13 @@ func (m *CCIP17EVM) SendChainMessage(ctx context.Context, destChain uint64, msg 
 
 	// Parse send options first so UseTestRouter affects router selection.
 	var evmOpts SendOptions
-	if o, ok := sendOption.(SendOptions); ok {
+	switch o := sendOption.(type) {
+	case SendOptions:
 		evmOpts = o
+	case *SendOptions:
+		if o != nil {
+			evmOpts = *o
+		}
 	}
 	if evmOpts.Sender != nil {
 		sender = evmOpts.Sender
