@@ -502,8 +502,6 @@ func (m *CCIP17EVMConfig) deployCircleContracts(
 	return usdcTokenAddr, messageTransmitterAddr, tokenMessengerAddr, nil
 }
 
-
-
 func usdcTokenPoolProxies(sourceSelector uint64, remoteSelectors []uint64) map[uint64]datastore.AddressRef {
 	selectors := make([]uint64, 0, 1+len(remoteSelectors))
 	selectors = append(selectors, sourceSelector)
