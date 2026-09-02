@@ -23,6 +23,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/heartbeat"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/policy"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 	"github.com/smartcontractkit/chainlink-evm/pkg/chains/legacyevm"
@@ -34,6 +35,10 @@ import (
 // Keying by SecretName (rather than position) avoids any ordering contract with
 // cfg.ResolvedAggregators(); the legacy single-aggregator config has an empty SecretName, so its
 // credential is keyed by "".
+//
+// Optional dependencies are passed as opts rather than as parameters. This constructor is called
+// from the Chainlink node repo, so a positional signature that grows breaks that build until a
+// change lands there, and the two cannot land at once.
 func NewVerificationCoordinator(
 	lggr logger.Logger,
 	cfg commit.Config,
@@ -42,7 +47,10 @@ func NewVerificationCoordinator(
 	signer verifier.MessageSigner,
 	relayers map[protocol.ChainSelector]legacyevm.Chain,
 	ds sqlutil.DataSource,
+	opts ...VerificationCoordinatorOption,
 ) (*verifier.Coordinator, error) {
+	options := newVerificationCoordinatorOptions(opts)
+
 	lggr = logging.WithService(lggr, "verifier")
 
 	if err := cfg.Validate(); err != nil {
@@ -228,6 +236,14 @@ func NewVerificationCoordinator(
 		return nil, fmt.Errorf("failed to create commit verifier: %w", err)
 	}
 
+	// Apply the operator's policy hook. With no [policy_hook] section this returns the commit
+	// verifier unchanged.
+	gatedVerifier, err := policy.WrapVerifier(lggr, cfg.VerifierID, commitVerifier, cfg.PolicyHook, verifierMonitoring, options.policyHookCredential)
+	if err != nil {
+		lggr.Errorw("Failed to apply policy hook", "error", err)
+		return nil, fmt.Errorf("failed to apply policy hook: %w", err)
+	}
+
 	heartbeatSender, err := heartbeatclient.NewFanOutHeartbeatSender(
 		heartbeatTargets,
 		cfg.VerifierID,
@@ -295,7 +311,7 @@ func NewVerificationCoordinator(
 
 	verifierCoordinator, err := verifier.NewCoordinator(
 		lggr,
-		commitVerifier,
+		gatedVerifier,
 		sourceReaders,
 		observedOffchainWriter,
 		coordinatorConfig,

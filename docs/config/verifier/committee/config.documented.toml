@@ -138,6 +138,44 @@ disable_finality_checkers = []
     # TraceBatchTimeout is the timeout for a batch of traces.
     TraceBatchTimeout = 0
 
+# policy_hook configures the operator's custom policy endpoint, a binary PASS/FAIL gate the
+# verifier consults as the last check before signing, once finality, the curse and
+# message-disablement checks, and the verifier's own checks on the message have all passed.
+# A message the verifier was never going to sign is not sent to the endpoint. Absent (the
+# default) leaves the verifier behaving exactly as it did before the hook existed; the
+# section is omitted from marshaled job specs when unset, so specs are unchanged for a
+# verifier that does not use it.
+[policy_hook]
+  # base_url is the root the operator serves the policy operation under. The verifier POSTs to
+  # base_url + "/v1/evaluate", once per message. Required, and must be https unless
+  # insecure_connection is set. A base that already ends in the operation path is rejected at
+  # startup rather than turned into a 404 on every message.
+  # A path prefix is allowed, so an endpoint behind a gateway that routes on one is configured
+  # as "https://acme.example/compliance" and served at "/compliance/v1/evaluate". A query
+  # string is not: it would have to survive path concatenation, and no part of the contract
+  # needs one.
+  base_url = "https://policy.example.com"
+  # request_timeout bounds one call to the endpoint, as a Go duration string (e.g. "5s").
+  # Empty uses the 5s default, and 15s is the maximum: a batch of policy calls has to finish
+  # inside the task queue's job lock, and a batch that outruns it is reclaimed and evaluated
+  # a second time. A timeout is an endpoint error: the message is retried.
+  request_timeout = "5s"
+  # retry_delay is how long a message waits before the endpoint is called again after an
+  # endpoint error, as a Go duration string (e.g. "10s"). Empty uses the 10s default. The
+  # wait is jittered per message across half to one and a half times this value, so an
+  # outage does not send the whole held backlog at the endpoint on the same tick.
+  retry_delay = "10s"
+  # insecure_connection allows a plain http:// endpoint. Only for local development and
+  # tests: a policy verdict carries compliance weight and must not travel in the clear.
+  insecure_connection = false
+  # require_auth makes a missing endpoint credential fatal at startup instead of calling the
+  # endpoint unauthenticated. The credential itself is never configured here: it comes from
+  # the verifier secrets file, because this section is marshaled into the job spec. Set this
+  # on any verifier whose endpoint checks the signature, so a credential that fails to reach
+  # the container is a boot failure rather than every message on the lane retrying against a
+  # 401 until the queue's deadline.
+  require_auth = false
+
 # on_ramp_addresses is a map the addresses of the on ramps for each chain selector.
 [on_ramp_addresses]
   1 = "0x00000000000000000000000000000000000000a1"

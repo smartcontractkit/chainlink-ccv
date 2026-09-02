@@ -16,6 +16,27 @@ func MessageDroppedInVerifier() LogStage {
 	}
 }
 
+// MessageDroppedByPolicyHook is the terminal drop a committee node logs when the operator's
+// policy endpoint answers FAIL. Its pattern is a superset of MessageDroppedInVerifier's
+// "Dropping task", so identifyStage must test this stage first.
+func MessageDroppedByPolicyHook() LogStage {
+	return LogStage{
+		Name:       "MessageDroppedByPolicyHook",
+		Service:    "verifier",
+		LogPattern: "Dropping task - policy hook returned FAIL",
+	}
+}
+
+// PolicyHookVerdictUnavailable is the non-terminal line a committee node logs when it could not
+// get a verdict — a 4xx, 5xx, timeout, or unreachable endpoint — and scheduled a retry.
+func PolicyHookVerdictUnavailable() LogStage {
+	return LogStage{
+		Name:       "PolicyHookVerdictUnavailable",
+		Service:    "verifier",
+		LogPattern: "Policy hook verdict unavailable",
+	}
+}
+
 func MessageSigned() LogStage {
 	return LogStage{
 		Name:       "MessageSigned",

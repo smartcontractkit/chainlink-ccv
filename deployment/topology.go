@@ -13,6 +13,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/common/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/shared"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/policy"
 )
 
 // EnvironmentTopology holds all environment-specific configuration that cannot be inferred
@@ -86,6 +87,11 @@ type NOPConfig struct {
 	Name                  string            `toml:"name"`
 	SignerAddressByFamily map[string]string `toml:"signer_address_by_family,omitempty"`
 	Mode                  shared.NOPMode    `toml:"mode,omitempty"`
+	// PolicyHook is this operator's custom policy endpoint, baked into the verifier job spec
+	// this NOP receives. It is per-NOP because the endpoint is the operator's own: two NOPs in
+	// the same committee run different policies, or one runs none. Omit it to leave the NOP's
+	// verifier ungated.
+	PolicyHook *policy.Config `toml:"policy_hook,omitempty"`
 }
 
 func (n *NOPConfig) GetMode() shared.NOPMode {

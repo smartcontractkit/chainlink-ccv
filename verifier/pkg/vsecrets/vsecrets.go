@@ -40,6 +40,23 @@ const (
 type SecretsFile struct {
 	DB          DBSecrets          `toml:"db"`
 	Aggregators []AggregatorSecret `toml:"aggregators"`
+	// PolicyHook is the optional credential the committee verifier presents to the operator's
+	// policy endpoint. Omit it to call the endpoint unauthenticated.
+	PolicyHook *PolicyHookSecret `toml:"policy_hook"`
+}
+
+// PolicyHookSecret is the HMAC credential the committee verifier presents to the operator's
+// policy endpoint, as declared in the [policy_hook] table. The operator owns both ends of this
+// credential: they issue it on their endpoint and configure the same pair here.
+//
+// It is optional. A verifier with a [policy_hook] endpoint and no credential calls the endpoint
+// unauthenticated, which is the supported shape when the endpoint runs inside the same cluster
+// and is not reachable from outside it.
+type PolicyHookSecret struct {
+	// APIKey is the API key the endpoint identifies this verifier by.
+	APIKey string `toml:"api_key"`
+	// SecretKey is the HMAC secret the request signature is computed with.
+	SecretKey string `toml:"secret_key"`
 }
 
 // DBSecrets holds the application storage database URL. This is the verifier's own storage DB
@@ -101,6 +118,8 @@ type VerifierSecrets struct {
 	dbURL string
 	// aggregators is nil when the file supplied no [[aggregators]] (env is then used).
 	aggregators AggregatorSecrets
+	// policyHook is nil when the file supplied no [policy_hook] (env is then used).
+	policyHook *PolicyHookSecret
 }
 
 // ResolveSecretsPath returns the secrets file path from envVar, or defaultPath when unset.
@@ -150,7 +169,7 @@ func Load(path string) (*VerifierSecrets, error) {
 		return nil, fmt.Errorf("invalid verifier secrets file %q: %w", path, err)
 	}
 
-	return &VerifierSecrets{dbURL: file.DB.URL, aggregators: aggregators}, nil
+	return &VerifierSecrets{dbURL: file.DB.URL, aggregators: aggregators, policyHook: file.PolicyHook}, nil
 }
 
 // DatabaseURL returns the application storage DB URL: the secrets file value when present, otherwise
@@ -170,4 +189,14 @@ func (s *VerifierSecrets) AggregatorSecrets() AggregatorSecrets {
 		return nil
 	}
 	return s.aggregators
+}
+
+// PolicyHookSecret returns the policy endpoint credential from the file, or nil when the file
+// supplied none (in which case resolution falls back to env vars, and an unset pair leaves the
+// endpoint call unauthenticated).
+func (s *VerifierSecrets) PolicyHookSecret() *PolicyHookSecret {
+	if s == nil {
+		return nil
+	}
+	return s.policyHook
 }

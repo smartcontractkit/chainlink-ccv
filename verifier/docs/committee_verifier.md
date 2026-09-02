@@ -4,6 +4,8 @@ This document describes the committee verifier — the concrete `Verifier` imple
 
 For the underlying pipeline architecture (Coordinator, SourceReaderService, job queues) see [verifier.md](verifier.md).
 
+For the optional operator policy hook — the PASS/FAIL gate a node consults before it signs — see [policy_hook.md](policy_hook.md).
+
 # Overview
 
 The committee verifier implements the `Verifier` interface by:

@@ -16,6 +16,7 @@ type VerificationTask struct {
 	TxHash                      protocol.ByteSlice         `json:"tx_hash"`
 	BlockNumber                 uint64                     `json:"block_number"`                    // Block number when the message was included
 	FinalizedBlockAtRead        uint64                     `json:"finalized_block_at_read"`         // Finalized block number when the event was read from chain
+	FinalizedBlockAtReady       uint64                     `json:"finalized_block_at_ready"`        // Finalized block number when the message met its finality requirement (0 until it does)
 	ReadyForVerificationAt      time.Time                  `json:"ready_for_verification_at"`       // Block timestamp when message became ready for verification (for E2E latency)
 	PushedToVerificationQueueAt time.Time                  `json:"pushed_to_verification_queue_at"` // When pushed to task verifier queue (for verification queue latency)
 	TraceParent                 string                     `json:"traceparent,omitempty"`
