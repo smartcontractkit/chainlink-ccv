@@ -6,26 +6,48 @@ import (
 	"strings"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/policy/internal/policyapi"
 	vtypes "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 )
 
-// SchemaVersion identifies the request/response contract this verifier speaks. It is sent on
-// every request so an endpoint serving several verifier releases can branch on it. The
-// authoritative description of these types is verifier/policy_hook_openapi_v1.yaml; the two are
-// kept in step by TestOpenAPISpecMatchesContract.
-const SchemaVersion = "v1"
+// The request and response types are generated from the published contract
+// (verifier/policy_hook_openapi_v1.yaml) into internal/policyapi and aliased here, so the wire
+// types cannot drift from the spec an operator builds against: there is one definition and the
+// spec is it. The names below are the package's own, kept stable across the switch to generation.
+//
+// Generation is why there is no longer a test asserting the Go types match the spec. That test
+// existed because the two were maintained by hand; the failure it guarded against is now a
+// compile error. TestPublishedMessageCoversProtocolMessage still earns its place: it is the only
+// thing tying the published shape to protocol.Message, which is not generated from anything.
+type (
+	// EvaluateRequest is the v1 request body. It carries the decoded message and its
+	// source-chain provenance so the endpoint does not have to fetch or decode anything itself.
+	EvaluateRequest = policyapi.EvaluateRequest
+	// EvaluateResponse is the v1 response body, returned with HTTP 200.
+	EvaluateResponse = policyapi.EvaluateResponse
+	// MessageV1 is the decoded CCIP message as published in the v1 contract. Byte fields are
+	// hex-encoded with an 0x prefix. It is a deliberate copy of the on-the-wire message rather
+	// than a re-export of protocol.Message: the published contract is frozen at v1 and must not
+	// shift when the internal message format gains fields.
+	MessageV1 = policyapi.Message
+	// TokenTransferV1 is the token transfer attached to a message, as published in v1.
+	TokenTransferV1 = policyapi.TokenTransfer
+	// Decision is the verdict an endpoint returns. Only PASS and FAIL are implemented in v1;
+	// any other value is treated as an unusable response, which retries rather than drops.
+	Decision = policyapi.EvaluateResponseDecision
+)
 
-// Decision is the verdict an endpoint returns. Only PASS and FAIL are implemented in v1; any
-// other value is treated as an unusable response, which retries rather than drops.
-type Decision string
+// SchemaVersion identifies the request/response contract this verifier speaks. It is sent on
+// every request so an endpoint serving several verifier releases can branch on it.
+const SchemaVersion = policyapi.V1
 
 const (
 	// DecisionPass tells the verifier to sign and attest the message.
-	DecisionPass Decision = "PASS"
+	DecisionPass Decision = policyapi.PASS
 	// DecisionFail tells the verifier to drop the message. It is not attested and not
 	// auto-executed; recovery requires an operator to reschedule the archived job or to rewind
 	// the checkpoint and replay.
-	DecisionFail Decision = "FAIL"
+	DecisionFail Decision = policyapi.FAIL
 	// DecisionHold is reserved and not implemented. It names the third outcome screening
 	// produces in practice, a match a human clears shortly afterwards, which v1 does not
 	// express: an operator holds a message by answering FAIL and replaying it once the review
@@ -36,124 +58,15 @@ const (
 	// parseDecision refuses it, so an endpoint that ships HOLD early gets retries and a clear
 	// error rather than a message silently signed or silently dropped. Nothing may read this
 	// constant as a verdict; it exists to be rejected by name.
-	DecisionHold Decision = "HOLD"
+	DecisionHold Decision = policyapi.HOLD
 )
-
-// EvaluateRequest is the v1 request body. It carries the decoded message and its source-chain
-// provenance so the endpoint does not have to fetch or decode anything itself.
-type EvaluateRequest struct {
-	// SchemaVersion is the contract version of this request, always "v1" for this release.
-	SchemaVersion string `json:"schema_version"`
-	// VerifierID identifies the committee verifier node making the call.
-	VerifierID string `json:"verifier_id"`
-	// MessageID is the CCIP message ID, 32 bytes hex-encoded with an 0x prefix.
-	MessageID string `json:"message_id"`
-	// SourceTxHash identifies the source-chain transaction that emitted the message: the raw
-	// identifier bytes the source chain reported, hex-encoded with an 0x prefix, whatever the
-	// chain family's own convention for rendering them is. An endpoint that wants Solana's
-	// base58 signature rather than hex re-encodes these bytes itself.
-	SourceTxHash string `json:"source_tx_hash"`
-	// SourceBlockNumber is the source-chain block the message was emitted in.
-	SourceBlockNumber uint64 `json:"source_block_number"`
-	// FinalizedBlockNumber is the source chain's finalized head when the verifier read the
-	// message.
-	FinalizedBlockNumber uint64 `json:"finalized_block_number"`
-	// BlockDepth is how far the message's block sits below that finalized head, zero when
-	// the message's block is the finalized head or newer.
-	BlockDepth uint64 `json:"block_depth"`
-	// Message is the decoded CCIP message.
-	Message MessageV1 `json:"message"`
-}
-
-// MessageV1 is the decoded CCIP message as published in the v1 contract. Byte fields are
-// hex-encoded with an 0x prefix. It is a deliberate copy of the on-the-wire message rather than
-// a re-export of protocol.Message: the published contract is frozen at v1 and must not shift
-// when the internal message format gains fields.
-//
-// Numeric encoding follows one rule, and the reason is the endpoint side rather than ours. A JSON
-// number is a float64 in JavaScript and in most schema-generated clients, which is exact only up
-// to 2^53. Chain selectors are opaque 64-bit identifiers drawn from the whole range - a quarter of
-// the registered ones are above 2^63, let alone 2^53 - so they are decimal strings, as the token
-// amount already is. Counters bounded by a real chain (block numbers, sequence numbers, gas
-// limits) stay JSON numbers, because they cannot reach 2^53 and a string would only make them
-// harder to compare.
-type MessageV1 struct {
-	// Version is the CCIP message format version.
-	Version uint8 `json:"version"`
-	// SourceChainSelector is the CCIP selector of the source chain, as a decimal string.
-	SourceChainSelector string `json:"source_chain_selector"`
-	// DestChainSelector is the CCIP selector of the destination chain, as a decimal string.
-	DestChainSelector string `json:"dest_chain_selector"`
-	// SequenceNumber is the per-lane sequence number of the message.
-	SequenceNumber uint64 `json:"sequence_number"`
-	// OnRampAddress is the source-chain onRamp that emitted the message.
-	OnRampAddress string `json:"on_ramp_address"`
-	// OffRampAddress is the destination-chain offRamp that will deliver the message.
-	OffRampAddress string `json:"off_ramp_address"`
-	// Sender is the source-chain account that sent the message.
-	Sender string `json:"sender"`
-	// Receiver is the destination-chain account that will receive the message.
-	Receiver string `json:"receiver"`
-	// Data is the message payload.
-	Data string `json:"data"`
-	// DestBlob is the destination-chain execution blob.
-	DestBlob string `json:"dest_blob"`
-	// ExecutionGasLimit is the gas limit reserved for execution on the destination chain.
-	ExecutionGasLimit uint32 `json:"execution_gas_limit"`
-	// CCIPReceiveGasLimit is the gas limit reserved for the receiver's ccipReceive call.
-	CCIPReceiveGasLimit uint32 `json:"ccip_receive_gas_limit"`
-	// Finality is the encoded finality requirement of the message.
-	Finality uint32 `json:"finality"`
-	// CCVAndExecutorHash commits to the CCVs and executor the message requested.
-	CCVAndExecutorHash string `json:"ccv_and_executor_hash"`
-	// TokenTransfer is the attached token transfer, absent for a message with no tokens.
-	TokenTransfer *TokenTransferV1 `json:"token_transfer,omitempty"`
-}
-
-// TokenTransferV1 is the token transfer attached to a message, as published in the v1 contract.
-type TokenTransferV1 struct {
-	// Version is the token transfer format version.
-	Version uint8 `json:"version"`
-	// Amount is the transferred amount in the token's smallest unit, as a decimal string
-	// because it does not fit a JSON number.
-	Amount string `json:"amount"`
-	// SourcePoolAddress is the source-chain token pool the tokens were locked or burned in.
-	SourcePoolAddress string `json:"source_pool_address"`
-	// SourceTokenAddress is the source-chain token contract.
-	SourceTokenAddress string `json:"source_token_address"`
-	// DestTokenAddress is the destination-chain token contract.
-	DestTokenAddress string `json:"dest_token_address"`
-	// TokenReceiver is the destination-chain account receiving the tokens.
-	TokenReceiver string `json:"token_receiver"`
-	// ExtraData is pool-specific data carried with the transfer.
-	ExtraData string `json:"extra_data"`
-}
-
-// EvaluateResponse is the v1 response body, returned with HTTP 200.
-type EvaluateResponse struct {
-	// Decision is PASS or FAIL.
-	Decision Decision `json:"decision"`
-	// MessageID echoes the request's message_id. Nothing else in the response ties a verdict to
-	// the message it was asked about, so an endpoint that sets it lets the verifier catch a
-	// verdict that belongs to a different message - a cache, a proxy, or a load balancer in
-	// front of the endpoint that crossed two requests. A mismatch is an error, which retries;
-	// an endpoint that omits the field skips the check.
-	//
-	// Recommended but not required, and omitempty here is what publishes that: it is a safety
-	// net rather than part of the verdict, and requiring it would reject an otherwise correct
-	// endpoint for leaving out a field that only guards against a misconfiguration in front of
-	// it.
-	MessageID string `json:"message_id,omitempty"`
-	// Reason optionally explains a FAIL. It is logged by the verifier and never signed.
-	Reason string `json:"reason,omitempty"`
-}
 
 // NewEvaluateRequest builds the v1 request for a verification task.
 func NewEvaluateRequest(verifierID string, task *vtypes.VerificationTask) EvaluateRequest {
 	return EvaluateRequest{
 		SchemaVersion:        SchemaVersion,
-		VerifierID:           verifierID,
-		MessageID:            task.MessageID,
+		VerifierId:           verifierID,
+		MessageId:            task.MessageID,
 		SourceTxHash:         hexBytes(task.TxHash),
 		SourceBlockNumber:    task.BlockNumber,
 		FinalizedBlockNumber: task.FinalizedBlockAtReady,
@@ -186,9 +99,9 @@ func newMessageV1(message protocol.Message) MessageV1 {
 		Data:                hexBytes(message.Data),
 		DestBlob:            hexBytes(message.DestBlob),
 		ExecutionGasLimit:   message.ExecutionGasLimit,
-		CCIPReceiveGasLimit: message.CcipReceiveGasLimit,
+		CcipReceiveGasLimit: message.CcipReceiveGasLimit,
 		Finality:            uint32(message.Finality),
-		CCVAndExecutorHash:  message.CcvAndExecutorHash.String(),
+		CcvAndExecutorHash:  message.CcvAndExecutorHash.String(),
 	}
 	if message.TokenTransfer != nil {
 		tt := message.TokenTransfer

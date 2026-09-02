@@ -29,11 +29,11 @@ type stubChecker struct {
 
 func (s *stubChecker) Evaluate(_ context.Context, req EvaluateRequest) (Verdict, error) {
 	s.mu.Lock()
-	s.calls = append(s.calls, req.MessageID)
+	s.calls = append(s.calls, req.MessageId)
 	s.inFlight++
 	s.maxSeen = max(s.maxSeen, s.inFlight)
-	verdict, hasVerdict := s.verdicts[req.MessageID]
-	err := s.errs[req.MessageID]
+	verdict, hasVerdict := s.verdicts[req.MessageId]
+	err := s.errs[req.MessageId]
 	s.mu.Unlock()
 
 	// Hold the slot briefly so concurrent calls actually overlap, which is what makes the

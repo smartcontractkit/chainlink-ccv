@@ -74,78 +74,37 @@ func jsonFields(t *testing.T, v any) (all, required []string) {
 	return all, required
 }
 
-// TestOpenAPISpecMatchesContract keeps the published spec and the Go types that implement it from
-// drifting. Operators build against the spec, so a field added to the Go struct without a spec
-// entry (or the reverse) is a broken contract, not a cosmetic mismatch.
-func TestOpenAPISpecMatchesContract(t *testing.T) {
-	spec := loadSpec(t)
-
-	assert.Equal(t, "3.0.3", spec.OpenAPI, "the program's OpenAPI documents are 3.0.3")
-
-	cases := []struct {
-		value      any
-		schemaName string
-	}{
-		{schemaName: "EvaluateRequest", value: EvaluateRequest{}},
-		{schemaName: "EvaluateResponse", value: EvaluateResponse{}},
-		{schemaName: "Message", value: MessageV1{}},
-		{schemaName: "TokenTransfer", value: TokenTransferV1{}},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.schemaName, func(t *testing.T) {
-			schema, ok := spec.Components.Schemas[tc.schemaName]
-			require.True(t, ok, "spec has no schema %q", tc.schemaName)
-			assert.Equal(t, "object", schema.Type)
-
-			wantAll, wantRequired := jsonFields(t, tc.value)
-
-			gotAll := make([]string, 0, len(schema.Properties))
-			for name := range schema.Properties {
-				gotAll = append(gotAll, name)
-			}
-			slices.Sort(gotAll)
-			assert.Equal(t, wantAll, gotAll, "spec properties for %s differ from the Go struct", tc.schemaName)
-
-			gotRequired := slices.Clone(schema.Required)
-			slices.Sort(gotRequired)
-			assert.Equal(t, wantRequired, gotRequired,
-				"spec required fields for %s differ from the Go struct's non-omitempty fields", tc.schemaName)
-		})
-	}
-}
-
-func TestOpenAPISpecEnums(t *testing.T) {
-	spec := loadSpec(t)
-
-	// HOLD is in the published enum but not implemented, so the spec and the client disagree
-	// here on purpose. The pair of assertions below is what keeps that deliberate: the value
-	// stays published, so adding the behavior later is additive for an endpoint validating
-	// strictly, and the client keeps refusing it, so the reservation cannot quietly become a
-	// verdict that signs or drops a message.
-	decision := spec.Components.Schemas["EvaluateResponse"].Properties["decision"]
-	assert.Equal(t, []string{string(DecisionPass), string(DecisionFail), string(DecisionHold)}, decision.Enum,
-		"the spec's verdicts must be the two the verifier accepts plus the reserved HOLD")
-
+// The Go types now come from the spec, so asserting they match it is circular: a field or an enum
+// value removed from the spec removes the generated identifier and fails to compile. What
+// generation does not cover is behavior, and this is the behavior worth pinning. HOLD stays
+// published so adding it later is additive for an endpoint validating strictly, and the client
+// keeps refusing it, so the reservation cannot quietly become a verdict that signs or drops a
+// message.
+func TestReservedHoldIsRefused(t *testing.T) {
 	_, err := parseDecision(DecisionHold)
 	require.Error(t, err, "HOLD is reserved: honouring it would hold or drop a message on behavior v1 does not have")
 	assert.Contains(t, err.Error(), "reserved")
-
-	schemaVersion := spec.Components.Schemas["EvaluateRequest"].Properties["schema_version"]
-	assert.Equal(t, []string{SchemaVersion}, schemaVersion.Enum)
+	assert.Contains(t, err.Error(), string(DecisionFail),
+		"the error must point the operator at the supported way to hold a message")
 }
 
+// The one part of the contract generation does not tie to the code. The generated client hard
+// codes the operation path it read from the spec, while EvaluatePath is written by hand in
+// config.go: it is what Config.EvaluateURL reports and what validation rejects a base_url for
+// already ending in. Move the path in the spec and the two disagree silently, with the client
+// posting the new path while the logs, the errors, and the validation all name the old one.
 func TestOpenAPISpecDeclaresEvaluateOperation(t *testing.T) {
 	spec := loadSpec(t)
 
-	operationIDs := make([]string, 0, len(spec.Paths))
-	for _, methods := range spec.Paths {
+	require.Len(t, spec.Paths, 1, "v1 is a one-operation contract")
+	for path, methods := range spec.Paths {
+		assert.Equal(t, EvaluatePath, path,
+			"the spec's operation path and policy.EvaluatePath must be the same string")
 		for method, op := range methods {
 			assert.Equal(t, "post", method, "the hook is a POST-only contract")
-			operationIDs = append(operationIDs, op.OperationID)
+			assert.Equal(t, "policy-evaluate", op.OperationID)
 		}
 	}
-	assert.Equal(t, []string{"policy-evaluate"}, operationIDs)
 }
 
 // The verifier must be able to read a response written exactly as the spec's example shows.
@@ -157,5 +116,12 @@ func TestEvaluateResponse_DecodesSpecShape(t *testing.T) {
 	var fail EvaluateResponse
 	require.NoError(t, json.Unmarshal([]byte(`{"decision":"FAIL","reason":"sanctioned sender"}`), &fail))
 	assert.Equal(t, DecisionFail, fail.Decision)
-	assert.Equal(t, "sanctioned sender", fail.Reason)
+	require.NotNil(t, fail.Reason)
+	assert.Equal(t, "sanctioned sender", *fail.Reason)
+
+	// reason and message_id are optional in the contract, which the generated types express as
+	// a nil pointer rather than an empty string, so an endpoint that omits them is
+	// distinguishable from one that sent them blank.
+	assert.Nil(t, pass.Reason)
+	assert.Nil(t, pass.MessageId)
 }

@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -33,8 +34,8 @@ func newTestChecker(t *testing.T, srv *httptest.Server, timeout string) *HTTPChe
 func testRequest() EvaluateRequest {
 	return EvaluateRequest{
 		SchemaVersion: SchemaVersion,
-		VerifierID:    "committee-verifier-1",
-		MessageID:     "0xabc",
+		VerifierId:    "committee-verifier-1",
+		MessageId:     "0xabc",
 		Message:       MessageV1{SourceChainSelector: "1", DestChainSelector: "2"},
 	}
 }
@@ -153,7 +154,7 @@ func TestHTTPChecker_Evaluate_RequestShape(t *testing.T) {
 	assert.Equal(t, http.MethodPost, gotMethod)
 	assert.Equal(t, "application/json", gotContentType)
 	assert.Equal(t, "application/json", gotAccept)
-	assert.Equal(t, "/v1/evaluate", gotPath, "the endpoint URL is used verbatim, with nothing appended")
+	assert.Equal(t, EvaluatePath, gotPath, "the contract's operation path is appended to base_url")
 	assert.Equal(t, req, gotBody)
 }
 
@@ -318,4 +319,37 @@ func TestNewHTTPChecker_RejectsBadConfig(t *testing.T) {
 	_, err = NewHTTPChecker(logger.Test(t), &Config{BaseURL: "http://policy.example.com"}, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "insecure_connection")
+}
+
+// Two things now compute the URL: the generated client resolves the operation path against
+// base_url, and Config.EvaluateURL derives the same string for logs, errors, and validation.
+// They have to agree, and nothing structural makes them, so this asserts it against the shapes
+// an operator can configure - bare host, trailing slash, and the gateway prefix that is the
+// reason base_url is a base at all.
+func TestHTTPChecker_PostsTheDerivedEvaluateURL(t *testing.T) {
+	for _, suffix := range []string{"", "/", "/compliance", "/compliance/"} {
+		t.Run("base"+suffix, func(t *testing.T) {
+			var gotPath string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotPath = r.URL.RequestURI()
+				_, _ = io.WriteString(w, `{"decision":"PASS"}`)
+			}))
+			defer srv.Close()
+
+			cfg := &Config{BaseURL: srv.URL + suffix, InsecureConnection: true}
+			want, err := cfg.EvaluateURL()
+			require.NoError(t, err)
+
+			checker, err := NewHTTPChecker(logger.Test(t), cfg, nil)
+			require.NoError(t, err)
+			_, err = checker.Evaluate(t.Context(), testRequest())
+			require.NoError(t, err)
+
+			wantURL, err := url.Parse(want)
+			require.NoError(t, err)
+			assert.Equal(t, wantURL.RequestURI(), gotPath,
+				"the generated client and Config.EvaluateURL must resolve base_url the same way")
+			assert.Equal(t, want, checker.endpoint, "the logged endpoint must be the one posted")
+		})
+	}
 }
