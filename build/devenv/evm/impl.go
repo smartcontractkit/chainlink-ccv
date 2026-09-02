@@ -2102,9 +2102,10 @@ func (m *CCIP17EVM) SendChainMessage(ctx context.Context, destChain uint64, msg 
 	}
 
 	senderKeyCopy := &bind.TransactOpts{
-		From:   sender.From,
-		Signer: sender.Signer,
-		Value:  msgValue,
+		From:     sender.From,
+		Signer:   sender.Signer,
+		Value:    msgValue,
+		GasLimit: evmOpts.GasLimit,
 	}
 	if evmOpts.Nonce != nil {
 		senderKeyCopy.Nonce = new(big.Int).SetUint64(*evmOpts.Nonce)
