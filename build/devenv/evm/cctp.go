@@ -159,7 +159,7 @@ func (m *CCIP17EVMConfig) configureUSDCForTransfer(
 	selector uint64,
 	remoteSelectors []uint64,
 ) error {
-	remoteSelectors = filterCCTPSupportedSelectors(remoteSelectors)
+	remoteSelectors = common.FilterCCTPSupportedSelectors(remoteSelectors)
 
 	create2, err := env.DataStore.Addresses().Get(datastore.NewAddressRefKey(
 		selector,
@@ -502,19 +502,7 @@ func (m *CCIP17EVMConfig) deployCircleContracts(
 	return usdcTokenAddr, messageTransmitterAddr, tokenMessengerAddr, nil
 }
 
-func filterCCTPSupportedSelectors(remoteSelectors []uint64) []uint64 {
-	supported := make([]uint64, 0)
-	for _, rs := range remoteSelectors {
-		family, err := chainsel.GetSelectorFamily(rs)
-		if err != nil {
-			continue
-		}
-		if common.HasCCTPChainFamily(common.GlobalCCTPRegistry, family) {
-			supported = append(supported, rs)
-		}
-	}
-	return supported
-}
+
 
 func usdcTokenPoolProxies(sourceSelector uint64, remoteSelectors []uint64) map[uint64]datastore.AddressRef {
 	selectors := make([]uint64, 0, 1+len(remoteSelectors))

@@ -205,7 +205,7 @@ func (m *CCIP17EVMConfig) configureLombardForTransfer(
 	selector uint64,
 	remoteSelectors []uint64,
 ) error {
-	remoteSelectors = filterLombardSupportedSelectors(remoteSelectors)
+	remoteSelectors = devenvcommon.FilterLombardSupportedSelectors(remoteSelectors)
 	if len(remoteSelectors) == 0 {
 		return nil
 	}
@@ -403,18 +403,4 @@ func paddedLombardChainID(lombardChainID uint32) ([32]byte, error) {
 	lchainIDBytes := make([]byte, 4)
 	binary.BigEndian.PutUint32(lchainIDBytes, lombardChainID)
 	return toBytes32LeftPad(lchainIDBytes)
-}
-
-func filterLombardSupportedSelectors(remoteSelectors []uint64) []uint64 {
-	supported := make([]uint64, 0)
-	for _, rs := range remoteSelectors {
-		family, err := chainsel.GetSelectorFamily(rs)
-		if err != nil {
-			continue
-		}
-		if _, ok := devenvcommon.GlobalLombardRegistry.GetLombardChain(family); ok {
-			supported = append(supported, rs)
-		}
-	}
-	return supported
 }
