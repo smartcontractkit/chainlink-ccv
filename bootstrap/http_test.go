@@ -1,15 +1,19 @@
 package bootstrap
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-common/keystore"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -37,6 +41,51 @@ func TestInfoServerHealthDoesNotRequireApplicationReadiness(t *testing.T) {
 	server.handleHealth(recorder, httptest.NewRequest(http.MethodGet, HealthEndpoint, nil))
 	require.Equal(t, http.StatusOK, recorder.Code)
 	require.JSONEq(t, `{"status":"ok"}`, recorder.Body.String())
+}
+
+// createInfoServerKeystore builds an in-memory keystore holding an ECDSA_S256 key and returns it
+// with the derived checksummed address, so tests can assert the endpoint's answer independently.
+func createInfoServerKeystore(t *testing.T, keyName string) (keystore.Keystore, string) {
+	t.Helper()
+
+	ks, err := keystore.LoadKeystore(t.Context(), keystore.NewMemoryStorage(), "test-password")
+	require.NoError(t, err)
+
+	createResp, err := ks.CreateKeys(t.Context(), keystore.CreateKeysRequest{
+		Keys: []keystore.CreateKeyRequest{{KeyName: keyName, KeyType: keystore.ECDSA_S256}},
+	})
+	require.NoError(t, err)
+	require.Len(t, createResp.Keys, 1)
+
+	pubKey, err := crypto.UnmarshalPubkey(createResp.Keys[0].KeyInfo.PublicKey)
+	require.NoError(t, err)
+	return ks, crypto.PubkeyToAddress(*pubKey).Hex()
+}
+
+func TestInfoServerGetKeyAddresses(t *testing.T) {
+	const keyName = "test-ecdsa-key"
+	ks, wantAddress := createInfoServerKeystore(t, keyName)
+	server := newInfoServer(logger.Test(t), ks, 0, new(atomic.Bool))
+
+	body, err := json.Marshal(keystore.GetKeysRequest{KeyNames: []string{keyName}})
+	require.NoError(t, err)
+
+	recorder := httptest.NewRecorder()
+	server.handleGetKeyAddresses(recorder, httptest.NewRequest(http.MethodPost, GetKeyAddressesEndpoint, bytes.NewReader(body)))
+	require.Equal(t, http.StatusOK, recorder.Code)
+
+	var got map[string]string
+	require.JSONEq(t, `{"`+keyName+`":"`+wantAddress+`"}`, recorder.Body.String())
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &got))
+	require.Equal(t, wantAddress, got[keyName])
+}
+
+func TestInfoServerGetKeyAddressesRejectsMalformedRequest(t *testing.T) {
+	server := newInfoServer(logger.Test(t), nil, 0, new(atomic.Bool))
+
+	recorder := httptest.NewRecorder()
+	server.handleGetKeyAddresses(recorder, httptest.NewRequest(http.MethodPost, GetKeyAddressesEndpoint, bytes.NewReader([]byte("not json"))))
+	require.Equal(t, http.StatusBadRequest, recorder.Code)
 }
 
 func TestRunnerApplicationReadinessTracksJobLifecycle(t *testing.T) {

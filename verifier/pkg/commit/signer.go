@@ -16,11 +16,32 @@ import (
 	"github.com/smartcontractkit/chainlink-common/keystore"
 )
 
+// AutoSignerAddress is the signer_address value the postgres auto-generate backend uses to opt out
+// of address validation explicitly: the verifier adopts whatever address the keystore holds instead
+// of asserting a configured one. It is the "I intentionally don't pin the signer address" signal, and
+// it is exclusive — an empty signer_address (the "I forgot to set it" case) is still rejected.
+const AutoSignerAddress = "auto"
+
 // ValidateSignerAddress checks that the key loaded by the verifier is the key declared by the job
 // spec. The configured address uses the same strict 0x-prefixed hex format CL job creation expects.
 // During CL-to-standalone migration a mismatch usually means the wrong exported key was mounted or
 // the verifier started once without [key_import] and generated a replacement.
+//
+// A configured value of [AutoSignerAddress] opts out of the check: the operator accepts whatever
+// address the keystore adopted. That is the postgres auto-generate backend's first-boot path, where
+// a fresh volume has no key yet and a random one is created (and persisted, so restarts reuse it).
+// The caller logs the adopted address so the operator can pin it later by replacing "auto" with the
+// actual address; once set, a value is never skipped — a set-but-mismatched address still fails fast
+// and loudly.
+//
+// Any other value, including the empty string, is asserted strictly. Empty is treated as "forgot to
+// set it" and errors, rather than silently adopting, so that forgetting signer_address is never
+// conflated with deliberately choosing auto-adoption.
 func ValidateSignerAddress(configured string, actual protocol.UnknownAddress) error {
+	if configured == AutoSignerAddress {
+		return nil
+	}
+
 	decoded, err := hexutil.Decode(configured)
 	if err != nil {
 		return fmt.Errorf("invalid signer_address %q: %w", configured, err)

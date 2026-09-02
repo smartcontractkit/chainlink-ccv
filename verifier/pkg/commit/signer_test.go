@@ -70,6 +70,33 @@ func TestValidateSignerAddress(t *testing.T) {
 		}
 	})
 
+	t.Run("empty signer_address is rejected as forgotten", func(t *testing.T) {
+		// Empty means "forgot to set it", not "deliberately adopting": only the explicit
+		// AutoSignerAddress sentinel opts out, so forgetting signer_address is never silently
+		// conflated with choosing auto-adoption.
+		err := ValidateSignerAddress("", protocol.UnknownAddress(common.HexToAddress(configured).Bytes()))
+		require.Error(t, err)
+		require.ErrorContains(t, err, "invalid signer_address")
+	})
+
+	t.Run("auto signer_address adopts the keystore address", func(t *testing.T) {
+		// The postgres auto-generate backend's first boot has no key to match: the explicit
+		// AutoSignerAddress sentinel must never fail the boot, whether or not it matches the actual.
+		for _, tt := range []struct {
+			name    string
+			actual  common.Address
+			wantErr bool
+		}{
+			{name: "matches actual", actual: common.HexToAddress(configured)},
+			{name: "any keystore address", actual: common.HexToAddress("0x3333333333333333333333333333333333333333")},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				err := ValidateSignerAddress(AutoSignerAddress, protocol.UnknownAddress(tt.actual.Bytes()))
+				require.NoError(t, err)
+			})
+		}
+	})
+
 	t.Run("generated key is rejected when job expects imported key", func(t *testing.T) {
 		generatedKey, err := crypto.GenerateKey()
 		require.NoError(t, err)
