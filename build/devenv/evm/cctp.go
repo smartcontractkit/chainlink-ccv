@@ -31,6 +31,10 @@ import (
 	burn_mint_erc20_bindings "github.com/smartcontractkit/chainlink-evm/gethwrappers/shared/generated/initial/burn_mint_erc20"
 )
 
+func init() {
+	common.GlobalCCTPRegistry.RegisterCCTPChain(chainsel.FamilyEVM, &evmadapters.CCTPChainAdapter{})
+}
+
 func (m *CCIP17EVMConfig) deployUSDCTokenAndPool(
 	env *deployment.Environment,
 	registry *changesetscore.MCMSReaderRegistry,
@@ -122,12 +126,9 @@ func (m *CCIP17EVMConfig) deployCCTPChain(
 	messenger gethcommon.Address,
 	usdc gethcommon.Address,
 ) error {
-	cctpChainRegistry := adapters.NewCCTPChainRegistry()
-	cctpChainRegistry.RegisterCCTPChain("evm", &evmadapters.CCTPChainAdapter{})
-
 	usdcTokokenPoolRefs := usdcTokenPoolProxies(selector, []uint64{})
 
-	out, err := changesets.DeployCCTPChains(cctpChainRegistry, registry).Apply(*env, changesets.DeployCCTPChainsConfig{
+	out, err := changesets.DeployCCTPChains(common.GlobalCCTPRegistry, registry).Apply(*env, changesets.DeployCCTPChainsConfig{
 		Chains: map[uint64]changesets.CCTPChainConfig{
 			selector: {
 				USDCType:          adapters.Canonical,
@@ -158,9 +159,7 @@ func (m *CCIP17EVMConfig) configureUSDCForTransfer(
 	selector uint64,
 	remoteSelectors []uint64,
 ) error {
-	remoteSelectors = filterOnlySupportedSelectors(remoteSelectors)
-	cctpChainRegistry := adapters.NewCCTPChainRegistry()
-	cctpChainRegistry.RegisterCCTPChain("evm", &evmadapters.CCTPChainAdapter{})
+	remoteSelectors = filterCCTPSupportedSelectors(remoteSelectors)
 
 	create2, err := env.DataStore.Addresses().Get(datastore.NewAddressRefKey(
 		selector,
@@ -226,7 +225,7 @@ func (m *CCIP17EVMConfig) configureUSDCForTransfer(
 		}
 	}
 
-	_, err = changesets.DeployCCTPChains(cctpChainRegistry, registry).Apply(*env, changesets.DeployCCTPChainsConfig{
+	_, err = changesets.DeployCCTPChains(common.GlobalCCTPRegistry, registry).Apply(*env, changesets.DeployCCTPChainsConfig{
 		Chains: config,
 	})
 	if err != nil {
@@ -503,20 +502,18 @@ func (m *CCIP17EVMConfig) deployCircleContracts(
 	return usdcTokenAddr, messageTransmitterAddr, tokenMessengerAddr, nil
 }
 
-// filterOnlySupportedSelectors returns only the remote selectors that support CCTP.
-// CCTP (Circle's Cross-Chain Transfer Protocol) is currently only deployed on EVM chains.
-// When CCTP support is added for other families, this should check the CCTPChainRegistry
-// from v2_0_0/adapters rather than filtering by family string.
-func filterOnlySupportedSelectors(remoteSelectors []uint64) []uint64 {
-	supportedRemoteSelectors := make([]uint64, 0)
+func filterCCTPSupportedSelectors(remoteSelectors []uint64) []uint64 {
+	supported := make([]uint64, 0)
 	for _, rs := range remoteSelectors {
 		family, err := chainsel.GetSelectorFamily(rs)
-		if err != nil || family != chainsel.FamilyEVM {
+		if err != nil {
 			continue
 		}
-		supportedRemoteSelectors = append(supportedRemoteSelectors, rs)
+		if common.HasCCTPChainFamily(common.GlobalCCTPRegistry, family) {
+			supported = append(supported, rs)
+		}
 	}
-	return supportedRemoteSelectors
+	return supported
 }
 
 func usdcTokenPoolProxies(sourceSelector uint64, remoteSelectors []uint64) map[uint64]datastore.AddressRef {

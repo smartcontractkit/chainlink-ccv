@@ -81,6 +81,7 @@ import (
 	tokenscore "github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
 	changesetsutils "github.com/smartcontractkit/chainlink-ccip/deployment/utils"
 	changesetscore "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
+	lombard "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/adapters/lombard"
 )
 
 const (
