@@ -460,19 +460,25 @@ func ConfigureAllTokenTransfers(
 			return nil, fmt.Errorf("configure tokens for transfers batch %d: %w", i, err)
 		}
 	}
-	return configuredTokenPoolPairs(allConfigs), nil
+	return configuredTokenPoolPairs(allConfigs)
 }
 
 // configuredTokenPoolPairs flattens configured token-transfer configs into
 // directional lane pairs. CCV qualifiers follow the version rule: sides at
 // 2.0.0 or above were configured with the default committee.
-func configuredTokenPoolPairs(configs []tokenscore.TokenTransferConfig) []devenvcommon.TokenPoolPair {
+func configuredTokenPoolPairs(configs []tokenscore.TokenTransferConfig) ([]devenvcommon.TokenPoolPair, error) {
 	var pairs []devenvcommon.TokenPoolPair
 	for _, cfg := range configs {
+		if cfg.TokenPoolRef.Version == nil {
+			return nil, fmt.Errorf("chain %d: local pool %s has no version", cfg.ChainSelector, cfg.TokenPoolRef.Type)
+		}
 		for remoteSel, remote := range cfg.RemoteChains {
 			remoteRef := remote.RemotePool
-			if remoteRef == nil || remoteRef.Version == nil {
+			if remoteRef == nil {
 				continue
+			}
+			if remoteRef.Version == nil {
+				return nil, fmt.Errorf("chain %d: remote pool %s on chain %d has no version", cfg.ChainSelector, remoteRef.Type, remoteSel)
 			}
 			var ccv []string
 			if devenvcommon.IsCCVAwarePoolVersion(cfg.TokenPoolRef.Version.String()) ||
@@ -489,13 +495,17 @@ func configuredTokenPoolPairs(configs []tokenscore.TokenTransferConfig) []devenv
 		}
 	}
 	slices.SortFunc(pairs, func(a, b devenvcommon.TokenPoolPair) int {
+		ref := func(r devenvcommon.TokenPoolRefCfg) string {
+			return r.Type + " " + r.Version + " " + r.Qualifier
+		}
 		return cmp.Or(
 			strings.Compare(a.LocalSelector, b.LocalSelector),
 			strings.Compare(a.RemoteSelector, b.RemoteSelector),
-			strings.Compare(a.LocalPool.Qualifier, b.LocalPool.Qualifier),
+			strings.Compare(ref(a.LocalPool), ref(b.LocalPool)),
+			strings.Compare(ref(a.RemotePool), ref(b.RemotePool)),
 		)
 	})
-	return pairs
+	return pairs, nil
 }
 
 func tokenPoolRefCfg(ref datastore.AddressRef) devenvcommon.TokenPoolRefCfg {
