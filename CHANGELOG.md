@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.1](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.8.0...v0.8.1) (2026-09-03)
+
+
+### Bug Fixes
+
+* **verifier:** handle nil keystore in service factory ([#1406](https://github.com/smartcontractkit/chainlink-ccv/issues/1406)) ([08ce1f3](https://github.com/smartcontractkit/chainlink-ccv/commit/08ce1f38e5ad43d89818d25ee4e61be719576acc))
+
 ## [0.8.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.7.0...v0.8.0) (2026-09-03)
 
 
