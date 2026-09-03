@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.8.1](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.8.0...v0.8.1) (2026-09-03)
+
+
+### Bug Fixes
+
+* **verifier:** handle nil keystore in service factory ([#1406](https://github.com/smartcontractkit/chainlink-ccv/issues/1406)) ([08ce1f3](https://github.com/smartcontractkit/chainlink-ccv/commit/08ce1f38e5ad43d89818d25ee4e61be719576acc))
+
+## [0.8.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.7.0...v0.8.0) (2026-09-03)
+
+
+### Features
+
+* **verifier:** policy hooks ([#1380](https://github.com/smartcontractkit/chainlink-ccv/issues/1380)) ([039ff50](https://github.com/smartcontractkit/chainlink-ccv/commit/039ff507b30c5d31a32f8745f5a82f4efca392ad))
+* **verifier:** support explicit auto-adoption of keystore signer address ([#1395](https://github.com/smartcontractkit/chainlink-ccv/issues/1395)) ([8dacb27](https://github.com/smartcontractkit/chainlink-ccv/commit/8dacb279a671b9f27e3ff955db0970bd796dbd1d))
+
+
+### Bug Fixes
+
+* **evm:** bump down default batch size to 25 ([#1404](https://github.com/smartcontractkit/chainlink-ccv/issues/1404)) ([16bee77](https://github.com/smartcontractkit/chainlink-ccv/commit/16bee7726963bb037756976957f4deb9fe2655db))
+* **verifier:** add adaptive log fetching and return early on no progress ([#1370](https://github.com/smartcontractkit/chainlink-ccv/issues/1370)) ([92ca56b](https://github.com/smartcontractkit/chainlink-ccv/commit/92ca56b6fa987433550d6d85004d574bd0536fb9))
+
 ## [0.7.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.6.0...v0.7.0) (2026-09-01)
 
 

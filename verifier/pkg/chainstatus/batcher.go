@@ -18,7 +18,7 @@ const (
 	DefaultFlushInterval = 30 * time.Second
 	// DefaultFlushThreshold is how many chains may wait in the buffer before the
 	// batcher writes them without waiting for the next tick.
-	DefaultFlushThreshold = 10
+	DefaultFlushThreshold = 30
 	// closeFlushTimeout bounds the final flush that runs during Close.
 	closeFlushTimeout = 10 * time.Second
 )

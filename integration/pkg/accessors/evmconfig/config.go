@@ -46,13 +46,13 @@ type ChainConfig struct {
 	TXMBlockTime time.Duration `toml:"txm_block_time,omitempty"`
 	// SourceReaderHeaderFetchBatchSize caps how many eth_getBlockByNumber requests
 	// are sent in a single JSON-RPC batch when the source reader fetches block
-	// headers. Zero uses [DefaultSourceReaderHeaderFetchBatchSize], which is 100.
+	// headers. Zero uses [DefaultSourceReaderHeaderFetchBatchSize], which is 25.
 	SourceReaderHeaderFetchBatchSize int `toml:"source_reader_header_fetch_batch_size,omitempty"`
 }
 
 // DefaultSourceReaderHeaderFetchBatchSize is the batch size used when the
 // operator config does not set SourceReaderHeaderFetchBatchSize.
-const DefaultSourceReaderHeaderFetchBatchSize = 100
+const DefaultSourceReaderHeaderFetchBatchSize = 25
 
 // NewConfigFromInfos builds operator config from the enumeration-oriented
 // Infos[Info] produced by devenv, dropping metadata derived from the selector.

@@ -28,6 +28,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/heartbeat"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/policy"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vsecrets"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -105,6 +106,12 @@ func (f *factory) Validate(spec bootstrap.JobSpec) error {
 
 // Start implements [bootstrap.ServiceFactory].
 func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootstrap.ServiceDeps) error {
+	if deps.Keystore == nil {
+		return fmt.Errorf(
+			"committee verifier requires a keystore: ensure the [keystore] section in the secrets is set correctly" +
+				", with any corresponding fields in [db] if backend is 'postgres'")
+	}
+
 	protocol.InitChainSelectorCache()
 
 	config, err := validateJobSpec(spec)
@@ -275,6 +282,23 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		return fmt.Errorf("failed to create commit verifier: %w", err)
 	}
 
+	// Resolve the credential the policy endpoint identifies this verifier by: the secrets file
+	// when it carries a [policy_hook] table, otherwise the environment. Nil is the supported
+	// unauthenticated case, so only a malformed or half-supplied pair fails here.
+	policyCredential, err := policy.ResolveCredential(secrets.PolicyHookSecret())
+	if err != nil {
+		lggr.Errorw("Failed to resolve policy hook credential", "error", err)
+		return fmt.Errorf("failed to resolve policy hook credential: %w", err)
+	}
+
+	// Apply the operator's policy hook. With no [policy_hook] section this returns the commit
+	// verifier unchanged.
+	gatedVerifier, err := policy.WrapVerifier(lggr, config.VerifierID, commitVerifier, config.PolicyHook, verifierMonitoring, policyCredential)
+	if err != nil {
+		lggr.Errorw("Failed to apply policy hook", "error", err)
+		return fmt.Errorf("failed to apply policy hook: %w", err)
+	}
+
 	// Write fan-out: one resilient + observed stack per aggregator, all writes fan out to every
 	// aggregator (all-must-ack). The top-level observed writer records the aggregate outcome.
 	fanOutWriter, err := storageaccess.NewFanOutAggregatorWriter(
@@ -368,7 +392,7 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 
 	coordinator, err := verifier.NewCoordinator(
 		lggr,
-		commitVerifier,
+		gatedVerifier,
 		sourceReaders,
 		observedOffchainWriter,
 		coordinatorConfig,
