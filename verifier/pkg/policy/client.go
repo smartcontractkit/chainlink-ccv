@@ -88,6 +88,10 @@ func NewHTTPChecker(lggr logger.Logger, cfg *Config, cred *hmac.ClientConfig) (*
 		return nil, err
 	}
 
+	base, err := cfg.parseBaseURL()
+	if err != nil {
+		return nil, err
+	}
 	endpoint, err := cfg.EvaluateURL()
 	if err != nil {
 		return nil, err
@@ -114,7 +118,12 @@ func NewHTTPChecker(lggr logger.Logger, cfg *Config, cred *hmac.ClientConfig) (*
 	// The generated client resolves the operation path against the base, so a base carrying a
 	// gateway prefix keeps it. That is the same URL Config.EvaluateURL derives, and
 	// TestHTTPChecker_PostsTheDerivedEvaluateURL holds the two together.
-	api, err := policyapi.NewClient(cfg.BaseURL,
+	//
+	// It is built from the parsed base rather than from cfg.BaseURL, because parseBaseURL trims
+	// before validating: a base_url with surrounding whitespace is a config the verifier accepts,
+	// and url.Parse rejects the untrimmed string outright. Handing the raw value over would turn a
+	// working config into an endpoint that fails every call.
+	api, err := policyapi.NewClient(base.String(),
 		policyapi.WithHTTPClient(httpClient),
 		// The generated client sets Content-Type from the body but nothing else. Accept is
 		// part of the request shape the contract describes, and an endpoint behind a gateway
@@ -147,19 +156,27 @@ func (c *HTTPChecker) Evaluate(ctx context.Context, req EvaluateRequest) (Verdic
 
 	// Signed as a request editor, which runs after the generated client has fixed the method,
 	// the URL, and the body. The signature covers all three.
+	//
+	// The editor's error is kept here as well as returned, because the generated client hands it
+	// back through the same return as a transport failure and the two are not the same thing: one
+	// is this node's credential, the other is the operator's endpoint. Both leave the caller with
+	// no verdict, so both retry, but they go to an operator's logs and an error that sent someone
+	// to look at a healthy endpoint would be worse than no error at all.
+	var signErr error
 	editors := make([]policyapi.RequestEditorFn, 0, 1)
 	if c.cred != nil {
 		editors = append(editors, func(_ context.Context, httpReq *http.Request) error {
-			return hmac.SignHTTPRequest(httpReq, c.cred, body, time.Now())
+			signErr = hmac.SignHTTPRequest(httpReq, c.cred, body, time.Now())
+			return signErr
 		})
 	}
 
 	start := time.Now()
 	resp, err := c.api.PolicyEvaluateWithBody(ctx, "application/json", bytes.NewReader(body), editors...)
+	if signErr != nil {
+		return Verdict{}, fmt.Errorf("failed to sign policy request for message %s: %w", req.MessageId, signErr)
+	}
 	if err != nil {
-		// A signing failure surfaces here too, because the editor runs inside the call. It is
-		// a local misconfiguration rather than an endpoint problem, but both are "no verdict",
-		// which is the only distinction the caller acts on.
 		return Verdict{}, fmt.Errorf("policy endpoint unreachable for message %s after %s: %w", req.MessageId, time.Since(start), classifyTransportError(err))
 	}
 	defer func() {

@@ -58,6 +58,12 @@ No caller outside the package touches either. The only external use of these typ
 contract's operation path, and setting the content type. HMAC signing is a `RequestEditorFn` over
 the exact marshaled bytes, which is what the signature covers.
 
+Two places where handing work to the generated client needed care. It is constructed from the
+parsed base URL rather than from the raw `base_url`, because validation trims before parsing while
+`url.Parse` rejects a padded URL, so a config with surrounding whitespace stays valid and keeps
+working. And a request editor's error comes back through the same return as a transport failure, so
+a signing error is unwrapped and reported as one instead of as an unreachable endpoint.
+
 It deliberately does not use the generated `ClientWithResponses` helpers. Those read the response
 body with no limit and fold every status into one shape, and the 64 KiB bounded read and the
 unavailable-versus-rejected split are the reason this package exists rather than reusing a shared
@@ -70,7 +76,10 @@ and the response handling stays explicit.
   tie together: the generated client resolves the operation path itself, while
   `Config.EvaluateURL` derives the same URL for logs, errors, and the validation that rejects a
   `base_url` already ending in the operation path. It asserts they agree for a bare host, a
-  trailing slash, and a gateway path prefix.
+  trailing slash, a gateway path prefix, and a `base_url` with surrounding whitespace.
+- `TestHTTPChecker_Evaluate_SigningFailureIsNotAnOutage` is new. A credential this node cannot
+  sign with and an endpoint that is down both leave the message without a verdict and both retry,
+  so the error text is the only thing separating them for whoever is reading the logs.
 - `TestOpenAPISpecDeclaresEvaluateOperation` now asserts the spec's operation path equals
   `policy.EvaluatePath`. Moving the path in the spec would otherwise leave the client posting the
   new path while the logs and validation named the old one.
