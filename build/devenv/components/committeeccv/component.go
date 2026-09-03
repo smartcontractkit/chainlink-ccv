@@ -341,7 +341,7 @@ func runPhase3Core(
 	return map[string]any{
 		"aggregators":       aggregators,
 		"verifiers":         verifiers,
-		"token_pool_pairs":    tokenPoolPairs,
+		"token_pool_pairs":  tokenPoolPairs,
 		"_shared_tls_certs": sharedTLSCerts,
 	}, effects, nil
 }
