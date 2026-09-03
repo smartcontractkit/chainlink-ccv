@@ -327,8 +327,8 @@ func TestGetBlocksHeaders_BatchesAndChunks(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, headers, 250)
 
-	// Chunked into defaultMaxBatchSize (100) -> 100,100,50.
-	require.Equal(t, []int{100, 100, 50}, c.batchSizes)
+	// Chunked into defaultMaxBatchSize (25) -> 25,25,25,25,25,25,25,25,25,25.
+	require.Equal(t, []int{25, 25, 25, 25, 25, 25, 25, 25, 25, 25}, c.batchSizes)
 
 	// Every requested block number maps to a header with the right hash/fields.
 	for i := range 250 {
@@ -373,5 +373,5 @@ func TestGetBlocksHeaders_SkipsFailedBatchElements(t *testing.T) {
 	require.Len(t, headers, 109) // block 50 errored and should be absent
 	_, present := headers[50]
 	require.False(t, present)
-	require.Equal(t, []int{100, 10}, c.batchSizes)
+	require.Equal(t, []int{25, 25, 25, 25, 10}, c.batchSizes)
 }
