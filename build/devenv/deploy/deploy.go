@@ -388,14 +388,14 @@ func DeployTokensAndPools(
 // impls, groups them by local pool identity, and calls
 // ConfigureTokensForTransfers once per group. This replaces the EVM-specific
 // BuildTokenTransferConfigs call that previously lived in environment.go.
-// It returns the directional pool pairings it configured so deploy can declare
-// them ([[token_pairings]] in the env toml) for test-side resolution.
+// It returns the directional pool pairs it configured so deploy can declare
+// them ([[token_pool_pairs]] in the env toml) for test-side resolution.
 func ConfigureAllTokenTransfers(
 	impls []cciptestinterfaces.CCIP17Configuration,
 	selectors []uint64,
 	env *deployment.Environment,
 	topology *ccvdeployment.EnvironmentTopology,
-) ([]devenvcommon.TokenPairing, error) {
+) ([]devenvcommon.TokenPoolPair, error) {
 	// First merge duplicate configs for the same local pool. Each merged config
 	// keeps all remote lanes for that pool; the next phase splits unrelated
 	// tokens into separate ConfigureTokensForTransfers calls because upstream
@@ -460,14 +460,14 @@ func ConfigureAllTokenTransfers(
 			return nil, fmt.Errorf("configure tokens for transfers batch %d: %w", i, err)
 		}
 	}
-	return configuredTokenPairings(allConfigs), nil
+	return configuredTokenPoolPairs(allConfigs), nil
 }
 
-// configuredTokenPairings flattens configured token-transfer configs into
-// directional lane pairings. CCV qualifiers follow the version rule: sides at
+// configuredTokenPoolPairs flattens configured token-transfer configs into
+// directional lane pairs. CCV qualifiers follow the version rule: sides at
 // 2.0.0 or above were configured with the default committee.
-func configuredTokenPairings(configs []tokenscore.TokenTransferConfig) []devenvcommon.TokenPairing {
-	var pairings []devenvcommon.TokenPairing
+func configuredTokenPoolPairs(configs []tokenscore.TokenTransferConfig) []devenvcommon.TokenPoolPair {
+	var pairs []devenvcommon.TokenPoolPair
 	for _, cfg := range configs {
 		for remoteSel, remote := range cfg.RemoteChains {
 			remoteRef := remote.RemotePool
@@ -479,7 +479,7 @@ func configuredTokenPairings(configs []tokenscore.TokenTransferConfig) []devenvc
 				devenvcommon.IsCCVAwarePoolVersion(remoteRef.Version.String()) {
 				ccv = []string{devenvcommon.DefaultCommitteeVerifierQualifier}
 			}
-			pairings = append(pairings, devenvcommon.TokenPairing{
+			pairs = append(pairs, devenvcommon.TokenPoolPair{
 				LocalSelector:  strconv.FormatUint(cfg.ChainSelector, 10),
 				RemoteSelector: strconv.FormatUint(remoteSel, 10),
 				LocalPool:      tokenPoolRefCfg(cfg.TokenPoolRef),
@@ -488,14 +488,14 @@ func configuredTokenPairings(configs []tokenscore.TokenTransferConfig) []devenvc
 			})
 		}
 	}
-	slices.SortFunc(pairings, func(a, b devenvcommon.TokenPairing) int {
+	slices.SortFunc(pairs, func(a, b devenvcommon.TokenPoolPair) int {
 		return cmp.Or(
 			strings.Compare(a.LocalSelector, b.LocalSelector),
 			strings.Compare(a.RemoteSelector, b.RemoteSelector),
 			strings.Compare(a.LocalPool.Qualifier, b.LocalPool.Qualifier),
 		)
 	})
-	return pairings
+	return pairs
 }
 
 func tokenPoolRefCfg(ref datastore.AddressRef) devenvcommon.TokenPoolRefCfg {

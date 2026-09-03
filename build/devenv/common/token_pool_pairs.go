@@ -18,9 +18,9 @@ type TokenPoolRefCfg struct {
 	Qualifier string `toml:"qualifier"`
 }
 
-// TokenPairing declares one directional lane. Selectors are strings: they
+// TokenPoolPair declares one directional lane. Selectors are strings: they
 // exceed the int64 range TOML integer literals decode into.
-type TokenPairing struct {
+type TokenPoolPair struct {
 	LocalSelector  string          `toml:"local_selector"`
 	RemoteSelector string          `toml:"remote_selector"`
 	LocalPool      TokenPoolRefCfg `toml:"local_pool"`
@@ -28,26 +28,26 @@ type TokenPairing struct {
 	CCVQualifiers  []string        `toml:"ccv_qualifiers"`
 }
 
-// TokenCombinationsFromPairings resolves declared pairings against the
+// TokenCombinationsFromPoolPairs resolves declared pairs against the
 // datastore. Each leg must exist by exact type+version+qualifier on its
 // declared selector; missing refs are named errors. Output order follows
 // declaration order.
-func TokenCombinationsFromPairings(ds datastore.DataStore, pairs []TokenPairing) ([]TokenCombination, error) {
+func TokenCombinationsFromPoolPairs(ds datastore.DataStore, pairs []TokenPoolPair) ([]TokenCombination, error) {
 	combos := make([]TokenCombination, 0, len(pairs))
 	for i, p := range pairs {
 		local, err := p.LocalPool.leg(ds, "local", p.LocalSelector)
 		if err != nil {
-			return nil, fmt.Errorf("token pairing %d: %w", i, err)
+			return nil, fmt.Errorf("token pool pair %d: %w", i, err)
 		}
 		remote, err := p.RemotePool.leg(ds, "remote", p.RemoteSelector)
 		if err != nil {
-			return nil, fmt.Errorf("token pairing %d: %w", i, err)
+			return nil, fmt.Errorf("token pool pair %d: %w", i, err)
 		}
 
 		// Sides below 2.0.0 predate CCV; only committee-aware sides carry the
 		// declared qualifiers (same rule as ComputeTokenCombinations).
-		localQ, remoteQ := pairingCCVQualifiers(p.LocalPool.Version, p.CCVQualifiers),
-			pairingCCVQualifiers(p.RemotePool.Version, p.CCVQualifiers)
+		localQ, remoteQ := pairCCVQualifiers(p.LocalPool.Version, p.CCVQualifiers),
+			pairCCVQualifiers(p.RemotePool.Version, p.CCVQualifiers)
 		combo := newTokenCombination(
 			local.Type.String(), local.Version.String(), localQ,
 			remote.Type.String(), remote.Version.String(), remoteQ,
@@ -78,9 +78,9 @@ func (r TokenPoolRefCfg) leg(ds datastore.DataStore, side, selector string) (dat
 	return ref, nil
 }
 
-// pairingCCVQualifiers returns the declared committee qualifiers when the pool
+// pairCCVQualifiers returns the declared committee qualifiers when the pool
 // version is CCV-aware, else nil.
-func pairingCCVQualifiers(version string, ccvQualifiers []string) []string {
+func pairCCVQualifiers(version string, ccvQualifiers []string) []string {
 	if !IsCCVAwarePoolVersion(version) {
 		return nil
 	}

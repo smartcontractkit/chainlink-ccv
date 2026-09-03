@@ -174,10 +174,10 @@ type Cfg struct {
 	// GenericServices is a map of chain selector to its generic service definition.
 	GenericServices map[uint64]*GenericServiceDefinition `toml:"generic_services" validate:"required"`
 
-	// TokenPairings declares the token lanes deploy configured
-	// ([[token_pairings]]). Tests resolve each leg exactly against the
+	// TokenPoolPairs declares the token lanes deploy configured
+	// ([[token_pool_pairs]]). Tests resolve each leg exactly against the
 	// [[addresses]] datastore; absent section = legacy catalog fallback.
-	TokenPairings []devenvcommon.TokenPairing `toml:"token_pairings,omitempty"`
+	TokenPoolPairs []devenvcommon.TokenPoolPair `toml:"token_pool_pairs,omitempty"`
 }
 
 // ExpandForHA clones AggregatorInput / IndexerInput entries based on their

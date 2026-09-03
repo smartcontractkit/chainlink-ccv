@@ -208,13 +208,13 @@ func runPhase3Core(
 	// Phase 2, where the CommitteeVerifier resolver was not yet deployed, so token pools could
 	// not be wired to it. Runs before lane config (Step 5b), matching the original ordering.
 	// TODO: move to a dedicated token-transfer Phase 3 component.
-	var tokenPairings []devenvcommon.TokenPairing
+	var tokenPoolPairs []devenvcommon.TokenPoolPair
 	if len(inputs.impls) > 0 {
-		pairings, err := ccdeploy.ConfigureAllTokenTransfers(inputs.impls, inputs.selectors, localEnv, inputs.topology)
+		pairs, err := ccdeploy.ConfigureAllTokenTransfers(inputs.impls, inputs.selectors, localEnv, inputs.topology)
 		if err != nil {
 			return nil, nil, fmt.Errorf("committeeccv: configure all token transfers: %w", err)
 		}
-		tokenPairings = pairings
+		tokenPoolPairs = pairs
 	}
 
 	// Step 2: Launch standalone verifier containers (reads HMAC creds from agg.Out).
@@ -341,7 +341,7 @@ func runPhase3Core(
 	return map[string]any{
 		"aggregators":       aggregators,
 		"verifiers":         verifiers,
-		"token_pairings":    tokenPairings,
+		"token_pool_pairs":    tokenPoolPairs,
 		"_shared_tls_certs": sharedTLSCerts,
 	}, effects, nil
 }
