@@ -136,7 +136,7 @@ func (s TokenCombination) ExpectedVerifierResults() int {
 }
 
 func (s TokenCombination) FinalityConfig() protocol.Finality {
-	if semver.MustParse(s.localPoolVersion).GreaterThanEqual(semver.MustParse("2.0.0")) {
+	if IsCCVAwarePoolVersion(s.localPoolVersion) {
 		return 1 // We can use fast-finality if local pool is 2.0.0 or higher
 	}
 	return 0 // Otherwise use default finality
@@ -492,6 +492,14 @@ func dataStoreHasAddressRef(ds datastore.DataStore, chainSelector uint64, ref da
 		ref.Qualifier,
 	))
 	return err == nil
+}
+
+// IsCCVAwarePoolVersion reports whether a pool version participates in CCV
+// (>= 2.0.0). Sides below 2.0.0 predate CCV and use legacy counts; the same
+// rule drives FinalityConfig and pairing resolution.
+func IsCCVAwarePoolVersion(version string) bool {
+	v, err := semver.NewVersion(version)
+	return err == nil && !v.LessThan(semver.MustParse("2.0.0"))
 }
 
 // PoolCapabilityKey returns a unique key for a pool capability using "::" as separator.
