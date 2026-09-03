@@ -350,6 +350,11 @@ func (r *Service) processEventCycle(ctx context.Context, latest, finalized *prot
 		r.logger.Warnw("Error when querying logs", "error", err,
 			"fromBlock", fromBlock.String(),
 			"toBlock", "latest")
+
+		// Only return early when no progress was made
+		if lastQueriedBlock.Cmp(fromBlock) == 0 {
+			return false
+		}
 	}
 
 	tasks := make([]verifier.VerificationTask, 0, len(events))
