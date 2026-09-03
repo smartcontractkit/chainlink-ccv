@@ -1,0 +1,14 @@
+# Generates the policy hook's request/response types and HTTP client from the published contract,
+# so the Go types cannot drift from the spec an operator builds against.
+#
+# The overlay maps the contract's unsigned integers onto the Go types the verifier already uses.
+# It is a separate file rather than x-go-type inline in the spec because the spec is published:
+# an operator reading it should not be reading our language bindings.
+package: policyapi
+output: pkg/policy/internal/policyapi/policyapi.gen.go
+generate:
+  models: true
+  client: true
+output-options:
+  overlay:
+    path: policy-overlay.yaml

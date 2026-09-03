@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +15,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 )
 
 // newTestChecker points a checker at srv. The endpoint is plain http, which is what
@@ -33,8 +36,8 @@ func newTestChecker(t *testing.T, srv *httptest.Server, timeout string) *HTTPChe
 func testRequest() EvaluateRequest {
 	return EvaluateRequest{
 		SchemaVersion: SchemaVersion,
-		VerifierID:    "committee-verifier-1",
-		MessageID:     "0xabc",
+		VerifierId:    "committee-verifier-1",
+		MessageId:     "0xabc",
 		Message:       MessageV1{SourceChainSelector: "1", DestChainSelector: "2"},
 	}
 }
@@ -153,7 +156,7 @@ func TestHTTPChecker_Evaluate_RequestShape(t *testing.T) {
 	assert.Equal(t, http.MethodPost, gotMethod)
 	assert.Equal(t, "application/json", gotContentType)
 	assert.Equal(t, "application/json", gotAccept)
-	assert.Equal(t, "/v1/evaluate", gotPath, "the endpoint URL is used verbatim, with nothing appended")
+	assert.Equal(t, EvaluatePath, gotPath, "the contract's operation path is appended to base_url")
 	assert.Equal(t, req, gotBody)
 }
 
@@ -307,6 +310,31 @@ func TestHTTPChecker_Evaluate_HoldIsReservedAndRetries(t *testing.T) {
 	assert.Contains(t, err.Error(), "FAIL", "the error must point the operator at the supported way to hold a message")
 }
 
+// A credential this node cannot sign with is not an endpoint outage. Both leave the message
+// without a verdict and both retry, so the only thing that separates them for an operator is
+// what the error says, and the endpoint in this test is healthy and never even called.
+func TestHTTPChecker_Evaluate_SigningFailureIsNotAnOutage(t *testing.T) {
+	var called bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called = true
+		_, _ = io.WriteString(w, `{"decision":"PASS"}`)
+	}))
+	defer srv.Close()
+
+	// ResolveCredential rejects a non-hex secret_key at startup, so this is the shape a caller
+	// constructing HTTPChecker directly can still reach.
+	cred := &hmac.ClientConfig{APIKey: "11111111-1111-1111-1111-111111111111", Secret: "not-hex"}
+	checker, err := NewHTTPChecker(logger.Test(t), &Config{BaseURL: srv.URL, InsecureConnection: true}, cred)
+	require.NoError(t, err)
+
+	verdict, err := checker.Evaluate(t.Context(), testRequest())
+	require.Error(t, err)
+	assert.Empty(t, verdict.Decision, "an unsigned request must not yield a verdict")
+	assert.Contains(t, err.Error(), "failed to sign policy request")
+	assert.NotContains(t, err.Error(), "unreachable", "the endpoint is up; blaming it would send an operator to the wrong place")
+	assert.False(t, called, "an unsigned request must not reach the endpoint")
+}
+
 func TestNewHTTPChecker_RejectsBadConfig(t *testing.T) {
 	_, err := NewHTTPChecker(logger.Test(t), nil, nil)
 	require.Error(t, err)
@@ -318,4 +346,51 @@ func TestNewHTTPChecker_RejectsBadConfig(t *testing.T) {
 	_, err = NewHTTPChecker(logger.Test(t), &Config{BaseURL: "http://policy.example.com"}, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "insecure_connection")
+}
+
+// Two things now compute the URL: the generated client resolves the operation path against
+// base_url, and Config.EvaluateURL derives the same string for logs, errors, and validation.
+// They have to agree, and nothing structural makes them, so this asserts it against the shapes
+// an operator can configure - bare host, trailing slash, the gateway prefix that is the reason
+// base_url is a base at all, and surrounding whitespace, which parseBaseURL trims and so accepts.
+func TestHTTPChecker_PostsTheDerivedEvaluateURL(t *testing.T) {
+	cases := []struct {
+		name string
+		base func(srvURL string) string
+	}{
+		{name: "bare host", base: func(u string) string { return u }},
+		{name: "trailing slash", base: func(u string) string { return u + "/" }},
+		{name: "gateway prefix", base: func(u string) string { return u + "/compliance" }},
+		{name: "gateway prefix with trailing slash", base: func(u string) string { return u + "/compliance/" }},
+		// url.Parse rejects a padded URL, so these are the shapes where a client built from the
+		// raw config string fails every call while the config itself is valid.
+		{name: "leading whitespace", base: func(u string) string { return " " + u }},
+		{name: "trailing whitespace", base: func(u string) string { return u + " " }},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotPath string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotPath = r.URL.RequestURI()
+				_, _ = io.WriteString(w, `{"decision":"PASS"}`)
+			}))
+			defer srv.Close()
+
+			cfg := &Config{BaseURL: tc.base(srv.URL), InsecureConnection: true}
+			want, err := cfg.EvaluateURL()
+			require.NoError(t, err)
+
+			checker, err := NewHTTPChecker(logger.Test(t), cfg, nil)
+			require.NoError(t, err)
+			_, err = checker.Evaluate(t.Context(), testRequest())
+			require.NoError(t, err)
+
+			wantURL, err := url.Parse(want)
+			require.NoError(t, err)
+			assert.Equal(t, wantURL.RequestURI(), gotPath,
+				"the generated client and Config.EvaluateURL must resolve base_url the same way")
+			assert.Equal(t, want, checker.endpoint, "the logged endpoint must be the one posted")
+		})
+	}
 }

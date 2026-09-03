@@ -41,8 +41,8 @@ func TestNewEvaluateRequest(t *testing.T) {
 	req := NewEvaluateRequest("committee-verifier-1", &task)
 
 	assert.Equal(t, SchemaVersion, req.SchemaVersion)
-	assert.Equal(t, "committee-verifier-1", req.VerifierID)
-	assert.Equal(t, "0xabc123", req.MessageID)
+	assert.Equal(t, "committee-verifier-1", req.VerifierId)
+	assert.Equal(t, "0xabc123", req.MessageId)
 	assert.Equal(t, "0xdeadbeef", req.SourceTxHash)
 	assert.Equal(t, uint64(100), req.SourceBlockNumber)
 	assert.Equal(t, uint64(115), req.FinalizedBlockNumber)
@@ -61,7 +61,7 @@ func TestNewEvaluateRequest(t *testing.T) {
 	assert.Equal(t, "0x0708", req.Message.Data)
 	assert.Equal(t, "0x09", req.Message.DestBlob)
 	assert.Equal(t, uint32(300000), req.Message.ExecutionGasLimit)
-	assert.Equal(t, uint32(200000), req.Message.CCIPReceiveGasLimit)
+	assert.Equal(t, uint32(200000), req.Message.CcipReceiveGasLimit)
 	assert.Equal(t, uint32(0), req.Message.Finality)
 	assert.Nil(t, req.Message.TokenTransfer, "a message with no tokens carries no token_transfer")
 }

@@ -8,7 +8,7 @@ verifier code.
 
 The endpoint contract is published as [policy_hook_openapi_v1.yaml](../policy_hook_openapi_v1.yaml),
 an OpenAPI 3.0.3 document. Operators build against that; the Go types in `verifier/pkg/policy` are
-kept in step with it by `TestOpenAPISpecMatchesContract`.
+generated from it, so they cannot drift from it.
 
 The same contract rendered as browsable markdown, one page per schema, is in
 [policy_hook_api/](policy_hook_api/README.md). It is generated from the YAML by

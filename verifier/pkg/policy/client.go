@@ -15,6 +15,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/policy/internal/policyapi"
 )
 
 // Verdict is a usable answer from the policy endpoint: an HTTP 200 whose body parsed into one
@@ -55,9 +56,15 @@ type Checker interface {
 // explicit, because the difference between "unavailable" and "rejected" is the difference
 // between retrying a message and dropping it.
 type HTTPChecker struct {
-	lggr     logger.Logger
+	lggr logger.Logger
+	// api is generated from the published contract. It owns building the request: joining
+	// base_url with the operation path, and setting the content type. It deliberately does not
+	// own reading the response, because the generated *WithResponse helpers read the body
+	// unbounded and fold every status into one shape, and the bounded read and the
+	// unavailable-versus-rejected split below are the whole reason this package exists.
+	api *policyapi.Client
+	// endpoint is the URL api will POST, kept for logs and errors.
 	endpoint string
-	client   *http.Client
 	// cred is the optional HMAC credential the endpoint identifies this verifier by. Nil means
 	// the operator configured none and the call goes out unauthenticated.
 	cred *hmac.ClientConfig
@@ -81,6 +88,10 @@ func NewHTTPChecker(lggr logger.Logger, cfg *Config, cred *hmac.ClientConfig) (*
 		return nil, err
 	}
 
+	base, err := cfg.parseBaseURL()
+	if err != nil {
+		return nil, err
+	}
 	endpoint, err := cfg.EvaluateURL()
 	if err != nil {
 		return nil, err
@@ -93,47 +104,80 @@ func NewHTTPChecker(lggr logger.Logger, cfg *Config, cred *hmac.ClientConfig) (*
 	transport = transport.Clone()
 	transport.MaxIdleConnsPerHost = 32
 
+	httpClient := &http.Client{
+		Timeout:   timeout,
+		Transport: transport,
+		// A policy endpoint has no reason to redirect, and following one would either
+		// downgrade the transport or turn the POST into a GET on 301/302/303. Surface
+		// the redirect as a non-2xx status instead, which retries.
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	// The generated client resolves the operation path against the base, so a base carrying a
+	// gateway prefix keeps it. That is the same URL Config.EvaluateURL derives, and
+	// TestHTTPChecker_PostsTheDerivedEvaluateURL holds the two together.
+	//
+	// It is built from the parsed base rather than from cfg.BaseURL, because parseBaseURL trims
+	// before validating: a base_url with surrounding whitespace is a config the verifier accepts,
+	// and url.Parse rejects the untrimmed string outright. Handing the raw value over would turn a
+	// working config into an endpoint that fails every call.
+	api, err := policyapi.NewClient(base.String(),
+		policyapi.WithHTTPClient(httpClient),
+		// The generated client sets Content-Type from the body but nothing else. Accept is
+		// part of the request shape the contract describes, and an endpoint behind a gateway
+		// that content-negotiates needs it.
+		policyapi.WithRequestEditorFn(func(_ context.Context, httpReq *http.Request) error {
+			httpReq.Header.Set("Accept", "application/json")
+			return nil
+		}),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build policy endpoint client: %w", err)
+	}
+
 	return &HTTPChecker{
 		lggr:     logger.With(lggr, "component", "PolicyHook", "endpoint", endpoint, "authenticated", cred != nil),
+		api:      api,
 		endpoint: endpoint,
 		cred:     cred,
-		client: &http.Client{
-			Timeout:   timeout,
-			Transport: transport,
-			// A policy endpoint has no reason to redirect, and following one would either
-			// downgrade the transport or turn the POST into a GET on 301/302/303. Surface
-			// the redirect as a non-2xx status instead, which retries.
-			CheckRedirect: func(*http.Request, []*http.Request) error {
-				return http.ErrUseLastResponse
-			},
-		},
 	}, nil
 }
 
 // Evaluate posts the request to the policy endpoint and returns its verdict.
 func (c *HTTPChecker) Evaluate(ctx context.Context, req EvaluateRequest) (Verdict, error) {
+	// Marshaled here rather than handed to the generated client's JSON overload because the
+	// signature covers a hash of the exact bytes on the wire, so the signer needs those bytes.
 	body, err := json.Marshal(req)
 	if err != nil {
-		return Verdict{}, fmt.Errorf("failed to encode policy request for message %s: %w", req.MessageID, err)
+		return Verdict{}, fmt.Errorf("failed to encode policy request for message %s: %w", req.MessageId, err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(body))
-	if err != nil {
-		return Verdict{}, fmt.Errorf("failed to build policy request for message %s: %w", req.MessageID, err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Accept", "application/json")
-	// Signed after the body and the URL are fixed, because the signature covers both.
+	// Signed as a request editor, which runs after the generated client has fixed the method,
+	// the URL, and the body. The signature covers all three.
+	//
+	// The editor's error is kept here as well as returned, because the generated client hands it
+	// back through the same return as a transport failure and the two are not the same thing: one
+	// is this node's credential, the other is the operator's endpoint. Both leave the caller with
+	// no verdict, so both retry, but they go to an operator's logs and an error that sent someone
+	// to look at a healthy endpoint would be worse than no error at all.
+	var signErr error
+	editors := make([]policyapi.RequestEditorFn, 0, 1)
 	if c.cred != nil {
-		if err := hmac.SignHTTPRequest(httpReq, c.cred, body, time.Now()); err != nil {
-			return Verdict{}, fmt.Errorf("failed to sign policy request for message %s: %w", req.MessageID, err)
-		}
+		editors = append(editors, func(_ context.Context, httpReq *http.Request) error {
+			signErr = hmac.SignHTTPRequest(httpReq, c.cred, body, time.Now())
+			return signErr
+		})
 	}
 
 	start := time.Now()
-	resp, err := c.client.Do(httpReq)
+	resp, err := c.api.PolicyEvaluateWithBody(ctx, "application/json", bytes.NewReader(body), editors...)
+	if signErr != nil {
+		return Verdict{}, fmt.Errorf("failed to sign policy request for message %s: %w", req.MessageId, signErr)
+	}
 	if err != nil {
-		return Verdict{}, fmt.Errorf("policy endpoint unreachable for message %s after %s: %w", req.MessageID, time.Since(start), classifyTransportError(err))
+		return Verdict{}, fmt.Errorf("policy endpoint unreachable for message %s after %s: %w", req.MessageId, time.Since(start), classifyTransportError(err))
 	}
 	defer func() {
 		// Drain a bounded amount so the connection can be reused, then close.
@@ -142,40 +186,45 @@ func (c *HTTPChecker) Evaluate(ctx context.Context, req EvaluateRequest) (Verdic
 	}()
 
 	if resp.StatusCode != http.StatusOK {
-		return Verdict{}, fmt.Errorf("policy endpoint returned status %d for message %s", resp.StatusCode, req.MessageID)
+		return Verdict{}, fmt.Errorf("policy endpoint returned status %d for message %s", resp.StatusCode, req.MessageId)
 	}
 
 	limited := io.LimitReader(resp.Body, maxResponseBytes+1)
 	raw, err := io.ReadAll(limited)
 	if err != nil {
-		return Verdict{}, fmt.Errorf("failed to read policy response for message %s: %w", req.MessageID, err)
+		return Verdict{}, fmt.Errorf("failed to read policy response for message %s: %w", req.MessageId, err)
 	}
 	if len(raw) > maxResponseBytes {
-		return Verdict{}, fmt.Errorf("policy response for message %s exceeds %d bytes", req.MessageID, maxResponseBytes)
+		return Verdict{}, fmt.Errorf("policy response for message %s exceeds %d bytes", req.MessageId, maxResponseBytes)
 	}
 
 	var parsed EvaluateResponse
 	if err := json.Unmarshal(raw, &parsed); err != nil {
-		return Verdict{}, fmt.Errorf("failed to decode policy response for message %s: %w", req.MessageID, err)
+		return Verdict{}, fmt.Errorf("failed to decode policy response for message %s: %w", req.MessageId, err)
 	}
 	// An endpoint that echoes message_id lets us refuse a verdict that answers a different
 	// message. Signing on a crossed response would attest a message the policy never saw, so a
-	// mismatch is an error and the message is retried.
-	if parsed.MessageID != "" && !strings.EqualFold(strings.TrimSpace(parsed.MessageID), req.MessageID) {
-		return Verdict{}, fmt.Errorf("policy response for message %s echoes message_id %q, so the verdict is for a different message", req.MessageID, parsed.MessageID)
+	// mismatch is an error and the message is retried. The field is optional in the contract, so
+	// a nil echo is not a mismatch, it is an endpoint that declined the check.
+	if parsed.MessageId != nil && !strings.EqualFold(strings.TrimSpace(*parsed.MessageId), req.MessageId) {
+		return Verdict{}, fmt.Errorf("policy response for message %s echoes message_id %q, so the verdict is for a different message", req.MessageId, *parsed.MessageId)
 	}
 	decision, err := parseDecision(parsed.Decision)
 	if err != nil {
-		return Verdict{}, fmt.Errorf("invalid policy response for message %s: %w", req.MessageID, err)
+		return Verdict{}, fmt.Errorf("invalid policy response for message %s: %w", req.MessageId, err)
 	}
 
 	c.lggr.Debugw("Policy endpoint responded",
-		"messageID", req.MessageID,
+		"messageID", req.MessageId,
 		"decision", string(decision),
 		"duration", time.Since(start),
 	)
 
-	return Verdict{Decision: decision, Reason: truncateReason(parsed.Reason)}, nil
+	var reason string
+	if parsed.Reason != nil {
+		reason = truncateReason(*parsed.Reason)
+	}
+	return Verdict{Decision: decision, Reason: reason}, nil
 }
 
 // classifyTransportError makes a timeout say so. net/http wraps a context deadline in a
