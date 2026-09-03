@@ -24,6 +24,11 @@ type SendOptions struct {
 	Sender                       *bind.TransactOpts
 	UseTestRouter                bool
 	DisableTokenAmountValidation bool
+	// GasLimit, when non-zero, overrides gas estimation for the ccipSend
+	// transaction. Needed on chains where estimateGas is broken (e.g. Fuji
+	// post-'Helicon': estimateGas uses the pending tag, which providers
+	// reject with 'exceeds block gas limit').
+	GasLimit uint64
 }
 
 // SendOptionsAccessor is the evm side of the ChainSendOption interface.
