@@ -106,6 +106,12 @@ func (f *factory) Validate(spec bootstrap.JobSpec) error {
 
 // Start implements [bootstrap.ServiceFactory].
 func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootstrap.ServiceDeps) error {
+	if deps.Keystore == nil {
+		return fmt.Errorf(
+			"committee verifier requires a keystore: ensure the [keystore] section in the secrets is set correctly" +
+				", with any corresponding fields in [db] if backend is 'postgres'")
+	}
+
 	protocol.InitChainSelectorCache()
 
 	config, err := validateJobSpec(spec)
