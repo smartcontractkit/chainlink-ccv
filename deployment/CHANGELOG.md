@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.2.0](https://github.com/smartcontractkit/chainlink-ccv/compare/deployment/v0.1.0...deployment/v0.2.0) (2026-09-04)
+
+
+### Features
+
+* add onramp upgrade verifier config changeset and refactor ApplyVerifierConfig with options ([#1356](https://github.com/smartcontractkit/chainlink-ccv/issues/1356)) ([b740c6d](https://github.com/smartcontractkit/chainlink-ccv/commit/b740c6d6fa7afce3923ca4d04698db77a3c9b0f8))
+* **evm:** Derive RMN Remote addresses from ramp contracts' on-chain static config ([#1357](https://github.com/smartcontractkit/chainlink-ccv/issues/1357)) ([32d9d53](https://github.com/smartcontractkit/chainlink-ccv/commit/32d9d534ef3c2d083443b6045f4f649836b0ad65))
+* **verifier:** policy hooks ([#1380](https://github.com/smartcontractkit/chainlink-ccv/issues/1380)) ([039ff50](https://github.com/smartcontractkit/chainlink-ccv/commit/039ff507b30c5d31a32f8745f5a82f4efca392ad))
+
+
+### Bug Fixes
+
+* **deps:** bump chain-selectors ([#1347](https://github.com/smartcontractkit/chainlink-ccv/issues/1347)) ([694608e](https://github.com/smartcontractkit/chainlink-ccv/commit/694608e509526c17b9dec1da566c4599655d60a3))
+* update lombard and cctp verifier tags to use v2.1.0 ([#1340](https://github.com/smartcontractkit/chainlink-ccv/issues/1340)) ([42174dd](https://github.com/smartcontractkit/chainlink-ccv/commit/42174dd7851db594f319a376caff44747fdfbe4b))
+
 ## [0.1.0](https://github.com/smartcontractkit/chainlink-ccv/compare/deployment/v0.0.1...deployment/v0.1.0) (2026-07-30)
 
 
