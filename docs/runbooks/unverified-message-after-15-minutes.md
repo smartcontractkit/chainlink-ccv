@@ -240,3 +240,9 @@ If multiple messages on the lane have elevated pending age or count, treat it
 as a lane or dependency incident. If multiple lanes are affected, investigate
 shared infrastructure. If aggregate metrics are healthy, use the alerted
 message's trace and logs for message-specific evidence.
+
+## 9. Remediate
+
+Once scope is known, recovery actions — rescheduling a dropped message,
+rewinding the source-chain checkpoint, or blocking a class of traffic — are in
+[Runbook: Remediating a Stuck or Dropped Message](./remediating-stuck-or-dropped-messages.md).

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -21,7 +22,7 @@ import (
 )
 
 // TestE2ESmoke_PolicyHook exercises the operator policy hook end to end against a real committee,
-// covering the three behaviors the feature is defined by:
+// covering the four behaviors the feature is defined by:
 //
 //  1. PASS is transparent — a message the endpoint approves is attested exactly as it would be
 //     with no hook, and the endpoint really was consulted.
@@ -29,6 +30,9 @@ import (
 //     dropped, and it lands on its own once the endpoint recovers, with no operator action.
 //  3. FAIL drops — the message is never attested, deleting the rejection afterwards does not
 //     bring it back, and a checkpoint rewind replays it.
+//  4. A FAIL drop is also recoverable by reschedule — after the endpoint clears, moving the
+//     archived job back to the active queue on every committee member, with the node still
+//     running, gets the message attested, and the endpoint is consulted again.
 //
 // It needs the standard.policy-hook.profile: both NOPs of the default committee point at the
 // fake policy endpoint, and the source chain must support manual block progress so the test
@@ -182,5 +186,76 @@ func TestE2ESmoke_PolicyHook(t *testing.T) {
 		defer cancelReplay()
 		_, err = aggregatorClient.WaitForVerifierResultForMessage(replayCtx, rejected.MessageID, time.Second)
 		require.NoError(t, err, "a dropped message must be recoverable by replaying from a rewound checkpoint")
+	})
+
+	// The per-message lever the runbook recommends: the endpoint rejects one message, the job
+	// lands in each member's archive, and an operator recovers it with `job-queue reschedule`
+	// against the running node - no pause, no restart, no checkpoint rewind. This is the
+	// composition TestE2ESmoke_JobQueueCLI does not cover: there the rescheduled row is
+	// synthetic and the verifier never consumes it.
+	t.Run("fail drops and reschedule recovers", func(t *testing.T) {
+		// Leave the endpoint passing for a reused environment even if the test fails while the
+		// rejection is still registered.
+		t.Cleanup(func() { policy.reset(t, context.WithoutCancel(ctx)) })
+
+		rejected := send()
+		policy.rejectMessage(t, ctx, rejected.MessageID, "sanctioned sender (devenv test)")
+		advanceBlocks(verifier.ConfirmationDepth + 5)
+
+		reachedCtx, cancelReached := context.WithTimeout(ctx, 60*time.Second)
+		defer cancelReached()
+		_, err := logAssert.WaitForStage(reachedCtx, rejected.MessageID, logasserter.MessageReachedVerifier())
+		require.NoError(t, err, "message should reach the verifier before it is dropped")
+
+		dropCtx, cancelDrop := context.WithTimeout(ctx, 60*time.Second)
+		defer cancelDrop()
+		_, err = logAssert.WaitForStage(dropCtx, rejected.MessageID, logasserter.MessageDroppedByPolicyHook())
+		require.NoError(t, err, "a FAIL verdict must drop the message in the verifier")
+
+		requireNoAggregatorResult(t, ctx, aggregatorClient, rejected.MessageID,
+			"a rejected message must not be attested")
+
+		// The drop archives one job per committee member, in that member's own database. Wait
+		// until every member's archive shows the message before rescheduling - the same
+		// `job-queue list` check the runbook gives an operator. The default list limit is
+		// plenty in devenv.
+		messageID := rejected.MessageID.String()
+		for _, m := range committee.Members() {
+			require.Eventually(t, func() bool {
+				out, err := m.JobQueue().List(ctx, verifiercli.QueueTaskVerifier, committee.VerifierID())
+				return err == nil && strings.Contains(strings.ToLower(out), strings.ToLower(messageID))
+			}, 60*time.Second, 2*time.Second,
+				"member %s must show the dropped message in its task-verifier archive", m.Container())
+		}
+
+		// Clear the rejection first: reschedule re-asks the endpoint, so a still-FAILing
+		// endpoint would just drop the message again. Reset also empties the fake's call log,
+		// which the assertion below uses to prove the replay re-consulted the hook.
+		policy.reset(t, ctx)
+
+		// Reschedule on every member against the running node. The aggregator only returns a
+		// result once every member has signed, so skipping a member leaves the message stuck.
+		for _, m := range committee.Members() {
+			out, err := m.JobQueue().RescheduleByMessageID(ctx,
+				verifiercli.QueueTaskVerifier, committee.VerifierID(), messageID, verifiercli.RetryDuration("1h"))
+			require.NoError(t, err, "reschedule on %s must succeed against the running node; output: %s",
+				m.Container(), out)
+		}
+
+		replayCtx, cancelReplay := context.WithTimeout(ctx, 90*time.Second)
+		defer cancelReplay()
+		_, err = aggregatorClient.WaitForVerifierResultForMessage(replayCtx, rejected.MessageID, time.Second)
+		require.NoError(t, err,
+			"a dropped message must be recoverable by rescheduling the archived job on every committee member")
+
+		require.GreaterOrEqual(t, policy.callsFor(t, ctx, rejected.MessageID), len(committee.Members()),
+			"every member must consult the endpoint again after reschedule; reschedule must not bypass the hook")
+
+		for _, m := range committee.Members() {
+			out, err := m.JobQueue().List(ctx, verifiercli.QueueTaskVerifier, committee.VerifierID())
+			require.NoError(t, err, "list on %s after recovery; output: %s", m.Container(), out)
+			require.NotContains(t, strings.ToLower(out), strings.ToLower(messageID),
+				"a verified message must not remain in %s's archive; output: %s", m.Container(), out)
+		}
 	})
 }
