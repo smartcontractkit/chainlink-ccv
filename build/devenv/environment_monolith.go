@@ -470,9 +470,12 @@ func NewEnvironment() (in *Cfg, err error) {
 	/////////////////////////////////////////
 
 	// Configure cross-chain token transfers: each chain impl builds its own
-	// TokenTransferConfigs using chain-specific registry and CCV refs.
+	// TokenTransferConfigs using chain-specific registry and CCV refs. The
+	// returned pairs land in env-out.toml as [[token_pool_pairs]] for
+	// test-side resolution.
 	progress.Stage(ctx, stageConnectChains)
-	if err = ccdeploy.ConfigureAllTokenTransfers(impls, selectors, e, topology); err != nil {
+	in.TokenPoolPairs, err = ccdeploy.ConfigureAllTokenTransfers(impls, selectors, e, topology)
+	if err != nil {
 		return nil, fmt.Errorf("configure all token transfers: %w", err)
 	}
 
