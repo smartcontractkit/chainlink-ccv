@@ -13,6 +13,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/internal/mocks"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/cctp"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/internal"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
@@ -32,11 +33,11 @@ func TestVerifier_VerifyMessages_Success(t *testing.T) {
 	testAttestation := createTestAttestation()
 
 	mockAttestationService.EXPECT().
-		Fetch(ctx, task.TxHash, task.Message).
+		Fetch(mock.Anything, task.TxHash, task.Message).
 		Return(testAttestation, nil).
 		Once()
 
-	v := cctp.NewVerifier(lggr, mockAttestationService, testCCTPConfig())
+	v := cctp.NewVerifier(lggr, monitoring.NewFakeVerifierMonitoring(), "test-verifier", mockAttestationService, testCCTPConfig())
 	results := v.VerifyMessages(ctx, tasks)
 
 	require.Len(t, results, 1, "Expected one result")
@@ -67,11 +68,11 @@ func TestVerifier_VerifyMessages_AttestationServiceFailure(t *testing.T) {
 
 	expectedErr := errors.New("attestation service unavailable")
 	mockAttestationService.EXPECT().
-		Fetch(ctx, task.TxHash, task.Message).
+		Fetch(mock.Anything, task.TxHash, task.Message).
 		Return(cctp.Attestation{}, expectedErr).
 		Once()
 
-	v := cctp.NewVerifier(lggr, mockAttestationService, testCCTPConfig())
+	v := cctp.NewVerifier(lggr, monitoring.NewFakeVerifierMonitoring(), "test-verifier", mockAttestationService, testCCTPConfig())
 	results := v.VerifyMessages(ctx, tasks)
 
 	t.Cleanup(func() {
@@ -104,7 +105,7 @@ func TestVerifier_VerifyMessages_AttestationNotReady(t *testing.T) {
 		Return(notReadyAttestation, nil).
 		Once()
 
-	v := cctp.NewVerifier(lggr, mockAttestationService, testCCTPConfig())
+	v := cctp.NewVerifier(lggr, monitoring.NewFakeVerifierMonitoring(), "test-verifier", mockAttestationService, testCCTPConfig())
 	results := v.VerifyMessages(ctx, tasks)
 
 	t.Cleanup(func() {
@@ -137,24 +138,24 @@ func TestVerifier_VerifyMessages_MultipleTasksWithMixedResults(t *testing.T) {
 	// task1: success
 	testAttestation := createTestAttestation()
 	mockAttestationService.EXPECT().
-		Fetch(ctx, task1.TxHash, task1.Message).
+		Fetch(mock.Anything, task1.TxHash, task1.Message).
 		Return(testAttestation, nil).
 		Once()
 
 	// task2: attestation service failure
 	expectedErr := errors.New("network timeout")
 	mockAttestationService.EXPECT().
-		Fetch(ctx, task2.TxHash, task2.Message).
+		Fetch(mock.Anything, task2.TxHash, task2.Message).
 		Return(cctp.Attestation{}, expectedErr).
 		Once()
 
 	// task3: success
 	mockAttestationService.EXPECT().
-		Fetch(ctx, task3.TxHash, task3.Message).
+		Fetch(mock.Anything, task3.TxHash, task3.Message).
 		Return(testAttestation, nil).
 		Once()
 
-	v := cctp.NewVerifier(lggr, mockAttestationService, testCCTPConfig())
+	v := cctp.NewVerifier(lggr, monitoring.NewFakeVerifierMonitoring(), "test-verifier", mockAttestationService, testCCTPConfig())
 	results := v.VerifyMessages(ctx, tasks)
 
 	t.Cleanup(func() {
@@ -227,7 +228,7 @@ func TestVerifier_VerifyMessages_RespectsMaxConcurrentFetchers(t *testing.T) {
 		tasks = append(tasks, internal.CreateTestVerificationTask(i+1))
 	}
 
-	v := cctp.NewVerifierWithConfig(lggr, mockAttestationService, 30*time.Second, 5*time.Second, maxFetchers)
+	v := cctp.NewVerifierWithConfig(lggr, monitoring.NewFakeVerifierMonitoring(), "test-verifier", mockAttestationService, 30*time.Second, 5*time.Second, maxFetchers)
 	results := v.VerifyMessages(ctx, tasks)
 
 	require.Len(t, results, numTasks, "Expected one result per task")

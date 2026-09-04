@@ -54,7 +54,7 @@ type PoolCapability struct {
 	PoolVersion *semver.Version
 }
 
-// TokenCombination represents a local/remote pool pairing. "Local" is the pool
+// TokenCombination represents a local/remote pool pair. "Local" is the pool
 // on the chain being configured; "remote" is the counterpart on the other chain.
 // Because every chain deploys both pools, a transfer can flow in either direction.
 type TokenCombination struct {
@@ -136,7 +136,7 @@ func (s TokenCombination) ExpectedVerifierResults() int {
 }
 
 func (s TokenCombination) FinalityConfig() protocol.Finality {
-	if semver.MustParse(s.localPoolVersion).GreaterThanEqual(semver.MustParse("2.0.0")) {
+	if IsCCVAwarePoolVersion(s.localPoolVersion) {
 		return 1 // We can use fast-finality if local pool is 2.0.0 or higher
 	}
 	return 0 // Otherwise use default finality
@@ -149,7 +149,7 @@ func (s TokenCombination) FinalityConfig() protocol.Finality {
 // which derives combos from per-chain pool capabilities and ccvQualifierPermutations
 // (e.g. [], [default], [secondary], [tertiary], [default secondary tertiary] — but not
 // arbitrary subsets like [default secondary]). AllTokenCombinations also includes pool
-// pairings that no chain in the current env supports (e.g. LockRelease 1.6.1 on EVM-only
+// pairs that no chain in the current env supports (e.g. LockRelease 1.6.1 on EVM-only
 // devenv). Smoke/TCAPI tests that iterate this list will skip cases whose pool refs are
 // absent from the datastore; align the two sources in a follow-up.
 func AllTokenCombinations() []TokenCombination {
@@ -277,12 +277,12 @@ func All17TokenCombinations() []TokenCombination {
 	return combinations
 }
 
-// ComputeTokenCombinations derives valid token pool pairings from per-chain capabilities.
+// ComputeTokenCombinations derives valid token pool pairs from per-chain capabilities.
 // It generates combinations for every compatible (local, remote) pair where at least two
 // chains support the required types. CCV qualifiers are assigned based on pool version
 // (2.0.0 pools use the available committee qualifiers from the topology).
 //
-// Pairing rules:
+// Pair rules:
 //   - BurnMint pairs with BurnMint (any version combination)
 //   - LockRelease pairs with BurnMint (in both directions)
 func ComputeTokenCombinations(
@@ -492,6 +492,14 @@ func dataStoreHasAddressRef(ds datastore.DataStore, chainSelector uint64, ref da
 		ref.Qualifier,
 	))
 	return err == nil
+}
+
+// IsCCVAwarePoolVersion reports whether a pool version participates in CCV
+// (>= 2.0.0). Sides below 2.0.0 predate CCV and use legacy counts; the same
+// rule drives FinalityConfig and pairing resolution.
+func IsCCVAwarePoolVersion(version string) bool {
+	v, err := semver.NewVersion(version)
+	return err == nil && !v.LessThan(semver.MustParse("2.0.0"))
 }
 
 // PoolCapabilityKey returns a unique key for a pool capability using "::" as separator.

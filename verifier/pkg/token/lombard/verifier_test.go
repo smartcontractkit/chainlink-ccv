@@ -11,6 +11,7 @@ import (
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/internal/mocks"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/internal"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/lombard"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
@@ -90,7 +91,7 @@ func TestVerifier_VerifyMessages_Success(t *testing.T) {
 	config := lombard.LombardConfig{
 		VerifierVersion: lombard.DefaultVerifierVersion,
 	}
-	v, err := lombard.NewVerifier(lggr, config, mockAttestationService)
+	v, err := lombard.NewVerifier(lggr, monitoring.NewFakeVerifierMonitoring(), "test-verifier", config, mockAttestationService)
 	require.NoError(t, err)
 	results := v.VerifyMessages(ctx, tasks)
 
@@ -176,7 +177,7 @@ func TestVerifier_VerifyMessages_NotReadyMessages(t *testing.T) {
 	config := lombard.LombardConfig{
 		VerifierVersion: lombard.DefaultVerifierVersion,
 	}
-	v, err := lombard.NewVerifier(lggr, config, mockAttestationService)
+	v, err := lombard.NewVerifier(lggr, monitoring.NewFakeVerifierMonitoring(), "test-verifier", config, mockAttestationService)
 	require.NoError(t, err)
 	results := v.VerifyMessages(ctx, tasks)
 

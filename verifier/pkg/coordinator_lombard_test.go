@@ -285,7 +285,7 @@ func createLombardCoordinatorWithRetryConfig(
 	noopMonitoring := monitoring.NewFakeVerifierMonitoring()
 	noopLatencyTracker := testutil.NoopLatencyTracker{}
 
-	attestationService, err := lombard.NewAttestationService(ts.logger, *lombardConfig)
+	attestationService, err := lombard.NewAttestationService(ts.logger, noopMonitoring, *lombardConfig)
 	require.NoError(ts.t, err)
 
 	var lombardVerifier verifier.Verifier
@@ -293,6 +293,8 @@ func createLombardCoordinatorWithRetryConfig(
 		// Use custom retry intervals for tests
 		lombardVerifier = lombard.NewVerifierWithConfig(
 			ts.logger,
+			noopMonitoring,
+			config.VerifierID,
 			attestationService,
 			lombardConfig.VerifierVersion,
 			attestationNotReadyRetry,
@@ -301,7 +303,7 @@ func createLombardCoordinatorWithRetryConfig(
 	} else {
 		// Use default retry intervals
 		var err error
-		lombardVerifier, err = lombard.NewVerifier(ts.logger, *lombardConfig, attestationService)
+		lombardVerifier, err = lombard.NewVerifier(ts.logger, noopMonitoring, config.VerifierID, *lombardConfig, attestationService)
 		require.NoError(ts.t, err)
 	}
 

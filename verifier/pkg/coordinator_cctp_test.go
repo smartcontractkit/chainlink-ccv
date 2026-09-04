@@ -477,7 +477,7 @@ func createCCTPCoordinator(
 	noopMonitoring := monitoring.NewFakeVerifierMonitoring()
 	noopLatencyTracker := testutil.NoopLatencyTracker{}
 
-	attestationService, err := cctp.NewAttestationService(ts.logger, *cctpConfig)
+	attestationService, err := cctp.NewAttestationService(ts.logger, noopMonitoring, *cctpConfig)
 	require.NoError(ts.t, err)
 
 	ccvWriter := storage.NewCCVWriter(
@@ -488,7 +488,7 @@ func createCCTPCoordinator(
 
 	return verifier.NewCoordinator(
 		ts.logger,
-		cctp.NewVerifierWithConfig(ts.logger, attestationService, 100*time.Millisecond, 100*time.Millisecond, 10),
+		cctp.NewVerifierWithConfig(ts.logger, noopMonitoring, config.VerifierID, attestationService, 100*time.Millisecond, 100*time.Millisecond, 10),
 		sourceReaders,
 		ccvWriter,
 		config,
