@@ -209,6 +209,64 @@ func TestKeystoreConfig_validate(t *testing.T) {
 			errContains: []string{"'provider' is required"},
 		},
 		{
+			// A provider-specific section under the other provider is a misconfiguration that must
+			// be rejected, not silently ignored.
+			name: "aws section under gcp provider is invalid",
+			mode: AppConfigModeLocal,
+			config: &KeystoreConfig{
+				Backend: KeystoreBackendKMS,
+				KMS: KMSKeystoreConfig{
+					Provider:     KMSProviderGCP,
+					EcdsaKeyID:   "projects/p/locations/l/keyRings/r/cryptoKeys/ecdsa/cryptoKeyVersions/1",
+					AWSKMSConfig: &AWSKMSConfig{Profile: "my-profile", Region: "us-east-1"},
+				},
+			},
+			wantErr:     true,
+			errContains: []string{"[keystore.kms.aws] section is only valid when provider is \"aws\""},
+		},
+		{
+			name: "gcp section under aws provider is invalid",
+			mode: AppConfigModeLocal,
+			config: &KeystoreConfig{
+				Backend: KeystoreBackendKMS,
+				KMS: KMSKeystoreConfig{
+					Provider:     KMSProviderAWS,
+					EcdsaKeyID:   "ecdsa-key-id",
+					GCPKMSConfig: &GCPKMSConfig{CredentialsFile: "/etc/bootstrap/gcp-sa.json"},
+				},
+			},
+			wantErr:     true,
+			errContains: []string{"[keystore.kms.gcp] section is only valid when provider is \"gcp\""},
+		},
+		{
+			// Both sections can never be valid: provider selects exactly one, so one of the two
+			// section/provider checks necessarily fires.
+			name: "both provider sections is invalid",
+			mode: AppConfigModeLocal,
+			config: &KeystoreConfig{
+				Backend: KeystoreBackendKMS,
+				KMS: KMSKeystoreConfig{
+					Provider:     KMSProviderAWS,
+					EcdsaKeyID:   "ecdsa-key-id",
+					AWSKMSConfig: &AWSKMSConfig{Profile: "my-profile"},
+					GCPKMSConfig: &GCPKMSConfig{CredentialsFile: "/etc/bootstrap/gcp-sa.json"},
+				},
+			},
+			wantErr:     true,
+			errContains: []string{"[keystore.kms.gcp] section is only valid when provider is \"gcp\""},
+		},
+		{
+			// The matching sub-section is optional even when the provider is set: AWS works with the
+			// default credential chain (no profile/region) and GCP with ADC (no credentials_file).
+			name: "provider with no sub-section is valid",
+			mode: AppConfigModeLocal,
+			config: &KeystoreConfig{
+				Backend: KeystoreBackendKMS,
+				KMS:     KMSKeystoreConfig{Provider: KMSProviderGCP, EcdsaKeyID: "projects/p/locations/l/keyRings/r/cryptoKeys/ecdsa/cryptoKeyVersions/1"},
+			},
+			wantErr: false,
+		},
+		{
 			// The gcp provider reuses the same [keystore.kms] config; ed25519 is required in JD mode.
 			name: "JD mode: gcp kms with only ecdsa key is invalid",
 			mode: AppConfigModeJD,
@@ -747,6 +805,88 @@ url = "postgres://localhost:5432/bootstrapper"
 		_, err := LoadAndValidateConfig([]string{filepath.Join(t.TempDir(), "does-not-exist.toml")}, cfg)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "does-not-exist.toml")
+	})
+
+	// The KMS provider sections decode into their embedded pointer sub-structs: the section's
+	// presence allocates the pointer, its absence leaves it nil, and validation enforces that a
+	// section matches [keystore.kms].provider. All cases run in JD mode so the keystore section is
+	// validated at load time (local mode defers keystore validation to startup).
+	t.Run("kms provider sections decode and validate", func(t *testing.T) {
+		load := func(t *testing.T, kmsTOML string) *Config {
+			t.Helper()
+			path := writeFile(t, t.TempDir(), "secrets.toml", nonSecretTOML+kmsTOML)
+			cfg := &Config{}
+			_, err := LoadAndValidateConfig([]string{path}, cfg)
+			require.NoError(t, err)
+			return cfg
+		}
+
+		t.Run("gcp section decodes into the GCP sub-struct", func(t *testing.T) {
+			cfg := load(t, `
+[keystore]
+backend = "kms"
+
+[keystore.kms]
+provider = "gcp"
+ecdsa_key_id = "projects/p/locations/l/keyRings/r/cryptoKeys/k/cryptoKeyVersions/1"
+ed25519_key_id = "projects/p/locations/l/keyRings/r/cryptoKeys/e/cryptoKeyVersions/1"
+
+[keystore.kms.gcp]
+credentials_file = "/etc/bootstrap/gcp-sa.json"
+
+[db]
+url = "postgres://localhost:5432/bootstrapper"
+`)
+			require.NotNil(t, cfg.Keystore.KMS.GCPKMSConfig)
+			require.Nil(t, cfg.Keystore.KMS.AWSKMSConfig)
+			require.Equal(t, "/etc/bootstrap/gcp-sa.json", cfg.Keystore.KMS.GCP().CredentialsFile)
+		})
+
+		t.Run("aws section decodes into the AWS sub-struct", func(t *testing.T) {
+			cfg := load(t, `
+[keystore]
+backend = "kms"
+
+[keystore.kms]
+provider = "aws"
+ecdsa_key_id = "arn:aws:kms:us-east-1:...:key/abc"
+ed25519_key_id = "arn:aws:kms:us-east-1:...:key/def"
+
+[keystore.kms.aws]
+profile = "my-profile"
+region = "us-east-1"
+
+[db]
+url = "postgres://localhost:5432/bootstrapper"
+`)
+			require.NotNil(t, cfg.Keystore.KMS.AWSKMSConfig)
+			require.Nil(t, cfg.Keystore.KMS.GCPKMSConfig)
+			require.Equal(t, "my-profile", cfg.Keystore.KMS.AWS().Profile)
+			require.Equal(t, "us-east-1", cfg.Keystore.KMS.AWS().Region)
+		})
+
+		t.Run("mismatched section fails validation end-to-end", func(t *testing.T) {
+			dir := t.TempDir()
+			path := writeFile(t, dir, "secrets.toml", nonSecretTOML+`
+[keystore]
+backend = "kms"
+
+[keystore.kms]
+provider = "gcp"
+ecdsa_key_id = "projects/p/locations/l/keyRings/r/cryptoKeys/k/cryptoKeyVersions/1"
+ed25519_key_id = "projects/p/locations/l/keyRings/r/cryptoKeys/e/cryptoKeyVersions/1"
+
+[keystore.kms.aws]
+profile = "my-profile"
+
+[db]
+url = "postgres://localhost:5432/bootstrapper"
+`)
+			cfg := &Config{}
+			_, err := LoadAndValidateConfig([]string{path}, cfg)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), `[keystore.kms.aws] section is only valid when provider is "aws"`)
+		})
 	})
 }
 

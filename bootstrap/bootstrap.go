@@ -826,7 +826,7 @@ func bootstrapConfigPaths(explicitConfig, explicitSecrets string) []string {
 // a variable so tests can override it to inject a fake Cloud KMS client while still exercising the
 // real provider dispatch, name-map, and wrapper logic in initializeKeystore.
 var gcpKMSKeystoreFactory = func(ctx context.Context, cfg KMSKeystoreConfig, nameToID map[string]string) (keystore.Keystore, error) {
-	return keys.NewGCPKMSKeystore(ctx, cfg.CredentialsFile, nameToID)
+	return keys.NewGCPKMSKeystore(ctx, cfg.GCP().CredentialsFile, nameToID)
 }
 
 func initializeKeystore(
@@ -865,7 +865,8 @@ func initializeKeystore(
 				return nil, nil, fmt.Errorf("failed to load GCP KMS keystore: %w", err)
 			}
 		case KMSProviderAWS:
-			ks, err = keys.NewKMSKeystore(ctx, ksCfg.KMS.Profile, ksCfg.KMS.Region, nameToID)
+			aws := ksCfg.KMS.AWS()
+			ks, err = keys.NewKMSKeystore(ctx, aws.Profile, aws.Region, nameToID)
 			if err != nil {
 				return nil, nil, fmt.Errorf("failed to load KMS keystore: %w", err)
 			}
