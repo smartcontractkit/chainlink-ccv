@@ -575,11 +575,13 @@ func MetricViews() []sdkmetric.View {
 				Boundaries: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
 			}},
 		),
-		// Token Attestation Fetch Duration (HTTP API round-trip)
+		// Token Attestation Fetch Duration (HTTP API round-trip). Buckets are capped
+		// at the attestation API timeout (default 1s, configurable), so values much
+		// larger than ~5s are not expected.
 		sdkmetric.NewView(
 			sdkmetric.Instrument{Name: "verifier_token_attestation_fetch_duration_seconds"},
 			sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
-				Boundaries: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 25, 50},
+				Boundaries: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5},
 			}},
 		),
 		// Token HTTP Request Duration

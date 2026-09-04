@@ -12,7 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	oteltrace "go.opentelemetry.io/otel/trace"
 	"golang.org/x/time/rate"
@@ -20,6 +19,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/common/monitoring/tracing"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
+	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -197,11 +197,14 @@ func (h *httpClient) callAPI(
 	url url.URL,
 	body io.Reader,
 ) (payload protocol.ByteSlice, status Status, err error) {
-	// mCtx is deliberately detached from the request's deadline: metric records
-	// must not be silently dropped because the (often short) API timeout fired
+	// metricsCtx is deliberately detached from the request's deadline: metric records
+	// must not be silently dropped if the API timeout fired
 	// while we were measuring the request.
-	mCtx := context.WithoutCancel(ctx)
-	_, span := otel.GetTracerProvider().Tracer("ccv.token.http").Start(ctx, "token_http_request",
+	metricsCtx := context.WithoutCancel(ctx)
+
+	// Using either metricsCtx or ctx for the span is fine, since the span is not used for any
+	// deadline/cancellation logic. We just need the existing trace.
+	_, span := beholder.GetTracer().Start(ctx, "token_http_request",
 		oteltrace.WithAttributes(
 			attribute.String(tracing.HTTPMethodKey, method),
 		),
@@ -209,11 +212,11 @@ func (h *httpClient) callAPI(
 	defer span.End()
 
 	start := time.Now()
-	h.metrics.IncrementTokenHTTPActiveRequests(mCtx, h.provider)
-	defer h.metrics.DecrementTokenHTTPActiveRequests(mCtx, h.provider)
+	h.metrics.IncrementTokenHTTPActiveRequests(metricsCtx, h.provider)
+	defer h.metrics.DecrementTokenHTTPActiveRequests(metricsCtx, h.provider)
 	defer func() {
 		outcome := classifyHTTPOutcome(err, status)
-		h.metrics.RecordTokenHTTPRequest(mCtx, h.provider, method, outcome, int(status), time.Since(start))
+		h.metrics.RecordTokenHTTPRequest(metricsCtx, h.provider, method, outcome, int(status), time.Since(start))
 		span.SetAttributes(
 			attribute.String(tracing.HTTPOutcomeKey, outcome),
 			attribute.String(tracing.HTTPStatusKey, strconv.Itoa(int(status))),
@@ -225,21 +228,21 @@ func (h *httpClient) callAPI(
 
 	// Terminate immediately when rate limited
 	if coolDown, duration := h.inCoolDownPeriod(); coolDown {
-		h.metrics.RecordTokenHTTPCooldownSeconds(mCtx, h.provider, duration)
-		h.metrics.IncrementTokenHTTPRateLimited(mCtx, h.provider, method)
+		h.metrics.RecordTokenHTTPCooldownSeconds(metricsCtx, h.provider, duration)
+		h.metrics.IncrementTokenHTTPRateLimited(metricsCtx, h.provider, method)
 		lggr.Errorw(
 			"Rate limited by API, dropping all requests",
 			"coolDownDuration", duration,
 		)
 		return nil, http.StatusTooManyRequests, ErrRateLimit
 	}
-	h.metrics.RecordTokenHTTPCooldownSeconds(mCtx, h.provider, 0)
+	h.metrics.RecordTokenHTTPCooldownSeconds(metricsCtx, h.provider, 0)
 
 	if h.rate != nil {
 		// Wait blocks until it the attestation API can be called or the
 		// context is Done.
 		if waitErr := h.rate.Wait(ctx); waitErr != nil {
-			h.metrics.IncrementTokenHTTPRateLimited(mCtx, h.provider, method)
+			h.metrics.IncrementTokenHTTPRateLimited(metricsCtx, h.provider, method)
 			lggr.Warnw("Self rate-limited, sending too many requests to the API")
 			return nil, http.StatusTooManyRequests, ErrRateLimit
 		}
@@ -272,7 +275,7 @@ func (h *httpClient) callAPI(
 
 	// Explicitly signal if the API is being rate limited
 	if res.StatusCode == http.StatusTooManyRequests {
-		h.metrics.IncrementTokenHTTPRateLimited(mCtx, h.provider, method)
+		h.metrics.IncrementTokenHTTPRateLimited(metricsCtx, h.provider, method)
 		h.setCoolDownPeriod(lggr, res.Header)
 		return nil, status, ErrRateLimit
 	}
