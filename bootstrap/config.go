@@ -40,25 +40,104 @@ const (
 	// KeystoreBackendPostgres stores encrypted keys in the bootstrap Postgres database.
 	// This is the default when Backend is empty (backward compatibility).
 	KeystoreBackendPostgres KeystoreBackend = "postgres"
-	// KeystoreBackendKMS stores keys in AWS KMS; private key material never leaves KMS.
+	// KeystoreBackendKMS stores keys in a cloud KMS (AWS or GCP); private key material never leaves
+	// KMS. The provider is selected by [keystore.kms].provider.
 	KeystoreBackendKMS KeystoreBackend = "kms"
 )
 
-// KMSKeystoreConfig configures the AWS KMS keystore backend.
-// Field names match the pricer's KMSConfig for future consolidation.
+// KMSProvider selects the cloud KMS provider behind the "kms" backend.
+type KMSProvider string
+
+const (
+	// KMSProviderAWS is AWS Key Management Service.
+	KMSProviderAWS KMSProvider = "aws"
+	// KMSProviderGCP is Google Cloud Key Management Service.
+	KMSProviderGCP KMSProvider = "gcp"
+)
+
+// KMSKeystoreConfig configures the cloud KMS keystore backend ("kms"). The provider selects which
+// provider-specific sub-configuration ([keystore.kms.aws] or [keystore.kms.gcp]) is valid; the
+// shared key IDs (ecdsa_key_id / ed25519_key_id) live at the [keystore.kms] level because their
+// format is the only provider-dependent part (a Key ID/ARN vs a CryptoKeyVersion resource name).
 type KMSKeystoreConfig struct {
-	// Profile is the AWS shared-config profile name. Local development only — leave empty in
+	// Provider selects the cloud KMS provider: "aws" or "gcp". Required when backend is "kms".
+	Provider KMSProvider `toml:"provider,omitempty"`
+	// EcdsaKeyID is the KMS key for ECDSA_S256 (secp256k1) signing keys. AWS: a Key ID or ARN.
+	// GCP: a CryptoKeyVersion resource name (projects/<p>/locations/<l>/keyRings/<r>/cryptoKeys/<k>/cryptoKeyVersions/<n>).
+	EcdsaKeyID string `toml:"ecdsa_key_id,omitempty"`
+	// Ed25519KeyID is the KMS key for Ed25519 keys (e.g. the CSA key for JD auth), same format as
+	// EcdsaKeyID. Required in JD mode, where the CSA key authenticates the node to JD. Optional in
+	// local mode, where the CSA key only backs Beholder auth: set it to enable that, omit it to run
+	// with no Ed25519 key at all.
+	Ed25519KeyID string `toml:"ed25519_key_id,omitempty"`
+
+	// AWS holds the AWS-specific settings. Only valid when provider is "aws".
+	*AWSKMSConfig `toml:"aws,omitempty"`
+	// GCP holds the GCP-specific settings. Only valid when provider is "gcp".
+	*GCPKMSConfig `toml:"gcp,omitempty"`
+}
+
+// AWSKMSConfig is the AWS-specific [keystore.kms.aws] configuration.
+type AWSKMSConfig struct {
+	// Profile is the AWS shared-config profile name. Local development — leave empty in
 	// production, where credentials come from the default credential chain (IRSA, EC2/ECS roles).
 	Profile string `toml:"profile,omitempty"`
 	// Region is the AWS region. If empty, it is read from the profile or environment.
 	Region string `toml:"region,omitempty"`
-	// EcdsaKeyID is the KMS Key ID for ECDSA_S256 (secp256k1) signing keys.
-	EcdsaKeyID string `toml:"ecdsa_key_id,omitempty"`
-	// Ed25519KeyID is the KMS Key ID for Ed25519 keys (e.g. the CSA key for JD auth).
-	// Required in JD mode, where the CSA key authenticates the node to JD. Optional in local
-	// mode, where the CSA key only backs Beholder auth: set it to enable that, omit it to run
-	// with no Ed25519 key at all.
-	Ed25519KeyID string `toml:"ed25519_key_id,omitempty"`
+}
+
+// GCPKMSConfig is the GCP-specific [keystore.kms.gcp] configuration.
+type GCPKMSConfig struct {
+	// CredentialsFile is the path to a GCP service account JSON key. Local development —
+	// leave empty in production, where credentials come from Application Default Credentials
+	// (GKE Workload Identity, GCE instance/service accounts, or GOOGLE_APPLICATION_CREDENTIALS).
+	CredentialsFile string `toml:"credentials_file,omitempty"`
+}
+
+// AWS returns the AWS-specific settings; the zero value when the [keystore.kms.aws] section is
+// absent, so callers never dereference a nil pointer.
+func (c *KMSKeystoreConfig) AWS() AWSKMSConfig {
+	if c.AWSKMSConfig == nil {
+		return AWSKMSConfig{}
+	}
+	return *c.AWSKMSConfig
+}
+
+// GCP returns the GCP-specific settings; the zero value when the [keystore.kms.gcp] section is
+// absent, so callers never dereference a nil pointer.
+func (c *KMSKeystoreConfig) GCP() GCPKMSConfig {
+	if c.GCPKMSConfig == nil {
+		return GCPKMSConfig{}
+	}
+	return *c.GCPKMSConfig
+}
+
+// resolveProvider returns the KMS provider. It must be explicitly configured — there is no
+// default, so an empty or unknown value is an error rather than a silent fallback to one cloud.
+func (c *KMSKeystoreConfig) resolveProvider() (KMSProvider, error) {
+	switch c.Provider {
+	case KMSProviderAWS, KMSProviderGCP:
+		return c.Provider, nil
+	default:
+		return "", fmt.Errorf("field 'provider' is required and must be %q or %q when backend is 'kms' (got %q)", KMSProviderAWS, KMSProviderGCP, c.Provider)
+	}
+}
+
+// validateProvider checks that the provider is set and that the provider-specific sections present
+// in the config match it — a [keystore.kms.aws] section under provider = "gcp" (or vice versa) is
+// almost certainly a misconfiguration and is rejected instead of silently ignored.
+func (c *KMSKeystoreConfig) validateProvider() error {
+	provider, err := c.resolveProvider()
+	if err != nil {
+		return err
+	}
+	if c.AWSKMSConfig != nil && provider != KMSProviderAWS {
+		return fmt.Errorf("the [keystore.kms.aws] section is only valid when provider is %q", KMSProviderAWS)
+	}
+	if c.GCPKMSConfig != nil && provider != KMSProviderGCP {
+		return fmt.Errorf("the [keystore.kms.gcp] section is only valid when provider is %q", KMSProviderGCP)
+	}
+	return nil
 }
 
 // KeystoreConfig is the configuration for the keystore.
@@ -67,14 +146,22 @@ type KeystoreConfig struct {
 	Backend KeystoreBackend `toml:"backend,omitempty"`
 	// Password is the password to the keystore. Required when backend is "postgres" (default).
 	Password string `toml:"password,omitempty"`
-	// KMS configures the AWS KMS backend. Required when backend is "kms".
+	// KMS configures the cloud KMS backend. Required when backend is "kms".
 	//
-	// IAM: scope the bootstrapper's IAM role as tightly as possible. Grant only kms:Sign,
-	// kms:GetPublicKey, and kms:DescribeKey, and restrict Resource to exactly the key ARNs configured
-	// below (ecdsa_key_id / ed25519_key_id). Do NOT grant kms:ListKeys or a wildcard Resource ("*").
+	// Provider selection: [keystore.kms].provider = "aws" or "gcp" (required); the matching
+	// provider-specific section ([keystore.kms.aws] / [keystore.kms.gcp]) holds its settings.
+	// Scope the workload's credentials as tightly as possible to exactly the keys configured below
+	// (ecdsa_key_id / ed25519_key_id):
+	//
+	//   - AWS: grant only kms:Sign, kms:GetPublicKey, and kms:DescribeKey, restricted to exactly the
+	//     key ARNs. Do NOT grant kms:ListKeys or a wildcard Resource ("*").
+	//   - GCP: grant roles/cloudkms.signerVerifier (or granular cloudkms.cryptoKeyVersions.useToSign,
+	//     cloudkms.cryptoKeyVersions.viewPublicKey, cloudkms.cryptoKeys.get) restricted to exactly the
+	//     CryptoKeys.
+	//
 	// The service limits operations to the configured keys, but a per-key least-privilege IAM
-	// policy is the primary safeguard: it guarantees these credentials cannot read or sign with any
-	// other KMS key in the account.
+	// binding is the primary safeguard: it guarantees these credentials cannot read or sign with any
+	// other KMS key the account/role can reach.
 	KMS KMSKeystoreConfig `toml:"kms,omitempty"`
 }
 
@@ -108,6 +195,9 @@ func (c *KeystoreConfig) validate(mode AppConfigMode) error {
 		return err
 	}
 	if backend == KeystoreBackendKMS {
+		if err := c.KMS.validateProvider(); err != nil {
+			return err
+		}
 		if mode == AppConfigModeJD && c.KMS.Ed25519KeyID == "" {
 			return fmt.Errorf("field 'ed25519_key_id' is required when backend is 'kms' in %q mode (the JD CSA key is Ed25519)", AppConfigModeJD)
 		}

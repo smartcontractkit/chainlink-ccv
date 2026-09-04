@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -821,6 +822,13 @@ func bootstrapConfigPaths(explicitConfig, explicitSecrets string) []string {
 	return paths
 }
 
+// gcpKMSKeystoreFactory builds the Cloud KMS keystore adapter for the bootstrap "kms" backend. It is
+// a variable so tests can override it to inject a fake Cloud KMS client while still exercising the
+// real provider dispatch, name-map, and wrapper logic in initializeKeystore.
+var gcpKMSKeystoreFactory = func(ctx context.Context, cfg KMSKeystoreConfig, nameToID map[string]string) (keystore.Keystore, error) {
+	return keys.NewGCPKMSKeystore(ctx, cfg.GCP().CredentialsFile, nameToID)
+}
+
 func initializeKeystore(
 	ctx context.Context,
 	lggr logger.Logger,
@@ -846,9 +854,22 @@ func initializeKeystore(
 		if err != nil {
 			return nil, nil, fmt.Errorf("invalid KMS config: %w", err)
 		}
-		ks, err = keys.NewKMSKeystore(ctx, ksCfg.KMS.Profile, ksCfg.KMS.Region, nameToID)
+		provider, err := ksCfg.KMS.resolveProvider()
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to load KMS keystore: %w", err)
+			return nil, nil, fmt.Errorf("invalid KMS config: %w", err)
+		}
+		switch provider {
+		case KMSProviderGCP:
+			ks, err = gcpKMSKeystoreFactory(ctx, ksCfg.KMS, nameToID)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to load GCP KMS keystore: %w", err)
+			}
+		case KMSProviderAWS:
+			aws := ksCfg.KMS.AWS()
+			ks, err = keys.NewKMSKeystore(ctx, aws.Profile, aws.Region, nameToID)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to load KMS keystore: %w", err)
+			}
 		}
 	default: // postgres
 		ks, err = keystore.LoadKeystore(ctx, keys.NewPGStorage(db, "default"), ksCfg.Password)
@@ -921,10 +942,15 @@ func resolveKeyImport(backend KeystoreBackend, requiredKeys []keyToInit, keyImpo
 	}
 }
 
-// buildKMSNameMap maps logical key names to KMS Key IDs by key type. The supported key types and the
-// config field each one draws its Key ID from are declared as data (keyIDByType) rather than control
-// flow, so adding a type is a one-line table entry.
+// buildKMSNameMap maps logical key names to KMS key identifiers (a Key ID/ARN for AWS, or a
+// CryptoKey resource name for GCP) by key type. The supported key types and the config field each
+// one draws its identifier from are declared as data (keyIDByType) rather than control flow, so
+// adding a type is a one-line table entry.
 func buildKMSNameMap(cfg KMSKeystoreConfig, requiredKeys []keyToInit) (map[string]string, error) {
+	if err := cfg.validateProvider(); err != nil {
+		return nil, err
+	}
+
 	// keyType -> (configured Key ID, TOML field name for error messages).
 	keyIDByType := map[keystore.KeyType]struct {
 		id       string
@@ -944,6 +970,9 @@ func buildKMSNameMap(cfg KMSKeystoreConfig, requiredKeys []keyToInit) (map[strin
 		if entry.id == "" {
 			return nil, fmt.Errorf("KMS %s is required for key %q (type %q)", entry.tomlName, k.name, k.keyType)
 		}
+		if err := validateKMSKeyID(cfg, entry.id); err != nil {
+			return nil, fmt.Errorf("KMS %s for key %q: %w", entry.tomlName, k.name, err)
+		}
 		// The KMS config carries a single Key ID per key type, so two required keys of the same type
 		// (or two types pointed at the same Key ID) would both resolve here to one KMS Key ID. Each
 		// logical key must map to a distinct KMS key, so reject that instead of silently sharing a key
@@ -958,6 +987,26 @@ func buildKMSNameMap(cfg KMSKeystoreConfig, requiredKeys []keyToInit) (map[strin
 		nameToID[k.name] = entry.id
 	}
 	return nameToID, nil
+}
+
+// gcpCryptoKeyNameRE matches a GCP CryptoKeyVersion resource name:
+// projects/<p>/locations/<l>/keyRings/<r>/cryptoKeys/<k>/cryptoKeyVersions/<n>.
+// The keystore requires version-qualified names: Cloud KMS rejects bare CryptoKey names on the
+// asymmetric endpoints, so the configured key IDs must carry the /cryptoKeyVersions/<n> suffix.
+var gcpCryptoKeyNameRE = regexp.MustCompile(`^projects/[^/]+/locations/[^/]+/keyRings/[^/]+/cryptoKeys/[^/]+/cryptoKeyVersions/[^/]+$`)
+
+// validateKMSKeyID checks that a key identifier is well-formed for the configured provider. AWS
+// accepts a Key ID or ARN (a broad set), so it is not validated here. GCP requires a full
+// CryptoKeyVersion resource name.
+func validateKMSKeyID(cfg KMSKeystoreConfig, id string) error {
+	provider, err := cfg.resolveProvider()
+	if err != nil {
+		return err
+	}
+	if provider == KMSProviderGCP && !gcpCryptoKeyNameRE.MatchString(id) {
+		return fmt.Errorf("invalid GCP CryptoKeyVersion resource name %q: must match projects/<p>/locations/<l>/keyRings/<r>/cryptoKeys/<k>/cryptoKeyVersions/<n>", id)
+	}
+	return nil
 }
 
 // findCSAKeyName returns the name of the key with the CSA purpose, or "" if none.
