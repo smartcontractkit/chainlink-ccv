@@ -61,3 +61,24 @@ func (n *NoopMetricLabeler) RecordHTTPRequestDuration(_ context.Context, _ time.
 
 func (n *NoopMetricLabeler) RecordStorageQueryDuration(_ context.Context, _ string, _ time.Duration) {
 }
+
+func (n *NoopMetricLabeler) RecordTokenAttestationDuration(_ context.Context, _ string, _ time.Duration) {
+}
+
+func (n *NoopMetricLabeler) IncrementTokenAttestationFetch(_ context.Context, _, _ string) {
+}
+
+func (n *NoopMetricLabeler) IncrementTokenHTTPActiveRequests(_ context.Context, _ string) {
+}
+
+func (n *NoopMetricLabeler) DecrementTokenHTTPActiveRequests(_ context.Context, _ string) {
+}
+
+func (n *NoopMetricLabeler) IncrementTokenHTTPRateLimited(_ context.Context, _, _ string) {
+}
+
+func (n *NoopMetricLabeler) RecordTokenHTTPRequest(_ context.Context, _, _, _ string, _ int, _ time.Duration) {
+}
+
+func (n *NoopMetricLabeler) RecordTokenHTTPCooldownSeconds(_ context.Context, _ string, _ time.Duration) {
+}

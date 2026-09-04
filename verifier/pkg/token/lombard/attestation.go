@@ -172,9 +172,10 @@ type HTTPAttestationService struct {
 
 func NewAttestationService(
 	lggr logger.Logger,
+	monitoring verifier.Monitoring,
 	config LombardConfig,
 ) (AttestationService, error) {
-	client, err := NewHTTPClient(lggr, config)
+	client, err := NewHTTPClient(lggr, monitoring, config)
 	if err != nil {
 		return nil, err
 	}

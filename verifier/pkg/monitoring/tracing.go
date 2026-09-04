@@ -24,9 +24,25 @@ const (
 	EventResultPublished = "result_published"
 	EventRetryScheduled  = "retry_scheduled"
 
+	// tokenverifier (attestation fetching).
+	EventAttestationFetchStarted   = "attestation_fetch_started"
+	EventAttestationFetchFailed    = "attestation_fetch_failed"
+	EventAttestationNotFound       = "attestation_not_found"
+	EventAttestationNotReady       = "attestation_not_ready"
+	EventAttestationFetchSucceeded = "attestation_fetch_succeeded"
+
 	// storagewriter.
 	EventWriteSucceeded = "write_succeeded"
 )
+
+// TokenAttestationSpanName returns the name of the per-message span opened by a
+// token verifier (CCTP or Lombard) for each attestation fetch attempt, scoped to
+// the verifier instance identified by verifierID. It is always started as a child
+// of the task-verifier attempt span, so it extends the base message trace opened
+// by the source reader rather than starting its own.
+func TokenAttestationSpanName(verifierID string) string {
+	return "tokenverifier.message.attestation@" + verifierID
+}
 
 // MessageDiscoverySpanName returns the name of the per-message span opened by the
 // verifier's sourcereader when it first observes a message on-chain, scoped
