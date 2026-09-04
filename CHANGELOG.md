@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.8.1...v0.9.0) (2026-09-04)
+
+
+### Features
+
+* **token:** add metrics and traces for cctp and lombard ([#1409](https://github.com/smartcontractkit/chainlink-ccv/issues/1409)) ([5785515](https://github.com/smartcontractkit/chainlink-ccv/commit/57855155f1d1fdc19fa89ec80d4f5a8094e825c2))
+
 ## [0.8.1](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.8.0...v0.8.1) (2026-09-03)
 
 
