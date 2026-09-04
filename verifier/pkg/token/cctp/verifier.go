@@ -120,7 +120,7 @@ func (v *Verifier) processVerificationTask(ctx context.Context, task verifier.Ve
 		parentCtx,
 		monitoring.TokenAttestationSpanName(v.verifierID),
 		messageID,
-		attribute.String(tracing.ProviderKey, provider),
+		attribute.String(tracing.TokenProviderKey, provider),
 		attribute.String(tracing.TxHashKey, task.TxHash.String()),
 		attribute.String(tracing.SourceChainSelectorKey, task.Message.SourceChainSelector.String()),
 		attribute.String(tracing.SourceChainNameKey, task.Message.SourceChainSelector.ChainName()),
@@ -130,6 +130,9 @@ func (v *Verifier) processVerificationTask(ctx context.Context, task verifier.Ve
 	recordOutcome := func(outcome string) {
 		v.monitoring.Metrics().IncrementTokenAttestationFetch(fetchCtx, provider, outcome)
 		v.monitoring.Metrics().RecordTokenAttestationDuration(fetchCtx, provider, time.Since(fetchStartedAt))
+		// Semantic result of the fetch (success/not_ready/not_found/error), which is
+		// independent of the HTTP outcome recorded on the token_http_request span.
+		span.SetAttributes(attribute.String(tracing.TokenOutcomeKey, outcome))
 	}
 
 	// 1. Fetch attestation. Run under the attestation span so any HTTP request
@@ -137,7 +140,7 @@ func (v *Verifier) processVerificationTask(ctx context.Context, task verifier.Ve
 	attestation, err := v.attestationService.Fetch(fetchCtx, task.TxHash, task.Message)
 	if err != nil {
 		lggr.Warnw("Failed to fetch attestation", "err", err)
-		span.AddEvent(monitoring.EventAttestationFetchFailed, oteltrace.WithAttributes(attribute.String(tracing.ProviderKey, provider)))
+		span.AddEvent(monitoring.EventAttestationFetchFailed, oteltrace.WithAttributes(attribute.String(tracing.TokenProviderKey, provider)))
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
 		recordOutcome(monitoring.TokenAttestationFetchOutcomeError)
@@ -159,7 +162,7 @@ func (v *Verifier) processVerificationTask(ctx context.Context, task verifier.Ve
 	verifierFormat, err := attestation.ToVerifierFormat()
 	if err != nil {
 		lggr.Errorw("Failed to decode attestation data", "err", err)
-		span.AddEvent(monitoring.EventAttestationFetchFailed, oteltrace.WithAttributes(attribute.String(tracing.ProviderKey, provider)))
+		span.AddEvent(monitoring.EventAttestationFetchFailed, oteltrace.WithAttributes(attribute.String(tracing.TokenProviderKey, provider)))
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
 		recordOutcome(monitoring.TokenAttestationFetchOutcomeError)

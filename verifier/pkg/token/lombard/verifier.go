@@ -118,7 +118,7 @@ func (v *Verifier) VerifyMessages(
 			parentCtx,
 			monitoring.TokenAttestationSpanName(v.verifierID),
 			messageID,
-			attribute.String(tracing.ProviderKey, provider),
+			attribute.String(tracing.TokenProviderKey, provider),
 			attribute.String(tracing.SourceChainSelectorKey, task.Message.SourceChainSelector.String()),
 			attribute.String(tracing.SourceChainNameKey, task.Message.SourceChainSelector.ChainName()),
 		)
@@ -127,12 +127,15 @@ func (v *Verifier) VerifyMessages(
 		recordOutcome := func(outcome string) {
 			v.monitoring.Metrics().IncrementTokenAttestationFetch(fetchCtx, provider, outcome)
 			v.monitoring.Metrics().RecordTokenAttestationDuration(fetchCtx, provider, time.Since(fetchStartedAt))
+			// Semantic result of the fetch (success/not_ready/not_found/error), which is
+			// independent of the HTTP outcome recorded on the token_http_request span.
+			span.SetAttributes(attribute.String(tracing.TokenOutcomeKey, outcome))
 		}
 
 		attestation, exists := attestations[task.MessageID]
 		if !exists {
 			lggr.Debugw("Attestation not found for message")
-			span.AddEvent(monitoring.EventAttestationNotFound, oteltrace.WithAttributes(attribute.String(tracing.ProviderKey, provider)))
+			span.AddEvent(monitoring.EventAttestationNotFound, oteltrace.WithAttributes(attribute.String(tracing.TokenProviderKey, provider)))
 			span.RecordError(fmt.Errorf("attestation not found"))
 			span.SetStatus(codes.Error, "attestation not found")
 			span.End()
