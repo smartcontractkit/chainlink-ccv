@@ -104,9 +104,18 @@ func (v *Verifier) VerifyMessages(
 
 		// Open a child span under the task-verifier attempt span so this
 		// attestation fetch extends the base message trace opened by the source reader.
+		// The attempt span is carried by the task's TraceContext; inject it into ctx
+		// (which keeps its deadline/cancellation) rather than using task.TraceContext
+		// directly, since that is derived from context.WithoutCancel.
+		parentCtx := ctx
+		if task.TraceContext != nil {
+			if attemptSC := oteltrace.SpanContextFromContext(task.TraceContext); attemptSC.IsValid() {
+				parentCtx = oteltrace.ContextWithSpanContext(ctx, attemptSC)
+			}
+		}
 		messageID, _ := protocol.NewBytes32FromString(task.MessageID)
 		fetchCtx, span := v.monitoring.Tracing().StartMessageSpan(
-			ctx,
+			parentCtx,
 			monitoring.TokenAttestationSpanName(v.verifierID),
 			messageID,
 			attribute.String(tracing.ProviderKey, provider),

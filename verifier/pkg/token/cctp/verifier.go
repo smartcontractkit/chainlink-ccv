@@ -104,10 +104,20 @@ func (v *Verifier) processVerificationTask(ctx context.Context, task verifier.Ve
 	lggr.Debugw("Verifying CCTP task")
 
 	// Open a child span under the task-verifier attempt span so this attestation
-	// fetch extends the base message trace opened by the source reader.
+	// fetch extends the base message trace opened by the source reader. The attempt
+	// span is carried by the task's TraceContext (the batch ctx passed to
+	// VerifyMessages carries no live span), so parent off that span context. But
+	// task.TraceContext is derived from context.WithoutCancel, so inject the attempt
+	// span context into ctx to keep its deadline/cancellation for the actual fetch.
+	parentCtx := ctx
+	if task.TraceContext != nil {
+		if attemptSC := oteltrace.SpanContextFromContext(task.TraceContext); attemptSC.IsValid() {
+			parentCtx = oteltrace.ContextWithSpanContext(ctx, attemptSC)
+		}
+	}
 	messageID, _ := protocol.NewBytes32FromString(task.MessageID)
 	fetchCtx, span := v.monitoring.Tracing().StartMessageSpan(
-		ctx,
+		parentCtx,
 		monitoring.TokenAttestationSpanName(v.verifierID),
 		messageID,
 		attribute.String(tracing.ProviderKey, provider),
@@ -122,8 +132,9 @@ func (v *Verifier) processVerificationTask(ctx context.Context, task verifier.Ve
 		v.monitoring.Metrics().RecordTokenAttestationDuration(fetchCtx, provider, time.Since(fetchStartedAt))
 	}
 
-	// 1. Fetch attestation
-	attestation, err := v.attestationService.Fetch(ctx, task.TxHash, task.Message)
+	// 1. Fetch attestation. Run under the attestation span so any HTTP request
+	// spans emitted by the client are its children.
+	attestation, err := v.attestationService.Fetch(fetchCtx, task.TxHash, task.Message)
 	if err != nil {
 		lggr.Warnw("Failed to fetch attestation", "err", err)
 		span.AddEvent(monitoring.EventAttestationFetchFailed, oteltrace.WithAttributes(attribute.String(tracing.ProviderKey, provider)))

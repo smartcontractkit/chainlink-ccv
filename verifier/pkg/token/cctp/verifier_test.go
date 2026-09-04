@@ -33,7 +33,7 @@ func TestVerifier_VerifyMessages_Success(t *testing.T) {
 	testAttestation := createTestAttestation()
 
 	mockAttestationService.EXPECT().
-		Fetch(ctx, task.TxHash, task.Message).
+		Fetch(mock.Anything, task.TxHash, task.Message).
 		Return(testAttestation, nil).
 		Once()
 
@@ -68,7 +68,7 @@ func TestVerifier_VerifyMessages_AttestationServiceFailure(t *testing.T) {
 
 	expectedErr := errors.New("attestation service unavailable")
 	mockAttestationService.EXPECT().
-		Fetch(ctx, task.TxHash, task.Message).
+		Fetch(mock.Anything, task.TxHash, task.Message).
 		Return(cctp.Attestation{}, expectedErr).
 		Once()
 
@@ -138,20 +138,20 @@ func TestVerifier_VerifyMessages_MultipleTasksWithMixedResults(t *testing.T) {
 	// task1: success
 	testAttestation := createTestAttestation()
 	mockAttestationService.EXPECT().
-		Fetch(ctx, task1.TxHash, task1.Message).
+		Fetch(mock.Anything, task1.TxHash, task1.Message).
 		Return(testAttestation, nil).
 		Once()
 
 	// task2: attestation service failure
 	expectedErr := errors.New("network timeout")
 	mockAttestationService.EXPECT().
-		Fetch(ctx, task2.TxHash, task2.Message).
+		Fetch(mock.Anything, task2.TxHash, task2.Message).
 		Return(cctp.Attestation{}, expectedErr).
 		Once()
 
 	// task3: success
 	mockAttestationService.EXPECT().
-		Fetch(ctx, task3.TxHash, task3.Message).
+		Fetch(mock.Anything, task3.TxHash, task3.Message).
 		Return(testAttestation, nil).
 		Once()
 
