@@ -324,7 +324,7 @@ func buildDialOptions(hmacConfig *hmac.ClientConfig, insecure bool, maxSendMsgSi
 		opts = append(opts, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{MinVersion: AdapterMinTLSVersion})))
 	}
 
-	if hmacConfig != nil {
+	if hmacConfig != nil && *hmacConfig != (hmac.ClientConfig{}) {
 		opts = append(opts, grpc.WithUnaryInterceptor(hmac.NewClientInterceptor(hmacConfig)))
 	}
 

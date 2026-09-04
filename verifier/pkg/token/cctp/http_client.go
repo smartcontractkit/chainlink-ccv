@@ -7,12 +7,15 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
-	"strings"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	httputil "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/http"
+	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
+
+// provider identifies this client's upstream token data source in observability output.
+const provider = "cctp"
 
 type AttestationStatus string
 
@@ -40,10 +43,13 @@ type HTTPClientImpl struct {
 // NewHTTPClient creates a new HTTP-based CCTP v2 attestation client.
 func NewHTTPClient(
 	lggr logger.Logger,
+	monitoring verifier.Monitoring,
 	config CCTPConfig,
 ) (*HTTPClientImpl, error) {
 	client, err := httputil.GetHTTPClient(
 		lggr,
+		monitoring.Metrics(),
+		provider,
 		config.AttestationAPI,
 		config.AttestationAPIInterval,
 		config.AttestationAPITimeout,
@@ -65,12 +71,8 @@ func (c *HTTPClientImpl) GetMessages(
 	sourceDomainID uint32,
 	transactionHash string,
 ) (Messages, error) {
-	// Validate transaction hash
 	if transactionHash == "" {
 		return Messages{}, fmt.Errorf("transaction hash cannot be empty")
-	}
-	if !strings.HasPrefix(transactionHash, "0x") || len(transactionHash) != 66 {
-		return Messages{}, fmt.Errorf("invalid transaction hash format: %s", transactionHash)
 	}
 
 	path := fmt.Sprintf("%s/%s/%d?transactionHash=%s",

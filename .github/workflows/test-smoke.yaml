@@ -144,6 +144,12 @@ jobs:
             pattern: TestE2ESmoke_Aggregator(MessageDisablementRulesCLI|LaneDisablementRule|ChainDisablementRule)
             profile: standard.src-auto-mine.profile
             timeout: 10m
+          # Walks a message through pass, endpoint outage with retry, and reject with replay,
+          # each of which waits out a real verifier cycle, hence the longer budget.
+          - name: TestE2ESmoke_PolicyHook
+            pattern: TestE2ESmoke_PolicyHook
+            profile: standard.policy-hook.profile
+            timeout: 20m
           - name: Phased TestE2ESmoke_Basic
             pattern: TestE2ESmoke_Basic
             profile: phased.profile

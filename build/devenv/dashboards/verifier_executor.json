@@ -1628,14 +1628,14 @@
             "uid": "victoriametrics"
           },
           "editorMode": "code",
-          "expr": "verifier_source_reader_state{verifier_id=~\"$verifier_id\", source_chain_name=~\"$source_chain_name\"} == 1",
+          "expr": "max by (node_id, verifier_id, source_chain_name, state) (verifier_source_reader_state{verifier_id=~\"$verifier_id\", source_chain_name=~\"$source_chain_name\"} == 1)",
           "instant": false,
-          "legendFormat": "{{verifier_id}} {{source_chain_name}}: {{state}}",
+          "legendFormat": "{{node_id}}: {{state}}",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "Source reader state",
+      "title": "Source reader state by node",
       "type": "timeseries"
     },
     {

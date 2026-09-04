@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/bootstrap/keys"
 	"github.com/smartcontractkit/chainlink-common/keystore"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
@@ -18,6 +19,7 @@ import (
 
 const (
 	GetKeysEndpoint          = "/keystore/reader/getkeys"
+	GetKeyAddressesEndpoint  = "/keystore/reader/getaddresses"
 	HealthEndpoint           = "/health"
 	ApplicationReadyEndpoint = "/ready"
 )
@@ -50,6 +52,7 @@ func (s *infoServer) Start(ctx context.Context) error {
 
 		mux := http.NewServeMux()
 		mux.HandleFunc(GetKeysEndpoint, s.handleGetKeys)
+		mux.HandleFunc(GetKeyAddressesEndpoint, s.handleGetKeyAddresses)
 		mux.HandleFunc(HealthEndpoint, s.handleHealth)
 		mux.HandleFunc(ApplicationReadyEndpoint, s.handleApplicationReady)
 
@@ -124,6 +127,57 @@ func (s *infoServer) handleGetKeys(w http.ResponseWriter, r *http.Request) {
 	// Return the keys in the response.
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(keysResponse); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+}
+
+// handleGetKeyAddresses returns the checksummed onchain address for each requested keystore key.
+// It exists so an operator reads a signing key's address directly instead of deriving it client-side
+// from the raw public key (a keccak hash). Only ECDSA_S256 (secp256k1) keys carry a derivable EVM
+// address, so a request naming any other key type is rejected.
+func (s *infoServer) handleGetKeyAddresses(w http.ResponseWriter, r *http.Request) {
+	s.lggr.Debugw("get key addresses request received")
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer r.Body.Close() //nolint:errcheck
+
+	var req keystore.GetKeysRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	keysResponse, err := s.keyStore.GetKeys(r.Context(), req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	addresses := make(map[string]string, len(keysResponse.Keys))
+	for _, k := range keysResponse.Keys {
+		if k.KeyInfo.KeyType != keystore.ECDSA_S256 {
+			http.Error(w, fmt.Sprintf(
+				"key %q has type %s; an onchain address is only derivable from an ECDSA_S256 key",
+				k.KeyInfo.Name, k.KeyInfo.KeyType,
+			), http.StatusBadRequest)
+			return
+		}
+		address, _, err := keys.EVMAddressFromPublicKey(k.KeyInfo.PublicKey)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("failed to derive address for key %q: %v", k.KeyInfo.Name, err),
+				http.StatusInternalServerError)
+			return
+		}
+		addresses[k.KeyInfo.Name] = address
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(addresses); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

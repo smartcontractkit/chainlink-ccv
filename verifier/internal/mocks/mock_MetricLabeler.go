@@ -57,6 +57,40 @@ func (_c *MockMetricLabeler_DecrementActiveRequestsCounter_Call) RunAndReturn(ru
 	return _c
 }
 
+// DecrementTokenHTTPActiveRequests provides a mock function with given fields: ctx, provider
+func (_m *MockMetricLabeler) DecrementTokenHTTPActiveRequests(ctx context.Context, provider string) {
+	_m.Called(ctx, provider)
+}
+
+// MockMetricLabeler_DecrementTokenHTTPActiveRequests_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DecrementTokenHTTPActiveRequests'
+type MockMetricLabeler_DecrementTokenHTTPActiveRequests_Call struct {
+	*mock.Call
+}
+
+// DecrementTokenHTTPActiveRequests is a helper method to define mock.On call
+//   - ctx context.Context
+//   - provider string
+func (_e *MockMetricLabeler_Expecter) DecrementTokenHTTPActiveRequests(ctx interface{}, provider interface{}) *MockMetricLabeler_DecrementTokenHTTPActiveRequests_Call {
+	return &MockMetricLabeler_DecrementTokenHTTPActiveRequests_Call{Call: _e.mock.On("DecrementTokenHTTPActiveRequests", ctx, provider)}
+}
+
+func (_c *MockMetricLabeler_DecrementTokenHTTPActiveRequests_Call) Run(run func(ctx context.Context, provider string)) *MockMetricLabeler_DecrementTokenHTTPActiveRequests_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockMetricLabeler_DecrementTokenHTTPActiveRequests_Call) Return() *MockMetricLabeler_DecrementTokenHTTPActiveRequests_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockMetricLabeler_DecrementTokenHTTPActiveRequests_Call) RunAndReturn(run func(context.Context, string)) *MockMetricLabeler_DecrementTokenHTTPActiveRequests_Call {
+	_c.Run(run)
+	return _c
+}
+
 // IncrementActiveRequestsCounter provides a mock function with given fields: ctx
 func (_m *MockMetricLabeler) IncrementActiveRequestsCounter(ctx context.Context) {
 	_m.Called(ctx)
@@ -426,6 +460,110 @@ func (_c *MockMetricLabeler_IncrementTaskVerificationPermanentErrors_Call) RunAn
 	return _c
 }
 
+// IncrementTokenAttestationFetch provides a mock function with given fields: ctx, provider, outcome
+func (_m *MockMetricLabeler) IncrementTokenAttestationFetch(ctx context.Context, provider string, outcome string) {
+	_m.Called(ctx, provider, outcome)
+}
+
+// MockMetricLabeler_IncrementTokenAttestationFetch_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IncrementTokenAttestationFetch'
+type MockMetricLabeler_IncrementTokenAttestationFetch_Call struct {
+	*mock.Call
+}
+
+// IncrementTokenAttestationFetch is a helper method to define mock.On call
+//   - ctx context.Context
+//   - provider string
+//   - outcome string
+func (_e *MockMetricLabeler_Expecter) IncrementTokenAttestationFetch(ctx interface{}, provider interface{}, outcome interface{}) *MockMetricLabeler_IncrementTokenAttestationFetch_Call {
+	return &MockMetricLabeler_IncrementTokenAttestationFetch_Call{Call: _e.mock.On("IncrementTokenAttestationFetch", ctx, provider, outcome)}
+}
+
+func (_c *MockMetricLabeler_IncrementTokenAttestationFetch_Call) Run(run func(ctx context.Context, provider string, outcome string)) *MockMetricLabeler_IncrementTokenAttestationFetch_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *MockMetricLabeler_IncrementTokenAttestationFetch_Call) Return() *MockMetricLabeler_IncrementTokenAttestationFetch_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockMetricLabeler_IncrementTokenAttestationFetch_Call) RunAndReturn(run func(context.Context, string, string)) *MockMetricLabeler_IncrementTokenAttestationFetch_Call {
+	_c.Run(run)
+	return _c
+}
+
+// IncrementTokenHTTPActiveRequests provides a mock function with given fields: ctx, provider
+func (_m *MockMetricLabeler) IncrementTokenHTTPActiveRequests(ctx context.Context, provider string) {
+	_m.Called(ctx, provider)
+}
+
+// MockMetricLabeler_IncrementTokenHTTPActiveRequests_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IncrementTokenHTTPActiveRequests'
+type MockMetricLabeler_IncrementTokenHTTPActiveRequests_Call struct {
+	*mock.Call
+}
+
+// IncrementTokenHTTPActiveRequests is a helper method to define mock.On call
+//   - ctx context.Context
+//   - provider string
+func (_e *MockMetricLabeler_Expecter) IncrementTokenHTTPActiveRequests(ctx interface{}, provider interface{}) *MockMetricLabeler_IncrementTokenHTTPActiveRequests_Call {
+	return &MockMetricLabeler_IncrementTokenHTTPActiveRequests_Call{Call: _e.mock.On("IncrementTokenHTTPActiveRequests", ctx, provider)}
+}
+
+func (_c *MockMetricLabeler_IncrementTokenHTTPActiveRequests_Call) Run(run func(ctx context.Context, provider string)) *MockMetricLabeler_IncrementTokenHTTPActiveRequests_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockMetricLabeler_IncrementTokenHTTPActiveRequests_Call) Return() *MockMetricLabeler_IncrementTokenHTTPActiveRequests_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockMetricLabeler_IncrementTokenHTTPActiveRequests_Call) RunAndReturn(run func(context.Context, string)) *MockMetricLabeler_IncrementTokenHTTPActiveRequests_Call {
+	_c.Run(run)
+	return _c
+}
+
+// IncrementTokenHTTPRateLimited provides a mock function with given fields: ctx, provider, method
+func (_m *MockMetricLabeler) IncrementTokenHTTPRateLimited(ctx context.Context, provider string, method string) {
+	_m.Called(ctx, provider, method)
+}
+
+// MockMetricLabeler_IncrementTokenHTTPRateLimited_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IncrementTokenHTTPRateLimited'
+type MockMetricLabeler_IncrementTokenHTTPRateLimited_Call struct {
+	*mock.Call
+}
+
+// IncrementTokenHTTPRateLimited is a helper method to define mock.On call
+//   - ctx context.Context
+//   - provider string
+//   - method string
+func (_e *MockMetricLabeler_Expecter) IncrementTokenHTTPRateLimited(ctx interface{}, provider interface{}, method interface{}) *MockMetricLabeler_IncrementTokenHTTPRateLimited_Call {
+	return &MockMetricLabeler_IncrementTokenHTTPRateLimited_Call{Call: _e.mock.On("IncrementTokenHTTPRateLimited", ctx, provider, method)}
+}
+
+func (_c *MockMetricLabeler_IncrementTokenHTTPRateLimited_Call) Run(run func(ctx context.Context, provider string, method string)) *MockMetricLabeler_IncrementTokenHTTPRateLimited_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *MockMetricLabeler_IncrementTokenHTTPRateLimited_Call) Return() *MockMetricLabeler_IncrementTokenHTTPRateLimited_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockMetricLabeler_IncrementTokenHTTPRateLimited_Call) RunAndReturn(run func(context.Context, string, string)) *MockMetricLabeler_IncrementTokenHTTPRateLimited_Call {
+	_c.Run(run)
+	return _c
+}
+
 // RecordHTTPRequestDuration provides a mock function with given fields: ctx, duration, path, method, status
 func (_m *MockMetricLabeler) RecordHTTPRequestDuration(ctx context.Context, duration time.Duration, path string, method string, status int) {
 	_m.Called(ctx, duration, path, method, status)
@@ -493,6 +631,39 @@ func (_c *MockMetricLabeler_RecordHeartbeatDuration_Call) Return() *MockMetricLa
 }
 
 func (_c *MockMetricLabeler_RecordHeartbeatDuration_Call) RunAndReturn(run func(context.Context, time.Duration)) *MockMetricLabeler_RecordHeartbeatDuration_Call {
+	_c.Run(run)
+	return _c
+}
+
+// RecordMessageDisablementRulesMismatch provides a mock function with given fields: ctx
+func (_m *MockMetricLabeler) RecordMessageDisablementRulesMismatch(ctx context.Context) {
+	_m.Called(ctx)
+}
+
+// MockMetricLabeler_RecordMessageDisablementRulesMismatch_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RecordMessageDisablementRulesMismatch'
+type MockMetricLabeler_RecordMessageDisablementRulesMismatch_Call struct {
+	*mock.Call
+}
+
+// RecordMessageDisablementRulesMismatch is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *MockMetricLabeler_Expecter) RecordMessageDisablementRulesMismatch(ctx interface{}) *MockMetricLabeler_RecordMessageDisablementRulesMismatch_Call {
+	return &MockMetricLabeler_RecordMessageDisablementRulesMismatch_Call{Call: _e.mock.On("RecordMessageDisablementRulesMismatch", ctx)}
+}
+
+func (_c *MockMetricLabeler_RecordMessageDisablementRulesMismatch_Call) Run(run func(ctx context.Context)) *MockMetricLabeler_RecordMessageDisablementRulesMismatch_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *MockMetricLabeler_RecordMessageDisablementRulesMismatch_Call) Return() *MockMetricLabeler_RecordMessageDisablementRulesMismatch_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockMetricLabeler_RecordMessageDisablementRulesMismatch_Call) RunAndReturn(run func(context.Context)) *MockMetricLabeler_RecordMessageDisablementRulesMismatch_Call {
 	_c.Run(run)
 	return _c
 }
@@ -904,6 +1075,114 @@ func (_c *MockMetricLabeler_RecordTaskVerificationQueueSize_Call) Return() *Mock
 }
 
 func (_c *MockMetricLabeler_RecordTaskVerificationQueueSize_Call) RunAndReturn(run func(context.Context, int64)) *MockMetricLabeler_RecordTaskVerificationQueueSize_Call {
+	_c.Run(run)
+	return _c
+}
+
+// RecordTokenAttestationDuration provides a mock function with given fields: ctx, provider, duration
+func (_m *MockMetricLabeler) RecordTokenAttestationDuration(ctx context.Context, provider string, duration time.Duration) {
+	_m.Called(ctx, provider, duration)
+}
+
+// MockMetricLabeler_RecordTokenAttestationDuration_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RecordTokenAttestationDuration'
+type MockMetricLabeler_RecordTokenAttestationDuration_Call struct {
+	*mock.Call
+}
+
+// RecordTokenAttestationDuration is a helper method to define mock.On call
+//   - ctx context.Context
+//   - provider string
+//   - duration time.Duration
+func (_e *MockMetricLabeler_Expecter) RecordTokenAttestationDuration(ctx interface{}, provider interface{}, duration interface{}) *MockMetricLabeler_RecordTokenAttestationDuration_Call {
+	return &MockMetricLabeler_RecordTokenAttestationDuration_Call{Call: _e.mock.On("RecordTokenAttestationDuration", ctx, provider, duration)}
+}
+
+func (_c *MockMetricLabeler_RecordTokenAttestationDuration_Call) Run(run func(ctx context.Context, provider string, duration time.Duration)) *MockMetricLabeler_RecordTokenAttestationDuration_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(time.Duration))
+	})
+	return _c
+}
+
+func (_c *MockMetricLabeler_RecordTokenAttestationDuration_Call) Return() *MockMetricLabeler_RecordTokenAttestationDuration_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockMetricLabeler_RecordTokenAttestationDuration_Call) RunAndReturn(run func(context.Context, string, time.Duration)) *MockMetricLabeler_RecordTokenAttestationDuration_Call {
+	_c.Run(run)
+	return _c
+}
+
+// RecordTokenHTTPCooldownSeconds provides a mock function with given fields: ctx, provider, cooldown
+func (_m *MockMetricLabeler) RecordTokenHTTPCooldownSeconds(ctx context.Context, provider string, cooldown time.Duration) {
+	_m.Called(ctx, provider, cooldown)
+}
+
+// MockMetricLabeler_RecordTokenHTTPCooldownSeconds_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RecordTokenHTTPCooldownSeconds'
+type MockMetricLabeler_RecordTokenHTTPCooldownSeconds_Call struct {
+	*mock.Call
+}
+
+// RecordTokenHTTPCooldownSeconds is a helper method to define mock.On call
+//   - ctx context.Context
+//   - provider string
+//   - cooldown time.Duration
+func (_e *MockMetricLabeler_Expecter) RecordTokenHTTPCooldownSeconds(ctx interface{}, provider interface{}, cooldown interface{}) *MockMetricLabeler_RecordTokenHTTPCooldownSeconds_Call {
+	return &MockMetricLabeler_RecordTokenHTTPCooldownSeconds_Call{Call: _e.mock.On("RecordTokenHTTPCooldownSeconds", ctx, provider, cooldown)}
+}
+
+func (_c *MockMetricLabeler_RecordTokenHTTPCooldownSeconds_Call) Run(run func(ctx context.Context, provider string, cooldown time.Duration)) *MockMetricLabeler_RecordTokenHTTPCooldownSeconds_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(time.Duration))
+	})
+	return _c
+}
+
+func (_c *MockMetricLabeler_RecordTokenHTTPCooldownSeconds_Call) Return() *MockMetricLabeler_RecordTokenHTTPCooldownSeconds_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockMetricLabeler_RecordTokenHTTPCooldownSeconds_Call) RunAndReturn(run func(context.Context, string, time.Duration)) *MockMetricLabeler_RecordTokenHTTPCooldownSeconds_Call {
+	_c.Run(run)
+	return _c
+}
+
+// RecordTokenHTTPRequest provides a mock function with given fields: ctx, provider, method, outcome, status, duration
+func (_m *MockMetricLabeler) RecordTokenHTTPRequest(ctx context.Context, provider string, method string, outcome string, status int, duration time.Duration) {
+	_m.Called(ctx, provider, method, outcome, status, duration)
+}
+
+// MockMetricLabeler_RecordTokenHTTPRequest_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RecordTokenHTTPRequest'
+type MockMetricLabeler_RecordTokenHTTPRequest_Call struct {
+	*mock.Call
+}
+
+// RecordTokenHTTPRequest is a helper method to define mock.On call
+//   - ctx context.Context
+//   - provider string
+//   - method string
+//   - outcome string
+//   - status int
+//   - duration time.Duration
+func (_e *MockMetricLabeler_Expecter) RecordTokenHTTPRequest(ctx interface{}, provider interface{}, method interface{}, outcome interface{}, status interface{}, duration interface{}) *MockMetricLabeler_RecordTokenHTTPRequest_Call {
+	return &MockMetricLabeler_RecordTokenHTTPRequest_Call{Call: _e.mock.On("RecordTokenHTTPRequest", ctx, provider, method, outcome, status, duration)}
+}
+
+func (_c *MockMetricLabeler_RecordTokenHTTPRequest_Call) Run(run func(ctx context.Context, provider string, method string, outcome string, status int, duration time.Duration)) *MockMetricLabeler_RecordTokenHTTPRequest_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(int), args[5].(time.Duration))
+	})
+	return _c
+}
+
+func (_c *MockMetricLabeler_RecordTokenHTTPRequest_Call) Return() *MockMetricLabeler_RecordTokenHTTPRequest_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockMetricLabeler_RecordTokenHTTPRequest_Call) RunAndReturn(run func(context.Context, string, string, string, int, time.Duration)) *MockMetricLabeler_RecordTokenHTTPRequest_Call {
 	_c.Run(run)
 	return _c
 }

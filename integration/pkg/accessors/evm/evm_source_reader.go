@@ -5,19 +5,24 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"maps"
 	"math/big"
+	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/rpc"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_6_0/rmn_remote"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 	"github.com/smartcontractkit/chainlink-evm/pkg/heads"
+	evmtypes "github.com/smartcontractkit/chainlink-evm/pkg/types"
 
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/rmnremotereader"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
@@ -30,17 +35,91 @@ var (
 	_ chainaccess.CriticalSourceInvariantCallbackSetter = (*SourceReader)(nil)
 )
 
+// rangeLimitErrorSubstrings are common RPC provider error messages indicating
+// the requested eth_getLogs block range exceeds the provider's limit.
+//
+// Sources:
+//
+//   - geth: "exceed maximum block range %d"
+//     https://github.com/ethereum/go-ethereum/blob/master/eth/filters/filter.go#L148-L149
+//
+//   - erigon: "query block range exceeds server limit, narrow your filter"
+//     and "query returns too many logs, narrow your filter"
+//     https://github.com/erigontech/erigon/blob/main/rpc/jsonrpc/eth_receipts.go#L49-L54
+//
+//   - reth: "query exceeds max block range %d"
+//     and "query exceeds max results ..."
+//     https://github.com/paradigmxyz/reth/blob/main/crates/rpc/rpc/src/eth/filter.rs#L976-L981
+//
+//   - nethermind: "Block range ... exceeds the maximum of ... blocks per logs request."
+//     https://github.com/NethermindEth/nethermind/blob/master/src/Nethermind/Nethermind.JsonRpc/Modules/Eth/EthRpcModule.cs#L1278-L1291
+//
+//   - infura: "query returned more than ... results. Try with this block range ..."
+//     https://github.com/smartcontractkit/chainlink-evm/blob/develop/pkg/client/errors.go#L697-L699
+//
+//   - alchemy: "Log response size exceeded. You can make eth_getLogs requests with up to ..."
+//     https://github.com/smartcontractkit/chainlink-evm/blob/develop/pkg/client/errors.go#L701-L703
+//
+//   - quicknode: "eth_getLogs and eth_newFilter are limited to a 10,000 blocks range"
+//     https://support.quicknode.com/articles/3261121056
+//     "eth_getLogs is limited to a ... range"
+//     https://github.com/smartcontractkit/chainlink-evm/blob/develop/pkg/client/errors.go#L705-L707
+//
+//   - simplyvc: "too wide blocks range, the limit is ..."
+//     https://github.com/smartcontractkit/chainlink-evm/blob/develop/pkg/client/errors.go#L709-L711
+//
+//   - dRPC: "requested too many blocks from ... to ..., maximum is set to ..."
+//     https://github.com/smartcontractkit/chainlink-evm/blob/develop/pkg/client/errors.go#L713-L715
+//
+//   - hyperliquid: "query exceeds max block range"
+//     https://github.com/smartcontractkit/chainlink-evm/blob/develop/pkg/client/errors.go#L717-L720
+//
+//   - jovay: "Exceeded max range limit for eth_getLogs: 1000"
+//     Observed from the Jovay RPC
+var rangeLimitErrorSubstrings = []string{
+	"exceed maximum block range",                   // geth
+	"query block range exceeds server limit",       // erigon
+	"query returns too many logs",                  // erigon
+	"query exceeds max block range",                // reth, hyperliquid
+	"query exceeds max results",                    // reth
+	"blocks per logs request",                      // nethermind
+	"query returned more than",                     // infura
+	"log response size exceeded",                   // alchemy
+	"eth_getlogs and eth_newfilter are limited to", // quicknode
+	"eth_getlogs is limited to",                    // quicknode
+	"too wide blocks range",                        // simplyvc
+	"requested too many blocks",                    // dRPC
+	"exceeded max range limit",                     // jovay
+}
+
+// isRangeLimitError reports whether err looks like an RPC rejection due to the
+// requested block range being too large, based on common provider wording.
+func isRangeLimitError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	for _, substr := range rangeLimitErrorSubstrings {
+		if strings.Contains(msg, substr) {
+			return true
+		}
+	}
+	return false
+}
+
 type SourceReader struct {
-	chainClient          client.Client
-	headTracker          heads.Tracker
-	onRampAddress        common.Address
-	rmnRemoteAddress     common.Address
-	rmnRemoteCaller      rmn_remote.RMNRemoteCaller
-	ccipMessageSentTopic string
-	chainSelector        protocol.ChainSelector
-	lggr                 logger.Logger
-	onRampABI            *abi.ABI // Cached ABI to avoid re-parsing
-	onCriticalInvariant  func(context.Context)
+	chainClient                      client.Client
+	headTracker                      heads.Tracker
+	onRampAddress                    common.Address
+	rmnRemoteAddress                 common.Address
+	rmnRemoteCaller                  rmn_remote.RMNRemoteCaller
+	ccipMessageSentTopic             string
+	chainSelector                    protocol.ChainSelector
+	lggr                             logger.Logger
+	onRampABI                        *abi.ABI // Cached ABI to avoid re-parsing
+	onCriticalInvariant              func(context.Context)
+	maxFilterBlockRange              *atomic.Uint64 // Single eth_getLogs query block span
+	sourceReaderHeaderFetchBatchSize int
 }
 
 func NewEVMSourceReader(
@@ -57,6 +136,7 @@ func NewEVMSourceReader(
 	ccipMessageSentTopic string,
 	chainSelector protocol.ChainSelector,
 	lggr logger.Logger,
+	headerFetchBatchSize int,
 	onCriticalInvariant func(context.Context),
 ) (chainaccess.SourceReader, error) {
 	var errs []error
@@ -122,15 +202,17 @@ func NewEVMSourceReader(
 	}
 
 	reader := &SourceReader{
-		chainClient:          chainClient,
-		headTracker:          headTracker,
-		onRampAddress:        onRampAddress,
-		rmnRemoteAddress:     rmnRemoteAddress,
-		rmnRemoteCaller:      *rmnRemoteCaller,
-		ccipMessageSentTopic: ccipMessageSentTopic,
-		chainSelector:        chainSelector,
-		lggr:                 lggr,
-		onRampABI:            onRampABI,
+		chainClient:                      chainClient,
+		headTracker:                      headTracker,
+		onRampAddress:                    onRampAddress,
+		rmnRemoteAddress:                 rmnRemoteAddress,
+		rmnRemoteCaller:                  *rmnRemoteCaller,
+		ccipMessageSentTopic:             ccipMessageSentTopic,
+		chainSelector:                    chainSelector,
+		lggr:                             lggr,
+		onRampABI:                        onRampABI,
+		maxFilterBlockRange:              new(atomic.Uint64),
+		sourceReaderHeaderFetchBatchSize: sourceReaderHeaderFetchBatchSize(headerFetchBatchSize),
 	}
 	reader.SetCriticalSourceInvariantCallback(onCriticalInvariant)
 	return reader, nil
@@ -165,15 +247,56 @@ func (r *SourceReader) SetCriticalSourceInvariantCallback(callback func(context.
 	r.onCriticalInvariant = callback
 }
 
-// GetBlocksHeaders TODO: Should use batch requests for efficiency ticket: CCIP-7766.
+// GetBlocksHeaders fetches headers for the given block numbers and returns them
+// keyed by block number. Requests are batched into a single eth_getBlockByNumber
+// batch per chunk (instead of one RPC request per block) to reduce RPC load.
+// Batches are chunked to avoid an oversized single payload.
 func (r *SourceReader) GetBlocksHeaders(ctx context.Context, blockNumbers []*big.Int) (map[uint64]protocol.BlockHeader, error) {
-	headers := make(map[uint64]protocol.BlockHeader)
-	for _, blockNumber := range blockNumbers {
-		header, err := r.chainClient.HeadByNumber(ctx, blockNumber)
+	headers := make(map[uint64]protocol.BlockHeader, len(blockNumbers))
+	batchSize := sourceReaderHeaderFetchBatchSize(r.sourceReaderHeaderFetchBatchSize)
+	for bn := 0; bn < len(blockNumbers); bn += batchSize {
+		end := min(bn+batchSize, len(blockNumbers))
+		chunk, err := r.fetchHeadBatch(ctx, blockNumbers[bn:end])
 		if err != nil {
-			r.lggr.Warnw("Failed to get block header", "blockNumber", blockNumber.String(), "error", err)
+			r.lggr.Warnw("Failed to fetch header batch", "error", err, "batchStart", bn, "batchEnd", end)
 			continue
 		}
+		maps.Copy(headers, chunk)
+	}
+	return headers, nil
+}
+
+// fetchHeadBatch issues a single batched eth_getBlockByNumber for blockNumbers
+// and returns the resulting headers keyed by block number. Individual batch
+// element failures are logged and skipped so a single bad block does not discard
+// the whole batch.
+func (r *SourceReader) fetchHeadBatch(ctx context.Context, blockNumbers []*big.Int) (map[uint64]protocol.BlockHeader, error) {
+	batch := make([]rpc.BatchElem, 0, len(blockNumbers))
+	for _, n := range blockNumbers {
+		var head *evmtypes.Head
+		batch = append(batch, rpc.BatchElem{
+			Method: "eth_getBlockByNumber",
+			Args:   []any{client.ToBlockNumArg(n), false},
+			Result: &head,
+		})
+	}
+
+	if err := r.chainClient.BatchCallContext(ctx, batch); err != nil {
+		return nil, err
+	}
+
+	headers := make(map[uint64]protocol.BlockHeader, len(batch))
+	for i, elem := range batch {
+		if elem.Error != nil {
+			r.lggr.Warnw("Failed to get block header", "blockNumber", blockNumbers[i].String(), "error", elem.Error)
+			continue
+		}
+		headPtr, ok := elem.Result.(**evmtypes.Head)
+		if !ok || headPtr == nil || *headPtr == nil {
+			r.lggr.Warnw("Nil block header", "blockNumber", blockNumbers[i].String())
+			continue
+		}
+		header := *headPtr
 		if header.Number < 0 {
 			return nil, fmt.Errorf("block number cannot be negative: %d", header.Number)
 		}
@@ -190,7 +313,78 @@ func (r *SourceReader) GetBlocksHeaders(ctx context.Context, blockNumbers []*big
 
 // FetchMessageSentEvents returns MessageSentEvents in the given block range.
 // The toBlock parameter can be nil to query up to the latest block.
+// When an RPC provider rejects a query as too large, the range is halved and
+// retried. The shrunk limit persists for subsequent calls on this instance.
 func (r *SourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, toBlock *big.Int) ([]protocol.MessageSentEvent, error) {
+	from := fromBlock.Uint64()
+
+	var to uint64
+	if toBlock != nil {
+		to = toBlock.Uint64()
+	} else {
+		latest, _, err := r.headTracker.LatestAndFinalizedBlock(ctx)
+		if err != nil || latest == nil || latest.Number < 0 {
+			// Can't resolve upper bound — pass through unbounded
+			return r.fetchMessageSentEventsRange(ctx, fromBlock, nil)
+		}
+		to = uint64(latest.Number)
+	}
+	if to < from {
+		return nil, nil
+	}
+
+	maxRange := r.maxFilterBlockRange.Load()
+	var allEvents []protocol.MessageSentEvent
+
+	for from <= to {
+		end := to
+		if maxRange > 0 {
+			end = min(from+maxRange-1, to)
+		}
+
+		events, err := r.fetchMessageSentEventsRange(ctx,
+			new(big.Int).SetUint64(from),
+			new(big.Int).SetUint64(end),
+		)
+		if err == nil {
+			allEvents = append(allEvents, events...)
+			if end >= to {
+				break
+			}
+			from = end + 1
+			continue
+		}
+
+		// Error handling
+		if ctx.Err() != nil {
+			return allEvents, err
+		}
+		if !isRangeLimitError(err) {
+			return allEvents, err
+		}
+
+		querySize := end - from + 1
+		if querySize <= 1 {
+			return allEvents, err
+		}
+
+		newMaxRange := querySize / 2
+		r.lggr.Warnw(
+			"Log query rejected as range too large, retrying with smaller block range",
+			"error", err,
+			"fromBlock", from,
+			"querySize", querySize,
+			"nextQuerySize", newMaxRange,
+		)
+		// Persist range for future calls
+		maxRange = newMaxRange
+		r.maxFilterBlockRange.Store(maxRange)
+	}
+	return allEvents, nil
+}
+
+// fetchMessageSentEventsRange queries a single eth_getLogs range without chunking.
+func (r *SourceReader) fetchMessageSentEventsRange(ctx context.Context, fromBlock, toBlock *big.Int) ([]protocol.MessageSentEvent, error) {
 	rangeQuery := ethereum.FilterQuery{
 		FromBlock: fromBlock,
 		ToBlock:   toBlock,

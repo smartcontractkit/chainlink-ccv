@@ -15,6 +15,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/messagerules"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader"
@@ -27,6 +28,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/heartbeat"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/policy"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vsecrets"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -104,6 +106,12 @@ func (f *factory) Validate(spec bootstrap.JobSpec) error {
 
 // Start implements [bootstrap.ServiceFactory].
 func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootstrap.ServiceDeps) error {
+	if deps.Keystore == nil {
+		return fmt.Errorf(
+			"committee verifier requires a keystore: ensure the [keystore] section in the secrets is set correctly" +
+				", with any corresponding fields in [db] if backend is 'postgres'")
+	}
+
 	protocol.InitChainSelectorCache()
 
 	config, err := validateJobSpec(spec)
@@ -241,8 +249,11 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		StorageBatchSize:    50,
 		StorageBatchTimeout: 100 * time.Millisecond,
 		StorageRetryDelay:   2 * time.Second,
-		CursePollInterval:   2 * time.Second,  // Poll RMN Remotes for curse status every 2s
-		HeartbeatInterval:   10 * time.Second, // Send heartbeat to aggregator every 10s
+		CursePollInterval:   cursechecker.DEFAULT_POLL_INTERVAL, // Poll RMN Remotes for curse status
+		HeartbeatInterval:   10 * time.Second,                   // Send heartbeat to aggregator every 10s
+		// How often buffered chain statuses are written. A disabled status is written immediately.
+		ChainStatusFlushInterval:  chainstatus.DefaultFlushInterval,
+		ChainStatusFlushThreshold: chainstatus.DefaultFlushThreshold,
 	}
 
 	signer, _, signerAddress, err := commit.NewSignerFromKeystore(ctx, deps.Keystore, commit.DefaultECDSASigningKeyName)
@@ -269,6 +280,23 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	if err != nil {
 		lggr.Errorw("Failed to create commit verifier", "error", err)
 		return fmt.Errorf("failed to create commit verifier: %w", err)
+	}
+
+	// Resolve the credential the policy endpoint identifies this verifier by: the secrets file
+	// when it carries a [policy_hook] table, otherwise the environment. Nil is the supported
+	// unauthenticated case, so only a malformed or half-supplied pair fails here.
+	policyCredential, err := policy.ResolveCredential(secrets.PolicyHookSecret())
+	if err != nil {
+		lggr.Errorw("Failed to resolve policy hook credential", "error", err)
+		return fmt.Errorf("failed to resolve policy hook credential: %w", err)
+	}
+
+	// Apply the operator's policy hook. With no [policy_hook] section this returns the commit
+	// verifier unchanged.
+	gatedVerifier, err := policy.WrapVerifier(lggr, config.VerifierID, commitVerifier, config.PolicyHook, verifierMonitoring, policyCredential)
+	if err != nil {
+		lggr.Errorw("Failed to apply policy hook", "error", err)
+		return fmt.Errorf("failed to apply policy hook: %w", err)
 	}
 
 	// Write fan-out: one resilient + observed stack per aggregator, all writes fan out to every
@@ -346,13 +374,14 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		namedPollers = append(namedPollers, messagerules.NewNamedPoller(a.Label(), poller))
 	}
 
-	messageRulesPoller, err := messagerules.NewUnionPollerService(
-		logger.With(lggr, "component", "UnionMessageRulesPoller"),
+	messageRulesPoller, err := messagerules.NewMultiAggregatorRulesChecker(
+		logger.With(lggr, "component", "MultiAggregatorMessageRulesChecker"),
+		verifierMonitoring.Metrics(),
 		namedPollers...,
 	)
 	if err != nil {
-		lggr.Errorw("Failed to create union message rules poller", "error", err)
-		return fmt.Errorf("failed to create union message rules poller: %w", err)
+		lggr.Errorw("Failed to create multi-aggregator message rules checker", "error", err)
+		return fmt.Errorf("failed to create multi-aggregator message rules checker: %w", err)
 	}
 
 	messageTracker := monitoring.NewMessageLatencyTracker(
@@ -363,7 +392,7 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 
 	coordinator, err := verifier.NewCoordinator(
 		lggr,
-		commitVerifier,
+		gatedVerifier,
 		sourceReaders,
 		observedOffchainWriter,
 		coordinatorConfig,
@@ -518,7 +547,8 @@ func createChainStatusManager(lggr logger.Logger, verifierID string, monitoring 
 	}
 	chainStatusStore := chainstatus.NewPostgresChainStatusStore(sqlDB, lggr)
 	chainStatusManager := chainstatus.NewPostgresChainStatusManager(chainStatusStore, verifierID)
-	// Wrap with monitoring decorator to track query durations
+	// Wrap with monitoring decorator to track query durations. The Coordinator
+	// adds the batcher on top of this, so the metrics measure real database calls.
 	monitoredManager := chainstatus.NewMonitoredChainStatusManager(chainStatusManager, monitoring.Metrics())
 	return monitoredManager, sqlDB, nil
 }

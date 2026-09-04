@@ -330,7 +330,7 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 
 	sqlxDB := testutil.NewTestDB(t)
 	// Use fast polling coordinator for DB mode to make tests responsive
-	coordinator, err := NewCoordinatorWithFastPolling(
+	coordinator, err := NewCoordinatorWithFastWakeup(
 		lggr,
 		mockVerifier,
 		map[protocol.ChainSelector]chainaccess.SourceReader{1337: mockSourceReader},

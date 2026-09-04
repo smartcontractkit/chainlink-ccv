@@ -32,6 +32,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	evmchainconfig "github.com/smartcontractkit/chainlink-ccv/build/devenv/evm/chainconfig"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/localnetwork"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
@@ -55,9 +56,10 @@ func init() {
 		ExecutorInfo:             evmFactory,
 		CLDFProvider:             NewCLDFProviderFactory(),
 		ChainConfigLoader:        ChainConfigLoader,
-		LocalNetworkConfigurator: ConfigureLocalNetworks,
+		LocalNetworkConfigurator: localnetwork.Configurator(chainsel.FamilyEVM),
 		VerifierModifier:         VerifierModifier,
 		ExecutorModifier:         ExecutorModifier,
+		TokenVerifierModifier:    TokenVerifierModifier,
 		ExtraArgsSerializers: map[uint8]chainreg.ExtraArgsSerializer{
 			1: BuildEVMExtraArgsV1,
 			2: BuildEVMExtraArgsV2,
@@ -100,6 +102,11 @@ func VerifierModifier(req testcontainers.ContainerRequest, verifierInput *commit
 // ExecutorModifier adjusts executor container requests for EVM.
 func ExecutorModifier(req testcontainers.ContainerRequest, executorInput *executor.Input, outputs []*blockchain.Output) (testcontainers.ContainerRequest, error) {
 	req.Name = fmt.Sprintf("evm-%s", executorInput.ContainerName)
+	return addEVMConfig(req, outputs)
+}
+
+// TokenVerifierModifier adjusts token verifier container requests for EVM.
+func TokenVerifierModifier(req testcontainers.ContainerRequest, _ *services.TokenVerifierInput, outputs []*blockchain.Output) (testcontainers.ContainerRequest, error) {
 	return addEVMConfig(req, outputs)
 }
 

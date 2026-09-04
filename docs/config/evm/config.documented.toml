@@ -11,6 +11,10 @@
     # time and is not used outside the transaction manager. Zero uses the standalone
     # default; non-zero values must be at least two seconds.
     txm_block_time = "2s"
+    # source_reader_header_fetch_batch_size caps how many eth_getBlockByNumber requests
+    # are sent in a single JSON-RPC batch when the source reader fetches block
+    # headers. Zero uses [DefaultSourceReaderHeaderFetchBatchSize], which is 25.
+    source_reader_header_fetch_batch_size = 0
 
     # nodes are the RPC endpoints used to reach this chain.
     [[chains.1.nodes]]

@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -67,9 +68,10 @@ type HTTPAttestationService struct {
 
 func NewAttestationService(
 	lggr logger.Logger,
+	monitoring verifier.Monitoring,
 	config CCTPConfig,
 ) (AttestationService, error) {
-	client, err := NewHTTPClient(lggr, config)
+	client, err := NewHTTPClient(lggr, monitoring, config)
 	if err != nil {
 		return nil, err
 	}

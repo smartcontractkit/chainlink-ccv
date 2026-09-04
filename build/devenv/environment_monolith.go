@@ -162,12 +162,12 @@ func NewEnvironment() (in *Cfg, err error) {
 		blockchainOutputs[i] = out
 		bcStep.Inc()
 	}
-	localNetworkFinalizers, err := configureLocalNetworks(ctx, in.LocalNetworks, blockchainOutputs)
+	localNetworkFinalizers, err := chainreg.ConfigureLocalNetworks(ctx, in.LocalNetworks, blockchainOutputs)
 	if err != nil {
-		finalizeLocalNetworks(localNetworkFinalizers)
+		chainreg.FinalizeLocalNetworks(localNetworkFinalizers)
 		return nil, fmt.Errorf("failed to configure local networks: %w", err)
 	}
-	defer func() { finalizeLocalNetworks(localNetworkFinalizers) }()
+	defer func() { chainreg.FinalizeLocalNetworks(localNetworkFinalizers) }()
 
 	/////////////////////////////
 	// END: Deploy blockchains //
@@ -470,9 +470,12 @@ func NewEnvironment() (in *Cfg, err error) {
 	/////////////////////////////////////////
 
 	// Configure cross-chain token transfers: each chain impl builds its own
-	// TokenTransferConfigs using chain-specific registry and CCV refs.
+	// TokenTransferConfigs using chain-specific registry and CCV refs. The
+	// returned pairs land in env-out.toml as [[token_pool_pairs]] for
+	// test-side resolution.
 	progress.Stage(ctx, stageConnectChains)
-	if err = ccdeploy.ConfigureAllTokenTransfers(impls, selectors, e, topology); err != nil {
+	in.TokenPoolPairs, err = ccdeploy.ConfigureAllTokenTransfers(impls, selectors, e, topology)
+	if err != nil {
 		return nil, fmt.Errorf("configure all token transfers: %w", err)
 	}
 
@@ -867,7 +870,7 @@ func NewEnvironment() (in *Cfg, err error) {
 
 	// Consumers have captured their family-specific network configuration. Run
 	// finalizers before serializing so test-side clients receive restored output.
-	finalizeLocalNetworks(localNetworkFinalizers)
+	chainreg.FinalizeLocalNetworks(localNetworkFinalizers)
 	localNetworkFinalizers = nil
 
 	timeTrack.Print()

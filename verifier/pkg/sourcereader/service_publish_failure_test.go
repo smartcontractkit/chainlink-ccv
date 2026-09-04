@@ -69,9 +69,17 @@ func (f *failableTaskQueue) PublishWithDelay(_ context.Context, _ time.Duration,
 	return f.Publish(context.Background(), tasks...)
 }
 
-func (f *failableTaskQueue) Consume(_ context.Context, _ int) ([]jobqueue.Job[verifier.VerificationTask], error) {
+// The queue interface now covers signal-driven consumption. This fake is a producer only,
+// so the consume side stays inert.
+func (f *failableTaskQueue) ConsumePending(_ context.Context, _ int) ([]jobqueue.Job[verifier.VerificationTask], error) {
 	return nil, nil
 }
+
+func (f *failableTaskQueue) ReclaimStale(_ context.Context, _ int) ([]jobqueue.Job[verifier.VerificationTask], error) {
+	return nil, nil
+}
+
+func (f *failableTaskQueue) Signals() <-chan struct{} { return nil }
 
 func (f *failableTaskQueue) Complete(_ context.Context, _ ...string) error {
 	return nil

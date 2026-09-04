@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/contracttransmitter"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -18,12 +19,25 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/mailbox"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
-	evmconfig "github.com/smartcontractkit/chainlink-evm/pkg/config"
+	clevmconfig "github.com/smartcontractkit/chainlink-evm/pkg/config"
 	"github.com/smartcontractkit/chainlink-evm/pkg/gas"
 	"github.com/smartcontractkit/chainlink-evm/pkg/heads"
 	evmkeys "github.com/smartcontractkit/chainlink-evm/pkg/keys"
 	evmkeysv2 "github.com/smartcontractkit/chainlink-evm/pkg/keys/v2"
 	"github.com/smartcontractkit/chainlink-evm/pkg/txmgr"
+)
+
+const (
+	// orphanRecoveryGracePeriod is how long a restarted process waits for
+	// transactions left in flight by its predecessor to confirm on their own before
+	// replacing them. A transaction that is merely slow mines within this window and
+	// is left alone; replacing one needlessly discards a real execution and makes the
+	// executor send another. See standaloneChain.recoverOrphanedTransactions.
+	orphanRecoveryGracePeriod = 90 * time.Second
+	// orphanRecoveryRPCTimeout bounds a single nonce read during orphan recovery. Recovery runs on a
+	// goroutine Close waits for, so every network call it makes needs a deadline of its own rather
+	// than relying on the RPC client having one.
+	orphanRecoveryRPCTimeout = 30 * time.Second
 )
 
 // chainRuntime is the lifecycle boundary owned by one EVM accessor. Keeping it
@@ -32,6 +46,7 @@ import (
 type chainRuntime interface {
 	ChainClient() (client.Client, error)
 	HeadTracker() (heads.Tracker, error)
+	SourceReaderHeaderFetchBatchSize() int
 	NewContractTransmitter(
 		ctx context.Context,
 		chainSelector protocol.ChainSelector,
@@ -45,10 +60,17 @@ type chainRuntime interface {
 type standaloneChain struct {
 	lggr            logger.Logger
 	chainClient     client.Client
-	chainConfig     *evmconfig.ChainScoped
+	chainConfig     *clevmconfig.ChainScoped
 	headBroadcaster heads.Broadcaster
 	headTracker     heads.Tracker
 	mailMonitor     *mailbox.Monitor
+
+	// txmBlockTimeIsDefault is kept from the operator's Info for the warning
+	// NewContractTransmitter emits: chainConfig carries the block time already defaulted, which
+	// cannot be told apart from one the operator set.
+	txmBlockTimeIsDefault bool
+
+	sourceReaderHeaderFetchBatchSize int
 
 	mu                  sync.Mutex
 	txm                 txmgr.TxManager
@@ -106,14 +128,31 @@ func newStandaloneChain(ctx context.Context, info Info, lggr logger.Logger) (*st
 		"nodeCount", len(chainConfig.Nodes()),
 	)
 	return &standaloneChain{
-		lggr:            lggr,
-		chainClient:     chainClient,
-		chainConfig:     chainConfig,
-		headBroadcaster: headBroadcaster,
-		headTracker:     headTracker,
-		mailMonitor:     mailMonitor,
-		recoveryStop:    make(services.StopChan),
+		lggr:                             lggr,
+		chainClient:                      chainClient,
+		chainConfig:                      chainConfig,
+		headBroadcaster:                  headBroadcaster,
+		headTracker:                      headTracker,
+		mailMonitor:                      mailMonitor,
+		txmBlockTimeIsDefault:            info.TXMBlockTime == 0,
+		sourceReaderHeaderFetchBatchSize: sourceReaderHeaderFetchBatchSize(info.SourceReaderHeaderFetchBatchSize),
+		recoveryStop:                     make(services.StopChan),
 	}, nil
+}
+
+// SourceReaderHeaderFetchBatchSize returns the configured source-reader header
+// batch size, defaulted to DefaultSourceReaderHeaderFetchBatchSize.
+func (c *standaloneChain) SourceReaderHeaderFetchBatchSize() int {
+	return c.sourceReaderHeaderFetchBatchSize
+}
+
+// sourceReaderHeaderFetchBatchSize returns batchSize or
+// DefaultSourceReaderHeaderFetchBatchSize when batchSize is not positive.
+func sourceReaderHeaderFetchBatchSize(batchSize int) int {
+	if batchSize <= 0 {
+		return evmconfig.DefaultSourceReaderHeaderFetchBatchSize
+	}
+	return batchSize
 }
 
 func (c *standaloneChain) ChainClient() (client.Client, error) {
@@ -157,6 +196,18 @@ func (c *standaloneChain) NewContractTransmitter(
 	}
 	if offRampAddress == (common.Address{}) {
 		return nil, errors.New("EVM transaction manager requires an OffRamp address")
+	}
+
+	if c.txmBlockTimeIsDefault {
+		// Warned here rather than when the chain is built: a source-only chain, the verifier's for
+		// instance, never reaches this point and never runs a TXM, so the fallback does not apply to
+		// it. Loud because the fallback is a far steeper retry and fee-bump cadence than the node
+		// produced on a slow chain; set it explicitly per chain before a cutover. The inspect-config
+		// migration tooling flags the same fact offline.
+		c.lggr.Warnw("no txm_block_time configured for chain; TXM v2 falls back to a 2s block time "+
+			"(retry and fee-bump cadence). Set txm_block_time (standalone config) or "+
+			"Transactions.TransactionManagerV2.BlockTime (node config) explicitly per chain",
+			"chainID", c.chainConfig.EVM().ChainID().String())
 	}
 
 	coreKeystore := evmkeysv2.NewTxKeyCoreKeystore(

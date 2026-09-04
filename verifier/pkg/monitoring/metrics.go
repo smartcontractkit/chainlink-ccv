@@ -21,6 +21,7 @@ const (
 	MessageTransitionStageSourceRead      = "source_read"
 	MessageTransitionStagePendingFinality = "pending_finality"
 	MessageTransitionStageAdmission       = "admission"
+	MessageTransitionStagePolicy          = "policy"
 	MessageTransitionStageVerification    = "verification"
 	MessageTransitionStageStorageWrite    = "storage_write"
 
@@ -35,6 +36,10 @@ const (
 	MessageTransitionOutcomeMessageDisabled   = "message_disabled"
 	MessageTransitionOutcomeRulesStateUnknown = "rules_state_unknown"
 	MessageTransitionOutcomeQueuePublishError = "queue_publish_error"
+	MessageTransitionOutcomePolicyPassed      = "policy_passed"
+	MessageTransitionOutcomePolicyRejected    = "policy_rejected"
+	MessageTransitionOutcomePolicyUnavailable = "policy_unavailable"
+	MessageTransitionOutcomePolicySkipped     = "policy_skipped"
 	MessageTransitionOutcomeSucceeded         = "succeeded"
 	MessageTransitionOutcomeRetryScheduled    = "retry_scheduled"
 	MessageTransitionOutcomePermanentlyFailed = "permanently_failed"
@@ -48,6 +53,9 @@ const (
 	MessageTransitionReasonCurseStateUnknown      = "curse_state_unknown"
 	MessageTransitionReasonMessageDisablementRule = "message_disablement_rule"
 	MessageTransitionReasonRulesStateUnknown      = "rules_state_unknown"
+	MessageTransitionReasonPolicyRejected         = "policy_rejected"
+	MessageTransitionReasonPolicyEndpointError    = "policy_endpoint_error"
+	MessageTransitionReasonTaskInvalid            = "task_invalid"
 	MessageTransitionReasonQueuePublishFailed     = "queue_publish_failed"
 	MessageTransitionReasonVerificationFailed     = "verification_failed"
 	MessageTransitionReasonStorageWriteFailed     = "storage_write_failed"
@@ -73,6 +81,16 @@ const (
 	MessageFailureClassAggregatorResourceExhausted = "aggregator_resource_exhausted"
 	MessageFailureClassAggregatorPayloadTooLarge   = "aggregator_payload_too_large"
 	MessageFailureClassAggregatorUnavailable       = "aggregator_unavailable"
+	MessageFailureClassPolicyRejected              = "policy_rejected"
+	MessageFailureClassPolicyEndpointError         = "policy_endpoint_error"
+)
+
+// Token verifier attestation fetch outcomes (verifier-level).
+const (
+	TokenAttestationFetchOutcomeSuccess  = "success"
+	TokenAttestationFetchOutcomeNotReady = "not_ready"
+	TokenAttestationFetchOutcomeNotFound = "not_found"
+	TokenAttestationFetchOutcomeError    = "error"
 )
 
 // VerifierMetrics provides all metrics for the verifier.
@@ -121,6 +139,7 @@ type VerifierMetrics struct {
 	localChainGlobalCursed         metric.Int64Gauge
 
 	messageDisablementRulesRefreshFailure metric.Int64Gauge
+	messageDisablementRulesMismatch       metric.Int64Counter
 
 	// Reorg/Finality  Tracking
 	reorgTrackedSeqNumsGauge                metric.Int64Gauge
@@ -135,6 +154,17 @@ type VerifierMetrics struct {
 
 	// Storage Query Metrics
 	storageQueryDurationSeconds metric.Float64Histogram
+
+	// Token Verifier Metrics (attestation fetching)
+	tokenAttestationDurationSeconds metric.Float64Histogram
+	tokenAttestationFetchTotal      metric.Int64Counter
+
+	// Token Verifier HTTP client metrics (outbound attestation API)
+	tokenHTTPActiveRequestsUpDownCounter metric.Int64UpDownCounter
+	tokenHTTPRequestsTotal               metric.Int64Counter
+	tokenHTTPRequestDurationSeconds      metric.Float64Histogram
+	tokenHTTPRateLimitedTotal            metric.Int64Counter
+	tokenHTTPCooldownSeconds             metric.Float64Gauge
 }
 
 // InitMetrics initializes all verifier metrics.
@@ -355,6 +385,15 @@ func InitMetrics() (*VerifierMetrics, error) {
 		return nil, fmt.Errorf("failed to register message disablement rules refresh failure gauge: %w", err)
 	}
 
+	vm.messageDisablementRulesMismatch, err = beholder.GetMeter().Int64Counter(
+		"verifier_message_disablement_rules_mismatch",
+		metric.WithDescription("Count of messages for which aggregators disagreed on disablement (rules assumed identical)"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register message disablement rules mismatch counter: %w", err)
+	}
+
 	// Reorg Tracking
 	vm.reorgTrackedSeqNumsGauge, err = beholder.GetMeter().Int64Gauge(
 		"verifier_reorg_tracked_seqnums",
@@ -428,6 +467,67 @@ func InitMetrics() (*VerifierMetrics, error) {
 		return nil, fmt.Errorf("failed to register storage query duration histogram: %w", err)
 	}
 
+	// Token Verifier Metrics (attestation fetching)
+	vm.tokenAttestationDurationSeconds, err = beholder.GetMeter().Float64Histogram(
+		"verifier_token_attestation_fetch_duration_seconds",
+		metric.WithDescription("Duration of fetching and decoding an attestation for a single message"),
+		metric.WithUnit("seconds"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register token attestation duration histogram: %w", err)
+	}
+
+	vm.tokenAttestationFetchTotal, err = beholder.GetMeter().Int64Counter(
+		"verifier_token_attestation_fetch_total",
+		metric.WithDescription("Attestation fetch attempts by token provider and outcome"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register token attestation fetch counter: %w", err)
+	}
+
+	// Token Verifier HTTP client metrics (outbound attestation API)
+	vm.tokenHTTPActiveRequestsUpDownCounter, err = beholder.GetMeter().Int64UpDownCounter(
+		"verifier_token_http_active_requests",
+		metric.WithDescription("Number of currently active outbound attestation HTTP requests"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register token http active requests up down counter: %w", err)
+	}
+
+	vm.tokenHTTPRequestsTotal, err = beholder.GetMeter().Int64Counter(
+		"verifier_token_http_requests_total",
+		metric.WithDescription("Total number of outbound attestation HTTP requests by provider, method and outcome"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register token http request counter: %w", err)
+	}
+
+	vm.tokenHTTPRequestDurationSeconds, err = beholder.GetMeter().Float64Histogram(
+		"verifier_token_http_request_duration_seconds",
+		metric.WithDescription("Duration of outbound attestation HTTP requests"),
+		metric.WithUnit("seconds"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register token http request duration histogram: %w", err)
+	}
+
+	vm.tokenHTTPRateLimitedTotal, err = beholder.GetMeter().Int64Counter(
+		"verifier_token_http_rate_limited_total",
+		metric.WithDescription("Total number of outbound attestation HTTP requests dropped or delayed due to API rate limiting"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register token http rate limited counter: %w", err)
+	}
+
+	vm.tokenHTTPCooldownSeconds, err = beholder.GetMeter().Float64Gauge(
+		"verifier_token_http_cooldown_seconds",
+		metric.WithDescription("Seconds until an outbound attestation API cools down (0 when not cooling down)"),
+		metric.WithUnit("seconds"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register token http cooldown gauge: %w", err)
+	}
+
 	return vm, nil
 }
 
@@ -471,6 +571,22 @@ func MetricViews() []sdkmetric.View {
 		// Storage Query Duration
 		sdkmetric.NewView(
 			sdkmetric.Instrument{Name: "verifier_storage_query_duration_seconds"},
+			sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
+				Boundaries: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
+			}},
+		),
+		// Token Attestation Fetch Duration (HTTP API round-trip). Buckets are capped
+		// at the attestation API timeout (default 1s, configurable), so values much
+		// larger than ~5s are not expected.
+		sdkmetric.NewView(
+			sdkmetric.Instrument{Name: "verifier_token_attestation_fetch_duration_seconds"},
+			sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
+				Boundaries: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5},
+			}},
+		),
+		// Token HTTP Request Duration
+		sdkmetric.NewView(
+			sdkmetric.Instrument{Name: "verifier_token_http_request_duration_seconds"},
 			sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
 				Boundaries: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
 			}},
@@ -654,6 +770,10 @@ func ClassifyError(err error) string {
 	}
 	message := strings.ToLower(err.Error())
 	switch {
+	case strings.Contains(message, "policy hook rejected"):
+		return MessageFailureClassPolicyRejected
+	case strings.Contains(message, "policy endpoint") || strings.Contains(message, "policy response") || strings.Contains(message, "policy request"):
+		return MessageFailureClassPolicyEndpointError
 	case strings.Contains(message, "unsupported message version"):
 		return MessageFailureClassUnsupportedMessageVersion
 	case strings.Contains(message, "source chain selector") && strings.Contains(message, "not configured"):
@@ -728,6 +848,11 @@ func (v *VerifierMetricLabeler) SetMessageDisablementRulesRefreshFailure(ctx con
 	v.vm.messageDisablementRulesRefreshFailure.Record(ctx, failed, metric.WithAttributes(otelLabels...))
 }
 
+func (v *VerifierMetricLabeler) RecordMessageDisablementRulesMismatch(ctx context.Context) {
+	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	v.vm.messageDisablementRulesMismatch.Add(ctx, 1, metric.WithAttributes(otelLabels...))
+}
+
 func (v *VerifierMetricLabeler) IncrementActiveRequestsCounter(ctx context.Context) {
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
 	v.vm.httpActiveRequestsUpDownCounter.Add(ctx, 1, metric.WithAttributes(otelLabels...))
@@ -758,4 +883,58 @@ func (v *VerifierMetricLabeler) RecordStorageQueryDuration(ctx context.Context, 
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
 	attrs := append(otelLabels, attribute.String("method", method))
 	v.vm.storageQueryDurationSeconds.Record(ctx, duration.Seconds(), metric.WithAttributes(attrs...))
+}
+
+func (v *VerifierMetricLabeler) RecordTokenAttestationDuration(ctx context.Context, provider string, duration time.Duration) {
+	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	otelLabels = append(otelLabels, attribute.String("provider", provider))
+	v.vm.tokenAttestationDurationSeconds.Record(ctx, duration.Seconds(), metric.WithAttributes(otelLabels...))
+}
+
+func (v *VerifierMetricLabeler) IncrementTokenAttestationFetch(ctx context.Context, provider, outcome string) {
+	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	otelLabels = append(otelLabels,
+		attribute.String("provider", provider),
+		attribute.String("outcome", outcome),
+	)
+	v.vm.tokenAttestationFetchTotal.Add(ctx, 1, metric.WithAttributes(otelLabels...))
+}
+
+func (v *VerifierMetricLabeler) IncrementTokenHTTPActiveRequests(ctx context.Context, provider string) {
+	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	otelLabels = append(otelLabels, attribute.String("provider", provider))
+	v.vm.tokenHTTPActiveRequestsUpDownCounter.Add(ctx, 1, metric.WithAttributes(otelLabels...))
+}
+
+func (v *VerifierMetricLabeler) DecrementTokenHTTPActiveRequests(ctx context.Context, provider string) {
+	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	otelLabels = append(otelLabels, attribute.String("provider", provider))
+	v.vm.tokenHTTPActiveRequestsUpDownCounter.Add(ctx, -1, metric.WithAttributes(otelLabels...))
+}
+
+func (v *VerifierMetricLabeler) IncrementTokenHTTPRateLimited(ctx context.Context, provider, method string) {
+	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	otelLabels = append(otelLabels,
+		attribute.String("provider", provider),
+		attribute.String("method", method),
+	)
+	v.vm.tokenHTTPRateLimitedTotal.Add(ctx, 1, metric.WithAttributes(otelLabels...))
+}
+
+func (v *VerifierMetricLabeler) RecordTokenHTTPRequest(ctx context.Context, provider, method, outcome string, status int, duration time.Duration) {
+	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	otelLabels = append(otelLabels,
+		attribute.String("provider", provider),
+		attribute.String("method", method),
+		attribute.String("outcome", outcome),
+		attribute.Int("status", status),
+	)
+	v.vm.tokenHTTPRequestsTotal.Add(ctx, 1, metric.WithAttributes(otelLabels...))
+	v.vm.tokenHTTPRequestDurationSeconds.Record(ctx, duration.Seconds(), metric.WithAttributes(otelLabels...))
+}
+
+func (v *VerifierMetricLabeler) RecordTokenHTTPCooldownSeconds(ctx context.Context, provider string, cooldown time.Duration) {
+	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	otelLabels = append(otelLabels, attribute.String("provider", provider))
+	v.vm.tokenHTTPCooldownSeconds.Record(ctx, cooldown.Seconds(), metric.WithAttributes(otelLabels...))
 }

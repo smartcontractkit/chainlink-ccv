@@ -8,6 +8,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/policy"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vsecrets"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 )
@@ -190,7 +191,12 @@ type Config struct {
 	// MessageDisablementRulesClientTimeout is the RPC timeout for message-disablement-rules requests, as a Go duration string; empty uses the integration default.
 	MessageDisablementRulesClientTimeout string `toml:"message_disablement_rules_client_timeout"`
 
-	// SignerAddress is the on-chain address of the verifier's result-signing key.
+	// SignerAddress is the on-chain address of the verifier's result-signing key. When set to a hex
+	// address it is validated strictly on boot: the keystore's key must match, or the verifier fails
+	// loudly. Set it to the literal "auto" (the AutoSignerAddress constant) to explicitly opt out and
+	// adopt whatever address the keystore holds (the postgres auto-generate backend's first boot).
+	// Empty is an error: it means the value was forgotten, not that auto-adoption was chosen, and is
+	// never conflated with it.
 	SignerAddress string `toml:"signer_address"`
 
 	// PyroscopeURL is the Pyroscope server URL for continuous profiling; empty disables it.
@@ -216,6 +222,14 @@ type Config struct {
 	// consumer in either mode. It is retained so older job specs still decode, and it is
 	// intentionally not validated.
 	Monitoring verifier.MonitoringConfig `toml:"monitoring"`
+	// PolicyHook configures the operator's custom policy endpoint, a binary PASS/FAIL gate the
+	// verifier consults as the last check before signing, once finality, the curse and
+	// message-disablement checks, and the verifier's own checks on the message have all passed.
+	// A message the verifier was never going to sign is not sent to the endpoint. Absent (the
+	// default) leaves the verifier behaving exactly as it did before the hook existed; the
+	// section is omitted from marshaled job specs when unset, so specs are unchanged for a
+	// verifier that does not use it.
+	PolicyHook *policy.Config `toml:"policy_hook,omitempty"`
 
 	// CommitteeConfig that is needed by the SourceReader and the application.
 	chainaccess.CommitteeConfig
@@ -356,5 +370,7 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("invalid verifier configuration, http_listen_port must not exceed %d, got %d", httpListenPortMax, c.HTTPListenPort)
 	}
 
-	return nil
+	// A malformed policy hook fails the job at load time. Deferring it to the first message
+	// would leave the gate silently absent on a verifier the operator believes is gating.
+	return c.PolicyHook.Validate()
 }

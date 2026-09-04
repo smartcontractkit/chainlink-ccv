@@ -1,4 +1,4 @@
-package evm
+package evmconfig
 
 import (
 	"math/big"
@@ -331,6 +331,19 @@ HTTPURLExtraWrite = 'https://sepolia-write.example.com'
 	}, got.Warnings)
 	assert.Equal(t, int32(50), got.Config.Chains[arbSepSelector].Nodes[0].Order,
 		"Order is carried, not warned about")
+
+	// The grouped view carries the same warnings, so a per-chain report (`ccv migrate
+	// inspect-config --chain-selector`) narrows them without parsing the message text.
+	assert.Equal(t, map[string][]string{
+		arbSepChainID: {
+			"chain " + arbSepChainID + " node zeta: dropped HTTPURLExtraWrite, standalone CCV does not expose it",
+			"chain " + arbSepChainID + " node zeta: dropped IsLoadBalancedRPC, standalone CCV does not expose it",
+			"chain " + arbSepChainID + " node alpha: dropped, SendOnly nodes have no standalone equivalent",
+		},
+		sepoliaChainID: {
+			"chain " + sepoliaChainID + " node primary: dropped HTTPURLExtraWrite, standalone CCV does not expose it",
+		},
+	}, got.WarningsByChainID)
 }
 
 // TestConvertedConfigLoadsStrictly encodes a conversion the way the CLI does and decodes it the way

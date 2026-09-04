@@ -40,10 +40,6 @@ func (q *fakeTaskQueue) PublishWithDelay(_ context.Context, _ time.Duration, tas
 	return q.Publish(context.Background(), tasks...)
 }
 
-func (q *fakeTaskQueue) Consume(_ context.Context, _ int) ([]jobqueue.Job[verifier.VerificationTask], error) {
-	return nil, nil
-}
-
 func (q *fakeTaskQueue) Complete(_ context.Context, _ ...string) error { return nil }
 func (q *fakeTaskQueue) Retry(_ context.Context, _ time.Duration, _ map[string]error, _ ...string) error {
 	return nil
@@ -52,6 +48,18 @@ func (q *fakeTaskQueue) Fail(_ context.Context, _ map[string]error, _ ...string)
 func (q *fakeTaskQueue) Cleanup(_ context.Context, _ time.Duration) (int, error)       { return 0, nil }
 func (q *fakeTaskQueue) Name() string                                                  { return "fake-task-queue" }
 func (q *fakeTaskQueue) Size(_ context.Context) (int, error)                           { return 0, nil }
+
+// The queue interface now covers signal-driven consumption. This fake is a producer only,
+// so the consume side stays inert.
+func (q *fakeTaskQueue) ConsumePending(_ context.Context, _ int) ([]jobqueue.Job[verifier.VerificationTask], error) {
+	return nil, nil
+}
+
+func (q *fakeTaskQueue) ReclaimStale(_ context.Context, _ int) ([]jobqueue.Job[verifier.VerificationTask], error) {
+	return nil, nil
+}
+
+func (q *fakeTaskQueue) Signals() <-chan struct{} { return nil }
 
 func (q *fakeTaskQueue) Published() []verifier.VerificationTask {
 	q.mu.Lock()
@@ -1316,7 +1324,8 @@ func TestSRS_FailureRetriesNextTick(t *testing.T) {
 
 	reader := mocks.NewMockSourceReader(t)
 
-	latest := &protocol.BlockHeader{Number: 1000}
+	// latest == fromBlock (99) collapses the range to be non-bisectable
+	latest := &protocol.BlockHeader{Number: 99}
 	finalized := &protocol.BlockHeader{Number: 900}
 
 	reader.EXPECT().
@@ -1435,7 +1444,8 @@ func TestSRS_FailureDoesNotDeleteExistingTasks(t *testing.T) {
 
 	reader := mocks.NewMockSourceReader(t)
 
-	latest := &protocol.BlockHeader{Number: 1000}
+	// latest == fromBlock (99) collapses the range to be non-bisectable
+	latest := &protocol.BlockHeader{Number: 99}
 	finalized := &protocol.BlockHeader{Number: 900}
 
 	reader.EXPECT().
@@ -1786,8 +1796,9 @@ func TestSRS_PartialRead_EventsFromSuccessfulChunksQueued(t *testing.T) {
 
 	reader := mocks.NewMockSourceReader(t)
 
-	// maxBlockRange=500 splits [100, 700) into two chunks: [100,600] and [601,nil].
-	latest := &protocol.BlockHeader{Number: 700}
+	// maxBlockRange=500 splits [100, 601) into two chunks: [100,600] and [601,nil].
+	// latest == 601 makes the second chunk non-bisectable
+	latest := &protocol.BlockHeader{Number: 601}
 	finalized := &protocol.BlockHeader{Number: 600}
 	reader.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(latest, finalized, nil).Maybe()
 
@@ -1838,8 +1849,9 @@ func TestSRS_PartialRead_ProgressAdvancesToLastSuccessfulChunkBound(t *testing.T
 
 	reader := mocks.NewMockSourceReader(t)
 
-	// maxBlockRange=500 splits [100, 700) into [100,600] and [601,nil].
-	latest := &protocol.BlockHeader{Number: 700}
+	// maxBlockRange=500 splits [100, 601) into [100,600] and [601,nil].
+	// latest == 601 makes the second chunk non-bisectable
+	latest := &protocol.BlockHeader{Number: 601}
 	finalized := &protocol.BlockHeader{Number: 600}
 	reader.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(latest, finalized, nil).Maybe()
 
@@ -1886,9 +1898,10 @@ func TestSRS_PartialRead_MultipleChunksSucceedBeforeFailure(t *testing.T) {
 
 	reader := mocks.NewMockSourceReader(t)
 
-	// maxBlockRange=300 splits [100, 1000) into three chunks:
+	// maxBlockRange=300 splits [100, 702) into three chunks:
 	// [100,400], [401,701], [702,nil].
-	latest := &protocol.BlockHeader{Number: 1000}
+	// latest == 702 makes the third chunk non-bisectable
+	latest := &protocol.BlockHeader{Number: 702}
 	finalized := &protocol.BlockHeader{Number: 800}
 	reader.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(latest, finalized, nil).Maybe()
 
@@ -1950,13 +1963,15 @@ func TestSRS_PartialRead_TotalFailureDoesNotAdvanceProgress(t *testing.T) {
 
 	reader := mocks.NewMockSourceReader(t)
 
-	latest := &protocol.BlockHeader{Number: 700}
-	finalized := &protocol.BlockHeader{Number: 600}
+	// latest == fromBlock (100) collapses the range to be non-bisectable
+	latest := &protocol.BlockHeader{Number: 100}
+	finalized := &protocol.BlockHeader{Number: 100}
 	reader.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(latest, finalized, nil).Maybe()
 
 	// Chunk 1 fails immediately — no events, no subsequent chunk calls.
+	nilBigInt := mock.MatchedBy(func(b *big.Int) bool { return b == nil })
 	reader.EXPECT().
-		FetchMessageSentEvents(mock.Anything, big.NewInt(100), big.NewInt(600)).
+		FetchMessageSentEvents(mock.Anything, big.NewInt(100), nilBigInt).
 		Return(nil, assert.AnError).
 		Once()
 	// Chunk 2 must NOT be called: testify will fail the test on any unexpected call.
@@ -2037,9 +2052,9 @@ func TestSRS_PartialRead_ProgressCapsAtFinalizedWhenChunkBoundExceedsIt(t *testi
 
 	reader := mocks.NewMockSourceReader(t)
 
-	// maxBlockRange=400 splits [100, 1000) into chunks [100,500], [501,901], [902,nil].
-	// finalized is 600, so the successful chunk 2 boundary (901) exceeds finalized.
-	latest := &protocol.BlockHeader{Number: 1000}
+	// maxBlockRange=400 splits [100, 902) into chunks [100,500], [501,901], [902,nil].
+	// latest == 902 makes the third chunk non-bisectable
+	latest := &protocol.BlockHeader{Number: 902}
 	finalized := &protocol.BlockHeader{Number: 600}
 	reader.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(latest, finalized, nil).Maybe()
 

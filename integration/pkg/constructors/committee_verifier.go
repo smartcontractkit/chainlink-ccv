@@ -10,6 +10,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-ccv/common/monitoring/logging"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/messagerules"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader"
@@ -22,6 +23,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/heartbeat"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/policy"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 	"github.com/smartcontractkit/chainlink-evm/pkg/chains/legacyevm"
@@ -33,6 +35,10 @@ import (
 // Keying by SecretName (rather than position) avoids any ordering contract with
 // cfg.ResolvedAggregators(); the legacy single-aggregator config has an empty SecretName, so its
 // credential is keyed by "".
+//
+// Optional dependencies are passed as opts rather than as parameters. This constructor is called
+// from the Chainlink node repo, so a positional signature that grows breaks that build until a
+// change lands there, and the two cannot land at once.
 func NewVerificationCoordinator(
 	lggr logger.Logger,
 	cfg commit.Config,
@@ -41,7 +47,10 @@ func NewVerificationCoordinator(
 	signer verifier.MessageSigner,
 	relayers map[protocol.ChainSelector]legacyevm.Chain,
 	ds sqlutil.DataSource,
+	opts ...VerificationCoordinatorOption,
 ) (*verifier.Coordinator, error) {
+	options := newVerificationCoordinatorOptions(opts)
+
 	lggr = logging.WithService(lggr, "verifier")
 
 	if err := cfg.Validate(); err != nil {
@@ -116,6 +125,7 @@ func NewVerificationCoordinator(
 			onramp.OnRampCCIPMessageSent{}.Topic().Hex(),
 			sel,
 			logger.With(lggr, "component", "SourceReader", "chainID", sel),
+			evmconfig.DefaultSourceReaderHeaderFetchBatchSize,
 			func(ctx context.Context) {
 				chainMetrics.IncrementCriticalSourceInvariantViolations(ctx)
 			},
@@ -213,6 +223,9 @@ func NewVerificationCoordinator(
 		StorageBatchTimeout: 100 * time.Millisecond,
 		StorageRetryDelay:   2 * time.Second,
 		HeartbeatInterval:   10 * time.Second,
+		// How often buffered chain statuses are written. A disabled status is written immediately.
+		ChainStatusFlushInterval:  chainstatus.DefaultFlushInterval,
+		ChainStatusFlushThreshold: chainstatus.DefaultFlushThreshold,
 	}
 
 	// Create commit verifier (with ECDSA signer)
@@ -221,6 +234,14 @@ func NewVerificationCoordinator(
 	if err != nil {
 		lggr.Errorw("Failed to create commit verifier", "error", err)
 		return nil, fmt.Errorf("failed to create commit verifier: %w", err)
+	}
+
+	// Apply the operator's policy hook. With no [policy_hook] section this returns the commit
+	// verifier unchanged.
+	gatedVerifier, err := policy.WrapVerifier(lggr, cfg.VerifierID, commitVerifier, cfg.PolicyHook, verifierMonitoring, options.policyHookCredential)
+	if err != nil {
+		lggr.Errorw("Failed to apply policy hook", "error", err)
+		return nil, fmt.Errorf("failed to apply policy hook: %w", err)
 	}
 
 	heartbeatSender, err := heartbeatclient.NewFanOutHeartbeatSender(
@@ -272,13 +293,14 @@ func NewVerificationCoordinator(
 		namedPollers = append(namedPollers, messagerules.NewNamedPoller(a.Label(), poller))
 	}
 
-	messageRulesPoller, err := messagerules.NewUnionPollerService(
-		logger.With(lggr, "component", "UnionMessageRulesPoller"),
+	messageRulesPoller, err := messagerules.NewMultiAggregatorRulesChecker(
+		logger.With(lggr, "component", "MultiAggregatorMessageRulesChecker"),
+		verifierMonitoring.Metrics(),
 		namedPollers...,
 	)
 	if err != nil {
-		lggr.Errorw("Failed to create union message rules poller", "error", err)
-		return nil, fmt.Errorf("failed to create union message rules poller: %w", err)
+		lggr.Errorw("Failed to create multi-aggregator message rules checker", "error", err)
+		return nil, fmt.Errorf("failed to create multi-aggregator message rules checker: %w", err)
 	}
 
 	messageTracker := monitoring.NewMessageLatencyTracker(
@@ -289,7 +311,7 @@ func NewVerificationCoordinator(
 
 	verifierCoordinator, err := verifier.NewCoordinator(
 		lggr,
-		commitVerifier,
+		gatedVerifier,
 		sourceReaders,
 		observedOffchainWriter,
 		coordinatorConfig,

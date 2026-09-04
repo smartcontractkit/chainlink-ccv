@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/deployment/shared"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/policy"
 )
 
 // NOPInput is the imperative per-NOP input shared by the offchain-only changesets
@@ -19,6 +20,10 @@ type NOPInput struct {
 	Alias                 shared.NOPAlias
 	SignerAddressByFamily map[string]string
 	Mode                  shared.NOPMode
+	// PolicyHook is this NOP's custom policy endpoint, emitted into its verifier job spec.
+	// Nil leaves the section out of the spec entirely, so a NOP without a hook gets the same
+	// bytes it did before the hook existed. Ignored by the executor changeset.
+	PolicyHook *policy.Config
 }
 
 // GetMode returns the NOP's mode, defaulting to NOPModeCL when unset.

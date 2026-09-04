@@ -26,18 +26,21 @@ type AttestationService interface {
 // Please see ToVerifierFormat for more details on the format.
 type Attestation struct {
 	verifierVersion protocol.ByteSlice
-	attestation     string
+	attestation     string // abi.encode(rawPayload, proof)
 	status          AttestationStatus
+	payloadHash     protocol.ByteSlice // CCV receipt blob this attestation was looked up by (calculated as sha256(rawPayload))
 }
 
 func NewAttestation(
 	ccvVerifierVersion protocol.ByteSlice,
 	resp AttestationResponse,
+	messageHash protocol.ByteSlice,
 ) Attestation {
 	return Attestation{
 		verifierVersion: ccvVerifierVersion,
 		attestation:     resp.Data,
 		status:          resp.Status,
+		payloadHash:     messageHash,
 	}
 }
 
@@ -147,6 +150,16 @@ func (a *Attestation) IsReady() bool {
 	return a.status == AttestationStatusApproved
 }
 
+func (a *Attestation) PayloadHash() (protocol.ByteSlice, error) {
+	if !a.IsReady() {
+		return nil, fmt.Errorf("attestation is not ready, status: %s", a.status)
+	}
+	if len(a.payloadHash) == 0 {
+		return nil, fmt.Errorf("attestation has no payloadHash")
+	}
+	return a.payloadHash, nil
+}
+
 type HTTPAttestationService struct {
 	lggr            logger.Logger
 	client          HTTPClient
@@ -159,9 +172,10 @@ type HTTPAttestationService struct {
 
 func NewAttestationService(
 	lggr logger.Logger,
+	monitoring verifier.Monitoring,
 	config LombardConfig,
 ) (AttestationService, error) {
-	client, err := NewHTTPClient(lggr, config)
+	client, err := NewHTTPClient(lggr, monitoring, config)
 	if err != nil {
 		return nil, err
 	}
@@ -265,7 +279,7 @@ func (h *HTTPAttestationService) Fetch(
 			})
 		}
 		if idx != -1 {
-			result[task.MessageID] = NewAttestation(h.verifierVersion, attestations[idx])
+			result[task.MessageID] = NewAttestation(h.verifierVersion, attestations[idx], blob)
 		} else {
 			h.lggr.Errorw("Failed to find attestation for task in the response",
 				"messageID", task.MessageID)

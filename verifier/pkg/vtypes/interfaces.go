@@ -32,6 +32,27 @@ type Verifier interface {
 	VerifyMessages(ctx context.Context, tasks []VerificationTask) []VerificationResult
 }
 
+// TaskValidator is an optional companion to Verifier, implemented by verifiers that can tell,
+// without signing, that they are going to reject a task. A decorator in front of the verifier
+// uses it to skip work on a task that is not going to be signed regardless of what the
+// decorator does. Verifier implementations are not required to provide it.
+//
+// "Validate" and "verify" name the two halves of one operation here, not two different opinions
+// about the task: ValidateTask is the part of VerifyMessages that can run without the signer, and
+// VerifyMessages is that part plus signing. They are not alternatives and a caller does not choose
+// between them.
+//
+// An implementation must run these checks out of the same code its VerifyMessages runs, so that
+// ValidateTask returning nil never accepts more than VerifyMessages accepts. A second copy of
+// the checks that drifted from the first would let a decorator skip its work on a task that
+// verification then goes on to sign, which for the policy gate means signing a message the
+// operator's endpoint was never asked about.
+type TaskValidator interface {
+	// ValidateTask returns nil when the task passes every check that does not require signing.
+	// A non-nil error is the error VerifyMessages would attach to this task's result.
+	ValidateTask(task *VerificationTask) error
+}
+
 // MessageLatencyTracker defines the interface for tracking message latencies from with the verifier.
 type MessageLatencyTracker interface {
 	// MarkMessageAsSeen records the time a message was first seen for latency tracking.
@@ -161,4 +182,31 @@ type MetricLabeler interface {
 
 	// RecordStorageQueryDuration records the duration of a storage query operation.
 	RecordStorageQueryDuration(ctx context.Context, method string, duration time.Duration)
+
+	// Token verifier (attestation fetching) metrics
+
+	// RecordTokenAttestationDuration records the time spent fetching + decoding
+	// an attestation for a single message. provider is "cctp" or "lombard".
+	RecordTokenAttestationDuration(ctx context.Context, provider string, duration time.Duration)
+	// IncrementTokenAttestationFetch records the outcome of an attestation fetch
+	// attempt for a single message. provider is "cctp" or "lombard"; outcome is
+	// one of the monitoring.TokenAttestationFetchOutcome* constants.
+	IncrementTokenAttestationFetch(ctx context.Context, provider, outcome string)
+
+	// Token verifier HTTP client (outbound attestation API) metrics.
+	// provider is "cctp" or "lombard"; outcome is one of success, rate_limited,
+	// not_ready, timeout, error.
+
+	// IncrementTokenHTTPActiveRequests increments active outbound attestation HTTP requests.
+	IncrementTokenHTTPActiveRequests(ctx context.Context, provider string)
+	// DecrementTokenHTTPActiveRequests decrements active outbound attestation HTTP requests.
+	DecrementTokenHTTPActiveRequests(ctx context.Context, provider string)
+	// IncrementTokenHTTPRateLimited increments the number of outbound attestation HTTP requests
+	// that were dropped or delayed due to API rate limiting.
+	IncrementTokenHTTPRateLimited(ctx context.Context, provider, method string)
+	// RecordTokenHTTPRequest records an outbound attestation HTTP request and its outcome.
+	RecordTokenHTTPRequest(ctx context.Context, provider, method, outcome string, status int, duration time.Duration)
+	// RecordTokenHTTPCooldownSeconds records how long until the outbound attestation
+	// API cools down (0 if not currently cooling down).
+	RecordTokenHTTPCooldownSeconds(ctx context.Context, provider string, cooldown time.Duration)
 }

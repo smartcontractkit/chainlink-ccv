@@ -350,6 +350,11 @@ func (r *Service) processEventCycle(ctx context.Context, latest, finalized *prot
 		r.logger.Warnw("Error when querying logs", "error", err,
 			"fromBlock", fromBlock.String(),
 			"toBlock", "latest")
+
+		// Only return early when no progress was made
+		if lastQueriedBlock.Cmp(fromBlock) == 0 {
+			return false
+		}
 	}
 
 	tasks := make([]verifier.VerificationTask, 0, len(events))
@@ -765,6 +770,16 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 				// Set the timestamp when message became ready for verification
 				// This is the finalized block timestamp which represents when the message met finality criteria
 				task.ReadyForVerificationAt = latest.Timestamp
+
+				// The finalized head as of now. The policy hook publishes this as
+				// finalized_block_number and derives block_depth from it, so an
+				// operator's endpoint can see how deeply confirmed a message was when
+				// the verifier decided it was ready (see verifier/pkg/policy/contract.go).
+				// FinalizedBlockAtRead cannot serve that: it is captured at discovery,
+				// when the message's own block is still ahead of the finalized head, so
+				// a depth computed from it is 0 for every message that took the normal
+				// path to finality.
+				task.FinalizedBlockAtReady = latestFinalizedBlock.Uint64()
 
 				// Carry the send span forward as the task's TraceContext/TraceParent so
 				// the publish step (below) and downstream taskverifier/storagewriter

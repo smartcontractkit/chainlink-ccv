@@ -153,6 +153,7 @@ func (m *noopMetricLabeler) SetLocalChainGlobalCursed(ctx context.Context, local
 }
 
 func (m *noopMetricLabeler) SetMessageDisablementRulesRefreshFailure(context.Context, int64) {}
+func (m *noopMetricLabeler) RecordMessageDisablementRulesMismatch(context.Context)           {}
 
 func (m *noopMetricLabeler) IncrementHeartbeatsSent(ctx context.Context)                           {}
 func (m *noopMetricLabeler) IncrementHeartbeatsFailed(ctx context.Context)                         {}
@@ -168,6 +169,27 @@ func (m *noopMetricLabeler) RecordHTTPRequestDuration(ctx context.Context, durat
 }
 
 func (m *noopMetricLabeler) RecordStorageQueryDuration(ctx context.Context, method string, duration time.Duration) {
+}
+
+func (m *noopMetricLabeler) RecordTokenAttestationDuration(context.Context, string, time.Duration) {
+}
+
+func (m *noopMetricLabeler) IncrementTokenAttestationFetch(context.Context, string, string) {
+}
+
+func (m *noopMetricLabeler) IncrementTokenHTTPActiveRequests(context.Context, string) {
+}
+
+func (m *noopMetricLabeler) DecrementTokenHTTPActiveRequests(context.Context, string) {
+}
+
+func (m *noopMetricLabeler) IncrementTokenHTTPRateLimited(context.Context, string, string) {
+}
+
+func (m *noopMetricLabeler) RecordTokenHTTPRequest(context.Context, string, string, string, int, time.Duration) {
+}
+
+func (m *noopMetricLabeler) RecordTokenHTTPCooldownSeconds(context.Context, string, time.Duration) {
 }
 
 // TestVerifier keeps track of all processed messages for testing.
@@ -323,12 +345,13 @@ func createTestMessageSentEvents(
 	return events
 }
 
-// NewCoordinatorWithFastPolling creates a coordinator with services pre-initialized and fast polling intervals for testing.
+// NewCoordinatorWithFastWakeup creates a coordinator with services pre-initialized and a short queue
+// fallback interval for testing.
 // Unlike NewCoordinator/NewCoordinatorWithDetector, it does not set initFn: all services (curse detector, source readers,
 // task verifier, storage writer, optional heartbeat) are built in the constructor. Start(ctx) therefore skips init
 // and only starts the already-constructed services. Use this for DB-backed tests that need responsive queue processing
 // without running deferred init (e.g. filterOnlyEnabledSourceReaders) at Start time.
-func NewCoordinatorWithFastPolling(
+func NewCoordinatorWithFastWakeup(
 	lggr logger.Logger,
 	verifier Verifier,
 	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
@@ -339,7 +362,7 @@ func NewCoordinatorWithFastPolling(
 	chainStatusManager protocol.ChainStatusManager,
 	heartbeatClient heartbeatclient.HeartbeatSender,
 	ds sqlutil.DataSource,
-	pollInterval time.Duration,
+	wakeupInterval time.Duration,
 ) (*Coordinator, error) {
 	if ds == nil {
 		return nil, errors.New("db is required; in-memory implementations are no longer supported")
@@ -363,8 +386,8 @@ func NewCoordinatorWithFastPolling(
 		return nil, fmt.Errorf("failed to create curse detector: %w", err)
 	}
 
-	dbSRS, taskVerifierProcessor, storageWriterProcessor, durableErr := createDurableProcessorsWithPollInterval(
-		lggr, ds, config, verifier, monitoring, enabledSourceReaders, chainStatusManager, curseDetector, messageTracker, storage, pollInterval,
+	dbSRS, taskVerifierProcessor, storageWriterProcessor, durableErr := createDurableProcessorsWithWakeupInterval(
+		lggr, ds, config, verifier, monitoring, enabledSourceReaders, chainStatusManager, curseDetector, messageTracker, storage, wakeupInterval,
 	)
 	if durableErr != nil {
 		return nil, durableErr
@@ -407,8 +430,9 @@ func NewCoordinatorWithFastPolling(
 	}, nil
 }
 
-// createDurableProcessorsWithPollInterval creates durable processors with custom poll intervals for testing.
-func createDurableProcessorsWithPollInterval(
+// createDurableProcessorsWithWakeupInterval creates durable processors whose queue fallback
+// poll is short, so a test does not wait on the production interval.
+func createDurableProcessorsWithWakeupInterval(
 	lggr logger.Logger,
 	ds sqlutil.DataSource,
 	config CoordinatorConfig,
@@ -419,7 +443,7 @@ func createDurableProcessorsWithPollInterval(
 	curseDetector common.CurseCheckerService,
 	messageTracker MessageLatencyTracker,
 	storage protocol.CCVNodeDataWriter,
-	pollInterval time.Duration,
+	wakeupInterval time.Duration,
 ) (map[protocol.ChainSelector]*sourcereader.Service, services.Service, services.Service, error) {
 	taskQueue, err := jobqueue.NewPostgresJobQueue[VerificationTask](
 		ds,
@@ -456,7 +480,7 @@ func createDurableProcessorsWithPollInterval(
 		return nil, nil, nil, fmt.Errorf("failed to create DB source reader services: %w", err)
 	}
 
-	taskVerifierProcessor, err := taskverifier.NewProcessorWithPollInterval(
+	taskVerifierProcessor, err := taskverifier.NewProcessor(
 		lggr,
 		config.VerifierID,
 		verifier,
@@ -465,13 +489,13 @@ func createDurableProcessorsWithPollInterval(
 		taskQueue,
 		resultQueue,
 		config.StorageBatchSize,
-		pollInterval,
+		taskverifier.WithPendingFallbackInterval(wakeupInterval),
 	)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to create task verifier processor DB: %w", err)
 	}
 
-	storageWriterProcessor, err := storagewriter.NewProcessorWithPollInterval(
+	storageWriterProcessor, err := storagewriter.NewProcessor(
 		lggr,
 		config.VerifierID,
 		monitoring,
@@ -479,7 +503,7 @@ func createDurableProcessorsWithPollInterval(
 		storage,
 		resultQueue,
 		config,
-		pollInterval,
+		storagewriter.WithPendingFallbackInterval(wakeupInterval),
 	)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to create storage writer processor DB: %w", err)

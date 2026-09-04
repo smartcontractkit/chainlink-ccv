@@ -44,13 +44,18 @@ func TestE2ESmoke_ChainStatusesCLI(t *testing.T) {
 		_, _ = framework.SaveContainerLogs(fmt.Sprintf("%s-%s", framework.DefaultCTFLogsDir, t.Name()))
 	})
 
+	// The chain-statuses table is populated asynchronously by the verifier's
+	// chain-status batcher (flushed at most every 30s). Wait for a row before
+	// exercising the CLI, otherwise `list` may report an empty table and the
+	// disable/enable/set-finalized-height mutations (which UPDATE an existing
+	// row) fail with "no row found".
+	chainSelector, err := vc.ChainStatuses().WaitForFirstRow(ctx)
+	require.NoError(t, err, "a chain status row should appear for the default verifier")
+
 	listOutput, err := vc.ChainStatuses().List(ctx)
 	require.NoError(t, err, "list should succeed: %s", listOutput)
 	require.Contains(t, listOutput, "Chain", "output must contain Chain header; got: %s", listOutput)
 	require.Contains(t, listOutput, "Chain Selector", "output must contain Chain Selector header; got: %s", listOutput)
-
-	chainSelector, hasRow := verifiercli.ParseFirstListRow(listOutput)
-	require.True(t, hasRow, "list output must contain at least one chain status row to exercise disable/enable/set-finalized-height; got: %s", listOutput)
 
 	require.NoError(t, vc.Pause(ctx), "must be able to stop verifier process before running CLI mutations")
 
@@ -126,6 +131,13 @@ func TestE2ESmoke_ChainStatusDisableEnable(t *testing.T) {
 		vc.ResumeBestEffort(cliCtx)
 		_, _ = framework.SaveContainerLogs(fmt.Sprintf("%s-%s", framework.DefaultCTFLogsDir, t.Name()))
 	})
+
+	// Wait for the source chain's status row to be flushed to the verifier's
+	// DB. It is written asynchronously by the chain-status batcher (every 30s),
+	// so a freshly started verifier can have an empty table; Disable below
+	// needs the row to already exist.
+	err = vc.ChainStatuses().WaitForRow(cliCtx, verifiercli.FormatChainSelector(srcSelector))
+	require.NoError(t, err, "a chain status row should exist for source chain")
 
 	require.NoError(t, vc.Pause(cliCtx))
 	_, err = vc.ChainStatuses().Disable(cliCtx, verifiercli.FormatChainSelector(srcSelector), verifierID)
@@ -217,6 +229,13 @@ func TestE2ESmoke_ChainStatusFinalizedHeight(t *testing.T) {
 		vc.ResumeBestEffort(cliCtx)
 		_, _ = framework.SaveContainerLogs(fmt.Sprintf("%s-%s", framework.DefaultCTFLogsDir, t.Name()))
 	})
+
+	// Wait for the source chain's status row to be flushed to the verifier's
+	// DB. It is written asynchronously by the chain-status batcher (every 30s),
+	// so a freshly started verifier can have an empty table; set-finalized-height
+	// below needs the row to already exist.
+	err = vc.ChainStatuses().WaitForRow(cliCtx, verifiercli.FormatChainSelector(srcSelector))
+	require.NoError(t, err, "a chain status row should exist for source chain")
 
 	require.NoError(t, vc.Pause(cliCtx))
 	_, err = vc.ChainStatuses().SetFinalizedHeight(cliCtx, verifiercli.FormatChainSelector(srcSelector), verifierID, verifiercli.FormatBlockHeight(999999))

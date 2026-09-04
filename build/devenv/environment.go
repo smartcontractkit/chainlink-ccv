@@ -31,6 +31,7 @@ import (
 	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/fake"
 	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/indexer"
 	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/jd"
+	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/localnetworks"
 	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/observability"
 	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/pricer"
 	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/protocol_contracts"
@@ -172,6 +173,11 @@ type Cfg struct {
 
 	// GenericServices is a map of chain selector to its generic service definition.
 	GenericServices map[uint64]*GenericServiceDefinition `toml:"generic_services" validate:"required"`
+
+	// TokenPoolPairs declares the token lanes deploy configured
+	// ([[token_pool_pairs]]). Tests resolve each leg exactly against the
+	// [[addresses]] datastore; absent section = legacy catalog fallback.
+	TokenPoolPairs []devenvcommon.TokenPoolPair `toml:"token_pool_pairs,omitempty"`
 }
 
 // ExpandForHA clones AggregatorInput / IndexerInput entries based on their
@@ -1212,6 +1218,7 @@ func launchStandaloneVerifiers(ctx context.Context, in *Cfg, blockchainOutputs [
 func launchStandaloneTokenVerifiers(in *Cfg, blockchainOutputs []*blockchain.Output) ([]*services.TokenVerifierOutput, error) {
 	var outs []*services.TokenVerifierOutput
 	monitoring := in.EnvironmentTopology.Monitoring
+	modifiers := chainreg.GetRegistry().GetTokenVerifierModifiers()
 	for _, ver := range in.TokenVerifier {
 		if ver.Mode == services.Standalone {
 			v := services.ApplyTokenVerifierDefaults(*ver)
@@ -1220,7 +1227,7 @@ func launchStandaloneTokenVerifiers(in *Cfg, blockchainOutputs []*blockchain.Out
 			}
 			m := monitoring
 			v.Bootstrap.Monitoring = &m
-			out, err := services.NewTokenVerifier(&v, blockchainOutputs)
+			out, err := services.NewTokenVerifier(&v, blockchainOutputs, modifiers)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create token verifier service: %w", err)
 			}

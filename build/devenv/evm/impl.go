@@ -2061,8 +2061,13 @@ func (m *CCIP17EVM) SendChainMessage(ctx context.Context, destChain uint64, msg 
 
 	// Parse send options first so UseTestRouter affects router selection.
 	var evmOpts SendOptions
-	if o, ok := sendOption.(SendOptions); ok {
+	switch o := sendOption.(type) {
+	case SendOptions:
 		evmOpts = o
+	case *SendOptions:
+		if o != nil {
+			evmOpts = *o
+		}
 	}
 	if evmOpts.Sender != nil {
 		sender = evmOpts.Sender
@@ -2102,9 +2107,10 @@ func (m *CCIP17EVM) SendChainMessage(ctx context.Context, destChain uint64, msg 
 	}
 
 	senderKeyCopy := &bind.TransactOpts{
-		From:   sender.From,
-		Signer: sender.Signer,
-		Value:  msgValue,
+		From:     sender.From,
+		Signer:   sender.Signer,
+		Value:    msgValue,
+		GasLimit: evmOpts.GasLimit,
 	}
 	if evmOpts.Nonce != nil {
 		senderKeyCopy.Nonce = new(big.Int).SetUint64(*evmOpts.Nonce)
@@ -2121,14 +2127,18 @@ func (m *CCIP17EVM) SendChainMessage(ctx context.Context, destChain uint64, msg 
 		return cciptestinterfaces.MessageSentEvent{}, protocol.ByteSlice{}, fmt.Errorf("failed to confirm transaction: %w", err)
 	}
 
+	receipt, err := transactionReceiptWithRetry(
+		ctx,
+		srcChain.Client,
+		txHash,
+	)
+	if err != nil {
+		return cciptestinterfaces.MessageSentEvent{}, protocol.ByteSlice{}, fmt.Errorf("failed to get transaction receipt: %w", err)
+	}
+
 	dcc, err := m.onRamp.GetDestChainConfig(&bind.CallOpts{Context: ctx}, destChain)
 	if err != nil {
 		return cciptestinterfaces.MessageSentEvent{}, protocol.ByteSlice{}, fmt.Errorf("failed to get dest chain config: %w", err)
-	}
-
-	receipt, err := srcChain.Client.TransactionReceipt(ctx, txHash)
-	if err != nil {
-		return cciptestinterfaces.MessageSentEvent{}, protocol.ByteSlice{}, fmt.Errorf("failed to get transaction receipt: %w", err)
 	}
 
 	var messageSentEvent *onramp.OnRampCCIPMessageSent

@@ -21,6 +21,39 @@ func (_m *MockMessageRulesCheckerMetrics) EXPECT() *MockMessageRulesCheckerMetri
 	return &MockMessageRulesCheckerMetrics_Expecter{mock: &_m.Mock}
 }
 
+// RecordMessageDisablementRulesMismatch provides a mock function with given fields: ctx
+func (_m *MockMessageRulesCheckerMetrics) RecordMessageDisablementRulesMismatch(ctx context.Context) {
+	_m.Called(ctx)
+}
+
+// MockMessageRulesCheckerMetrics_RecordMessageDisablementRulesMismatch_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RecordMessageDisablementRulesMismatch'
+type MockMessageRulesCheckerMetrics_RecordMessageDisablementRulesMismatch_Call struct {
+	*mock.Call
+}
+
+// RecordMessageDisablementRulesMismatch is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *MockMessageRulesCheckerMetrics_Expecter) RecordMessageDisablementRulesMismatch(ctx interface{}) *MockMessageRulesCheckerMetrics_RecordMessageDisablementRulesMismatch_Call {
+	return &MockMessageRulesCheckerMetrics_RecordMessageDisablementRulesMismatch_Call{Call: _e.mock.On("RecordMessageDisablementRulesMismatch", ctx)}
+}
+
+func (_c *MockMessageRulesCheckerMetrics_RecordMessageDisablementRulesMismatch_Call) Run(run func(ctx context.Context)) *MockMessageRulesCheckerMetrics_RecordMessageDisablementRulesMismatch_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *MockMessageRulesCheckerMetrics_RecordMessageDisablementRulesMismatch_Call) Return() *MockMessageRulesCheckerMetrics_RecordMessageDisablementRulesMismatch_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockMessageRulesCheckerMetrics_RecordMessageDisablementRulesMismatch_Call) RunAndReturn(run func(context.Context)) *MockMessageRulesCheckerMetrics_RecordMessageDisablementRulesMismatch_Call {
+	_c.Run(run)
+	return _c
+}
+
 // SetMessageDisablementRulesRefreshFailure provides a mock function with given fields: ctx, failed
 func (_m *MockMessageRulesCheckerMetrics) SetMessageDisablementRulesRefreshFailure(ctx context.Context, failed int64) {
 	_m.Called(ctx, failed)

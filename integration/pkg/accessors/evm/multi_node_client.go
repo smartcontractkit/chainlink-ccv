@@ -6,7 +6,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
-	evmconfig "github.com/smartcontractkit/chainlink-evm/pkg/config"
+	clevmconfig "github.com/smartcontractkit/chainlink-evm/pkg/config"
 )
 
 // CreateMultiNodeClientFromInfo creates and starts chainlink-evm's production
@@ -24,7 +24,7 @@ func CreateMultiNodeClientFromInfo(ctx context.Context, info Info, lggr logger.L
 	return chainClient, nil
 }
 
-func newMultiNodeClientFromInfo(info Info, lggr logger.Logger) (client.Client, *evmconfig.ChainScoped, error) {
+func newMultiNodeClientFromInfo(info Info, lggr logger.Logger) (client.Client, *clevmconfig.ChainScoped, error) {
 	chainConfig, err := newChainlinkEVMConfig(info)
 	if err != nil {
 		return nil, nil, err

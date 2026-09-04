@@ -1,0 +1,39 @@
+# Maps the published contract's integers onto the verifier's own Go types. The contract states
+# these are non-negative (minimum: 0), which is not something Go's int64 carries, so without this
+# the generated model would widen every counter to a signed type and force a conversion at every
+# assignment.
+#
+# Chain selectors are absent on purpose: they are decimal strings in the contract, so they need no
+# mapping. See the Message schema description for why.
+overlay: 1.0.0
+info:
+  title: Overlay
+  version: 0.0.0
+actions:
+  - target: "$.components.schemas.EvaluateRequest.properties.source_block_number"
+    update:
+      x-go-type: uint64
+  - target: "$.components.schemas.EvaluateRequest.properties.finalized_block_number"
+    update:
+      x-go-type: uint64
+  - target: "$.components.schemas.EvaluateRequest.properties.block_depth"
+    update:
+      x-go-type: uint64
+  - target: "$.components.schemas.Message.properties.sequence_number"
+    update:
+      x-go-type: uint64
+  - target: "$.components.schemas.Message.properties.version"
+    update:
+      x-go-type: uint8
+  - target: "$.components.schemas.Message.properties.execution_gas_limit"
+    update:
+      x-go-type: uint32
+  - target: "$.components.schemas.Message.properties.ccip_receive_gas_limit"
+    update:
+      x-go-type: uint32
+  - target: "$.components.schemas.Message.properties.finality"
+    update:
+      x-go-type: uint32
+  - target: "$.components.schemas.TokenTransfer.properties.version"
+    update:
+      x-go-type: uint8
