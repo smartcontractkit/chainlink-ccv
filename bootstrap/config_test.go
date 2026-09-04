@@ -135,7 +135,7 @@ func TestKeystoreConfig_validate(t *testing.T) {
 			mode: AppConfigModeJD,
 			config: &KeystoreConfig{
 				Backend: KeystoreBackendKMS,
-				KMS:     KMSKeystoreConfig{EcdsaKeyID: "ecdsa-key-id"},
+				KMS:     KMSKeystoreConfig{Provider: KMSProviderAWS, EcdsaKeyID: "ecdsa-key-id"},
 			},
 			wantErr:     true,
 			errContains: []string{"'ed25519_key_id' is required"},
@@ -145,7 +145,7 @@ func TestKeystoreConfig_validate(t *testing.T) {
 			mode: AppConfigModeJD,
 			config: &KeystoreConfig{
 				Backend: KeystoreBackendKMS,
-				KMS:     KMSKeystoreConfig{Ed25519KeyID: "ed25519-key-id"},
+				KMS:     KMSKeystoreConfig{Provider: KMSProviderAWS, Ed25519KeyID: "ed25519-key-id"},
 			},
 			wantErr: false,
 		},
@@ -154,7 +154,7 @@ func TestKeystoreConfig_validate(t *testing.T) {
 			mode: AppConfigModeJD,
 			config: &KeystoreConfig{
 				Backend: KeystoreBackendKMS,
-				KMS:     KMSKeystoreConfig{EcdsaKeyID: "ecdsa-key-id", Ed25519KeyID: "ed25519-key-id"},
+				KMS:     KMSKeystoreConfig{Provider: KMSProviderAWS, EcdsaKeyID: "ecdsa-key-id", Ed25519KeyID: "ed25519-key-id"},
 			},
 			wantErr: false,
 		},
@@ -163,6 +163,7 @@ func TestKeystoreConfig_validate(t *testing.T) {
 			mode: AppConfigModeJD,
 			config: &KeystoreConfig{
 				Backend: KeystoreBackendKMS,
+				KMS:     KMSKeystoreConfig{Provider: KMSProviderAWS},
 			},
 			wantErr:     true,
 			errContains: []string{"'ed25519_key_id' is required"},
@@ -174,7 +175,7 @@ func TestKeystoreConfig_validate(t *testing.T) {
 			mode: AppConfigModeLocal,
 			config: &KeystoreConfig{
 				Backend: KeystoreBackendKMS,
-				KMS:     KMSKeystoreConfig{EcdsaKeyID: "ecdsa-key-id"},
+				KMS:     KMSKeystoreConfig{Provider: KMSProviderAWS, EcdsaKeyID: "ecdsa-key-id"},
 			},
 			wantErr: false,
 		},
@@ -183,6 +184,7 @@ func TestKeystoreConfig_validate(t *testing.T) {
 			mode: AppConfigModeLocal,
 			config: &KeystoreConfig{
 				Backend: KeystoreBackendKMS,
+				KMS:     KMSKeystoreConfig{Provider: KMSProviderAWS},
 			},
 			wantErr: false,
 		},
@@ -192,9 +194,56 @@ func TestKeystoreConfig_validate(t *testing.T) {
 			config: &KeystoreConfig{
 				Backend:  KeystoreBackendKMS,
 				Password: "",
-				KMS:      KMSKeystoreConfig{Ed25519KeyID: "ed25519-key-id"},
+				KMS:      KMSKeystoreConfig{Provider: KMSProviderAWS, Ed25519KeyID: "ed25519-key-id"},
 			},
 			wantErr: false,
+		},
+		{
+			name: "kms requires an explicit provider",
+			mode: AppConfigModeLocal,
+			config: &KeystoreConfig{
+				Backend: KeystoreBackendKMS,
+				KMS:     KMSKeystoreConfig{EcdsaKeyID: "ecdsa-key-id"},
+			},
+			wantErr:     true,
+			errContains: []string{"'provider' is required"},
+		},
+		{
+			// The gcp provider reuses the same [keystore.kms] config; ed25519 is required in JD mode.
+			name: "JD mode: gcp kms with only ecdsa key is invalid",
+			mode: AppConfigModeJD,
+			config: &KeystoreConfig{
+				Backend: KeystoreBackendKMS,
+				KMS:     KMSKeystoreConfig{Provider: KMSProviderGCP, EcdsaKeyID: "projects/p/locations/l/keyRings/r/cryptoKeys/ecdsa/cryptoKeyVersions/1"},
+			},
+			wantErr:     true,
+			errContains: []string{"'ed25519_key_id' is required"},
+		},
+		{
+			name: "JD mode: valid gcp kms with both keys",
+			mode: AppConfigModeJD,
+			config: &KeystoreConfig{
+				Backend: KeystoreBackendKMS,
+				KMS: KMSKeystoreConfig{
+					Provider:     KMSProviderGCP,
+					EcdsaKeyID:   "projects/p/locations/l/keyRings/r/cryptoKeys/ecdsa/cryptoKeyVersions/1",
+					Ed25519KeyID: "projects/p/locations/l/keyRings/r/cryptoKeys/ed25519/cryptoKeyVersions/1",
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid kms provider",
+			mode: AppConfigModeJD,
+			config: &KeystoreConfig{
+				Backend: KeystoreBackendKMS,
+				KMS: KMSKeystoreConfig{
+					Provider:     "gcpkms",
+					Ed25519KeyID: "ed25519-key-id",
+				},
+			},
+			wantErr:     true,
+			errContains: []string{"'provider' is required", "gcpkms"},
 		},
 		{
 			name: "invalid backend",
@@ -450,7 +499,7 @@ func TestConfig_validate(t *testing.T) {
 				Secrets: Secrets{
 					Keystore: KeystoreConfig{
 						Backend: KeystoreBackendKMS,
-						KMS:     KMSKeystoreConfig{EcdsaKeyID: "ecdsa-key-id", Ed25519KeyID: "ed25519-key-id"},
+						KMS:     KMSKeystoreConfig{Provider: KMSProviderAWS, EcdsaKeyID: "ecdsa-key-id", Ed25519KeyID: "ed25519-key-id"},
 					},
 					DB: validDB,
 				},
@@ -462,8 +511,11 @@ func TestConfig_validate(t *testing.T) {
 			config: &Config{
 				NonSecretConfig: NonSecretConfig{JD: validJD, Server: validServer},
 				Secrets: Secrets{
-					Keystore: KeystoreConfig{Backend: KeystoreBackendKMS},
-					DB:       validDB,
+					Keystore: KeystoreConfig{
+						Backend: KeystoreBackendKMS,
+						KMS:     KMSKeystoreConfig{Provider: KMSProviderAWS, EcdsaKeyID: "ecdsa-key-id"},
+					},
+					DB: validDB,
 				},
 			},
 			wantErr:     true,

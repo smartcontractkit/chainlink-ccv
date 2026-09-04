@@ -220,8 +220,8 @@ func TestNewBootstrapper_CSAInjectionMatrix(t *testing.T) {
 
 	const (
 		postgresKeystoreTOML = "[keystore]\npassword = \"x\"\n"
-		kmsBothKeyIDs        = "ecdsa_key_id = \"ec-id\"\ned25519_key_id = \"ed-id\"\n"
-		kmsEcdsaOnly         = "ecdsa_key_id = \"ec-id\"\n"
+		kmsBothKeyIDs        = "provider = \"aws\"\necdsa_key_id = \"ec-id\"\ned25519_key_id = \"ed-id\"\n"
+		kmsEcdsaOnly         = "provider = \"aws\"\necdsa_key_id = \"ec-id\"\n"
 	)
 	defaultCSA := keyToInit{DefaultCSAKeyName, csaKeyPurpose, keystore.Ed25519}
 	ecdsaKey := keyToInit{"my_signing", "signing", keystore.ECDSA_S256}
@@ -266,7 +266,7 @@ func TestNewBootstrapper_CSAInjectionMatrix(t *testing.T) {
 		},
 		{
 			name:     "local x KMS without ed25519_key_id and no declared keys has an empty key set",
-			toml:     localKMSBootstrapTOML(""),
+			toml:     localKMSBootstrapTOML("provider = \"aws\"\n"),
 			wantKeys: nil,
 		},
 		{
