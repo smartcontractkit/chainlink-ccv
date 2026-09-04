@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.6.0](https://github.com/smartcontractkit/chainlink-ccv/compare/build/devenv/v0.5.0...build/devenv/v0.6.0) (2026-09-04)
+
+
+### ⚠ BREAKING CHANGES
+
+* **devenv:** declarative token pairing ([#1405](https://github.com/smartcontractkit/chainlink-ccv/issues/1405))
+
+### Features
+
+* **devenv:** declarative token pairing ([#1405](https://github.com/smartcontractkit/chainlink-ccv/issues/1405)) ([0be567c](https://github.com/smartcontractkit/chainlink-ccv/commit/0be567ccfeb9aec4ce4a08dadcda01e0144d050f))
+* **devenv:** gas limit support + NewTokenCombinationFromRefs ([#1398](https://github.com/smartcontractkit/chainlink-ccv/issues/1398)) ([3c7d1ce](https://github.com/smartcontractkit/chainlink-ccv/commit/3c7d1cef9c36bc4da75d251db7dcf6e9ffbb552a))
+* **verifier:** policy hooks ([#1380](https://github.com/smartcontractkit/chainlink-ccv/issues/1380)) ([039ff50](https://github.com/smartcontractkit/chainlink-ccv/commit/039ff507b30c5d31a32f8745f5a82f4efca392ad))
+
 ## [0.5.0](https://github.com/smartcontractkit/chainlink-ccv/compare/build/devenv/v0.4.0...build/devenv/v0.5.0) (2026-08-31)
 
 
