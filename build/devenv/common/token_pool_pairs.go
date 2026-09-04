@@ -14,8 +14,12 @@ import (
 // [[addresses]]) and string fields, since selectors and this schema stay
 // decoupled from CLD Go types.
 type TokenPoolRefCfg struct {
-	Type      string `toml:"type"`
-	Version   string `toml:"version"`
+	// Contract type of the pool, e.g. "BurnMintTokenPool" or "LockReleaseTokenPool"
+	Type string `toml:"type"`
+	// Pool version, e.g. "2.0.0".
+	Version string `toml:"version"`
+	// Pool qualifier, copied verbatim from the pool's [[addresses]] entry,
+	// e.g. "TEST (BurnMintTokenPool 1.6.1 [], BurnMintTokenPool 2.0.0 [])::BurnMintTokenPool 2.0.0 []".
 	Qualifier string `toml:"qualifier"`
 }
 
@@ -26,7 +30,9 @@ type TokenPoolPair struct {
 	RemoteSelector string          `toml:"remote_selector"`
 	LocalPool      TokenPoolRefCfg `toml:"local_pool"`
 	RemotePool     TokenPoolRefCfg `toml:"remote_pool"`
-	CCVQualifiers  []string        `toml:"ccv_qualifiers"`
+	// Committee-verifier qualifiers for the lane: ["default"] when either side
+	// is 2.0.0+ (CCV-aware), [] for legacy lanes. Sides below 2.0.0 ignore it.
+	CCVQualifiers []string `toml:"ccv_qualifiers"`
 }
 
 // TokenCombinationsFromPoolPairs resolves declared pairs against the
