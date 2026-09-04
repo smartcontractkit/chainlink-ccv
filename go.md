@@ -251,7 +251,7 @@ flowchart LR
 	click chainlink-aptos href "https://github.com/smartcontractkit/chainlink-aptos"
 	chainlink-automation
 	click chainlink-automation href "https://github.com/smartcontractkit/chainlink-automation"
-	chainlink-canton
+	chainlink-canton --> chainlink-ccv/build/devenv
 	click chainlink-canton href "https://github.com/smartcontractkit/chainlink-canton"
 	chainlink-ccip --> chainlink-common
 	chainlink-ccip --> chainlink-protos/rmn/v1.6/go
@@ -277,25 +277,14 @@ flowchart LR
 	chainlink-ccv --> chainlink-solana
 	chainlink-ccv --> chainlink-testing-framework/framework
 	click chainlink-ccv href "https://github.com/smartcontractkit/chainlink-ccv"
-	chainlink-ccv/build/devenv
+	chainlink-ccv/build/devenv --> chainlink-ccv/integration/evm
+	chainlink-ccv/build/devenv --> chainlink/deployment
 	click chainlink-ccv/build/devenv href "https://github.com/smartcontractkit/chainlink-ccv"
 	chainlink-ccv/deployment
 	click chainlink-ccv/deployment href "https://github.com/smartcontractkit/chainlink-ccv"
 	chainlink-ccv/indexer/cmd/oapigen --> chainlink-ccv
 	click chainlink-ccv/indexer/cmd/oapigen href "https://github.com/smartcontractkit/chainlink-ccv"
-	chainlink-ccv/integration/evm --> ccip-contract-examples/chains/evm
-	chainlink-ccv/integration/evm --> ccip-owner-contracts
-	chainlink-ccv/integration/evm --> chainlink-ccip/deployment
-	chainlink-ccv/integration/evm --> chainlink-ccv
 	chainlink-ccv/integration/evm --> chainlink-ccv/deployment
-	chainlink-ccv/integration/evm --> chainlink-deployments-framework
-	chainlink-ccv/integration/evm --> chainlink-protos/job-distributor
-	chainlink-ccv/integration/evm --> chainlink-protos/op-catalog
-	chainlink-ccv/integration/evm --> chainlink-sui
-	chainlink-ccv/integration/evm --> chainlink-testing-framework/seth
-	chainlink-ccv/integration/evm --> chainlink-ton
-	chainlink-ccv/integration/evm --> go-daml
-	chainlink-ccv/integration/evm --> mcms
 	click chainlink-ccv/integration/evm href "https://github.com/smartcontractkit/chainlink-ccv"
 	chainlink-common --> chainlink-common/pkg/chipingress
 	chainlink-common --> chainlink-protos/billing/go
@@ -319,7 +308,7 @@ flowchart LR
 	click chainlink-common/pkg/monitoring href "https://github.com/smartcontractkit/chainlink-common"
 	chainlink-data-streams
 	click chainlink-data-streams href "https://github.com/smartcontractkit/chainlink-data-streams"
-	chainlink-deployments-framework
+	chainlink-deployments-framework --> chainlink-protos/op-catalog
 	click chainlink-deployments-framework href "https://github.com/smartcontractkit/chainlink-deployments-framework"
 	chainlink-evm --> chainlink-automation
 	chainlink-evm --> chainlink-common/keystore
@@ -422,9 +411,7 @@ flowchart LR
 	chainlink/deployment --> chainlink-ccip/ccv/chains/evm
 	chainlink/deployment --> chainlink-ccip/deployment
 	chainlink/deployment --> chainlink-ccv
-	chainlink/deployment --> chainlink-deployments-framework
 	chainlink/deployment --> chainlink-evm/contracts/cre/gobindings
-	chainlink/deployment --> chainlink-protos/job-distributor
 	chainlink/deployment --> chainlink-sui/deployment
 	chainlink/deployment --> chainlink-testing-framework/parrot
 	chainlink/deployment --> chainlink-testing-framework/seth
@@ -468,6 +455,9 @@ flowchart LR
 	libocr --> go-sumtype2
 	click libocr href "https://github.com/smartcontractkit/libocr"
 	mcms --> chainlink-canton
+	mcms --> chainlink-deployments-framework
+	mcms --> chainlink-protos/job-distributor
+	mcms --> go-daml
 	click mcms href "https://github.com/smartcontractkit/mcms"
 	quarantine
 	click quarantine href "https://github.com/smartcontractkit/quarantine"
