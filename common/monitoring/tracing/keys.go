@@ -20,4 +20,11 @@ const (
 	LatestBlockNumberKey          = "latest_block_number"
 	LatestSafeBlockNumberKey      = "latest_safe_block_number"
 	LatestFinalizedBlockNumberKey = "latest_finalized_block_number"
+
+	// Token verifier (attestation fetching) span attributes.
+	ProviderKey          = "token_provider"
+	AttestationStatusKey = "attestation_status"
+	HTTPMethodKey        = "http_method"
+	HTTPOutcomeKey       = "http_outcome"
+	HTTPStatusKey        = "http_status"
 )

@@ -12,9 +12,14 @@ import (
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	oteltrace "go.opentelemetry.io/otel/trace"
 	"golang.org/x/time/rate"
 
+	"github.com/smartcontractkit/chainlink-ccv/common/monitoring/tracing"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -59,6 +64,10 @@ type httpClient struct {
 	// coolDownUntil defines whether requests are blocked or not.
 	coolDownUntil time.Time
 	coolDownMu    *sync.RWMutex
+
+	// observability
+	metrics  verifier.MetricLabeler
+	provider string
 }
 
 var (
@@ -73,6 +82,8 @@ var (
 // enforce the singleton pattern.
 func GetHTTPClient(
 	lggr logger.Logger,
+	metricLabeler verifier.MetricLabeler,
+	provider string,
 	api string,
 	apiInterval time.Duration,
 	apiTimeout time.Duration,
@@ -85,7 +96,7 @@ func GetHTTPClient(
 		return client, nil
 	}
 
-	client, err := newHTTPClient(lggr, api, apiInterval, apiTimeout, coolDownDuration)
+	client, err := newHTTPClient(lggr, metricLabeler, provider, api, apiInterval, apiTimeout, coolDownDuration)
 	if err != nil {
 		return nil, err
 	}
@@ -96,6 +107,8 @@ func GetHTTPClient(
 
 func newHTTPClient(
 	lggr logger.Logger,
+	metricLabeler verifier.MetricLabeler,
+	provider string,
 	api string,
 	apiInterval time.Duration,
 	apiTimeout time.Duration,
@@ -112,6 +125,8 @@ func newHTTPClient(
 		coolDownDuration: coolDownDuration,
 		rate:             rate.NewLimiter(rate.Every(apiInterval), 1),
 		coolDownMu:       &sync.RWMutex{},
+		metrics:          metricLabeler,
+		provider:         provider,
 	}, nil
 }
 
@@ -181,20 +196,50 @@ func (h *httpClient) callAPI(
 	method string,
 	url url.URL,
 	body io.Reader,
-) (protocol.ByteSlice, Status, error) {
+) (payload protocol.ByteSlice, status Status, err error) {
+	// mCtx is deliberately detached from the request's deadline: metric records
+	// must not be silently dropped because the (often short) API timeout fired
+	// while we were measuring the request.
+	mCtx := context.WithoutCancel(ctx)
+	_, span := otel.GetTracerProvider().Tracer("ccv.token.http").Start(ctx, "token_http_request",
+		oteltrace.WithAttributes(
+			attribute.String(tracing.HTTPMethodKey, method),
+		),
+	)
+	defer span.End()
+
+	start := time.Now()
+	h.metrics.IncrementTokenHTTPActiveRequests(mCtx, h.provider)
+	defer h.metrics.DecrementTokenHTTPActiveRequests(mCtx, h.provider)
+	defer func() {
+		outcome := classifyHTTPOutcome(err, status)
+		h.metrics.RecordTokenHTTPRequest(mCtx, h.provider, method, outcome, int(status), time.Since(start))
+		span.SetAttributes(
+			attribute.String(tracing.HTTPOutcomeKey, outcome),
+			attribute.String(tracing.HTTPStatusKey, strconv.Itoa(int(status))),
+		)
+		if err != nil {
+			span.RecordError(err)
+		}
+	}()
+
 	// Terminate immediately when rate limited
 	if coolDown, duration := h.inCoolDownPeriod(); coolDown {
+		h.metrics.RecordTokenHTTPCooldownSeconds(mCtx, h.provider, duration)
+		h.metrics.IncrementTokenHTTPRateLimited(mCtx, h.provider, method)
 		lggr.Errorw(
 			"Rate limited by API, dropping all requests",
 			"coolDownDuration", duration,
 		)
 		return nil, http.StatusTooManyRequests, ErrRateLimit
 	}
+	h.metrics.RecordTokenHTTPCooldownSeconds(mCtx, h.provider, 0)
 
 	if h.rate != nil {
 		// Wait blocks until it the attestation API can be called or the
 		// context is Done.
 		if waitErr := h.rate.Wait(ctx); waitErr != nil {
+			h.metrics.IncrementTokenHTTPRateLimited(mCtx, h.provider, method)
 			lggr.Warnw("Self rate-limited, sending too many requests to the API")
 			return nil, http.StatusTooManyRequests, ErrRateLimit
 		}
@@ -221,13 +266,13 @@ func (h *httpClient) callAPI(
 		return nil, http.StatusBadRequest, err
 	}
 
-	var status Status
 	//nolint:errcheck // closing body, error can be ignored here
 	defer res.Body.Close()
 	status = Status(res.StatusCode)
 
 	// Explicitly signal if the API is being rate limited
 	if res.StatusCode == http.StatusTooManyRequests {
+		h.metrics.IncrementTokenHTTPRateLimited(mCtx, h.provider, method)
 		h.setCoolDownPeriod(lggr, res.Header)
 		return nil, status, ErrRateLimit
 	}
@@ -246,6 +291,22 @@ func (h *httpClient) callAPI(
 		return nil, http.StatusRequestEntityTooLarge, errors.New("attestation API response too large")
 	}
 	return payloadBytes, status, err
+}
+
+// classifyHTTPOutcome maps an attestation HTTP request result to a bounded outcome label.
+func classifyHTTPOutcome(err error, status Status) string {
+	switch {
+	case errors.Is(err, ErrRateLimit) || status == http.StatusTooManyRequests:
+		return "rate_limited"
+	case errors.Is(err, ErrNotReady) || status == http.StatusNotFound:
+		return "not_ready"
+	case errors.Is(err, ErrTimeout) || status == http.StatusRequestTimeout:
+		return "timeout"
+	case err != nil:
+		return "error"
+	default:
+		return "success"
+	}
 }
 
 func (h *httpClient) setCoolDownPeriod(lggr logger.Logger, headers http.Header) {

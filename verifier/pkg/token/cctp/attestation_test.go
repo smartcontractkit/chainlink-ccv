@@ -11,6 +11,7 @@ import (
 
 	sel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/internal"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -95,6 +96,7 @@ func Test_AttestationFetch(t *testing.T) {
 
 	attestationService, err := NewAttestationService(
 		logger.Test(t),
+		monitoring.NewFakeVerifierMonitoring(),
 		CCTPConfig{
 			AttestationAPI:         server.URL,
 			AttestationAPITimeout:  1 * time.Minute,

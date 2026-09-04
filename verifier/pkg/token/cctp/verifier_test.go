@@ -13,6 +13,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/internal/mocks"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/cctp"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/internal"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
@@ -36,7 +37,7 @@ func TestVerifier_VerifyMessages_Success(t *testing.T) {
 		Return(testAttestation, nil).
 		Once()
 
-	v := cctp.NewVerifier(lggr, mockAttestationService, testCCTPConfig())
+	v := cctp.NewVerifier(lggr, monitoring.NewFakeVerifierMonitoring(), "test-verifier", mockAttestationService, testCCTPConfig())
 	results := v.VerifyMessages(ctx, tasks)
 
 	require.Len(t, results, 1, "Expected one result")
@@ -71,7 +72,7 @@ func TestVerifier_VerifyMessages_AttestationServiceFailure(t *testing.T) {
 		Return(cctp.Attestation{}, expectedErr).
 		Once()
 
-	v := cctp.NewVerifier(lggr, mockAttestationService, testCCTPConfig())
+	v := cctp.NewVerifier(lggr, monitoring.NewFakeVerifierMonitoring(), "test-verifier", mockAttestationService, testCCTPConfig())
 	results := v.VerifyMessages(ctx, tasks)
 
 	t.Cleanup(func() {
@@ -104,7 +105,7 @@ func TestVerifier_VerifyMessages_AttestationNotReady(t *testing.T) {
 		Return(notReadyAttestation, nil).
 		Once()
 
-	v := cctp.NewVerifier(lggr, mockAttestationService, testCCTPConfig())
+	v := cctp.NewVerifier(lggr, monitoring.NewFakeVerifierMonitoring(), "test-verifier", mockAttestationService, testCCTPConfig())
 	results := v.VerifyMessages(ctx, tasks)
 
 	t.Cleanup(func() {
@@ -154,7 +155,7 @@ func TestVerifier_VerifyMessages_MultipleTasksWithMixedResults(t *testing.T) {
 		Return(testAttestation, nil).
 		Once()
 
-	v := cctp.NewVerifier(lggr, mockAttestationService, testCCTPConfig())
+	v := cctp.NewVerifier(lggr, monitoring.NewFakeVerifierMonitoring(), "test-verifier", mockAttestationService, testCCTPConfig())
 	results := v.VerifyMessages(ctx, tasks)
 
 	t.Cleanup(func() {
@@ -227,7 +228,7 @@ func TestVerifier_VerifyMessages_RespectsMaxConcurrentFetchers(t *testing.T) {
 		tasks = append(tasks, internal.CreateTestVerificationTask(i+1))
 	}
 
-	v := cctp.NewVerifierWithConfig(lggr, mockAttestationService, 30*time.Second, 5*time.Second, maxFetchers)
+	v := cctp.NewVerifierWithConfig(lggr, monitoring.NewFakeVerifierMonitoring(), "test-verifier", mockAttestationService, 30*time.Second, 5*time.Second, maxFetchers)
 	results := v.VerifyMessages(ctx, tasks)
 
 	require.Len(t, results, numTasks, "Expected one result per task")

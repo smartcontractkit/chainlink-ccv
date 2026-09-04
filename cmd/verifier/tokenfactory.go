@@ -242,7 +242,7 @@ func createCCTPCoordinator(
 ) (*verifier.Coordinator, error) {
 	cctpSourceConfigs := createSourceConfigs(cctpConfig.ParsedVerifierResolvers)
 
-	attestationService, err := cctp.NewAttestationService(lggr, *cctpConfig)
+	attestationService, err := cctp.NewAttestationService(lggr, verifierMonitoring, *cctpConfig)
 	if err != nil {
 		lggr.Errorw("Failed to create CCTP attestation service", "error", err)
 		return nil, fmt.Errorf("failed to create CCTP attestation service: %w", err)
@@ -250,7 +250,7 @@ func createCCTPCoordinator(
 
 	coordinator, err := verifier.NewCoordinator(
 		lggr,
-		cctp.NewVerifier(lggr, attestationService, *cctpConfig),
+		cctp.NewVerifier(lggr, verifierMonitoring, verifierID, attestationService, *cctpConfig),
 		sourceReaders,
 		ccvStorage,
 		verifier.CoordinatorConfig{
@@ -291,12 +291,12 @@ func createLombardCoordinator(
 	db sqlutil.DataSource,
 ) (*verifier.Coordinator, error) {
 	sourceConfigs := createSourceConfigs(lombardConfig.ParsedVerifierResolvers)
-	attestationService, err := lombard.NewAttestationService(lggr, *lombardConfig)
+	attestationService, err := lombard.NewAttestationService(lggr, verifierMonitoring, *lombardConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Lombard attestation service: %w", err)
 	}
 
-	lombardVerifier, err := lombard.NewVerifier(lggr, *lombardConfig, attestationService)
+	lombardVerifier, err := lombard.NewVerifier(lggr, verifierMonitoring, verifierID, *lombardConfig, attestationService)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Lombard verifier: %w", err)
 	}

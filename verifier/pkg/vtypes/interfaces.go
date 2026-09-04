@@ -182,4 +182,31 @@ type MetricLabeler interface {
 
 	// RecordStorageQueryDuration records the duration of a storage query operation.
 	RecordStorageQueryDuration(ctx context.Context, method string, duration time.Duration)
+
+	// Token verifier (attestation fetching) metrics
+
+	// RecordTokenAttestationDuration records the time spent fetching + decoding
+	// an attestation for a single message. provider is "cctp" or "lombard".
+	RecordTokenAttestationDuration(ctx context.Context, provider string, duration time.Duration)
+	// IncrementTokenAttestationFetch records the outcome of an attestation fetch
+	// attempt for a single message. provider is "cctp" or "lombard"; outcome is
+	// one of the monitoring.TokenAttestationFetchOutcome* constants.
+	IncrementTokenAttestationFetch(ctx context.Context, provider, outcome string)
+
+	// Token verifier HTTP client (outbound attestation API) metrics.
+	// provider is "cctp" or "lombard"; outcome is one of success, rate_limited,
+	// not_ready, timeout, error.
+
+	// IncrementTokenHTTPActiveRequests increments active outbound attestation HTTP requests.
+	IncrementTokenHTTPActiveRequests(ctx context.Context, provider string)
+	// DecrementTokenHTTPActiveRequests decrements active outbound attestation HTTP requests.
+	DecrementTokenHTTPActiveRequests(ctx context.Context, provider string)
+	// IncrementTokenHTTPRateLimited increments the number of outbound attestation HTTP requests
+	// that were dropped or delayed due to API rate limiting.
+	IncrementTokenHTTPRateLimited(ctx context.Context, provider, method string)
+	// RecordTokenHTTPRequest records an outbound attestation HTTP request and its outcome.
+	RecordTokenHTTPRequest(ctx context.Context, provider, method, outcome string, status int, duration time.Duration)
+	// RecordTokenHTTPCooldownSeconds records how long until the outbound attestation
+	// API cools down (0 if not currently cooling down).
+	RecordTokenHTTPCooldownSeconds(ctx context.Context, provider string, cooldown time.Duration)
 }

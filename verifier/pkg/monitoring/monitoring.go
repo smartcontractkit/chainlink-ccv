@@ -213,3 +213,24 @@ func (f *FakeVerifierMetricLabeler) RecordHTTPRequestDuration(context.Context, t
 
 func (f *FakeVerifierMetricLabeler) RecordStorageQueryDuration(context.Context, string, time.Duration) {
 }
+
+func (f *FakeVerifierMetricLabeler) RecordTokenAttestationDuration(context.Context, string, time.Duration) {
+}
+
+func (f *FakeVerifierMetricLabeler) IncrementTokenAttestationFetch(context.Context, string, string) {
+}
+
+func (f *FakeVerifierMetricLabeler) IncrementTokenHTTPActiveRequests(context.Context, string) {
+}
+
+func (f *FakeVerifierMetricLabeler) DecrementTokenHTTPActiveRequests(context.Context, string) {
+}
+
+func (f *FakeVerifierMetricLabeler) IncrementTokenHTTPRateLimited(context.Context, string, string) {
+}
+
+func (f *FakeVerifierMetricLabeler) RecordTokenHTTPRequest(context.Context, string, string, string, int, time.Duration) {
+}
+
+func (f *FakeVerifierMetricLabeler) RecordTokenHTTPCooldownSeconds(context.Context, string, time.Duration) {
+}

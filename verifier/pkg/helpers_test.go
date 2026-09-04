@@ -171,6 +171,27 @@ func (m *noopMetricLabeler) RecordHTTPRequestDuration(ctx context.Context, durat
 func (m *noopMetricLabeler) RecordStorageQueryDuration(ctx context.Context, method string, duration time.Duration) {
 }
 
+func (m *noopMetricLabeler) RecordTokenAttestationDuration(context.Context, string, time.Duration) {
+}
+
+func (m *noopMetricLabeler) IncrementTokenAttestationFetch(context.Context, string, string) {
+}
+
+func (m *noopMetricLabeler) IncrementTokenHTTPActiveRequests(context.Context, string) {
+}
+
+func (m *noopMetricLabeler) DecrementTokenHTTPActiveRequests(context.Context, string) {
+}
+
+func (m *noopMetricLabeler) IncrementTokenHTTPRateLimited(context.Context, string, string) {
+}
+
+func (m *noopMetricLabeler) RecordTokenHTTPRequest(context.Context, string, string, string, int, time.Duration) {
+}
+
+func (m *noopMetricLabeler) RecordTokenHTTPCooldownSeconds(context.Context, string, time.Duration) {
+}
+
 // TestVerifier keeps track of all processed messages for testing.
 type TestVerifier struct {
 	processedTasks []VerificationTask

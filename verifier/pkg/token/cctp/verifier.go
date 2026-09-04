@@ -5,8 +5,14 @@ import (
 	"fmt"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	oteltrace "go.opentelemetry.io/otel/trace"
+
+	"github.com/smartcontractkit/chainlink-ccv/common/monitoring/tracing"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -15,7 +21,10 @@ import (
 // and preparing VerifierNodeResult for storage. Retries are handled by the upper-layer processor,
 // but Verifier indicates whether an error is retriable or not.
 type Verifier struct {
-	lggr               logger.Logger
+	lggr       logger.Logger
+	monitoring verifier.Monitoring
+	verifierID string
+
 	attestationService AttestationService
 
 	attestationNotReadyRetry time.Duration
@@ -25,11 +34,15 @@ type Verifier struct {
 
 func NewVerifier(
 	lggr logger.Logger,
+	monitoring verifier.Monitoring,
+	verifierID string,
 	attestationService AttestationService,
 	cfg CCTPConfig,
 ) verifier.Verifier {
 	return NewVerifierWithConfig(
 		lggr,
+		monitoring,
+		verifierID,
 		attestationService,
 		cfg.AttestationNotReadyRetry,
 		cfg.AttestationGenericErrorRetry,
@@ -39,6 +52,8 @@ func NewVerifier(
 
 func NewVerifierWithConfig(
 	lggr logger.Logger,
+	monitoring verifier.Monitoring,
+	verifierID string,
 	attestationService AttestationService,
 	attestationNotReadyRetry time.Duration,
 	anyErrorRetry time.Duration,
@@ -46,6 +61,8 @@ func NewVerifierWithConfig(
 ) verifier.Verifier {
 	return &Verifier{
 		lggr:                     lggr,
+		monitoring:               monitoring,
+		verifierID:               verifierID,
 		attestationService:       attestationService,
 		attestationNotReadyRetry: attestationNotReadyRetry,
 		anyErrorRetry:            anyErrorRetry,
@@ -86,16 +103,41 @@ func (v *Verifier) processVerificationTask(ctx context.Context, task verifier.Ve
 	lggr := logger.With(v.lggr, protocol.LogKeyMessageID, task.MessageID, "txHash", task.TxHash)
 	lggr.Debugw("Verifying CCTP task")
 
+	// Open a child span under the task-verifier attempt span so this attestation
+	// fetch extends the base message trace opened by the source reader.
+	messageID, _ := protocol.NewBytes32FromString(task.MessageID)
+	fetchCtx, span := v.monitoring.Tracing().StartMessageSpan(
+		ctx,
+		monitoring.TokenAttestationSpanName(v.verifierID),
+		messageID,
+		attribute.String(tracing.ProviderKey, provider),
+		attribute.String(tracing.TxHashKey, task.TxHash.String()),
+		attribute.String(tracing.SourceChainSelectorKey, task.Message.SourceChainSelector.String()),
+		attribute.String(tracing.SourceChainNameKey, task.Message.SourceChainSelector.ChainName()),
+	)
+	defer span.End()
+	fetchStartedAt := time.Now()
+	recordOutcome := func(outcome string) {
+		v.monitoring.Metrics().IncrementTokenAttestationFetch(fetchCtx, provider, outcome)
+		v.monitoring.Metrics().RecordTokenAttestationDuration(fetchCtx, provider, time.Since(fetchStartedAt))
+	}
+
 	// 1. Fetch attestation
 	attestation, err := v.attestationService.Fetch(ctx, task.TxHash, task.Message)
 	if err != nil {
 		lggr.Warnw("Failed to fetch attestation", "err", err)
+		span.AddEvent(monitoring.EventAttestationFetchFailed, oteltrace.WithAttributes(attribute.String(tracing.ProviderKey, provider)))
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		recordOutcome(monitoring.TokenAttestationFetchOutcomeError)
 		verificationError := v.errorRetry(err, task)
 		return verifier.VerificationResult{Error: &verificationError}
 	}
 
 	if !attestation.IsReady() {
 		lggr.Debugw("Attestation not ready for message")
+		span.AddEvent(monitoring.EventAttestationNotReady, oteltrace.WithAttributes(attribute.String(tracing.AttestationStatusKey, string(attestation.status))))
+		recordOutcome(monitoring.TokenAttestationFetchOutcomeNotReady)
 		verificationError := v.attestationErrorRetry(
 			fmt.Errorf("attestation not ready for message ID: %s", task.MessageID),
 			task,
@@ -106,6 +148,10 @@ func (v *Verifier) processVerificationTask(ctx context.Context, task verifier.Ve
 	verifierFormat, err := attestation.ToVerifierFormat()
 	if err != nil {
 		lggr.Errorw("Failed to decode attestation data", "err", err)
+		span.AddEvent(monitoring.EventAttestationFetchFailed, oteltrace.WithAttributes(attribute.String(tracing.ProviderKey, provider)))
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		recordOutcome(monitoring.TokenAttestationFetchOutcomeError)
 		verificationError := v.errorRetry(err, task)
 		return verifier.VerificationResult{Error: &verificationError}
 	}
@@ -118,6 +164,9 @@ func (v *Verifier) processVerificationTask(ctx context.Context, task verifier.Ve
 		"verifierFormat", verifierFormat,
 	)
 
+	span.AddEvent(monitoring.EventAttestationFetchSucceeded, oteltrace.WithAttributes(attribute.String(tracing.AttestationStatusKey, string(attestation.status))))
+	recordOutcome(monitoring.TokenAttestationFetchOutcomeSuccess)
+
 	// 2. Create VerifierNodeResult
 	result, err := commit.CreateVerifierNodeResult(
 		&task,
@@ -126,9 +175,14 @@ func (v *Verifier) processVerificationTask(ctx context.Context, task verifier.Ve
 	)
 	if err != nil {
 		lggr.Errorw("CreateVerifierNodeResult: Failed to create VerifierNodeResult", "err", err)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		recordOutcome(monitoring.TokenAttestationFetchOutcomeError)
 		verificationError := v.errorRetry(err, task)
 		return verifier.VerificationResult{Error: &verificationError}
 	}
+
+	span.SetStatus(codes.Ok, "")
 
 	// 3. Return successful result
 	// PER-MESSAGE LOG (status): signing complete; storage write is the terminal success.
