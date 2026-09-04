@@ -244,6 +244,9 @@ func (m *CCIP17EVMConfig) configureLombardForTransfer(
 	remoteChainAdapters := make(map[uint64]adapters.RemoteLombardChain)
 	for _, rs := range remoteSelectors {
 		family, err := chainsel.GetSelectorFamily(rs)
+		if err != nil {
+			return fmt.Errorf("failed to get family for remote chain selector %d: %w", rs, err)
+		}
 		remoteAdapter, ok := devenvcommon.GlobalLombardRegistry.GetLombardChain(family)
 		if !ok {
 			return fmt.Errorf("no Lombard adapter for remote chain family %q (selector %d)", family, rs)
