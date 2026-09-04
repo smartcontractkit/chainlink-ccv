@@ -2,5 +2,5 @@
   ".": "0.8.1",
   "deployment": "0.1.0",
   "build/devenv": "0.5.0",
-  "integration/evm": "0.0.1"
+  "integration/evm": "0.1.0"
 }
