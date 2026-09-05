@@ -277,25 +277,18 @@ func (m *CCIP17EVMConfig) registerCCTPLocalTokens(
 		if !ok {
 			return fmt.Errorf("no CCTP domain mapping found for chain selector %d", rs)
 		}
-		// Resolve the remote USDC through the remote chain's own CCTP adapter rather than an
-		// EVM-shaped datastore lookup: non-EVM remotes register their token under a different
-		// contract type and their address is not hex. Every adapter returns the raw address
-		// bytes, 20 on EVM and 32 on Solana, so one left-pad covers both.
-		family, err := chainsel.GetSelectorFamily(rs)
-		if err != nil {
-			return fmt.Errorf("failed to get selector family for remote chain %d: %w", rs, err)
-		}
-		remoteChain, ok := common.GlobalCCTPRegistry.GetCCTPChain(family, adapters.Canonical)
-		if !ok {
-			return fmt.Errorf("no canonical CCTP adapter registered for family %q (remote chain %d)", family, rs)
-		}
-		remoteUSDC, err := remoteChain.TokenAddress(env.DataStore, env.BlockChains, rs)
+		remoteUSDC, err := env.DataStore.Addresses().Get(datastore.NewAddressRefKey(
+			rs,
+			datastore.ContractType(burnminterc677ops.ContractType),
+			semver.MustParse(burnminterc677ops.Deploy.Version()),
+			"",
+		))
 		if err != nil {
 			return fmt.Errorf("failed to get USDC token address for remote chain %d: %w", rs, err)
 		}
 
 		var burnToken [32]byte
-		copy(burnToken[:], gethcommon.LeftPadBytes(remoteUSDC, 32))
+		copy(burnToken[:], gethcommon.LeftPadBytes(gethcommon.HexToAddress(remoteUSDC.Address).Bytes(), 32))
 
 		existing, err := minter.GetLocalToken(nil, domain, burnToken)
 		if err != nil {
