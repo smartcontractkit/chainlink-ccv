@@ -166,3 +166,37 @@ MergeBufferSize = 0
     # Enabled enables the rate limiting system inside the indexer.
     Enabled = false
 
+# Resilience configures the resilient reader policies (rate limiting, bulkheading,
+# circuit breaker, and request timeouts).
+[Resilience]
+  # MaxRequestsPerSecond is the maximum number of requests per second allowed per reader.
+  # 0 uses the default (5).
+  MaxRequestsPerSecond = 0
+  # MaxConcurrentRequests is the maximum number of concurrent requests allowed per reader.
+  # 0 uses the default (5).
+  MaxConcurrentRequests = 0
+  # FailureThreshold is the number of consecutive failures that opens the circuit breaker.
+  # 0 uses the default (5).
+  FailureThreshold = 0
+  # SuccessThreshold is the number of consecutive successes that closes the circuit breaker.
+  # 0 uses the default (3).
+  SuccessThreshold = 0
+  # CircuitBreakerDelay is how long the circuit breaker stays open before entering half-open.
+  # 0 uses the default (3s).
+  CircuitBreakerDelay = "0s"
+  # CircuitBreakerTimeout is the timeout for circuit breaker operations.
+  # 0 uses the default (1s).
+  CircuitBreakerTimeout = "0s"
+  # RequestTimeout is the per-request timeout.
+  # 0 uses the default (10s).
+  RequestTimeout = "0s"
+  # MaxRetries is the maximum number of retry attempts per request.
+  # 0 uses the default (3).
+  MaxRetries = 0
+  # RetryDelay is the initial delay between retries, using exponential backoff.
+  # 0 uses the default (1s).
+  RetryDelay = "0s"
+  # RetryMaxDelay is the maximum delay between retries.
+  # 0 uses the default (10s).
+  RetryMaxDelay = "0s"
+
