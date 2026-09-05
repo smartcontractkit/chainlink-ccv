@@ -165,6 +165,9 @@ type VerifierMetrics struct {
 	tokenHTTPRequestDurationSeconds      metric.Float64Histogram
 	tokenHTTPRateLimitedTotal            metric.Int64Counter
 	tokenHTTPCooldownSeconds             metric.Float64Gauge
+
+	// Policy Hook Metrics (outbound policy endpoint)
+	policyHTTPRequestDurationSeconds metric.Float64Histogram
 }
 
 // InitMetrics initializes all verifier metrics.
@@ -528,6 +531,16 @@ func InitMetrics() (*VerifierMetrics, error) {
 		return nil, fmt.Errorf("failed to register token http cooldown gauge: %w", err)
 	}
 
+	// Policy Hook Metrics (outbound policy endpoint)
+	vm.policyHTTPRequestDurationSeconds, err = beholder.GetMeter().Float64Histogram(
+		"verifier_policy_http_request_duration_seconds",
+		metric.WithDescription("Duration of outbound policy hook HTTP requests"),
+		metric.WithUnit("seconds"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register policy http request duration histogram: %w", err)
+	}
+
 	return vm, nil
 }
 
@@ -587,6 +600,13 @@ func MetricViews() []sdkmetric.View {
 		// Token HTTP Request Duration
 		sdkmetric.NewView(
 			sdkmetric.Instrument{Name: "verifier_token_http_request_duration_seconds"},
+			sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
+				Boundaries: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
+			}},
+		),
+		// Policy HTTP Request Duration
+		sdkmetric.NewView(
+			sdkmetric.Instrument{Name: "verifier_policy_http_request_duration_seconds"},
 			sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
 				Boundaries: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
 			}},
@@ -937,4 +957,10 @@ func (v *VerifierMetricLabeler) RecordTokenHTTPCooldownSeconds(ctx context.Conte
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
 	otelLabels = append(otelLabels, attribute.String("provider", provider))
 	v.vm.tokenHTTPCooldownSeconds.Record(ctx, cooldown.Seconds(), metric.WithAttributes(otelLabels...))
+}
+
+func (v *VerifierMetricLabeler) RecordPolicyHTTPRequestDuration(ctx context.Context, outcome string, duration time.Duration) {
+	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	otelLabels = append(otelLabels, attribute.String("outcome", outcome))
+	v.vm.policyHTTPRequestDurationSeconds.Record(ctx, duration.Seconds(), metric.WithAttributes(otelLabels...))
 }

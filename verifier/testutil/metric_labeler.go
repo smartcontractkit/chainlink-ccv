@@ -82,3 +82,6 @@ func (n *NoopMetricLabeler) RecordTokenHTTPRequest(_ context.Context, _, _, _ st
 
 func (n *NoopMetricLabeler) RecordTokenHTTPCooldownSeconds(_ context.Context, _ string, _ time.Duration) {
 }
+
+func (n *NoopMetricLabeler) RecordPolicyHTTPRequestDuration(_ context.Context, _ string, _ time.Duration) {
+}

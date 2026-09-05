@@ -197,13 +197,28 @@ func (g *GatedVerifier) evaluateAll(ctx context.Context, tasks []vtypes.Verifica
 			defer func() { <-sem }()
 
 			req := NewEvaluateRequest(g.verifierID, &tasks[index])
+			start := time.Now()
 			verdict, err := g.checker.Evaluate(ctx, req)
+			g.messageMetrics(tasks[index].Message).RecordPolicyHTTPRequestDuration(ctx, callOutcome(verdict, err), time.Since(start))
 			out[index] = evaluation{verdict: verdict, err: err}
 		}(i)
 	}
 	wg.Wait()
 
 	return out
+}
+
+// callOutcome classifies one endpoint call for the duration histogram in the same vocabulary the
+// stage's transition counter uses, so the two can be read side by side.
+func callOutcome(verdict Verdict, err error) string {
+	switch {
+	case err != nil:
+		return monitoring.MessageTransitionOutcomePolicyUnavailable
+	case verdict.Decision == DecisionFail:
+		return monitoring.MessageTransitionOutcomePolicyRejected
+	default:
+		return monitoring.MessageTransitionOutcomePolicyPassed
+	}
 }
 
 // rejectedResult turns a FAIL into a permanent verification error. The task verifier fails the
