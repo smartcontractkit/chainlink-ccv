@@ -309,9 +309,10 @@ at least 32 bytes hex-encoded, which is what the shared scheme requires; generat
 `hmac.GenerateCredentials`. Setting one of the two and not the other is a startup error rather than
 a silent downgrade to no authentication.
 
-A verifier running inside a Chainlink node has no secrets file, so the node supplies its credential
-through `constructors.WithPolicyHookCredential`, the same way it supplies the aggregator
-credentials. Without that option the endpoint is called unauthenticated.
+A verifier running inside a Chainlink node has no secrets file, and the hook is not supported
+there: configuring the `[policy_hook]` section on that entry point is a startup error rather than
+a silent downgrade to calling the endpoint unauthenticated. Run the standalone verifier to use the
+hook.
 
 Set `require_auth = true` on any verifier whose endpoint checks the signature. Without it a
 credential that failed to reach the container leaves the verifier calling unauthenticated, the
