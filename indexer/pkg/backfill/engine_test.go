@@ -1,4 +1,4 @@
-package replay
+package backfill
 
 import (
 	"context"
@@ -16,8 +16,8 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-// mockReplayStorage implements Storage for testing.
-type mockReplayStorage struct {
+// mockBackfillStorage implements Storage for testing.
+type mockBackfillStorage struct {
 	mu             sync.Mutex
 	messages       []common.MessageWithMetadata
 	verifications  []common.VerifierResultWithMetadata
@@ -27,11 +27,11 @@ type mockReplayStorage struct {
 	forceUsed      bool
 }
 
-func newMockReplayStorage() *mockReplayStorage {
-	return &mockReplayStorage{}
+func newMockBackfillStorage() *mockBackfillStorage {
+	return &mockBackfillStorage{}
 }
 
-func (m *mockReplayStorage) UpsertMessages(_ context.Context, msgs []common.MessageWithMetadata, force bool) error {
+func (m *mockBackfillStorage) UpsertMessages(_ context.Context, msgs []common.MessageWithMetadata, force bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.upsertMsgErr != nil {
@@ -44,7 +44,7 @@ func (m *mockReplayStorage) UpsertMessages(_ context.Context, msgs []common.Mess
 	return nil
 }
 
-func (m *mockReplayStorage) UpsertVerifierResults(_ context.Context, results []common.VerifierResultWithMetadata, force bool) error {
+func (m *mockBackfillStorage) UpsertVerifierResults(_ context.Context, results []common.VerifierResultWithMetadata, force bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.upsertCCVErr != nil {
@@ -57,14 +57,14 @@ func (m *mockReplayStorage) UpsertVerifierResults(_ context.Context, results []c
 	return nil
 }
 
-func (m *mockReplayStorage) GetMessage(ctx context.Context, messageID protocol.Bytes32) (common.MessageWithMetadata, error) {
+func (m *mockBackfillStorage) GetMessage(ctx context.Context, messageID protocol.Bytes32) (common.MessageWithMetadata, error) {
 	if m.getMessageFunc != nil {
 		return m.getMessageFunc(ctx, messageID)
 	}
 	return common.MessageWithMetadata{}, fmt.Errorf("message not found")
 }
 
-func (m *mockReplayStorage) capturedMessages() []common.MessageWithMetadata {
+func (m *mockBackfillStorage) capturedMessages() []common.MessageWithMetadata {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	cp := make([]common.MessageWithMetadata, len(m.messages))
@@ -72,7 +72,7 @@ func (m *mockReplayStorage) capturedMessages() []common.MessageWithMetadata {
 	return cp
 }
 
-func (m *mockReplayStorage) capturedVerifications() []common.VerifierResultWithMetadata {
+func (m *mockBackfillStorage) capturedVerifications() []common.VerifierResultWithMetadata {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	cp := make([]common.VerifierResultWithMetadata, len(m.verifications))
@@ -126,7 +126,7 @@ func testVerifierResult(messageNumber int) common.VerifierResultWithMetadata {
 
 func TestPersistDiscoveryBatch(t *testing.T) {
 	lggr := logger.Test(t)
-	store := newMockReplayStorage()
+	store := newMockBackfillStorage()
 	reg := registry.NewVerifierRegistry()
 
 	engine := &Engine{
@@ -157,7 +157,7 @@ func TestPersistDiscoveryBatch(t *testing.T) {
 
 func TestPersistDiscoveryBatch_ForceFlag(t *testing.T) {
 	lggr := logger.Test(t)
-	store := newMockReplayStorage()
+	store := newMockBackfillStorage()
 	reg := registry.NewVerifierRegistry()
 
 	engine := &Engine{
@@ -187,7 +187,7 @@ func TestPersistDiscoveryBatch_ForceFlag(t *testing.T) {
 
 func TestPersistDiscoveryBatch_NoForceByDefault(t *testing.T) {
 	lggr := logger.Test(t)
-	store := newMockReplayStorage()
+	store := newMockBackfillStorage()
 	reg := registry.NewVerifierRegistry()
 
 	engine := &Engine{
@@ -217,7 +217,7 @@ func TestPersistDiscoveryBatch_NoForceByDefault(t *testing.T) {
 
 func TestGatherAllVerifications_MessageNotFound(t *testing.T) {
 	lggr := logger.Test(t)
-	store := newMockReplayStorage()
+	store := newMockBackfillStorage()
 	reg := registry.NewVerifierRegistry()
 
 	store.getMessageFunc = func(_ context.Context, _ protocol.Bytes32) (common.MessageWithMetadata, error) {
@@ -244,7 +244,7 @@ func TestGatherAllVerifications_MessageNotFound(t *testing.T) {
 
 func TestGatherAllVerifications_NoCCVAddresses(t *testing.T) {
 	lggr := logger.Test(t)
-	store := newMockReplayStorage()
+	store := newMockBackfillStorage()
 	reg := registry.NewVerifierRegistry()
 
 	vr := testVerifierResult(1)
@@ -270,7 +270,7 @@ func TestGatherAllVerifications_NoCCVAddresses(t *testing.T) {
 
 func TestGatherAllVerifications_WithCCVAddressesButNoReaders(t *testing.T) {
 	lggr := logger.Test(t)
-	store := newMockReplayStorage()
+	store := newMockBackfillStorage()
 	reg := registry.NewVerifierRegistry()
 
 	verifierAddr, _ := protocol.RandomAddress()
@@ -302,7 +302,7 @@ func TestGatherAllVerifications_WithCCVAddressesButNoReaders(t *testing.T) {
 
 func TestGatherAllVerifications_CCVAddressesFromMessagesTable(t *testing.T) {
 	lggr := logger.Test(t)
-	store := newMockReplayStorage()
+	store := newMockBackfillStorage()
 	reg := registry.NewVerifierRegistry()
 
 	ccvAddr, _ := protocol.RandomAddress()
@@ -336,7 +336,7 @@ func TestGatherAllVerifications_CCVAddressesFromMessagesTable(t *testing.T) {
 
 func TestGatherAllVerifications_UpsertsMessage(t *testing.T) {
 	lggr := logger.Test(t)
-	store := newMockReplayStorage()
+	store := newMockBackfillStorage()
 	reg := registry.NewVerifierRegistry()
 
 	vr := testVerifierResult(1)
@@ -370,7 +370,7 @@ func TestGatherAllVerifications_UpsertsMessage(t *testing.T) {
 	assert.True(t, store.forceUsed, "force flag should be passed to storage")
 }
 
-func TestRunDiscoveryReplay_MissingSinceSequenceNumber(t *testing.T) {
+func TestRunDiscoveryBackfill_MissingSinceSequenceNumber(t *testing.T) {
 	lggr := logger.Test(t)
 
 	engine := &Engine{
@@ -383,12 +383,12 @@ func TestRunDiscoveryReplay_MissingSinceSequenceNumber(t *testing.T) {
 		Status: StatusRunning,
 	}
 
-	err := engine.runDiscoveryReplay(context.Background(), job)
+	err := engine.runDiscoveryBackfill(context.Background(), job)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "since_sequence_number")
 }
 
-func TestRunDiscoveryReplay_MissingFactory(t *testing.T) {
+func TestRunDiscoveryBackfill_MissingFactory(t *testing.T) {
 	lggr := logger.Test(t)
 
 	engine := &Engine{
@@ -403,12 +403,12 @@ func TestRunDiscoveryReplay_MissingFactory(t *testing.T) {
 		SinceSequenceNumber: &sinceTS,
 	}
 
-	err := engine.runDiscoveryReplay(context.Background(), job)
+	err := engine.runDiscoveryBackfill(context.Background(), job)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "aggregator reader factory")
 }
 
-func TestRunMessageReplay_EmptyMessageIDs(t *testing.T) {
+func TestRunMessageBackfill_EmptyMessageIDs(t *testing.T) {
 	lggr := logger.Test(t)
 	reg := registry.NewVerifierRegistry()
 
@@ -424,12 +424,12 @@ func TestRunMessageReplay_EmptyMessageIDs(t *testing.T) {
 		MessageIDs: []string{},
 	}
 
-	err := engine.runMessageReplay(context.Background(), job)
+	err := engine.runMessageBackfill(context.Background(), job)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "at least one message ID")
 }
 
-func TestRunMessageReplay_NilRegistry(t *testing.T) {
+func TestRunMessageBackfill_NilRegistry(t *testing.T) {
 	lggr := logger.Test(t)
 
 	engine := &Engine{
@@ -443,7 +443,7 @@ func TestRunMessageReplay_NilRegistry(t *testing.T) {
 		MessageIDs: []string{"0x1234"},
 	}
 
-	err := engine.runMessageReplay(context.Background(), job)
+	err := engine.runMessageBackfill(context.Background(), job)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "verifier registry")
 }
