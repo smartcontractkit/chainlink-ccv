@@ -44,3 +44,23 @@ actions:
   - target: "$.paths['/v1/verifierresults'].get.parameters[?(@.name=='offset')].schema"
     update:
       x-go-type: uint64
+
+  # Response models. Selectors are uint64 and a third of the values in chain-selectors exceed
+  # maxInt64, so the generated int64 cannot represent them at all; sequence numbers are
+  # non-negative (minimum: 0), which int64 does not carry. The parameter actions above only
+  # cover the query string; these cover the components.schemas the responses are built from.
+  - target: "$.components.schemas.Message.properties.source_chain_selector"
+    update:
+      x-go-type: protocol.ChainSelector
+      x-go-type-import:
+        path: github.com/smartcontractkit/chainlink-ccv/protocol
+
+  - target: "$.components.schemas.Message.properties.dest_chain_selector"
+    update:
+      x-go-type: protocol.ChainSelector
+      x-go-type-import:
+        path: github.com/smartcontractkit/chainlink-ccv/protocol
+
+  - target: "$.components.schemas.Message.properties.sequence_number"
+    update:
+      x-go-type: uint64
