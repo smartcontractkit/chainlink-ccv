@@ -60,10 +60,12 @@ var Domains = map[uint64]uint32{
 	sel.INK_TESTNET_SEPOLIA.Selector:                   21,
 	sel.PLUME_TESTNET.Selector:                         22,
 	// ---------- Domain for local testing ----------
-	sel.GETH_TESTNET.Selector:                                      100,
-	sel.GETH_DEVNET_2.Selector:                                     101,
-	sel.GETH_DEVNET_3.Selector:                                     102,
-	sel.TEST_22222222222222222222222222222222222222222222.Selector: 5,
+	sel.GETH_TESTNET.Selector:  100,
+	sel.GETH_DEVNET_2.Selector: 101,
+	sel.GETH_DEVNET_3.Selector: 102,
+	// Solana devenv test selectors
+	12463857294658392847: 5, // must match real solana domain
+	9837465928374658293:  106,
 }
 
 func mustDecodeHex(s string) protocol.ByteSlice {
