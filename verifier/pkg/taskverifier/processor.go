@@ -313,6 +313,9 @@ func (p *Processor) processJobs(ctx context.Context, jobs []jobqueue.Job[verifie
 		parentCtx := otel.GetTextMapPropagator().Extract(context.WithoutCancel(ctx), carrier)
 
 		payload := job.Payload
+		// Stamp the queue's attempt count onto the task: the persisted payload's own field is
+		// stale after a retry, and the policy gate grows its retry delay with each attempt.
+		payload.AttemptCount = job.AttemptCount
 		messageID, err := protocol.NewBytes32FromString(payload.MessageID)
 		if err != nil {
 			p.lggr.Errorw("Failed to convert messageID to Bytes32", "error", err, "messageID", payload.MessageID)

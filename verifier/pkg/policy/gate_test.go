@@ -288,12 +288,30 @@ func TestGatedVerifier_RetryDelayIsJittered(t *testing.T) {
 
 	seen := make(map[time.Duration]struct{})
 	for range 500 {
-		delay := gate.retryDelayWithJitter()
+		delay := gate.retryDelayWithJitter(1)
 		require.GreaterOrEqual(t, delay, 500*time.Millisecond)
 		require.LessOrEqual(t, delay, 1500*time.Millisecond)
 		seen[delay] = struct{}{}
 	}
 	assert.Greater(t, len(seen), 1, "a fixed delay would synchronize every held message onto one tick")
+}
+
+// TestGatedVerifier_RetryDelayBacksOff pins the growth: the midpoint of the jittered range doubles
+// with each attempt, so a long outage costs the endpoint less and less traffic, up to the cap.
+func TestGatedVerifier_RetryDelayBacksOff(t *testing.T) {
+	base := retryBackoff(time.Second, 0)
+	assert.Equal(t, time.Second, base, "an unstamped task is a first attempt")
+	assert.Equal(t, time.Second, retryBackoff(time.Second, 1))
+	assert.Equal(t, 2*time.Second, retryBackoff(time.Second, 2))
+	assert.Equal(t, 4*time.Second, retryBackoff(time.Second, 3))
+	assert.Equal(t, maxRetryDelay, retryBackoff(time.Second, 100), "the cap bounds the gap between attempts")
+
+	gate := newGate(t, &stubChecker{}, &stubVerifier{})
+	for range 100 {
+		delay := gate.retryDelayWithJitter(3)
+		require.GreaterOrEqual(t, delay, 2*time.Second, "attempt 3 jitters around 4x the configured delay")
+		require.LessOrEqual(t, delay, 6*time.Second)
+	}
 }
 
 func TestGatedVerifier_MixedBatch(t *testing.T) {
