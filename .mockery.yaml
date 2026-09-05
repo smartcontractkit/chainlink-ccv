@@ -121,3 +121,15 @@ packages:
         configs:
           - dir: ./verifier/internal/mocks
             outpkg: mocks
+
+  # The Checker mock gets its own package rather than the flat verifier/internal/mocks, because
+  # both packages that would import it are in-package tests that the flat one cannot serve:
+  # gate_test.go is package policy, and a mocks package importing policy is a cycle for it; and
+  # verifier/pkg/commit reaches commit again through the flat package's cctp mock. Its own
+  # directory imports only policy, so neither cycle exists.
+  github.com/smartcontractkit/chainlink-ccv/verifier/pkg/policy:
+    interfaces:
+      Checker:
+        configs:
+          - dir: ./verifier/pkg/policy/mocks
+            outpkg: mocks
