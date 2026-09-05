@@ -329,56 +329,62 @@ func (g *GatedVerifier) messageMetrics(message protocol.Message) vtypes.MetricLa
 
 var _ vtypes.Verifier = (*GatedVerifier)(nil)
 
-// WrapVerifier applies the policy hook to inner when the operator configured one. A nil config
-// returns inner unchanged, so a verifier without a hook has no extra layer in its call path at
-// all. Both the standalone and Chainlink-node constructors call this, which keeps the enable
-// condition and the gate's construction in one place rather than duplicated per deployment mode.
-func WrapVerifier(
+// Gate returns the verifier decorator that applies the operator's policy hook. A nil config
+// yields a decorator that returns the verifier it is given unchanged, so a verifier without a
+// hook has no extra layer in its call path at all. Apply it with vtypes.Chain:
+//
+//	verifier, err := vtypes.Chain(commitVerifier, policy.Gate(lggr, verifierID, cfg.PolicyHook, monitoring, cred))
+//
+// The hook's credential comes from the standalone verifier's secrets file, which is also the only
+// deployment mode that supports the hook: the Chainlink-node constructor rejects a configured
+// [policy_hook] section at boot rather than calling this.
+func Gate(
 	lggr logger.Logger,
 	verifierID string,
-	inner vtypes.Verifier,
 	cfg *Config,
 	verifierMonitoring vtypes.Monitoring,
 	cred *hmac.ClientConfig,
-) (vtypes.Verifier, error) {
-	if cfg == nil {
-		return inner, nil
-	}
-	// Checked here rather than in Config.Validate because the credential lives in the secrets
-	// file, and Config.Validate also runs where a job spec is built rather than run, on a
-	// machine that has no business holding the verifier's secrets.
-	if cfg.RequireAuth && cred == nil {
-		return nil, errors.New(
-			"policy_hook sets require_auth but no credential is configured; supply [policy_hook] api_key and secret_key in the verifier secrets file")
-	}
+) vtypes.VerifierDecorator {
+	return func(inner vtypes.Verifier) (vtypes.Verifier, error) {
+		if cfg == nil {
+			return inner, nil
+		}
+		// Checked here rather than in Config.Validate because the credential lives in the secrets
+		// file, and Config.Validate also runs where a job spec is built rather than run, on a
+		// machine that has no business holding the verifier's secrets.
+		if cfg.RequireAuth && cred == nil {
+			return nil, errors.New(
+				"policy_hook sets require_auth but no credential is configured; supply [policy_hook] api_key and secret_key in the verifier secrets file")
+		}
 
-	checker, err := NewHTTPChecker(lggr, cfg, cred)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create policy hook client: %w", err)
-	}
-	retryDelay, err := cfg.RetryDelayDuration()
-	if err != nil {
-		return nil, err
-	}
-	gated, err := NewGatedVerifier(lggr, verifierID, inner, checker, verifierMonitoring, retryDelay)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create policy gated verifier: %w", err)
-	}
+		checker, err := NewHTTPChecker(lggr, cfg, cred)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create policy hook client: %w", err)
+		}
+		retryDelay, err := cfg.RetryDelayDuration()
+		if err != nil {
+			return nil, err
+		}
+		gated, err := NewGatedVerifier(lggr, verifierID, inner, checker, verifierMonitoring, retryDelay)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create policy gated verifier: %w", err)
+		}
 
-	// The endpoint is logged as the full URL the verifier will POST, not as the configured base:
-	// an operator debugging a 404 needs to see the path their server has to serve.
-	//
-	// authenticated is logged on every boot too: an operator whose endpoint checks signatures
-	// needs to be able to see from the node's own logs that it is sending them.
-	endpoint, err := cfg.EvaluateURL()
-	if err != nil {
-		return nil, err
-	}
-	lggr.Infow("Policy hook enabled",
-		"endpoint", endpoint,
-		"retryDelay", retryDelay,
-		"authenticated", cred != nil,
-	)
+		// The endpoint is logged as the full URL the verifier will POST, not as the configured
+		// base: an operator debugging a 404 needs to see the path their server has to serve.
+		//
+		// authenticated is logged on every boot too: an operator whose endpoint checks signatures
+		// needs to be able to see from the node's own logs that it is sending them.
+		endpoint, err := cfg.EvaluateURL()
+		if err != nil {
+			return nil, err
+		}
+		lggr.Infow("Policy hook enabled",
+			"endpoint", endpoint,
+			"retryDelay", retryDelay,
+			"authenticated", cred != nil,
+		)
 
-	return gated, nil
+		return gated, nil
+	}
 }
