@@ -30,6 +30,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/policy"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vsecrets"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -291,9 +292,9 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		return fmt.Errorf("failed to resolve policy hook credential: %w", err)
 	}
 
-	// Apply the operator's policy hook. With no [policy_hook] section this returns the commit
-	// verifier unchanged.
-	gatedVerifier, err := policy.WrapVerifier(lggr, config.VerifierID, commitVerifier, config.PolicyHook, verifierMonitoring, policyCredential)
+	// Apply the operator's policy hook. With no [policy_hook] section the decorator returns the
+	// commit verifier unchanged.
+	gatedVerifier, err := vtypes.Chain(commitVerifier, policy.Gate(lggr, config.VerifierID, config.PolicyHook, verifierMonitoring, policyCredential))
 	if err != nil {
 		lggr.Errorw("Failed to apply policy hook", "error", err)
 		return fmt.Errorf("failed to apply policy hook: %w", err)

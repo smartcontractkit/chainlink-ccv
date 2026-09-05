@@ -419,22 +419,22 @@ func TestGatedVerifier_TruncatesOversizedRejectionReason(t *testing.T) {
 	assert.Empty(t, inner.forwarded(), "a FAIL must still not reach the wrapped verifier")
 }
 
-func TestWrapVerifier(t *testing.T) {
+func TestGate(t *testing.T) {
 	inner := &stubVerifier{}
 	lggr := logger.Test(t)
 	mon := monitoring.NewFakeVerifierMonitoring()
 
 	t.Run("no config leaves the verifier untouched", func(t *testing.T) {
-		got, err := WrapVerifier(lggr, "v", inner, nil, mon, nil)
+		got, err := Gate(lggr, "v", nil, mon, nil)(inner)
 		require.NoError(t, err)
 		assert.Same(t, inner, got, "a verifier without a hook must not gain a layer")
 	})
 
 	t.Run("config wraps the verifier", func(t *testing.T) {
-		got, err := WrapVerifier(lggr, "v", inner, &Config{
+		got, err := Gate(lggr, "v", &Config{
 			BaseURL:    "https://policy.example.com",
 			RetryDelay: "3s",
-		}, mon, nil)
+		}, mon, nil)(inner)
 		require.NoError(t, err)
 
 		gate, ok := got.(*GatedVerifier)
@@ -443,7 +443,7 @@ func TestWrapVerifier(t *testing.T) {
 	})
 
 	t.Run("invalid config fails construction", func(t *testing.T) {
-		_, err := WrapVerifier(lggr, "v", inner, &Config{BaseURL: "not a url at all"}, mon, nil)
+		_, err := Gate(lggr, "v", &Config{BaseURL: "not a url at all"}, mon, nil)(inner)
 		require.Error(t, err)
 	})
 
@@ -451,20 +451,20 @@ func TestWrapVerifier(t *testing.T) {
 		// The failure has to happen here rather than at the first message: a credential that
 		// never reached the container would otherwise show up as every message on the lane
 		// retrying against a 401.
-		_, err := WrapVerifier(lggr, "v", inner, &Config{
+		_, err := Gate(lggr, "v", &Config{
 			BaseURL:     "https://policy.example.com",
 			RequireAuth: true,
-		}, mon, nil)
+		}, mon, nil)(inner)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "secrets file", "the error must name where the credential is meant to come from")
 		assert.Contains(t, err.Error(), "api_key")
 	})
 
 	t.Run("require_auth with a credential wraps the verifier", func(t *testing.T) {
-		got, err := WrapVerifier(lggr, "v", inner, &Config{
+		got, err := Gate(lggr, "v", &Config{
 			BaseURL:     "https://policy.example.com",
 			RequireAuth: true,
-		}, mon, testCredential())
+		}, mon, testCredential())(inner)
 		require.NoError(t, err)
 		assert.NotSame(t, inner, got)
 	})
