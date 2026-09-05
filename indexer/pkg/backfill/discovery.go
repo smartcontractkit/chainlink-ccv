@@ -1,4 +1,4 @@
-package replay
+package backfill
 
 import (
 	"context"
@@ -9,9 +9,9 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
-func (e *Engine) runDiscoveryReplay(ctx context.Context, job *Job) error {
+func (e *Engine) runDiscoveryBackfill(ctx context.Context, job *Job) error {
 	if job.SinceSequenceNumber == nil {
-		return fmt.Errorf("discovery replay requires since_sequence_number")
+		return fmt.Errorf("discovery backfill requires since_sequence_number")
 	}
 	if e.aggregatorReaderFactory == nil {
 		return fmt.Errorf("aggregator reader factory not configured")
@@ -24,10 +24,10 @@ func (e *Engine) runDiscoveryReplay(ctx context.Context, job *Job) error {
 
 	reader, err := e.aggregatorReaderFactory(sinceValue)
 	if err != nil {
-		return fmt.Errorf("failed to create aggregator reader for replay: %w", err)
+		return fmt.Errorf("failed to create aggregator reader for backfill: %w", err)
 	}
 
-	e.lggr.Infow("Discovery replay starting",
+	e.lggr.Infow("Discovery backfill starting",
 		"jobID", job.ID,
 		"sinceSequenceNumber", *job.SinceSequenceNumber,
 		"resumeCursor", sinceValue,
@@ -51,7 +51,7 @@ func (e *Engine) runDiscoveryReplay(ctx context.Context, job *Job) error {
 		if len(responses) == 0 {
 			consecutiveEmpty++
 			if consecutiveEmpty >= maxConsecutiveEmpty {
-				e.lggr.Infow("No more data from aggregator, discovery replay finished",
+				e.lggr.Infow("No more data from aggregator, discovery backfill finished",
 					"jobID", job.ID, "totalProcessed", totalProcessed)
 				return nil
 			}
@@ -61,7 +61,7 @@ func (e *Engine) runDiscoveryReplay(ctx context.Context, job *Job) error {
 		consecutiveEmpty = 0
 
 		messages, verifications, _ := common.ConvertDiscoveryResponses(responses, time.Now(), e.registry)
-		e.lggr.Infow("Discovery replay batch",
+		e.lggr.Infow("Discovery backfill batch",
 			"jobID", job.ID,
 			"responses", len(responses),
 			"messages", len(messages),
@@ -76,7 +76,7 @@ func (e *Engine) runDiscoveryReplay(ctx context.Context, job *Job) error {
 		if e.registry != nil {
 			for _, resp := range responses {
 				if err := e.gatherVerificationsForMessage(ctx, job, resp.Data); err != nil {
-					e.lggr.Warnw("Failed to gather verifications during discovery replay",
+					e.lggr.Warnw("Failed to gather verifications during discovery backfill",
 						"jobID", job.ID,
 						"messageID", resp.Data.MessageID,
 						"error", err,
@@ -104,7 +104,7 @@ func (e *Engine) persistDiscoveryBatch(
 ) error {
 	encodable, skipped := common.FilterEncodableMessages(messages)
 	for _, s := range skipped {
-		e.lggr.Warnw("Skipping non-encodable message in replay", "index", s.Index, "reason", s.Reason)
+		e.lggr.Warnw("Skipping non-encodable message in backfill", "index", s.Index, "reason", s.Reason)
 	}
 
 	if len(encodable) > 0 {

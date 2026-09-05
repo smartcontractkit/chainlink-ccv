@@ -1,4 +1,4 @@
-package replay
+package backfill
 
 import (
 	"context"
@@ -15,13 +15,15 @@ import (
 )
 
 var (
-	ErrJobNotFound  = errors.New("replay job not found")
-	ErrJobLocked    = errors.New("replay job is locked by another process")
-	ErrNoResumable  = errors.New("no resumable replay job found")
+	ErrJobNotFound  = errors.New("backfill job not found")
+	ErrJobLocked    = errors.New("backfill job is locked by another process")
+	ErrNoResumable  = errors.New("no resumable backfill job found")
 	StaleJobTimeout = 5 * time.Minute
 )
 
 // Store provides CRUD operations for the replay_jobs table.
+// Note: the replay_jobs table name predates the backfill rename and is kept
+// for migration compatibility.
 type Store struct {
 	ds   sqlutil.DataSource
 	lggr logger.Logger
@@ -36,7 +38,7 @@ func NewStore(ds sqlutil.DataSource, lggr logger.Logger) *Store {
 func NewStoreFromConfig(ctx context.Context, lggr logger.Logger, uri string, dbConfig pg.DBConfig, connMaxLifetime, connMaxIdleTime time.Duration) (*Store, error) {
 	db, err := dbConfig.New(ctx, uri, pg.DriverPostgres)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open replay store connection: %w", err)
+		return nil, fmt.Errorf("failed to open backfill store connection: %w", err)
 	}
 	db.SetConnMaxLifetime(connMaxLifetime)
 	db.SetConnMaxIdleTime(connMaxIdleTime)
@@ -152,7 +154,7 @@ func (s *Store) AcquireAdvisoryLock(ctx context.Context, jobID string) (*sql.Con
 	}
 
 	var acquired bool
-	err = conn.QueryRowContext(ctx, `SELECT pg_try_advisory_lock(hashtext($1))`, "replay:"+jobID).Scan(&acquired)
+	err = conn.QueryRowContext(ctx, `SELECT pg_try_advisory_lock(hashtext($1))`, "backfill:"+jobID).Scan(&acquired)
 	if err != nil {
 		_ = conn.Close()
 		return nil, fmt.Errorf("advisory lock query failed: %w", err)
@@ -165,7 +167,7 @@ func (s *Store) AcquireAdvisoryLock(ctx context.Context, jobID string) (*sql.Con
 }
 
 // UpdateProgress atomically updates the job's cursor and heartbeat. This should
-// be called within the same transaction that persists the replayed data.
+// be called within the same transaction that persists the backfilled data.
 func (s *Store) UpdateProgress(ctx context.Context, tx sqlutil.DataSource, jobID string, cursor int64, processedItems int) error {
 	query := `
 		UPDATE indexer.replay_jobs
@@ -175,7 +177,7 @@ func (s *Store) UpdateProgress(ctx context.Context, tx sqlutil.DataSource, jobID
 	now := time.Now()
 	_, err := tx.ExecContext(ctx, query, cursor, processedItems, now, jobID)
 	if err != nil {
-		return fmt.Errorf("failed to update replay progress: %w", err)
+		return fmt.Errorf("failed to update backfill progress: %w", err)
 	}
 	return nil
 }
@@ -216,7 +218,7 @@ func (s *Store) ListJobs(ctx context.Context) ([]Job, error) {
 	`
 	rows, err := s.query(ctx, query)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list replay jobs: %w", err)
+		return nil, fmt.Errorf("failed to list backfill jobs: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 

@@ -274,7 +274,7 @@ func buildBatchInsertCCVDataQuery(ccvDataList []common.VerifierResultWithMetadat
 }
 
 // buildBatchUpsertCCVDataQuery builds an INSERT ... ON CONFLICT DO UPDATE query
-// for force-mode replay that overwrites existing CCV data.
+// for force-mode backfill that overwrites existing CCV data.
 func buildBatchUpsertCCVDataQuery(ccvDataList []common.VerifierResultWithMetadata) (string, []any, error) {
 	return buildBatchCCVDataQuery(ccvDataList, ccvDataConflictUpsert)
 }
@@ -311,7 +311,7 @@ func (d *PostgresStorage) InsertVerifierResults(ctx context.Context, verifierRes
 }
 
 // UpsertVerifierResults inserts or overwrites verifier results depending on force.
-// Used by the replay engine to support both backfill and force-overwrite modes.
+// Used by the indexer backfill engine to support both its default and force-overwrite modes.
 func (d *PostgresStorage) UpsertVerifierResults(ctx context.Context, verifierResults []common.VerifierResultWithMetadata, force bool) error {
 	if len(verifierResults) == 0 {
 		return nil
@@ -334,7 +334,7 @@ func (d *PostgresStorage) UpsertVerifierResults(ctx context.Context, verifierRes
 }
 
 // UpsertMessages inserts or overwrites messages depending on force.
-// Used by the replay engine to support both backfill and force-overwrite modes.
+// Used by the indexer backfill engine to support both its default and force-overwrite modes.
 func (d *PostgresStorage) UpsertMessages(ctx context.Context, messages []common.MessageWithMetadata, force bool) error {
 	if len(messages) == 0 {
 		return nil
@@ -424,7 +424,7 @@ func buildBatchInsertMessagesQuery(messages []common.MessageWithMetadata) (strin
 }
 
 // buildBatchUpsertMessagesQuery builds an INSERT ... ON CONFLICT DO UPDATE query
-// for force-mode replay that overwrites existing messages.
+// for force-mode backfill that overwrites existing messages.
 func buildBatchUpsertMessagesQuery(messages []common.MessageWithMetadata) (string, []any, error) {
 	return buildBatchMessagesQuery(messages, messagesConflictUpsert)
 }

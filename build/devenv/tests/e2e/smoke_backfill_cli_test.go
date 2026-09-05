@@ -26,7 +26,7 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 )
 
-const replayBinary = "/bin/indexer-replay"
+const backfillBinary = "/bin/indexer-backfill"
 
 func execInContainer(ctx context.Context, containerName string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "docker", append([]string{"exec", containerName}, args...)...)
@@ -56,13 +56,13 @@ func openIndexerDB(t *testing.T, in *ccv.Cfg) (*sql.DB, string) {
 	return db, containerName
 }
 
-func replayCLIArgs(subcommand string, extra ...string) []string {
-	return append([]string{replayBinary, subcommand}, extra...)
+func backfillCLIArgs(subcommand string, extra ...string) []string {
+	return append([]string{backfillBinary, subcommand}, extra...)
 }
 
-// TestE2ESmoke_ReplayCLI verifies the replay CLI subcommands work end-to-end:
+// TestE2ESmoke_BackfillCLI verifies the backfill CLI subcommands work end-to-end:
 // migration check, list, status, and a discovery dry-run.
-func TestE2ESmoke_ReplayCLI(t *testing.T) {
+func TestE2ESmoke_BackfillCLI(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping e2e test in short mode; requires a running devenv environment")
 	}
@@ -84,9 +84,9 @@ func TestE2ESmoke_ReplayCLI(t *testing.T) {
 	})
 
 	t.Run("list empty", func(t *testing.T) {
-		out, err := execInContainer(t.Context(), containerName, replayCLIArgs("list")...)
+		out, err := execInContainer(t.Context(), containerName, backfillCLIArgs("list")...)
 		require.NoError(t, err, "list should succeed; output: %s", out)
-		require.Contains(t, out, "No replay jobs found", "empty list should report no jobs; output: %s", out)
+		require.Contains(t, out, "No backfill jobs found", "empty list should report no jobs; output: %s", out)
 	})
 
 	t.Run("seed and list", func(t *testing.T) {
@@ -96,23 +96,23 @@ func TestE2ESmoke_ReplayCLI(t *testing.T) {
 			VALUES ($1, 'messages', 'completed', false, NOW(), NOW())`,
 			fakeJobID,
 		)
-		require.NoError(t, err, "seeding fake replay job")
+		require.NoError(t, err, "seeding fake backfill job")
 
-		out, err := execInContainer(ctx, containerName, replayCLIArgs("list")...)
+		out, err := execInContainer(ctx, containerName, backfillCLIArgs("list")...)
 		require.NoError(t, err, "list should succeed; output: %s", out)
 		require.Contains(t, out, fakeJobID, "list output must contain the seeded job ID; output: %s", out)
 	})
 
 	t.Run("status", func(t *testing.T) {
-		out, err := execInContainer(t.Context(), containerName, replayCLIArgs("status", "--id", fakeJobID)...)
+		out, err := execInContainer(t.Context(), containerName, backfillCLIArgs("status", "--id", fakeJobID)...)
 		require.NoError(t, err, "status should succeed; output: %s", out)
 		require.Contains(t, out, fakeJobID, "status output must contain the job ID; output: %s", out)
 		require.Contains(t, out, "completed", "status output must show completed status; output: %s", out)
 	})
 
 	t.Run("discovery", func(t *testing.T) {
-		out, err := execInContainer(t.Context(), containerName, replayCLIArgs("discovery", "--since", "1")...)
-		require.NoError(t, err, "discovery replay should succeed with sequence 1; output: %s", out)
+		out, err := execInContainer(t.Context(), containerName, backfillCLIArgs("discovery", "--since", "1")...)
+		require.NoError(t, err, "discovery backfill should succeed with sequence 1; output: %s", out)
 	})
 }
 
@@ -182,17 +182,17 @@ func sendAndWaitForIndexed(
 	return sentEvt.MessageID, msgIDHex
 }
 
-// TestE2ESmoke_ReplayForceOverwrite exercises the replay system end-to-end:
+// TestE2ESmoke_BackfillForceOverwrite exercises the backfill system end-to-end:
 //
 //  1. Sends two messages with fast finality, waits for both to be indexed.
-//  2. Replays message-1 only with `messages --ids <msg1> --force` and verifies
+//  2. Backfills message-1 only with `messages --ids <msg1> --force` and verifies
 //     only message-1's verifier_results and messages ingestion_timestamps changed.
-//  3. Replays both with `discovery --since <ts> --force` and verifies both
+//  3. Backfills both with `discovery --since <ts> --force` and verifies both
 //     messages' timestamps are updated.
-//  4. Replays again with `discovery --since <ts>` (no --force, backfill-only)
+//  4. Backfills again with `discovery --since <ts>` (no --force, backfill-only)
 //     and verifies neither message's timestamp changed because there is nothing
 //     new to backfill.
-func TestE2ESmoke_ReplayForceOverwrite(t *testing.T) {
+func TestE2ESmoke_BackfillForceOverwrite(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping e2e test in short mode; requires a running devenv environment")
 	}
@@ -254,9 +254,9 @@ func TestE2ESmoke_ReplayForceOverwrite(t *testing.T) {
 	// ── Step 1: send two messages and wait for indexing ──────────────────────
 	t.Log("Step 1: sending two messages with finality=1...")
 	msgID1, msgHex1 := sendAndWaitForIndexed(t, ctx, src, dest,
-		[]byte("replay-test-msg-1"), executorAddr, ccvAddr, receiver, &testCtx)
+		[]byte("backfill-test-msg-1"), executorAddr, ccvAddr, receiver, &testCtx)
 	msgID2, msgHex2 := sendAndWaitForIndexed(t, ctx, src, dest,
-		[]byte("replay-test-msg-2"), executorAddr, ccvAddr, receiver, &testCtx)
+		[]byte("backfill-test-msg-2"), executorAddr, ccvAddr, receiver, &testCtx)
 
 	msg1VerifierTsBefore, err := getVerifierIngestionTimestamp(ctx, db, msgHex1)
 	require.NoError(t, err, "read msg1 verifier_results ingestion_timestamp")
@@ -266,17 +266,17 @@ func TestE2ESmoke_ReplayForceOverwrite(t *testing.T) {
 	require.NoError(t, err, "read msg1 messages ingestion_timestamp")
 	msg2MessageTsBefore, err := getMessageIngestionTimestamp(ctx, db, msgHex2)
 	require.NoError(t, err, "read msg2 messages ingestion_timestamp")
-	t.Logf("Before replay: msg1 verifier=%s message=%s  msg2 verifier=%s message=%s",
+	t.Logf("Before backfill: msg1 verifier=%s message=%s  msg2 verifier=%s message=%s",
 		msg1VerifierTsBefore.Format(time.RFC3339Nano), msg1MessageTsBefore.Format(time.RFC3339Nano),
 		msg2VerifierTsBefore.Format(time.RFC3339Nano), msg2MessageTsBefore.Format(time.RFC3339Nano))
 
 	time.Sleep(2 * time.Second)
 
-	// ── Step 2: replay msg1 only with --force via --ids ─────────────────────
-	t.Log("Step 2: replaying msg1 with messages --ids --force...")
+	// ── Step 2: backfill msg1 only with --force via --ids ───────────────────
+	t.Log("Step 2: backfilling msg1 with messages --ids --force...")
 	out, err := execInContainer(ctx, containerName,
-		replayCLIArgs("messages", "--ids", msgHex1, "--force")...)
-	require.NoError(t, err, "messages replay failed; output: %s", out)
+		backfillCLIArgs("messages", "--ids", msgHex1, "--force")...)
+	require.NoError(t, err, "messages backfill failed; output: %s", out)
 
 	msg1VerifierTsAfterIDs, err := getVerifierIngestionTimestamp(ctx, db, msgHex1)
 	require.NoError(t, err)
@@ -286,26 +286,26 @@ func TestE2ESmoke_ReplayForceOverwrite(t *testing.T) {
 	require.NoError(t, err)
 	msg2MessageTsAfterIDs, err := getMessageIngestionTimestamp(ctx, db, msgHex2)
 	require.NoError(t, err)
-	t.Logf("After --ids replay: msg1 verifier=%s message=%s  msg2 verifier=%s message=%s",
+	t.Logf("After --ids backfill: msg1 verifier=%s message=%s  msg2 verifier=%s message=%s",
 		msg1VerifierTsAfterIDs.Format(time.RFC3339Nano), msg1MessageTsAfterIDs.Format(time.RFC3339Nano),
 		msg2VerifierTsAfterIDs.Format(time.RFC3339Nano), msg2MessageTsAfterIDs.Format(time.RFC3339Nano))
 
 	require.True(t, msg1VerifierTsAfterIDs.After(msg1VerifierTsBefore),
-		"msg1 verifier_results ingestion_timestamp must be updated after --ids --force replay")
+		"msg1 verifier_results ingestion_timestamp must be updated after --ids --force backfill")
 	require.True(t, msg2VerifierTsAfterIDs.Equal(msg2VerifierTsBefore),
-		"msg2 verifier_results ingestion_timestamp must be unchanged after replaying only msg1")
+		"msg2 verifier_results ingestion_timestamp must be unchanged after backfilling only msg1")
 	require.True(t, msg1MessageTsAfterIDs.After(msg1MessageTsBefore),
-		"msg1 messages ingestion_timestamp must be updated after --ids --force replay")
+		"msg1 messages ingestion_timestamp must be updated after --ids --force backfill")
 	require.True(t, msg2MessageTsAfterIDs.Equal(msg2MessageTsBefore),
-		"msg2 messages ingestion_timestamp must be unchanged after replaying only msg1")
+		"msg2 messages ingestion_timestamp must be unchanged after backfilling only msg1")
 
 	time.Sleep(2 * time.Second)
 
-	// ── Step 3: replay both with --force via discovery --since ───────────────
-	t.Logf("Step 3: replaying both with discovery --since %s --force...", discoverySince)
+	// ── Step 3: backfill both with --force via discovery --since ──────────────
+	t.Logf("Step 3: backfilling both with discovery --since %s --force...", discoverySince)
 	out, err = execInContainer(ctx, containerName,
-		replayCLIArgs("discovery", "--since", discoverySince, "--force")...)
-	require.NoError(t, err, "discovery force replay failed; output: %s", out)
+		backfillCLIArgs("discovery", "--since", discoverySince, "--force")...)
+	require.NoError(t, err, "discovery force backfill failed; output: %s", out)
 
 	msg1VerifierTsAfterDisc, err := getVerifierIngestionTimestamp(ctx, db, msgHex1)
 	require.NoError(t, err)
@@ -330,11 +330,11 @@ func TestE2ESmoke_ReplayForceOverwrite(t *testing.T) {
 
 	time.Sleep(2 * time.Second)
 
-	// ── Step 4: replay without --force (backfill-only, nothing to fill) ─────
-	t.Logf("Step 4: replaying with discovery --since %s (no --force)...", discoverySince)
+	// ── Step 4: backfill without --force (nothing new to fill) ──────────────
+	t.Logf("Step 4: backfilling with discovery --since %s (no --force)...", discoverySince)
 	out, err = execInContainer(ctx, containerName,
-		replayCLIArgs("discovery", "--since", discoverySince)...)
-	require.NoError(t, err, "discovery backfill replay failed; output: %s", out)
+		backfillCLIArgs("discovery", "--since", discoverySince)...)
+	require.NoError(t, err, "discovery backfill failed; output: %s", out)
 
 	msg1VerifierTsAfterBackfill, err := getVerifierIngestionTimestamp(ctx, db, msgHex1)
 	require.NoError(t, err)
@@ -349,13 +349,13 @@ func TestE2ESmoke_ReplayForceOverwrite(t *testing.T) {
 		msg2VerifierTsAfterBackfill.Format(time.RFC3339Nano), msg2MessageTsAfterBackfill.Format(time.RFC3339Nano))
 
 	require.True(t, msg1VerifierTsAfterBackfill.Equal(msg1VerifierTsAfterDisc),
-		"msg1 verifier_results ingestion_timestamp must NOT change on backfill-only replay (already exists)")
+		"msg1 verifier_results ingestion_timestamp must NOT change on backfill-only run (already exists)")
 	require.True(t, msg2VerifierTsAfterBackfill.Equal(msg2VerifierTsAfterDisc),
-		"msg2 verifier_results ingestion_timestamp must NOT change on backfill-only replay (already exists)")
+		"msg2 verifier_results ingestion_timestamp must NOT change on backfill-only run (already exists)")
 	require.True(t, msg1MessageTsAfterBackfill.Equal(msg1MessageTsAfterDisc),
-		"msg1 messages ingestion_timestamp must NOT change on backfill-only replay (already exists)")
+		"msg1 messages ingestion_timestamp must NOT change on backfill-only run (already exists)")
 	require.True(t, msg2MessageTsAfterBackfill.Equal(msg2MessageTsAfterDisc),
-		"msg2 messages ingestion_timestamp must NOT change on backfill-only replay (already exists)")
+		"msg2 messages ingestion_timestamp must NOT change on backfill-only run (already exists)")
 
 	// ── Final: verify data integrity via indexer HTTP API ────────────────────
 	for _, tc := range []struct {
@@ -366,8 +366,8 @@ func TestE2ESmoke_ReplayForceOverwrite(t *testing.T) {
 		{"msg2", msgID2},
 	} {
 		verifs, err := indexerMonitor.GetVerificationsForMessageID(ctx, tc.msgID)
-		require.NoError(t, err, "%s: failed to read verifications after all replays", tc.name)
+		require.NoError(t, err, "%s: failed to read verifications after all backfills", tc.name)
 		require.GreaterOrEqual(t, len(verifs.Results), 1,
-			"%s: verifications must still be present after all replays", tc.name)
+			"%s: verifications must still be present after all backfills", tc.name)
 	}
 }
