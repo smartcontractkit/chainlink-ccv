@@ -6,11 +6,13 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/policy"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/policy/mocks"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -114,19 +116,6 @@ type failingSigner struct {
 
 func (s failingSigner) Sign([]byte) ([]byte, error) { return nil, s.err }
 
-// recordingChecker answers every message with the same verdict and counts the calls, so a test
-// can tell "the endpoint passed it and the verifier still refused" apart from "the endpoint was
-// never asked".
-type recordingChecker struct {
-	verdict policy.Verdict
-	calls   int
-}
-
-func (c *recordingChecker) Evaluate(context.Context, policy.EvaluateRequest) (policy.Verdict, error) {
-	c.calls++
-	return c.verdict, nil
-}
-
 // TestPolicyHook_PassCannotBypassVerification is the answer to "are the policy checks purely
 // additive": they are. A PASS is not an instruction to sign. It only lets the task reach the
 // commit verifier, which then applies every check it would have applied with no hook configured.
@@ -158,7 +147,12 @@ func TestPolicyHook_PassCannotBypassVerification(t *testing.T) {
 			logger.Test(t), monitoring.NewFakeVerifierMonitoring())
 		require.NoError(t, err)
 
-		checker := &recordingChecker{verdict: policy.Verdict{Decision: policy.DecisionPass}}
+		// The endpoint must have been asked exactly once and answered PASS, or this test proves
+		// nothing about what a PASS can do: .Once() plus the mock's cleanup assertion pins both
+		// halves of that.
+		checker := mocks.NewMockChecker(t)
+		checker.EXPECT().Evaluate(mock.Anything, mock.Anything).
+			Return(policy.Verdict{Decision: policy.DecisionPass}, nil).Once()
 		gated, err := policy.NewGatedVerifier(
 			logger.Test(t), "committee-verifier-1", cv, checker,
 			monitoring.NewFakeVerifierMonitoring(), 0,
@@ -167,9 +161,6 @@ func TestPolicyHook_PassCannotBypassVerification(t *testing.T) {
 
 		task := newVerifiableTask(t, configuredSourceChain, destChain, addr, verifierBlob, executorAddr)
 		results := gated.VerifyMessages(t.Context(), []verifier.VerificationTask{task})
-
-		require.Equal(t, 1, checker.calls,
-			"the endpoint must have been asked and answered PASS, or this proves nothing about what a PASS can do")
 
 		require.Len(t, results, 1)
 		assert.Nil(t, results[0].Result, "a PASS must not produce a signature the verifier withheld")
@@ -191,7 +182,9 @@ func TestPolicyHook_PassCannotBypassVerification(t *testing.T) {
 		cv, err := NewCommitVerifier(config, addr, signer, logger.Test(t), monitoring.NewFakeVerifierMonitoring())
 		require.NoError(t, err)
 
-		checker := &recordingChecker{verdict: policy.Verdict{Decision: policy.DecisionPass}}
+		// No expectation is set on the mock: the mock fails the test if Evaluate is called at
+		// all, which is how the endpoint skip stays asserted rather than assumed.
+		checker := mocks.NewMockChecker(t)
 		gated, err := policy.NewGatedVerifier(
 			logger.Test(t), "committee-verifier-1", cv, checker,
 			monitoring.NewFakeVerifierMonitoring(), 0,
@@ -200,9 +193,6 @@ func TestPolicyHook_PassCannotBypassVerification(t *testing.T) {
 
 		task := newVerifiableTask(t, unconfiguredSourceChain, destChain, addr, verifierBlob, executorAddr)
 		results := gated.VerifyMessages(t.Context(), []verifier.VerificationTask{task})
-
-		assert.Zero(t, checker.calls,
-			"the hook gates messages this verifier would sign, so a task it already rejects costs the operator nothing")
 
 		require.Len(t, results, 1)
 		assert.Nil(t, results[0].Result, "a task the verifier rejects is never signed")
