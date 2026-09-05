@@ -192,6 +192,9 @@ func (m *noopMetricLabeler) RecordTokenHTTPRequest(context.Context, string, stri
 func (m *noopMetricLabeler) RecordTokenHTTPCooldownSeconds(context.Context, string, time.Duration) {
 }
 
+func (m *noopMetricLabeler) RecordPolicyHTTPRequestDuration(context.Context, string, time.Duration) {
+}
+
 // TestVerifier keeps track of all processed messages for testing.
 type TestVerifier struct {
 	processedTasks []VerificationTask
