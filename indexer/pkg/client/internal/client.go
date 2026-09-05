@@ -31,28 +31,28 @@ type ErrorResponse struct {
 
 // Message defines model for Message.
 type Message struct {
-	CcipReceiveGasLimit  int32         `json:"ccip_receive_gas_limit"`
-	CcvAndExecutorHash   string        `json:"ccv_and_executor_hash"`
-	Data                 string        `json:"data"`
-	DataLength           int32         `json:"data_length"`
-	DestBlob             string        `json:"dest_blob"`
-	DestBlobLength       int32         `json:"dest_blob_length"`
-	DestChainSelector    int64         `json:"dest_chain_selector"`
-	ExecutionGasLimit    int32         `json:"execution_gas_limit"`
-	Finality             int32         `json:"finality"`
-	OffRampAddress       string        `json:"off_ramp_address"`
-	OffRampAddressLength int32         `json:"off_ramp_address_length"`
-	OnRampAddress        string        `json:"on_ramp_address"`
-	OnRampAddressLength  int32         `json:"on_ramp_address_length"`
-	Receiver             string        `json:"receiver"`
-	ReceiverLength       int32         `json:"receiver_length"`
-	Sender               string        `json:"sender"`
-	SenderLength         int32         `json:"sender_length"`
-	SequenceNumber       int64         `json:"sequence_number"`
-	SourceChainSelector  int64         `json:"source_chain_selector"`
-	TokenTransfer        TokenTransfer `json:"token_transfer"`
-	TokenTransferLength  int32         `json:"token_transfer_length"`
-	Version              int32         `json:"version"`
+	CcipReceiveGasLimit  int32                  `json:"ccip_receive_gas_limit"`
+	CcvAndExecutorHash   string                 `json:"ccv_and_executor_hash"`
+	Data                 string                 `json:"data"`
+	DataLength           int32                  `json:"data_length"`
+	DestBlob             string                 `json:"dest_blob"`
+	DestBlobLength       int32                  `json:"dest_blob_length"`
+	DestChainSelector    protocol.ChainSelector `json:"dest_chain_selector"`
+	ExecutionGasLimit    int32                  `json:"execution_gas_limit"`
+	Finality             int32                  `json:"finality"`
+	OffRampAddress       string                 `json:"off_ramp_address"`
+	OffRampAddressLength int32                  `json:"off_ramp_address_length"`
+	OnRampAddress        string                 `json:"on_ramp_address"`
+	OnRampAddressLength  int32                  `json:"on_ramp_address_length"`
+	Receiver             string                 `json:"receiver"`
+	ReceiverLength       int32                  `json:"receiver_length"`
+	Sender               string                 `json:"sender"`
+	SenderLength         int32                  `json:"sender_length"`
+	SequenceNumber       uint64                 `json:"sequence_number"`
+	SourceChainSelector  protocol.ChainSelector `json:"source_chain_selector"`
+	TokenTransfer        TokenTransfer          `json:"token_transfer"`
+	TokenTransferLength  int32                  `json:"token_transfer_length"`
+	Version              int32                  `json:"version"`
 }
 
 // MessageMetadata defines model for MessageMetadata.
