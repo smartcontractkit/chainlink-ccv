@@ -23,7 +23,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/heartbeat"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/policy"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 	"github.com/smartcontractkit/chainlink-evm/pkg/chains/legacyevm"
@@ -36,9 +35,10 @@ import (
 // cfg.ResolvedAggregators(); the legacy single-aggregator config has an empty SecretName, so its
 // credential is keyed by "".
 //
-// Optional dependencies are passed as opts rather than as parameters. This constructor is called
-// from the Chainlink node repo, so a positional signature that grows breaks that build until a
-// change lands there, and the two cannot land at once.
+// This constructor is called from the Chainlink node repo, so the signature must not grow
+// positionally: an optional dependency is added as a variadic functional option, which a caller
+// that never passes it does not notice. A positional parameter breaks that build the moment it
+// lands, and the two repos cannot land a change at the same instant.
 func NewVerificationCoordinator(
 	lggr logger.Logger,
 	cfg commit.Config,
@@ -47,15 +47,20 @@ func NewVerificationCoordinator(
 	signer verifier.MessageSigner,
 	relayers map[protocol.ChainSelector]legacyevm.Chain,
 	ds sqlutil.DataSource,
-	opts ...VerificationCoordinatorOption,
 ) (*verifier.Coordinator, error) {
-	options := newVerificationCoordinatorOptions(opts)
-
 	lggr = logging.WithService(lggr, "verifier")
 
 	if err := cfg.Validate(); err != nil {
 		lggr.Errorw("Invalid CCV verifier configuration.", "error", err)
 		return nil, fmt.Errorf("invalid ccv verifier configuration: %w", err)
+	}
+
+	// The policy hook is not supported on a verifier running inside a Chainlink node: its HMAC
+	// credential is resolved from the standalone verifier's secrets file, which does not exist
+	// here. Configuring the section must fail loudly rather than screen traffic with an
+	// unauthenticated hook.
+	if cfg.PolicyHook != nil {
+		return nil, fmt.Errorf("invalid ccv verifier configuration: [policy_hook] is not supported on a verifier running inside a Chainlink node; run the standalone verifier to use the policy hook")
 	}
 
 	if err := commit.ValidateSignerAddress(cfg.SignerAddress, signingAddress); err != nil {
@@ -228,20 +233,13 @@ func NewVerificationCoordinator(
 		ChainStatusFlushThreshold: chainstatus.DefaultFlushThreshold,
 	}
 
-	// Create commit verifier (with ECDSA signer)
+	// Create commit verifier (with ECDSA signer). The policy hook is rejected above for this
+	// entry point, so the verifier runs ungated here.
 	ecdsaSigner := commit.NewECDSASignerWithKeystoreSigner(signer)
 	commitVerifier, err := commit.NewCommitVerifier(coordinatorConfig, signingAddress, ecdsaSigner, lggr, verifierMonitoring)
 	if err != nil {
 		lggr.Errorw("Failed to create commit verifier", "error", err)
 		return nil, fmt.Errorf("failed to create commit verifier: %w", err)
-	}
-
-	// Apply the operator's policy hook. With no [policy_hook] section this returns the commit
-	// verifier unchanged.
-	gatedVerifier, err := policy.WrapVerifier(lggr, cfg.VerifierID, commitVerifier, cfg.PolicyHook, verifierMonitoring, options.policyHookCredential)
-	if err != nil {
-		lggr.Errorw("Failed to apply policy hook", "error", err)
-		return nil, fmt.Errorf("failed to apply policy hook: %w", err)
 	}
 
 	heartbeatSender, err := heartbeatclient.NewFanOutHeartbeatSender(
@@ -311,7 +309,7 @@ func NewVerificationCoordinator(
 
 	verifierCoordinator, err := verifier.NewCoordinator(
 		lggr,
-		gatedVerifier,
+		commitVerifier,
 		sourceReaders,
 		observedOffchainWriter,
 		coordinatorConfig,
