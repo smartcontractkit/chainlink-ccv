@@ -1,4 +1,4 @@
-package replay
+package backfill
 
 import (
 	"context"
@@ -10,9 +10,9 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
-func (e *Engine) runMessageReplay(ctx context.Context, job *Job) error {
+func (e *Engine) runMessageBackfill(ctx context.Context, job *Job) error {
 	if len(job.MessageIDs) == 0 {
-		return fmt.Errorf("message replay requires at least one message ID")
+		return fmt.Errorf("message backfill requires at least one message ID")
 	}
 	if e.registry == nil {
 		return fmt.Errorf("verifier registry not configured")
@@ -20,7 +20,7 @@ func (e *Engine) runMessageReplay(ctx context.Context, job *Job) error {
 
 	startIdx := int(job.ProgressCursor)
 	if startIdx > 0 {
-		e.lggr.Infow("Resuming message replay", "jobID", job.ID, "fromIndex", startIdx, "total", len(job.MessageIDs))
+		e.lggr.Infow("Resuming message backfill", "jobID", job.ID, "fromIndex", startIdx, "total", len(job.MessageIDs))
 	}
 
 	for i := startIdx; i < len(job.MessageIDs); i++ {
@@ -38,7 +38,7 @@ func (e *Engine) runMessageReplay(ctx context.Context, job *Job) error {
 			continue
 		}
 
-		e.lggr.Infow("Replaying message", "jobID", job.ID, "messageID", msgIDHex, "index", i, "total", len(job.MessageIDs))
+		e.lggr.Infow("Backfilling message", "jobID", job.ID, "messageID", msgIDHex, "index", i, "total", len(job.MessageIDs))
 
 		if err := e.gatherAllVerifications(ctx, job, msgID); err != nil {
 			e.lggr.Warnw("Error gathering verifications for message",
@@ -53,7 +53,7 @@ func (e *Engine) runMessageReplay(ctx context.Context, job *Job) error {
 		}
 	}
 
-	e.lggr.Infow("Message replay finished", "jobID", job.ID, "total", len(job.MessageIDs))
+	e.lggr.Infow("Message backfill finished", "jobID", job.ID, "total", len(job.MessageIDs))
 	return nil
 }
 

@@ -1,4 +1,4 @@
-package replay
+package backfill
 
 import (
 	"context"
@@ -15,7 +15,7 @@ import (
 
 const cleanupTimeout = 5 * time.Second
 
-// Storage is the subset of storage operations the replay engine needs.
+// Storage is the subset of storage operations the backfill engine needs.
 type Storage interface {
 	// UpsertVerifierResults inserts or overwrites verifier results based on force flag.
 	UpsertVerifierResults(ctx context.Context, results []common.VerifierResultWithMetadata, force bool) error
@@ -25,11 +25,11 @@ type Storage interface {
 	GetMessage(ctx context.Context, messageID protocol.Bytes32) (common.MessageWithMetadata, error)
 }
 
-// AggregatorReaderFactory creates a new aggregator reader for replay.
+// AggregatorReaderFactory creates a new aggregator reader for backfill.
 // The caller is responsible for closing the returned reader.
 type AggregatorReaderFactory func(since int64) (*readers.ResilientReader, error)
 
-// Engine orchestrates replay jobs with crash-recovery support.
+// Engine orchestrates backfill jobs with crash-recovery support.
 type Engine struct {
 	store                   *Store
 	storage                 Storage
@@ -58,7 +58,7 @@ func NewEngine(
 		storage:                 storage,
 		registry:                reg,
 		aggregatorReaderFactory: factory,
-		lggr:                    logger.Named(lggr, "ReplayEngine"),
+		lggr:                    logger.Named(lggr, "BackfillEngine"),
 		batchThrottleDelay:      500 * time.Millisecond,
 	}
 	for _, opt := range opts {
@@ -68,11 +68,11 @@ func NewEngine(
 }
 
 // Start creates a new job or resumes a stale one, acquires the advisory lock,
-// and runs the replay to completion.
+// and runs the backfill to completion.
 func (e *Engine) Start(ctx context.Context, req Request) (string, error) {
 	job, err := e.findOrCreateJob(ctx, req)
 	if err != nil {
-		return "", fmt.Errorf("failed to prepare replay job: %w", err)
+		return "", fmt.Errorf("failed to prepare backfill job: %w", err)
 	}
 
 	lockConn, err := e.store.AcquireAdvisoryLock(ctx, job.ID)
@@ -81,7 +81,7 @@ func (e *Engine) Start(ctx context.Context, req Request) (string, error) {
 	}
 	defer func() { _ = lockConn.Close() }()
 
-	e.lggr.Infow("Starting replay", "jobID", job.ID, "type", job.Type, "force", job.ForceOverwrite, "cursor", job.ProgressCursor)
+	e.lggr.Infow("Starting backfill", "jobID", job.ID, "type", job.Type, "force", job.ForceOverwrite, "cursor", job.ProgressCursor)
 
 	err = e.runJob(ctx, job)
 	if err != nil {
@@ -90,7 +90,7 @@ func (e *Engine) Start(ctx context.Context, req Request) (string, error) {
 		if markErr := e.store.MarkFailed(cleanupCtx, job.ID, err.Error()); markErr != nil {
 			e.lggr.Errorw("Failed to mark job as failed", "jobID", job.ID, "error", markErr)
 		}
-		return job.ID, fmt.Errorf("replay job %s failed: %w", job.ID, err)
+		return job.ID, fmt.Errorf("backfill job %s failed: %w", job.ID, err)
 	}
 
 	cleanupCtx, cancel := context.WithTimeout(context.Background(), cleanupTimeout)
@@ -100,7 +100,7 @@ func (e *Engine) Start(ctx context.Context, req Request) (string, error) {
 		return job.ID, markErr
 	}
 
-	e.lggr.Infow("Replay completed", "jobID", job.ID)
+	e.lggr.Infow("Backfill completed", "jobID", job.ID)
 	return job.ID, nil
 }
 
@@ -121,7 +121,7 @@ func (e *Engine) Resume(ctx context.Context, jobID string) error {
 	}
 	defer func() { _ = lockConn.Close() }()
 
-	e.lggr.Infow("Resuming replay", "jobID", job.ID, "type", job.Type, "cursor", job.ProgressCursor)
+	e.lggr.Infow("Resuming backfill", "jobID", job.ID, "type", job.Type, "cursor", job.ProgressCursor)
 
 	err = e.runJob(ctx, job)
 	if err != nil {
@@ -130,7 +130,7 @@ func (e *Engine) Resume(ctx context.Context, jobID string) error {
 		if markErr := e.store.MarkFailed(cleanupCtx, job.ID, err.Error()); markErr != nil {
 			e.lggr.Errorw("Failed to mark job as failed", "jobID", job.ID, "error", markErr)
 		}
-		return fmt.Errorf("replay job %s failed: %w", job.ID, err)
+		return fmt.Errorf("backfill job %s failed: %w", job.ID, err)
 	}
 
 	cleanupCtx, cancel := context.WithTimeout(context.Background(), cleanupTimeout)
@@ -139,7 +139,7 @@ func (e *Engine) Resume(ctx context.Context, jobID string) error {
 		return markErr
 	}
 
-	e.lggr.Infow("Replay completed", "jobID", job.ID)
+	e.lggr.Infow("Backfill completed", "jobID", job.ID)
 	return nil
 }
 
@@ -163,19 +163,19 @@ func (e *Engine) findOrCreateJob(ctx context.Context, req Request) (*Job, error)
 
 	job, err := e.store.CreateJob(ctx, req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create replay job: %w", err)
+		return nil, fmt.Errorf("failed to create backfill job: %w", err)
 	}
-	e.lggr.Infow("Created new replay job", "jobID", job.ID)
+	e.lggr.Infow("Created new backfill job", "jobID", job.ID)
 	return job, nil
 }
 
 func (e *Engine) runJob(ctx context.Context, job *Job) error {
 	switch job.Type {
 	case TypeDiscovery:
-		return e.runDiscoveryReplay(ctx, job)
+		return e.runDiscoveryBackfill(ctx, job)
 	case TypeMessages:
-		return e.runMessageReplay(ctx, job)
+		return e.runMessageBackfill(ctx, job)
 	default:
-		return fmt.Errorf("unknown replay type: %s", job.Type)
+		return fmt.Errorf("unknown backfill type: %s", job.Type)
 	}
 }

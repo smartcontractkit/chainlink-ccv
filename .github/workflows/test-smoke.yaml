@@ -101,8 +101,8 @@ jobs:
             pattern: TestE2ESmoke_RemoveRemotePool
             profile: standard.profile
             timeout: 10m
-          - name: TestE2ESmoke_Replay
-            pattern: TestE2ESmoke_Replay
+          - name: TestE2ESmoke_Backfill
+            pattern: TestE2ESmoke_Backfill
             profile: standard.profile
             timeout: 10m
           - name: TestE2EReorg
