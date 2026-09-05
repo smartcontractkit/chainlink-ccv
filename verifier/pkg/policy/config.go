@@ -93,8 +93,9 @@ type Config struct {
 	RequestTimeout string `toml:"request_timeout"`
 	// RetryDelay is how long a message waits before the endpoint is called again after an
 	// endpoint error, as a Go duration string (e.g. "10s"). Empty uses the 10s default. The
-	// wait is jittered per message across half to one and a half times this value, so an
-	// outage does not send the whole held backlog at the endpoint on the same tick.
+	// value doubles with each attempt, capped at one hour, and the result is jittered per
+	// message across half to one and a half times it, so an outage neither hammers the endpoint
+	// every few seconds for a week nor sends the whole held backlog at it on the same tick.
 	RetryDelay string `toml:"retry_delay"`
 	// InsecureConnection allows a plain http:// endpoint. Only for local development and
 	// tests: a policy verdict carries compliance weight and must not travel in the clear.
