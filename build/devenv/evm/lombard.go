@@ -172,10 +172,7 @@ func (m *CCIP17EVMConfig) deployLombardChain(
 	bridgeV2 common.Address,
 	chain evm.Chain,
 ) error {
-	lombardChainRegistry := adapters.NewLombardChainRegistry()
-	lombardChainRegistry.RegisterLombardChain("evm", &evmadapters.LombardChainAdapter{})
-
-	out, err := changesets.DeployLombardChains(lombardChainRegistry, registry).Apply(*env, changesets.DeployLombardChainsConfig{
+	out, err := changesets.DeployLombardChains(devenvcommon.GlobalLombardRegistry, registry).Apply(*env, changesets.DeployLombardChainsConfig{
 		Chains: map[uint64]changesets.LombardChainConfig{
 			selector: {
 				Bridge:           bridgeV2.Hex(),
