@@ -28,10 +28,10 @@ are out of date. See [`docs/config/README.md`](./docs/config/README.md) for deta
 
 ## Runbooks & operational CLIs
 
-Incident runbooks live under [`docs/runbooks/`](./docs/runbooks/) — message triage plus
+Incident runbooks live under [`docs/runbooks/`](./docs/runbooks/): message triage, then
 the recovery (replay) procedures that follow from it. The operational CLIs they use:
 
-- [`cli/jobqueue`](./cli/jobqueue/README.md) — inspect and reschedule failed jobs
+- [`cli/jobqueue`](./cli/jobqueue/README.md) — inspect and reschedule failed jobs (standalone `verifier` binary only)
 - [`cli/chainstatuses`](./cli/chainstatuses/README.md) — chain checkpoints and disablement
 - [`aggregator/cli/messagedisablement`](./aggregator/cli/messagedisablement/README.md) — aggregator-side message-disablement rules
 

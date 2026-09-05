@@ -489,38 +489,38 @@ flowchart LR
 
 ## Job Queue: Inspecting and Rescheduling Failed Messages
 
-The `cli/jobqueue` package provides CLI commands to inspect failed jobs and reschedule them. These commands are exposed in deployed binaries under `ccv job-queue`.
+The `cli/jobqueue` package provides CLI commands to inspect failed jobs and reschedule them. They are wired into the standalone `verifier` binary under `verifier ccv job-queue` (`cmd/verifier/run_ccv_cli.go`). The Chainlink node binary does not carry them: `chainlink node ccv` exposes only `chain-statuses` (chainlink core `core/cmd/shell_local.go`, `initCCVCommand`, as of 2026-09-04), so a node in CL mode falls back to the checkpoint rewind described under Chain Statuses. Reschedule works against a running verifier; the job is picked up by the queue's 30-second fallback poll (`DefaultPendingFallbackInterval`). For choosing between the levers see [docs/runbooks/remediating-stuck-or-dropped-messages.md](../../docs/runbooks/remediating-stuck-or-dropped-messages.md).
 
 ### List failed jobs
 
 ```bash
 # List all failed jobs across both queues
-node ccv job-queue list
+verifier ccv job-queue list
 
 # Filter by queue
-node ccv job-queue list --queue task-verifier
-node ccv job-queue list --queue storage-writer
+verifier ccv job-queue list --queue task-verifier
+verifier ccv job-queue list --queue storage-writer
 
 # Filter by verifier ID
-node ccv job-queue list --verifier-id my-verifier-1 --limit 100
+verifier ccv job-queue list --verifier-id my-verifier-1 --limit 100
 ```
 
 Output columns: Queue, Job ID, Message ID, Owner ID, Chain Selector, Attempts, Last Error, Created At, Archived At.
 
 ### Reschedule a failed job
 
-Failed jobs that have exceeded their 7-day retry deadline are archived and will not be retried automatically. They can be manually rescheduled:
+Failed jobs that have exceeded their 7-day retry deadline are archived and will not be retried automatically. Non-retryable failures, such as a policy-hook FAIL, are archived immediately. Either kind can be manually rescheduled:
 
 ```bash
 # Reschedule by job UUID, giving it a fresh 1h retry window
-node ccv job-queue reschedule \
+verifier ccv job-queue reschedule \
   --queue task-verifier \
   --verifier-id my-verifier-1 \
   --job-id <uuid> \
   --retry-duration 1h
 
 # Reschedule by message ID
-node ccv job-queue reschedule \
+verifier ccv job-queue reschedule \
   --queue storage-writer \
   --verifier-id my-verifier-1 \
   --message-id 0xabc123... \

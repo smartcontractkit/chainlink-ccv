@@ -192,9 +192,9 @@ before investigating further downstream.
 ## 8. Remediate or Hand Off
 
 Executor-side problems (queue capacity, destination reader, transmitter) are
-resolved in the executor's own infrastructure. When triage points upstream —
-`skipped/no_verifier_results`, `quorum_not_met`, or the verifier never stored a
-result — return to
+resolved in the executor's own infrastructure. When triage points upstream, that
+is `skipped/no_verifier_results`, `quorum_not_met`, or the verifier never stored
+a result, return to
 [Runbook: Message Unverified After 15 Minutes](./unverified-message-after-15-minutes.md)
 and then
 [Runbook: Remediating a Stuck or Dropped Message](./remediating-stuck-or-dropped-messages.md)
