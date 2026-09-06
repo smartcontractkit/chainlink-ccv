@@ -61,6 +61,12 @@ type TokenVerifierInput struct {
 	// generated config should resolve addresses for.
 	LombardQualifier string `toml:"lombard_qualifier"`
 
+	// VerifierTypes restricts this instance to the given token verifier types (e.g. "cctp",
+	// "lombard"). Config is generated for every supported type regardless, so without this an
+	// instance runs all of them; set it to split types across dedicated instances. An empty or
+	// absent list keeps every reachable type, preserving the previous behaviour.
+	VerifierTypes []string `toml:"verifier_types"`
+
 	// GeneratedConfig stores the generated token verifier configuration from the changeset.
 	GeneratedConfig *token.Config `toml:"-"`
 

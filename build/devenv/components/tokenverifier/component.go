@@ -3,7 +3,9 @@ package tokenverifier
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strconv"
+	"strings"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
@@ -183,6 +185,11 @@ func (c *component) RunPhase4(
 		}
 
 		tokenVerifierCfg.TokenVerifiers = dropUnreachableVerifiers(tokenVerifierCfg.TokenVerifiers, familySelectors)
+		selected, selErr := selectVerifierTypes(tokenVerifierCfg.TokenVerifiers, tvIn.VerifierTypes)
+		if selErr != nil {
+			return nil, nil, fmt.Errorf("tokenverifier: instance %q: %w", tvIn.ContainerName, selErr)
+		}
+		tokenVerifierCfg.TokenVerifiers = selected
 		inputs[i].GeneratedConfig = tokenVerifierCfg
 	}
 
@@ -211,6 +218,51 @@ func (c *component) RunPhase4(
 // dropUnreachableVerifiers removes any verifier-type entry (CCTP or Lombard) whose
 // resolved verifier-resolver addresses have no chain in common with localSelectors:
 // an instance can never coordinate a verifier type it has no locally-reachable chains for.
+// selectVerifierTypes restricts verifiers to the requested types. Config is generated for every
+// supported type on every instance, so without this each instance runs them all: a container meant
+// to be the Lombard verifier also picks up CCTP messages and reports itself as "CCTPVerifier".
+//
+// An empty want list keeps everything, so instances that do not set verifier_types are unaffected.
+// A requested type that produced no config is an error rather than a silent no-op, since that means
+// the instance would start with fewer verifiers than the operator asked for (or none at all).
+func selectVerifierTypes(verifiers []token.VerifierConfig, want []string) ([]token.VerifierConfig, error) {
+	if len(want) == 0 {
+		return verifiers, nil
+	}
+
+	wanted := make(map[string]bool, len(want))
+	for _, t := range want {
+		wanted[strings.ToLower(strings.TrimSpace(t))] = false
+	}
+
+	selected := make([]token.VerifierConfig, 0, len(verifiers))
+	for _, vc := range verifiers {
+		t := strings.ToLower(vc.Type)
+		if _, ok := wanted[t]; !ok {
+			continue
+		}
+		wanted[t] = true
+		selected = append(selected, vc)
+	}
+
+	missing := make([]string, 0, len(wanted))
+	for t, matched := range wanted {
+		if !matched {
+			missing = append(missing, t)
+		}
+	}
+	if len(missing) > 0 {
+		sort.Strings(missing)
+		available := make([]string, 0, len(verifiers))
+		for _, vc := range verifiers {
+			available = append(available, vc.Type)
+		}
+		return nil, fmt.Errorf("verifier_types %v not found in generated config (available: %v)", missing, available)
+	}
+
+	return selected, nil
+}
+
 func dropUnreachableVerifiers(verifiers []token.VerifierConfig, localSelectors []uint64) []token.VerifierConfig {
 	local := make(map[string]struct{}, len(localSelectors))
 	for _, sel := range localSelectors {
