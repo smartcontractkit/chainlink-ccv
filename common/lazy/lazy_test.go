@@ -63,6 +63,34 @@ func TestLazy(t *testing.T) {
 		require.Equal(t, int32(3), derives.Load())
 	})
 
+	t.Run("a failed caller context is not cached and a later call retries", func(t *testing.T) {
+		t.Parallel()
+
+		var derives atomic.Int32
+		l := New(func(ctx context.Context) (value, error) {
+			derives.Add(1)
+			if ctx.Err() != nil {
+				return value{}, ctx.Err()
+			}
+			return value{}, nil
+		})
+
+		// The derivation runs with the caller's context, so a canceled caller fails the
+		// derivation without caching anything.
+		cancelled, cancel := context.WithCancel(context.Background())
+		cancel()
+		_, err := l.Value(cancelled)
+		require.ErrorIs(t, err, context.Canceled)
+		require.False(t, l.Derived())
+
+		// A later caller with a healthy context re-attempts and succeeds.
+		got, err := l.Value(context.Background())
+		require.NoError(t, err)
+		require.Equal(t, value{}, got)
+		require.True(t, l.Derived())
+		require.Equal(t, int32(2), derives.Load())
+	})
+
 	t.Run("returns the derivation error to the caller", func(t *testing.T) {
 		t.Parallel()
 

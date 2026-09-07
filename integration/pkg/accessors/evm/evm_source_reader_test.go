@@ -25,6 +25,7 @@ import (
 	evmtypes "github.com/smartcontractkit/chainlink-evm/pkg/types"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_6_0/rmn_remote"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
@@ -420,4 +421,83 @@ func TestNewEVMSourceReader_NoEagerRPCAtConstruction(t *testing.T) {
 
 	// Exactly two RPCs, both triggered at query time — zero at construction.
 	client.AssertNumberOfCalls(t, "CallContract", 2)
+}
+
+// TestGetRMNCursedSubjects_RetriesDerivationAndCaches exercises the lazy RMN Remote derivation
+// end to end. A transient RPC failure surfaces at query time and is not cached; a later call
+// re-derives; once derivation succeeds the caller is cached, so subsequent curse reads go
+// straight to the RMN Remote without re-reading the OnRamp static config.
+func TestGetRMNCursedSubjects_RetriesDerivationAndCaches(t *testing.T) {
+	t.Parallel()
+
+	onRampAddr := common.HexToAddress("0x1234")
+	rmnRemoteAddr := common.HexToAddress("0x5678")
+
+	onRampABI, err := onramp.OnRampMetaData.GetAbi()
+	require.NoError(t, err)
+	staticConfigOut, err := onRampABI.Methods["getStaticConfig"].Outputs.Pack(onramp.OnRampStaticConfig{
+		RmnRemote: rmnRemoteAddr,
+	})
+	require.NoError(t, err)
+
+	rmnRemoteABI, err := rmn_remote.RMNRemoteMetaData.GetAbi()
+	require.NoError(t, err)
+	wantSubjects := [][16]byte{{1, 2, 3}}
+	cursedSubjectsOut, err := rmnRemoteABI.Methods["getCursedSubjects"].Outputs.Pack(wantSubjects)
+	require.NoError(t, err)
+
+	// Dispatch the mocked RPC by callee. Testify matches expectations in registration order,
+	// so the OnRamp static-config read fails with a rate limit on the first two attempts and
+	// then succeeds; the RMN Remote curse read always succeeds. Calls to any other contract
+	// have no matching expectation and fail the test.
+	rateLimitErr := errors.New("RPC call failed: rate limited")
+	isTo := func(want common.Address) func(ethereum.CallMsg) bool {
+		return func(msg ethereum.CallMsg) bool { return msg.To != nil && *msg.To == want }
+	}
+	var staticConfigCalls atomic.Int32
+	client := clienttest.NewClient(t)
+	client.On("CallContract", mock.Anything, mock.MatchedBy(isTo(rmnRemoteAddr)), mock.Anything).
+		Return(cursedSubjectsOut, nil)
+	client.On("CallContract", mock.Anything, mock.MatchedBy(isTo(onRampAddr)), mock.Anything).
+		Run(func(mock.Arguments) { staticConfigCalls.Add(1) }).
+		Return(nil, rateLimitErr).Twice()
+	client.On("CallContract", mock.Anything, mock.MatchedBy(isTo(onRampAddr)), mock.Anything).
+		Run(func(mock.Arguments) { staticConfigCalls.Add(1) }).
+		Return(staticConfigOut, nil).Once()
+
+	reader, err := NewEVMSourceReader(
+		context.Background(),
+		client,
+		heads.NullTracker,
+		onRampAddr,
+		common.Address{}, // deprecated configured RMN Remote, unset
+		common.Hash{}.Hex(),
+		protocol.ChainSelector(1337),
+		logger.Test(t),
+		25,
+		nil,
+	)
+	require.NoError(t, err)
+	sr := reader.(*SourceReader)
+
+	// The first two reads surface the derivation failure, which is never cached.
+	for range 2 {
+		_, err := sr.GetRMNCursedSubjects(context.Background())
+		require.ErrorContains(t, err, "failed to read OnRamp static config")
+		require.False(t, sr.rmnRemoteCaller.Derived(), "a failed derivation must not be cached")
+	}
+
+	// The third read re-derives successfully and returns the on-chain cursed subjects.
+	subjects, err := sr.GetRMNCursedSubjects(context.Background())
+	require.NoError(t, err)
+	want := []protocol.Bytes16{{1, 2, 3}}
+	require.Equal(t, want, subjects)
+	require.True(t, sr.rmnRemoteCaller.Derived())
+
+	// With derivation cached, a further read goes straight to the RMN Remote: the static-config
+	// call count does not grow.
+	subjects, err = sr.GetRMNCursedSubjects(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, want, subjects)
+	require.Equal(t, int32(3), staticConfigCalls.Load())
 }
