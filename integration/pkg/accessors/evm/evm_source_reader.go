@@ -19,6 +19,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_6_0/rmn_remote"
+	"github.com/smartcontractkit/chainlink-ccv/common/lazy"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 	"github.com/smartcontractkit/chainlink-evm/pkg/heads"
@@ -114,7 +115,7 @@ type SourceReader struct {
 	// configuredRMNRemoteAddress is the deprecated configured address, zero when unset. The
 	// authoritative address is derived lazily from the OnRamp's static config at query time.
 	configuredRMNRemoteAddress       common.Address
-	rmnRemoteCaller                  *rmnremotereader.LazyRMNRemoteCaller
+	rmnRemoteCaller                  *lazy.Lazy[rmn_remote.RMNRemoteCaller]
 	ccipMessageSentTopic             string
 	chainSelector                    protocol.ChainSelector
 	lggr                             logger.Logger
@@ -177,7 +178,7 @@ func NewEVMSourceReader(
 
 	// Derive + bind the RMN Remote caller on first use, then cache it. A transient failure is
 	// not cached, so a rate-limited or otherwise unavailable RPC retries on the next call.
-	rmnRemoteCaller := rmnremotereader.NewLazyRMNRemoteCaller(func(ctx context.Context) (rmn_remote.RMNRemoteCaller, error) {
+	rmnRemoteCaller := lazy.New(func(ctx context.Context) (rmn_remote.RMNRemoteCaller, error) {
 		// One-shot read of an immutable value, so a short timeout suffices.
 		deriveCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
@@ -614,7 +615,7 @@ func (r *SourceReader) LatestSafeBlock(ctx context.Context) (*protocol.BlockHead
 func (r *SourceReader) GetRMNCursedSubjects(ctx context.Context) ([]protocol.Bytes16, error) {
 	// Resolve the RMN Remote caller lazily (first call derives it on-chain) so construction
 	// performs no RPC and a transient derivation failure is surfaced here to be retried.
-	caller, err := r.rmnRemoteCaller.Caller(ctx)
+	caller, err := r.rmnRemoteCaller.Value(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve RMN Remote caller: %w", err)
 	}

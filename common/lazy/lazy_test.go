@@ -1,4 +1,4 @@
-package rmnremotereader
+package lazy
 
 import (
 	"context"
@@ -7,26 +7,27 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_6_0/rmn_remote"
 	"github.com/stretchr/testify/require"
 )
 
-func TestLazyRMNRemoteCaller(t *testing.T) {
+func TestLazy(t *testing.T) {
 	t.Parallel()
 
-	t.Run("derives once and caches the successful caller", func(t *testing.T) {
+	type value struct{}
+
+	t.Run("derives once and caches the value", func(t *testing.T) {
 		t.Parallel()
 
 		var derives int32
-		mk := func(ctx context.Context) (rmn_remote.RMNRemoteCaller, error) {
+		l := New(func(ctx context.Context) (value, error) {
 			atomic.AddInt32(&derives, 1)
-			return rmn_remote.RMNRemoteCaller{}, nil
-		}
-		l := NewLazyRMNRemoteCaller(mk)
+			return value{}, nil
+		})
 
 		for i := 0; i < 5; i++ {
-			_, err := l.Caller(context.Background())
+			got, err := l.Value(context.Background())
 			require.NoError(t, err)
+			require.Equal(t, value{}, got)
 		}
 		require.Equal(t, int32(1), atomic.LoadInt32(&derives))
 		require.True(t, l.Derived())
@@ -36,49 +37,57 @@ func TestLazyRMNRemoteCaller(t *testing.T) {
 		t.Parallel()
 
 		var derives int32
-		mk := func(ctx context.Context) (rmn_remote.RMNRemoteCaller, error) {
+		l := New(func(ctx context.Context) (value, error) {
 			n := atomic.AddInt32(&derives, 1)
 			if n < 3 {
-				return rmn_remote.RMNRemoteCaller{}, errors.New("RPC call failed: rate limited")
+				return value{}, errors.New("RPC call failed: rate limited")
 			}
-			return rmn_remote.RMNRemoteCaller{}, nil
-		}
-		l := NewLazyRMNRemoteCaller(mk)
+			return value{}, nil
+		})
 
-		_, err := l.Caller(context.Background())
+		_, err := l.Value(context.Background())
 		require.Error(t, err)
 		require.False(t, l.Derived())
 
-		_, err = l.Caller(context.Background())
+		_, err = l.Value(context.Background())
 		require.Error(t, err)
 		require.False(t, l.Derived())
 
-		_, err = l.Caller(context.Background())
+		_, err = l.Value(context.Background())
 		require.NoError(t, err)
 		require.True(t, l.Derived())
 
 		// Succeeds from cache; no additional derivation.
-		_, err = l.Caller(context.Background())
+		_, err = l.Value(context.Background())
 		require.NoError(t, err)
 		require.Equal(t, int32(3), atomic.LoadInt32(&derives))
+	})
+
+	t.Run("returns the derivation error to the caller", func(t *testing.T) {
+		t.Parallel()
+
+		wantErr := errors.New("boom")
+		l := New(func(context.Context) (value, error) { return value{}, wantErr })
+
+		_, err := l.Value(context.Background())
+		require.ErrorIs(t, err, wantErr)
 	})
 
 	t.Run("is safe under concurrent calls", func(t *testing.T) {
 		t.Parallel()
 
 		var derives int32
-		mk := func(ctx context.Context) (rmn_remote.RMNRemoteCaller, error) {
+		l := New(func(ctx context.Context) (value, error) {
 			atomic.AddInt32(&derives, 1)
-			return rmn_remote.RMNRemoteCaller{}, nil
-		}
-		l := NewLazyRMNRemoteCaller(mk)
+			return value{}, nil
+		})
 
 		var wg sync.WaitGroup
 		for i := 0; i < 20; i++ {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				_, err := l.Caller(context.Background())
+				_, err := l.Value(context.Background())
 				require.NoError(t, err)
 			}()
 		}

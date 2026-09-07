@@ -12,6 +12,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/offramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_6_0/rmn_remote"
+	"github.com/smartcontractkit/chainlink-ccv/common/lazy"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/executionchecker"
@@ -38,7 +39,7 @@ type EvmDestinationReader struct {
 	offRampCaller          offramp.OffRampCaller
 	// rmnRemoteCaller is derived lazily from the OffRamp's static config on first use, so
 	// construction performs no RPC and a transient derivation failure self-heals on retry.
-	rmnRemoteCaller        *rmnremotereader.LazyRMNRemoteCaller
+	rmnRemoteCaller        *lazy.Lazy[rmn_remote.RMNRemoteCaller]
 	lggr                   logger.Logger
 	client                 bind.ContractCaller
 	chainSelector          protocol.ChainSelector
@@ -114,7 +115,7 @@ func NewEvmDestinationReader(ctx context.Context, params Params) (*EvmDestinatio
 	// Derive + bind the RMN Remote caller lazily on first use, then cache it. A transient
 	// failure is not cached, so a rate-limited or otherwise unavailable RPC retries on the next
 	// call rather than failing construction.
-	rmnRemote := rmnremotereader.NewLazyRMNRemoteCaller(func(ctx context.Context) (rmn_remote.RMNRemoteCaller, error) {
+	rmnRemote := lazy.New(func(ctx context.Context) (rmn_remote.RMNRemoteCaller, error) {
 		// One-shot read of an immutable value, so a short timeout suffices.
 		deriveCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
@@ -297,7 +298,7 @@ func (dr *EvmDestinationReader) GetMessageSuccess(ctx context.Context, message p
 func (dr *EvmDestinationReader) GetRMNCursedSubjects(ctx context.Context) ([]protocol.Bytes16, error) {
 	// Resolve the RMN Remote caller lazily (first call derives it on-chain) so construction
 	// performs no RPC and a transient derivation failure is surfaced here to be retried.
-	caller, err := dr.rmnRemoteCaller.Caller(ctx)
+	caller, err := dr.rmnRemoteCaller.Value(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve RMN Remote caller: %w", err)
 	}
