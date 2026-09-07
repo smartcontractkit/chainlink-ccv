@@ -36,7 +36,9 @@ type EvmDestinationReader struct {
 	services.StateMachine
 	cancelFunc             context.CancelFunc
 	offRampCaller          offramp.OffRampCaller
-	rmnRemoteCaller        rmn_remote.RMNRemoteCaller // Bound at the address derived from the OffRamp static config.
+	// rmnRemoteCaller is derived lazily from the OffRamp's static config on first use, so
+	// construction performs no RPC and a transient derivation failure self-heals on retry.
+	rmnRemoteCaller        *rmnremotereader.LazyRMNRemoteCaller
 	lggr                   logger.Logger
 	client                 bind.ContractCaller
 	chainSelector          protocol.ChainSelector
@@ -109,27 +111,33 @@ func NewEvmDestinationReader(ctx context.Context, params Params) (*EvmDestinatio
 		return nil, fmt.Errorf("failed to create offramp caller for chain %d: %w", params.ChainSelector, err)
 	}
 
-	// One-shot read of an immutable value, so a short timeout suffices.
-	deriveCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	rmnRemoteAddr, err := deriveRMNRemoteFromOffRamp(deriveCtx, offRamp)
-	if err != nil {
-		return nil, err
-	}
-	params.Lggr.Infow("Derived RMN Remote address from OffRamp static config",
-		"chain", params.ChainSelector,
-		"rmnRemoteAddress", rmnRemoteAddr.Hex())
-	if params.RmnRemoteAddress != "" && common.HexToAddress(params.RmnRemoteAddress) != rmnRemoteAddr {
-		params.Lggr.Warnw("Configured rmn_address does not match the OffRamp static config; using the derived address",
+	// Derive + bind the RMN Remote caller lazily on first use, then cache it. A transient
+	// failure is not cached, so a rate-limited or otherwise unavailable RPC retries on the next
+	// call rather than failing construction.
+	rmnRemote := rmnremotereader.NewLazyRMNRemoteCaller(func(ctx context.Context) (rmn_remote.RMNRemoteCaller, error) {
+		// One-shot read of an immutable value, so a short timeout suffices.
+		deriveCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		rmnRemoteAddr, err := deriveRMNRemoteFromOffRamp(deriveCtx, offRamp)
+		if err != nil {
+			return rmn_remote.RMNRemoteCaller{}, err
+		}
+		params.Lggr.Infow("Derived RMN Remote address from OffRamp static config",
 			"chain", params.ChainSelector,
-			"configuredRmnRemoteAddress", params.RmnRemoteAddress,
 			"rmnRemoteAddress", rmnRemoteAddr.Hex())
-	}
-
-	rmnRemote, err := rmn_remote.NewRMNRemoteCaller(rmnRemoteAddr, params.ChainClient)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create rmn remote caller for chain %d: %w", params.ChainSelector, err)
-	}
+		if params.RmnRemoteAddress != "" && common.HexToAddress(params.RmnRemoteAddress) != rmnRemoteAddr {
+			params.Lggr.Warnw("Configured rmn_address does not match the OffRamp static config; using the derived address",
+				"chain", params.ChainSelector,
+				"configuredRmnRemoteAddress", params.RmnRemoteAddress,
+				"rmnRemoteAddress", rmnRemoteAddr.Hex())
+		}
+		caller, err := rmn_remote.NewRMNRemoteCaller(rmnRemoteAddr, params.ChainClient)
+		if err != nil {
+			return rmn_remote.RMNRemoteCaller{}, fmt.Errorf("failed to create rmn remote caller for chain %d: %w",
+				params.ChainSelector, err)
+		}
+		return *caller, nil
+	})
 
 	// Create execution attempt poller to track execution attempts
 	executionAttemptPoller, err := NewEVMExecutionAttemptPoller(
@@ -144,7 +152,7 @@ func NewEvmDestinationReader(ctx context.Context, params Params) (*EvmDestinatio
 
 	return &EvmDestinationReader{
 		offRampCaller:          *offRamp,
-		rmnRemoteCaller:        *rmnRemote,
+		rmnRemoteCaller:        rmnRemote,
 		lggr:                   params.Lggr,
 		chainSelector:          params.ChainSelector,
 		client:                 params.ChainClient,
@@ -287,8 +295,14 @@ func (dr *EvmDestinationReader) GetMessageSuccess(ctx context.Context, message p
 // GetRMNCursedSubjects gets all the cursed subjects for the destination chain including global curse.
 // Used in conjunction with common.CurseChecker to persist information. This EVMReadRMNCursedSubjects is shared with verifier.
 func (dr *EvmDestinationReader) GetRMNCursedSubjects(ctx context.Context) ([]protocol.Bytes16, error) {
+	// Resolve the RMN Remote caller lazily (first call derives it on-chain) so construction
+	// performs no RPC and a transient derivation failure is surfaced here to be retried.
+	caller, err := dr.rmnRemoteCaller.Caller(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve RMN Remote caller: %w", err)
+	}
 	// We use an abstracted function to reuse code between verifier and executor.
-	return rmnremotereader.EVMReadRMNCursedSubjects(ctx, dr.rmnRemoteCaller)
+	return rmnremotereader.EVMReadRMNCursedSubjects(ctx, caller)
 }
 
 // GetExecutionAttempts retrieves execution attempts for the given message from the poller cache.

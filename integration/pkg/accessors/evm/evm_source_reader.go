@@ -111,8 +111,10 @@ type SourceReader struct {
 	chainClient                      client.Client
 	headTracker                      heads.Tracker
 	onRampAddress                    common.Address
-	rmnRemoteAddress                 common.Address
-	rmnRemoteCaller                  rmn_remote.RMNRemoteCaller
+	// configuredRMNRemoteAddress is the deprecated configured address, zero when unset. The
+	// authoritative address is derived lazily from the OnRamp's static config at query time.
+	configuredRMNRemoteAddress       common.Address
+	rmnRemoteCaller                  *rmnremotereader.LazyRMNRemoteCaller
 	ccipMessageSentTopic             string
 	chainSelector                    protocol.ChainSelector
 	lggr                             logger.Logger
@@ -165,35 +167,40 @@ func NewEVMSourceReader(
 	}
 
 	// Bind to the OnRamp contract to derive the RMN Remote address from its static config.
+	// Binding only parses the ABI and issues no RPC; the authoritative RMN Remote address is
+	// read lazily on first GetRMNCursedSubjects so construction never fails on an RPC error.
 	onRampCaller, err := onramp.NewOnRampCaller(onRampAddress, chainClient)
 	if err != nil {
 		return nil, fmt.Errorf("failed to bind OnRamp contract at %s: %w",
 			onRampAddress.Hex(), err)
 	}
 
-	// One-shot read of an immutable value, so a short timeout suffices.
-	deriveCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	rmnRemoteAddress, err := deriveRMNRemoteFromOnRamp(deriveCtx, onRampCaller)
-	if err != nil {
-		return nil, err
-	}
-	lggr.Infow("Derived RMN Remote address from OnRamp static config",
-		"chainSelector", chainSelector,
-		"rmnRemoteAddress", rmnRemoteAddress.Hex())
-	if configuredRMNRemoteAddress != (common.Address{}) && configuredRMNRemoteAddress != rmnRemoteAddress {
-		lggr.Warnw("Configured RMN Remote address does not match the OnRamp static config; using the derived address",
+	// Derive + bind the RMN Remote caller on first use, then cache it. A transient failure is
+	// not cached, so a rate-limited or otherwise unavailable RPC retries on the next call.
+	rmnRemoteCaller := rmnremotereader.NewLazyRMNRemoteCaller(func(ctx context.Context) (rmn_remote.RMNRemoteCaller, error) {
+		// One-shot read of an immutable value, so a short timeout suffices.
+		deriveCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		rmnRemoteAddress, err := deriveRMNRemoteFromOnRamp(deriveCtx, onRampCaller)
+		if err != nil {
+			return rmn_remote.RMNRemoteCaller{}, err
+		}
+		lggr.Infow("Derived RMN Remote address from OnRamp static config",
 			"chainSelector", chainSelector,
-			"configuredRmnRemoteAddress", configuredRMNRemoteAddress.Hex(),
 			"rmnRemoteAddress", rmnRemoteAddress.Hex())
-	}
-
-	// Bind to RMN Remote contract at the derived address.
-	rmnRemoteCaller, err := rmn_remote.NewRMNRemoteCaller(rmnRemoteAddress, chainClient)
-	if err != nil {
-		return nil, fmt.Errorf("failed to bind RMN Remote contract at %s: %w",
-			rmnRemoteAddress.Hex(), err)
-	}
+		if configuredRMNRemoteAddress != (common.Address{}) && configuredRMNRemoteAddress != rmnRemoteAddress {
+			lggr.Warnw("Configured RMN Remote address does not match the OnRamp static config; using the derived address",
+				"chainSelector", chainSelector,
+				"configuredRmnRemoteAddress", configuredRMNRemoteAddress.Hex(),
+				"rmnRemoteAddress", rmnRemoteAddress.Hex())
+		}
+		caller, err := rmn_remote.NewRMNRemoteCaller(rmnRemoteAddress, chainClient)
+		if err != nil {
+			return rmn_remote.RMNRemoteCaller{}, fmt.Errorf("failed to bind RMN Remote contract at %s: %w",
+				rmnRemoteAddress.Hex(), err)
+		}
+		return *caller, nil
+	})
 
 	// Get and cache the OnRamp ABI once during initialization
 	onRampABI, err := onramp.OnRampMetaData.GetAbi()
@@ -205,8 +212,8 @@ func NewEVMSourceReader(
 		chainClient:                      chainClient,
 		headTracker:                      headTracker,
 		onRampAddress:                    onRampAddress,
-		rmnRemoteAddress:                 rmnRemoteAddress,
-		rmnRemoteCaller:                  *rmnRemoteCaller,
+		configuredRMNRemoteAddress:       configuredRMNRemoteAddress,
+		rmnRemoteCaller:                  rmnRemoteCaller,
 		ccipMessageSentTopic:             ccipMessageSentTopic,
 		chainSelector:                    chainSelector,
 		lggr:                             lggr,
@@ -605,9 +612,15 @@ func (r *SourceReader) LatestSafeBlock(ctx context.Context) (*protocol.BlockHead
 // GetRMNCursedSubjects queries this source chain's RMN Remote contract.
 // Implements SourceReader and chainaccess.RMNCurseReader interfaces.
 func (r *SourceReader) GetRMNCursedSubjects(ctx context.Context) ([]protocol.Bytes16, error) {
+	// Resolve the RMN Remote caller lazily (first call derives it on-chain) so construction
+	// performs no RPC and a transient derivation failure is surfaced here to be retried.
+	caller, err := r.rmnRemoteCaller.Caller(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve RMN Remote caller: %w", err)
+	}
 	// Use the common helper function from cursechecker package
 	// This avoids code duplication with EVMDestinationReader
-	return rmnremotereader.EVMReadRMNCursedSubjects(ctx, r.rmnRemoteCaller)
+	return rmnremotereader.EVMReadRMNCursedSubjects(ctx, caller)
 }
 
 // receiptBlobsFromEvent converts OnRamp event receipts to protocol.ReceiptWithBlob format.
