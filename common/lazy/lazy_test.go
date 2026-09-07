@@ -18,27 +18,27 @@ func TestLazy(t *testing.T) {
 	t.Run("derives once and caches the value", func(t *testing.T) {
 		t.Parallel()
 
-		var derives int32
+		var derives atomic.Int32
 		l := New(func(ctx context.Context) (value, error) {
-			atomic.AddInt32(&derives, 1)
+			derives.Add(1)
 			return value{}, nil
 		})
 
-		for i := 0; i < 5; i++ {
+		for range 5 {
 			got, err := l.Value(context.Background())
 			require.NoError(t, err)
 			require.Equal(t, value{}, got)
 		}
-		require.Equal(t, int32(1), atomic.LoadInt32(&derives))
+		require.Equal(t, int32(1), derives.Load())
 		require.True(t, l.Derived())
 	})
 
 	t.Run("does not cache a transient failure and retries", func(t *testing.T) {
 		t.Parallel()
 
-		var derives int32
+		var derives atomic.Int32
 		l := New(func(ctx context.Context) (value, error) {
-			n := atomic.AddInt32(&derives, 1)
+			n := derives.Add(1)
 			if n < 3 {
 				return value{}, errors.New("RPC call failed: rate limited")
 			}
@@ -60,7 +60,7 @@ func TestLazy(t *testing.T) {
 		// Succeeds from cache; no additional derivation.
 		_, err = l.Value(context.Background())
 		require.NoError(t, err)
-		require.Equal(t, int32(3), atomic.LoadInt32(&derives))
+		require.Equal(t, int32(3), derives.Load())
 	})
 
 	t.Run("returns the derivation error to the caller", func(t *testing.T) {
@@ -76,22 +76,20 @@ func TestLazy(t *testing.T) {
 	t.Run("is safe under concurrent calls", func(t *testing.T) {
 		t.Parallel()
 
-		var derives int32
+		var derives atomic.Int32
 		l := New(func(ctx context.Context) (value, error) {
-			atomic.AddInt32(&derives, 1)
+			derives.Add(1)
 			return value{}, nil
 		})
 
 		var wg sync.WaitGroup
-		for i := 0; i < 20; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+		for range 20 {
+			wg.Go(func() {
 				_, err := l.Value(context.Background())
 				require.NoError(t, err)
-			}()
+			})
 		}
 		wg.Wait()
-		require.Equal(t, int32(1), atomic.LoadInt32(&derives))
+		require.Equal(t, int32(1), derives.Load())
 	})
 }

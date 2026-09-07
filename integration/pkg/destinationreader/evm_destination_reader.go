@@ -35,8 +35,8 @@ var (
 
 type EvmDestinationReader struct {
 	services.StateMachine
-	cancelFunc             context.CancelFunc
-	offRampCaller          offramp.OffRampCaller
+	cancelFunc    context.CancelFunc
+	offRampCaller offramp.OffRampCaller
 	// rmnRemoteCaller is derived lazily from the OffRamp's static config on first use, so
 	// construction performs no RPC and a transient derivation failure self-heals on retry.
 	rmnRemoteCaller        *lazy.Lazy[rmn_remote.RMNRemoteCaller]

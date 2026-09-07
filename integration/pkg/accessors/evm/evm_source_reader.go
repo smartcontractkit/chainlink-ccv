@@ -109,9 +109,9 @@ func isRangeLimitError(err error) bool {
 }
 
 type SourceReader struct {
-	chainClient                      client.Client
-	headTracker                      heads.Tracker
-	onRampAddress                    common.Address
+	chainClient   client.Client
+	headTracker   heads.Tracker
+	onRampAddress common.Address
 	// configuredRMNRemoteAddress is the deprecated configured address, zero when unset. The
 	// authoritative address is derived lazily from the OnRamp's static config at query time.
 	configuredRMNRemoteAddress       common.Address
