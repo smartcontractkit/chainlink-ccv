@@ -131,16 +131,18 @@ func NewVerificationCoordinator(
 			},
 		)
 		if err != nil {
-			lggr.Errorw("Failed to create source reader.", "error", err, "chainID", sel)
-			return nil, fmt.Errorf("failed to create source reader: %w", err)
+			// A failure to build one chain's reader must not stop the remaining chains from
+			// starting. Log and skip this chain so the rest of the coordinator can come up.
+			lggr.Errorw("Failed to create source reader, skipping chain.", "error", err, "chainID", sel)
+			continue
 		}
 
 		observedSourceReader, err := sourcereader.NewObservedSourceReader(
 			sourceReader, cfg.VerifierID, sel, verifierMonitoring,
 		)
 		if err != nil {
-			lggr.Errorw("Failed to create observed source reader.", "error", err, "chainID", sel)
-			return nil, fmt.Errorf("failed to create observed source reader: %w", err)
+			lggr.Errorw("Failed to create observed source reader, skipping chain.", "error", err, "chainID", sel)
+			continue
 		}
 
 		sourceReaders[sel] = observedSourceReader
