@@ -206,30 +206,37 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		}
 	}
 
+	// A failure to stand up one chain's reader (e.g. an unreachable RPC) must not stop the
+	// remaining chains from starting. Log and skip, then only reject the whole coordinator if no
+	// chain is usable.
 	chainSelectors := chainaccess.Infos[string](config.OnRampAddresses).GetAllChainSelectors()
 	sourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
 	for _, selector := range chainSelectors {
 		accessor, err := deps.Registry.GetAccessor(ctx, selector)
 		if err != nil {
-			lggr.Errorw("Failed to get accessor", "error", err, "selector", selector)
-			return fmt.Errorf("failed to get accessor: %w", err)
+			lggr.Errorw("Failed to get accessor, skipping chain", "error", err, "selector", selector)
+			continue
 		}
 		reader, err := accessor.SourceReader()
 		if err != nil {
-			lggr.Errorw("Failed to get source reader for chain", "selector", selector, "error", err)
-			return fmt.Errorf("failed to get source reader for chain %d: %w", selector, err)
+			lggr.Errorw("Failed to get source reader, skipping chain", "selector", selector, "error", err)
+			continue
 		}
 		observedReader, err := instrumentSourceReader(reader, config.VerifierID, selector, verifierMonitoring)
 		if err != nil {
-			lggr.Errorw("Failed to instrument source reader for chain", "selector", selector, "error", err)
-			return err
+			lggr.Errorw("Failed to instrument source reader, skipping chain", "selector", selector, "error", err)
+			continue
 		}
 		sourceReaders[selector] = observedReader
 	}
+	if len(sourceReaders) == 0 {
+		return fmt.Errorf("no source readers configured: ensure at least one chain has a working source reader")
+	}
 
-	// Create coordinator configuration
+	// Create coordinator configuration. Only chains that produced a source reader are configured;
+	// the coordinator uses sourceReaders as authoritative, so configs must be aligned with it.
 	sourceConfigs := make(map[protocol.ChainSelector]verifier.SourceConfig)
-	for _, selector := range chainSelectors {
+	for selector := range sourceReaders {
 		strSelector := strconv.FormatUint(uint64(selector), 10)
 
 		sourceConfigs[selector] = verifier.SourceConfig{
