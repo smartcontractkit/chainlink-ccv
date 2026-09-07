@@ -4,13 +4,17 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/offramp"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-evm/pkg/client/clienttest"
 )
 
 // TestSetExecutorMonitoring covers the optional chainaccess.ExecutorMonitoringSetter
@@ -119,4 +123,43 @@ func TestNewEvmDestinationReaderValidatesParams(t *testing.T) {
 			require.ErrorContains(t, err, tt.wantErr)
 		})
 	}
+}
+
+// TestNewEvmDestinationReader_NoEagerRPCAtConstruction guards the regression where the
+// constructor eagerly read the OffRamp static config (a GetStaticConfig RPC) to derive the RMN
+// Remote address, so a rate-limited provider aborted construction. The RMN Remote is now derived
+// lazily on first GetRMNCursedSubjects.
+func TestNewEvmDestinationReader_NoEagerRPCAtConstruction(t *testing.T) {
+	// A client whose RPC always fails: any eager read performed during construction would fail it.
+	rateLimitErr := errors.New("RPC call failed: rate limited")
+	client := clienttest.NewClient(t)
+	client.On("CallContract", mock.Anything, mock.Anything, mock.Anything).
+		Return(nil, rateLimitErr)
+
+	dr, err := NewEvmDestinationReader(context.Background(), Params{
+		Lggr:                      logger.Test(t),
+		ChainSelector:             1,
+		ChainClient:               client,
+		OfframpAddress:            "0x0000000000000000000000000000000000001234",
+		RmnRemoteAddress:          "", // deprecated, unset
+		ExecutionVisabilityWindow: time.Hour,
+		Monitoring:                monitoring.NewNoopExecutorMonitoring(),
+	})
+	require.NoError(t, err, "construction must not fail even when the RPC is unavailable")
+	require.NotNil(t, dr)
+	require.False(t, dr.rmnRemoteCaller.Derived(),
+		"the RMN Remote caller must not be derived during construction")
+
+	// The authoritative RMN Remote address is read lazily at query time, surfacing a transient
+	// RPC error here rather than at construction. The failure is not cached, so a later call
+	// re-attempts (self-healing once the provider recovers).
+	_, err = dr.GetRMNCursedSubjects(context.Background())
+	require.ErrorContains(t, err, "failed to read OffRamp static config")
+	require.False(t, dr.rmnRemoteCaller.Derived(), "a failed derivation must not be cached")
+
+	_, err = dr.GetRMNCursedSubjects(context.Background())
+	require.ErrorContains(t, err, "failed to read OffRamp static config")
+
+	// Exactly two RPCs, both triggered at query time — zero at construction.
+	client.AssertNumberOfCalls(t, "CallContract", 2)
 }

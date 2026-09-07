@@ -375,3 +375,49 @@ func TestGetBlocksHeaders_SkipsFailedBatchElements(t *testing.T) {
 	require.False(t, present)
 	require.Equal(t, []int{25, 25, 25, 25, 10}, c.batchSizes)
 }
+
+// TestNewEVMSourceReader_NoEagerRPCAtConstruction guards the regression where the constructor
+// eagerly read the OnRamp static config (a GetStaticConfig RPC) to derive the RMN Remote address.
+// A rate-limited provider then aborted construction, which in turn stopped every chain in the
+// coordinator. The RMN Remote is now derived lazily on first GetRMNCursedSubjects.
+func TestNewEVMSourceReader_NoEagerRPCAtConstruction(t *testing.T) {
+	t.Parallel()
+
+	// A client whose RPC always fails: any eager read performed during construction would fail it.
+	rateLimitErr := errors.New("RPC call failed: rate limited")
+	client := clienttest.NewClient(t)
+	client.On("CallContract", mock.Anything, mock.Anything, mock.Anything).
+		Return(nil, rateLimitErr)
+
+	reader, err := NewEVMSourceReader(
+		context.Background(),
+		client,
+		heads.NullTracker,
+		common.HexToAddress("0x1234"),
+		common.Address{}, // deprecated configured RMN Remote, unset
+		common.Hash{}.Hex(),
+		protocol.ChainSelector(1337),
+		logger.Test(t),
+		25,
+		nil,
+	)
+	require.NoError(t, err, "construction must not fail even when the RPC is unavailable")
+	require.NotNil(t, reader)
+
+	sr := reader.(*SourceReader)
+	require.False(t, sr.rmnRemoteCaller.Derived(),
+		"the RMN Remote caller must not be derived during construction")
+
+	// The authoritative RMN Remote address is read lazily at query time, surfacing a transient
+	// RPC error here rather than at construction. The failure is not cached, so a later call
+	// re-attempts (self-healing once the provider recovers).
+	_, err = sr.GetRMNCursedSubjects(context.Background())
+	require.ErrorContains(t, err, "failed to read OnRamp static config")
+	require.False(t, sr.rmnRemoteCaller.Derived(), "a failed derivation must not be cached")
+
+	_, err = sr.GetRMNCursedSubjects(context.Background())
+	require.ErrorContains(t, err, "failed to read OnRamp static config")
+
+	// Exactly two RPCs, both triggered at query time — zero at construction.
+	client.AssertNumberOfCalls(t, "CallContract", 2)
+}
