@@ -8,6 +8,7 @@ import (
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	bnm_drip_v1_0 "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/burn_mint_erc20_with_drip"
+	v1_6_1_burn_to_address_mint_token_pool "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_1/operations/burn_to_address_mint_token_pool"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/finality"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/testhelpers"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
@@ -154,6 +155,14 @@ func DeploySiloedLockReleaseTokenPoolV161(t *testing.T, env *deployment.Environm
 	return deployTokenPoolWithPresets(t, env, sel, qual, cciputils.SiloedLockReleaseTokenPool.String(), cciputils.Version_1_6_1)
 }
 
+// DeployBurnToAddressMintTokenPoolV161 deploys a BurnToAddressMintTokenPool, a burn-mint variant
+// that sends burned tokens to a fixed on-chain address instead of destroying them via burn(amount).
+func DeployBurnToAddressMintTokenPoolV161(t *testing.T, env *deployment.Environment, sel uint64, qual, burnAddress string) tokenpool.TokenPool {
+	t.Helper()
+
+	return deployTokenPoolWithPresets(t, env, sel, qual, v1_6_1_burn_to_address_mint_token_pool.ContractType.String(), cciputils.Version_1_6_1, burnAddress)
+}
+
 func deployTokenPoolWithPresets(
 	t *testing.T,
 	env *deployment.Environment,
@@ -161,8 +170,14 @@ func deployTokenPoolWithPresets(
 	qual string,
 	poolType string,
 	poolVersion *semver.Version,
+	burnAddress ...string,
 ) tokenpool.TokenPool {
 	t.Helper()
+
+	var burnAddr string
+	if len(burnAddress) > 0 {
+		burnAddr = burnAddress[0]
+	}
 
 	env.OperationsBundle = operations.NewBundle(env.OperationsBundle.GetContext, env.OperationsBundle.Logger, operations.NewMemoryReporter())
 	out, err := tokens.TokenExpansion().Apply(*env, tokens.TokenExpansionInput{
@@ -183,6 +198,7 @@ func deployTokenPoolWithPresets(
 				DeployTokenPoolInput: &tokens.DeployTokenPoolInput{
 					TokenPoolQualifier: qual,
 					PoolType:           poolType,
+					BurnAddress:        burnAddr,
 				},
 			},
 		},
