@@ -2,6 +2,7 @@ package evm
 
 import (
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math/big"
@@ -9,6 +10,7 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"github.com/ethereum/go-ethereum/common"
 
+	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/burn_mint_erc20_with_drip"
 	evmadapters "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/adapters"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/mock_receiver_v2"
@@ -32,6 +34,12 @@ var (
 	LombardContractsQualifier = devenvcommon.LombardContractsQualifier
 	LombardTokenQualifier     = "LBTC"
 )
+
+var evmLombardTokenPoolQualifier = "Lombard_" + LombardTokenQualifier
+
+func init() {
+	devenvcommon.GlobalLombardRegistry.RegisterLombardChain(chainsel.FamilyEVM, &evmadapters.LombardChainAdapter{})
+}
 
 func (m *CCIP17EVMConfig) deployLombardTokenAndPool(
 	env *deployment.Environment,
@@ -164,10 +172,7 @@ func (m *CCIP17EVMConfig) deployLombardChain(
 	bridgeV2 common.Address,
 	chain evm.Chain,
 ) error {
-	lombardChainRegistry := adapters.NewLombardChainRegistry()
-	lombardChainRegistry.RegisterLombardChain("evm", &evmadapters.LombardChainAdapter{})
-
-	out, err := changesets.DeployLombardChains(lombardChainRegistry, registry).Apply(*env, changesets.DeployLombardChainsConfig{
+	out, err := changesets.DeployLombardChains(devenvcommon.GlobalLombardRegistry, registry).Apply(*env, changesets.DeployLombardChainsConfig{
 		Chains: map[uint64]changesets.LombardChainConfig{
 			selector: {
 				Bridge:           bridgeV2.Hex(),
@@ -193,13 +198,14 @@ func (m *CCIP17EVMConfig) deployLombardChain(
 
 func (m *CCIP17EVMConfig) configureLombardForTransfer(
 	e *deployment.Environment,
-	registry *changesetscore.MCMSReaderRegistry,
+	_ *changesetscore.MCMSReaderRegistry,
 	selector uint64,
 	remoteSelectors []uint64,
 ) error {
-	remoteSelectors = filterOnlySupportedSelectors(remoteSelectors)
-	lombardChainRegistry := adapters.NewLombardChainRegistry()
-	lombardChainRegistry.RegisterLombardChain("evm", &evmadapters.LombardChainAdapter{})
+	remoteSelectors = devenvcommon.FilterLombardSupportedSelectors(remoteSelectors)
+	if len(remoteSelectors) == 0 {
+		return nil
+	}
 
 	tokenRef, err := e.DataStore.Addresses().Get(
 		datastore.NewAddressRefKey(
@@ -227,42 +233,52 @@ func (m *CCIP17EVMConfig) configureLombardForTransfer(
 	if err != nil {
 		return fmt.Errorf("failed to create lombard bridge for chain %d: %w", selector, err)
 	}
+
+	bundle := cldf_ops.NewBundle(e.OperationsBundle.GetContext, e.OperationsBundle.Logger, cldf_ops.NewMemoryReporter())
+	sealedDS := e.DataStore
+
+	remoteChains := make(map[uint64]adapters.RemoteLombardChainConfig)
+	remoteChainAdapters := make(map[uint64]adapters.RemoteLombardChain)
 	for _, rs := range remoteSelectors {
-		// TODO: THIS LOGIC ASSUMES THAT DESTINATION TOKEN ADDRESS IS ON AN EVM CHAIN
-		token, err := e.DataStore.Addresses().Get(datastore.NewAddressRefKey(
-			rs,
-			datastore.ContractType(burn_mint_erc20_with_drip.ContractType),
-			semver.MustParse(burn_mint_erc20_with_drip.Deploy.Version()),
-			LombardContractsQualifier,
-		))
+		family, err := chainsel.GetSelectorFamily(rs)
 		if err != nil {
-			return fmt.Errorf("failed to get lombard token address ref for chain %d: %w", rs, err)
+			return fmt.Errorf("failed to get family for remote chain selector %d: %w", rs, err)
 		}
-		destinationToken, err := toBytes32LeftPad(common.LeftPadBytes(common.HexToAddress(token.Address).Bytes(), 32))
+		remoteAdapter, ok := devenvcommon.GlobalLombardRegistry.GetLombardChain(family)
+		if !ok {
+			return fmt.Errorf("no Lombard adapter for remote chain family %q (selector %d)", family, rs)
+		}
+		remoteChainAdapters[rs] = remoteAdapter
+
+		// resolve remote token address to run SetAllowedDestinationToken on the local bridge
+		remoteTokenBytes, err := remoteAdapter.RemoteTokenAddress(bundle, sealedDS, e.BlockChains, rs, evmLombardTokenPoolQualifier)
+		if err != nil {
+			return fmt.Errorf("failed to resolve remote token address for chain %d: %w", rs, err)
+		}
+		destinationToken, err := toBytes32LeftPad(remoteTokenBytes)
 		if err != nil {
 			return fmt.Errorf("failed to pad destination token for chain %d: %w", rs, err)
 		}
-		paddedLombardChainID, err := paddedLombardChainID(uint32(rs))
+		paddedChainID, err := paddedLombardChainID(uint32(rs))
 		if err != nil {
 			return fmt.Errorf("failed to pad lombard chain id for chain %d: %w", rs, err)
 		}
-		_, err = lombardBridge.SetAllowedDestinationToken(chain.DeployerKey, paddedLombardChainID, common.HexToAddress(tokenRef.Address), destinationToken)
+
+		_, err = lombardBridge.SetAllowedDestinationToken(chain.DeployerKey, paddedChainID, common.HexToAddress(tokenRef.Address), destinationToken)
 		if err != nil {
 			return fmt.Errorf("failed to set allowed destination tokens on lombard bridge on chain %s: %w", chain, err)
 		}
-	}
 
-	remoteChains := make(map[uint64]adapters.RemoteLombardChainConfig)
-	for _, rs := range remoteSelectors {
-		// The LombardVerifier requires the remote chain's bridge as the expected GMP envelope sender.
+		// construct remote chain config with remote bridge ref resolved from datastore
 		remoteBridgeRef, err := e.DataStore.Addresses().Get(datastore.NewAddressRefKey(
-			rs,
-			datastore.ContractType("MockLombardBridge"),
-			semver.MustParse("2.0.0"),
-			LombardContractsQualifier,
+			rs, datastore.ContractType("MockLombardBridge"), semver.MustParse("2.0.0"), LombardContractsQualifier,
 		))
 		if err != nil {
 			return fmt.Errorf("failed to get lombard bridge address for remote chain %d: %w", rs, err)
+		}
+		bridgeBytes, err := remoteAdapter.AddressRefToBytes(remoteBridgeRef)
+		if err != nil {
+			return fmt.Errorf("failed to encode remote bridge address for chain %d: %w", rs, err)
 		}
 
 		remoteChains[rs] = adapters.RemoteLombardChainConfig{
@@ -270,25 +286,30 @@ func (m *CCIP17EVMConfig) configureLombardForTransfer(
 			GasForVerification: 7_500*6 + 350_000,
 			PayloadSizeBytes:   6*64 + 2*32,
 			LombardChainId:     uint32(rs),
-			RemoteBridgeSender: remoteBridgeRef.Address,
+			RemoteBridgeSender: "0x" + hex.EncodeToString(bridgeBytes),
 		}
 	}
 
-	_, err = changesets.DeployLombardChains(lombardChainRegistry, registry).Apply(*e, changesets.DeployLombardChainsConfig{
-		Chains: map[uint64]changesets.LombardChainConfig{
-			selector: {
-				Token:          tokenRef.Address,
-				TokenQualifier: LombardTokenQualifier,
-				RemoteChains:   remoteChains,
-				FeeAggregator:  common.HexToAddress("0x01").Hex(),
-			},
+	evmLBAdapter := &evmadapters.LombardChainAdapter{}
+	if _, err := cldf_ops.ExecuteSequence(
+		e.OperationsBundle,
+		evmLBAdapter.ConfigureLombardChainForLanes(),
+		adapters.ConfigureLombardChainForLanesDeps{
+			BlockChains:  e.BlockChains,
+			DataStore:    sealedDS,
+			RemoteChains: remoteChainAdapters,
 		},
-	})
-	if err != nil {
-		return fmt.Errorf("failed to configured Lombard lanes on chain %d: %w", selector, err)
+		adapters.ConfigureLombardChainForLanesInput{
+			ChainSelector:  selector,
+			Token:          tokenRef.Address,
+			TokenQualifier: LombardTokenQualifier,
+			RemoteChains:   remoteChains,
+		},
+	); err != nil {
+		return fmt.Errorf("failed to configure Lombard lanes on chain %d: %w", selector, err)
 	}
 
-	return err
+	return nil
 }
 
 func (m *CCIP17EVMConfig) deployLombardMockReceiver(

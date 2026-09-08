@@ -8,7 +8,7 @@ ensure-gomods:
     @go version -m $(which gomods) | grep -q "v$VERSION_GOMODS" || (echo "Please use gomods v$VERSION_GOMODS (just install-go-tools)" && exit 1)
 
 ensure-modgraph:
-    @go version -m $(which modgraph) | grep -q "v$VERSION_MODGRAPH" || (echo "Please use modgraph v$VERSION_GOMODS (just install-go-tools)" && exit 1)
+    @go version -m $(which modgraph) | grep -q "v$VERSION_MODGRAPH" || (echo "Please use modgraph v$VERSION_MODGRAPH (just install-go-tools)" && exit 1)
 
 ensure-golangci-lint:
 	@golangci-lint --version | grep -q "$VERSION_GOLANGCI_LINT" || (echo "Please use golangci-lint $VERSION_GOLANGCI_LINT (just install-go-tools)" && exit 1)
