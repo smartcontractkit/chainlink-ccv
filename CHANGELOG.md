@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.1](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.10.0...v0.10.1) (2026-09-08)
+
+
+### Bug Fixes
+
+* **deps:** bump chain-selectors ([#1425](https://github.com/smartcontractkit/chainlink-ccv/issues/1425)) ([ec06fe4](https://github.com/smartcontractkit/chainlink-ccv/commit/ec06fe497cd2991aa854c178bddeeeaff4311226))
+
 ## [0.10.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.9.1...v0.10.0) (2026-09-08)
 
 
