@@ -41,28 +41,11 @@ func (m *mockFilterLogsClient) FilterLogs(ctx context.Context, q ethereum.Filter
 	return m.filterLogsFunc(ctx, q)
 }
 
-// mockHeadTracker wraps heads.NullTracker and overrides LatestAndFinalizedBlock.
-type mockHeadTracker struct {
-	heads.Tracker
-	latest    *evmtypes.Head
-	finalized *evmtypes.Head
-	err       error
-}
-
-func (m *mockHeadTracker) LatestAndFinalizedBlock(ctx context.Context) (*evmtypes.Head, *evmtypes.Head, error) {
-	return m.latest, m.finalized, m.err
-}
-
 func newTestSourceReader(t *testing.T, chainClient evmclient.Client) *SourceReader {
-	t.Helper()
-	return newTestSourceReaderWithTracker(t, chainClient, heads.NullTracker)
-}
-
-func newTestSourceReaderWithTracker(t *testing.T, chainClient evmclient.Client, tracker heads.Tracker) *SourceReader {
 	t.Helper()
 	return &SourceReader{
 		chainClient:          chainClient,
-		headTracker:          tracker,
+		headTracker:          heads.NullTracker,
 		onRampAddress:        common.HexToAddress("0x1234"),
 		ccipMessageSentTopic: common.Hash{}.Hex(),
 		chainSelector:        protocol.ChainSelector(1337),
@@ -154,43 +137,27 @@ func TestFetchMessageSentEvents_ShrunkLimitPersistsForNextCall(t *testing.T) {
 	require.Equal(t, [2]uint64{1500, 1999}, secondCallRanges[1])
 }
 
-func TestFetchMessageSentEvents_UnboundedQueryShrinksAndRetries(t *testing.T) {
+func TestFetchMessageSentEvents_UnboundedQueryPassesThrough(t *testing.T) {
 	t.Parallel()
 
-	latestHead := &evmtypes.Head{
-		Number:    999,
-		Hash:      common.BigToHash(big.NewInt(999)),
-		Timestamp: time.Now(),
-	}
-	tracker := &mockHeadTracker{latest: latestHead}
-
-	var queriedRanges [][2]uint64
+	var queriedWithNil bool
 	client := &mockFilterLogsClient{
 		filterLogsFunc: func(ctx context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
-			from := q.FromBlock.Uint64()
-			to := q.ToBlock.Uint64()
-			queriedRanges = append(queriedRanges, [2]uint64{from, to})
-			if to-from+1 > 500 {
-				return nil, rangeLimitError()
-			}
+			queriedWithNil = q.ToBlock == nil
 			return []types.Log{}, nil
 		},
 	}
 
-	reader := newTestSourceReaderWithTracker(t, client, tracker)
+	reader := newTestSourceReader(t, client)
 
-	// Unbounded query [0, nil] — resolves latest=999, span=1000, halved to 500
+	// Unbounded query should pass through directly without bisection
 	events, err := reader.FetchMessageSentEvents(context.Background(), big.NewInt(0), nil)
 	require.NoError(t, err)
 	require.Empty(t, events)
+	require.True(t, queriedWithNil, "unbounded query should pass nil toBlock to FilterLogs")
 
-	// Should have made 3 calls: [0,999] rejected, [0,499] ok, [500,999] ok
-	require.Len(t, queriedRanges, 3)
-	require.Equal(t, [2]uint64{0, 999}, queriedRanges[0])
-	require.Equal(t, [2]uint64{0, 499}, queriedRanges[1])
-	require.Equal(t, [2]uint64{500, 999}, queriedRanges[2])
-
-	require.Equal(t, uint64(500), reader.maxFilterBlockRange.Load())
+	// No limit should be set
+	require.Equal(t, uint64(0), reader.maxFilterBlockRange.Load())
 }
 
 func TestFetchMessageSentEvents_GenericErrorDoesNotShrink(t *testing.T) {

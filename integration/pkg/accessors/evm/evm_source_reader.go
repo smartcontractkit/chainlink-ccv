@@ -321,22 +321,15 @@ func (r *SourceReader) fetchHeadBatch(ctx context.Context, blockNumbers []*big.I
 
 // FetchMessageSentEvents returns MessageSentEvents in the given block range.
 // The toBlock parameter can be nil to query up to the latest block.
-// When an RPC provider rejects a query as too large, the range is halved and
-// retried. The shrunk limit persists for subsequent calls on this instance.
+// When an RPC provider rejects a bounded query as too large, the range is halved
+// and retried. The shrunk limit persists for subsequent calls on this instance.
 func (r *SourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, toBlock *big.Int) ([]protocol.MessageSentEvent, error) {
-	from := fromBlock.Uint64()
-
-	var to uint64
-	if toBlock != nil {
-		to = toBlock.Uint64()
-	} else {
-		latest, _, err := r.headTracker.LatestAndFinalizedBlock(ctx)
-		if err != nil || latest == nil || latest.Number < 0 {
-			// Can't resolve upper bound — pass through unbounded
-			return r.fetchMessageSentEventsRange(ctx, fromBlock, nil)
-		}
-		to = uint64(latest.Number)
+	if toBlock == nil {
+		return r.fetchMessageSentEventsRange(ctx, fromBlock, nil)
 	}
+
+	from := fromBlock.Uint64()
+	to := toBlock.Uint64()
 	if to < from {
 		return nil, nil
 	}
