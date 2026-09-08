@@ -241,34 +241,54 @@ func TestE2ESmoke_TokenPoolMigrationEVM2EVM(t *testing.T) {
 	})
 
 	// BurnToAddressMintTokenPool is a burn-mint variant that sends burned tokens to a fixed on-chain
-	// address instead of destroying them. This only covers v1.6.1 deploy + transfer, not migration to
-	// v2.0.0: chainlink-ccip's v2.0.0 deploy-token-pool sequence does not yet dispatch this pool type
-	// (utils.IsBurnMintPoolType/IsLockReleasePoolType both return false for it), so DeployTokenPoolV200
-	// would fail with "unsupported token pool type". Extend this once that support lands upstream.
-	t.Run("BurnToAddressMintTokenPool", func(t *testing.T) {
+	// address instead of destroying them. The burn address is a deploy-time constructor argument on
+	// both versions, so it is passed through to both the legacy and migrated pool deploys.
+	t.Run("BurnToAddressMintTokenPool Migration", func(t *testing.T) {
 		const (
-			QualBurnToAddressA = "EVM_POOL_BTA_A_V1"
-			QualBurnToAddressB = "EVM_POOL_BTA_B_V1"
-			BurnAddress        = "0x000000000000000000000000000000000000dEaD"
+			QualBurnToAddressAV1 = "EVM_POOL_BTA_A_V1"
+			QualBurnToAddressBV1 = "EVM_POOL_BTA_B_V1"
+			QualBurnToAddressAV2 = "EVM_POOL_BTA_A_V2"
+			QualBurnToAddressBV2 = "EVM_POOL_BTA_B_V2"
+			BurnAddress          = "0x000000000000000000000000000000000000dEaD"
 		)
 
-		poolA := evm.DeployBurnToAddressMintTokenPoolV161(t, env, selA, QualBurnToAddressA, BurnAddress)
-		poolB := evm.DeployBurnToAddressMintTokenPoolV161(t, env, selB, QualBurnToAddressB, BurnAddress)
+		// Part 1: deploy legacy pools and ensure token transfers work
+		poolAV1 := evm.DeployBurnToAddressMintTokenPoolV161(t, env, selA, QualBurnToAddressAV1, BurnAddress)
+		poolBV1 := evm.DeployBurnToAddressMintTokenPoolV161(t, env, selB, QualBurnToAddressBV1, BurnAddress)
 		tokenpool.ConnectAll(t, env, cciputils.Version_1_6_1, []tokenpool.Connection{
 			{
-				PoolA: poolA,
-				PoolB: poolB,
+				PoolA: poolAV1,
+				PoolB: poolBV1,
 				RateLimits: tokenpool.BidirectionalRateLimitPair{
 					AB: tokenpool.DefaultOutboundRateLimit(),
 					BA: tokenpool.DefaultOutboundRateLimit(),
 				},
 			},
 		})
-		require.NotEmpty(t, poolA.Address())
-		require.NotEmpty(t, poolB.Address())
-		require.NotEmpty(t, poolA.Token())
-		require.NotEmpty(t, poolB.Token())
-		tokenpool.RunBidirectionalTokenTransfer(t, lib, poolA, poolB, TokensToSend, fCfg, "burn-to-address")
+		require.NotEmpty(t, poolAV1.Address())
+		require.NotEmpty(t, poolBV1.Address())
+		require.NotEmpty(t, poolAV1.Token())
+		require.NotEmpty(t, poolBV1.Token())
+		tokenpool.RunBidirectionalTokenTransfer(t, lib, poolAV1, poolBV1, TokensToSend, fCfg, "pre-migration")
+
+		// Part 2: migrate and ensure token transfers still work
+		poolAV2 := evm.MigrateToBurnToAddressMintTokenPoolV200(t, env, QualBurnToAddressAV2, poolAV1, tokenpool.DefaultFinalityConfig(), BurnAddress)
+		poolBV2 := evm.MigrateToBurnToAddressMintTokenPoolV200(t, env, QualBurnToAddressBV2, poolBV1, tokenpool.DefaultFinalityConfig(), BurnAddress)
+		tokenpool.ConnectAll(t, env, cciputils.Version_2_0_0, []tokenpool.Connection{
+			{
+				PoolA: poolAV2,
+				PoolB: poolBV2,
+				RateLimits: tokenpool.BidirectionalRateLimitPair{
+					AB: tokenpool.DefaultOutboundRateLimit(),
+					BA: tokenpool.DefaultOutboundRateLimit(),
+				},
+			},
+		})
+		require.NotEqual(t, poolAV1.Address(), poolAV2.Address())
+		require.NotEqual(t, poolBV1.Address(), poolBV2.Address())
+		require.Equal(t, poolAV1.Token(), poolAV2.Token())
+		require.Equal(t, poolBV1.Token(), poolBV2.Token())
+		tokenpool.RunBidirectionalTokenTransfer(t, lib, poolAV2, poolBV2, TokensToSend, fCfg, "post-migration")
 	})
 
 	// SiloedLockReleaseTokenPool is a custom lock-release variant that keeps liquidity isolated per

@@ -8,7 +8,6 @@ import (
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	bnm_drip_v1_0 "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/burn_mint_erc20_with_drip"
-	v1_6_1_burn_to_address_mint_token_pool "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_1/operations/burn_to_address_mint_token_pool"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/finality"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/testhelpers"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
@@ -70,6 +69,21 @@ func (tp *TokenPool) Kind() string {
 func DeployTokenPoolV200(t *testing.T, env *deployment.Environment, poolType, qual string, legacyPool tokenpool.TokenPool, finalityConfig finality.Config, lockBoxGroups ...[]uint64) tokenpool.TokenPool {
 	t.Helper()
 
+	return deployTokenPoolV200(t, env, poolType, qual, legacyPool, finalityConfig, "", lockBoxGroups...)
+}
+
+// MigrateToBurnToAddressMintTokenPoolV200 deploys the v2.0.0 successor to legacyPool as a
+// BurnToAddressMintTokenPool and migrates its liquidity. burnAddress is the fixed address that
+// receives tokens sent for burning, mirroring the v1.6.1 pool's constructor argument.
+func MigrateToBurnToAddressMintTokenPoolV200(t *testing.T, env *deployment.Environment, qual string, legacyPool tokenpool.TokenPool, finalityConfig finality.Config, burnAddress string) tokenpool.TokenPool {
+	t.Helper()
+
+	return deployTokenPoolV200(t, env, cciputils.BurnToAddressMintTokenPool.String(), qual, legacyPool, finalityConfig, burnAddress)
+}
+
+func deployTokenPoolV200(t *testing.T, env *deployment.Environment, poolType, qual string, legacyPool tokenpool.TokenPool, finalityConfig finality.Config, burnAddress string, lockBoxGroups ...[]uint64) tokenpool.TokenPool {
+	t.Helper()
+
 	env.OperationsBundle = operations.NewBundle(env.OperationsBundle.GetContext, env.OperationsBundle.Logger, operations.NewMemoryReporter())
 	out, err := tokens.TokenExpansion().Apply(*env, tokens.TokenExpansionInput{
 		ChainAdapterVersion: cciputils.Version_2_0_0,
@@ -84,6 +98,7 @@ func DeployTokenPoolV200(t *testing.T, env *deployment.Environment, poolType, qu
 					TokenRef:              &datastore.AddressRef{Address: legacyPool.Token()},
 					PoolType:              poolType,
 					LockBoxGroups:         lockBoxGroups,
+					BurnAddress:           burnAddress,
 				},
 			},
 		},
@@ -160,7 +175,7 @@ func DeploySiloedLockReleaseTokenPoolV161(t *testing.T, env *deployment.Environm
 func DeployBurnToAddressMintTokenPoolV161(t *testing.T, env *deployment.Environment, sel uint64, qual, burnAddress string) tokenpool.TokenPool {
 	t.Helper()
 
-	return deployTokenPoolWithPresets(t, env, sel, qual, v1_6_1_burn_to_address_mint_token_pool.ContractType.String(), cciputils.Version_1_6_1, burnAddress)
+	return deployTokenPoolWithPresets(t, env, sel, qual, cciputils.BurnToAddressMintTokenPool.String(), cciputils.Version_1_6_1, burnAddress)
 }
 
 func deployTokenPoolWithPresets(
