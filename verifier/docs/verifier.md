@@ -529,6 +529,8 @@ verifier ccv job-queue reschedule \
 
 `--job-id` and `--message-id` are mutually exclusive. Rescheduling moves the job from the archive back to the active table with a fresh `retry_deadline`.
 
+Reschedule uses the archived payload; it does not re-run source-event discovery or the source reader's finality, curse, and disablement admission checks. `task-verifier` re-runs verification, including the policy hook. `storage-writer` retries only persistence of the existing result. Messages dropped before admission have no archived job to reschedule; use a checkpoint rewind and restart for those messages or whenever fresh source-reader checks are required. See the runbook's [detection and range-scoping procedure](../../docs/runbooks/remediating-stuck-or-dropped-messages.md#detect-and-scope-the-range).
+
 ## Chain Statuses: Managing Chain State
 
 The `cli/chainstatuses` package provides CLI commands to inspect and mutate the `ccv_chain_statuses` table. These are exposed under `ccv chain-statuses`.

@@ -90,8 +90,12 @@ max by (node_id) (
 ```
 
 If the state is `disabled`, verify configuration or deliberate operational
-disablements. If it is `finality_blocked`, continue to step 3 and investigate
-finality progress.
+disablements. `finality_blocked` means a finality violation was detected and the
+reader was disabled; it will not clear by waiting for more confirmations. Follow
+[Detect and scope the range](./remediating-stuck-or-dropped-messages.md#detect-and-scope-the-range)
+to investigate the violation and plan recovery. After a restart a disabled chain's
+reader is not started, so use metric history, logs, and persisted chain status if
+the current series is absent.
 
 Use the per-node result to distinguish an isolated node failure from a
 committee-wide issue. For example, `poll_error` on 10 of 16 members can prevent
@@ -138,7 +142,8 @@ Use the latest applicable transition for the alerted message's lane:
 | Last transition | Diagnosis | Next action |
 | --- | --- | --- |
 | No `source_read/discovered` | The verifier did not observe the message. | Verify the source event, reader configuration, polling range, and trace/indexer record. |
-| `pending_finality/queued` or `pending_finality/finality_blocked` | The message is waiting for finality. | Investigate source-chain finality and reorg protection. |
+| `pending_finality/queued` | The message entered the finality wait. | Investigate source-chain finality and reorg protection if it has not progressed. |
+| `pending_finality/finality_blocked` with reason `finality_violation` | The reader flushed pending tasks and disabled the chain after a finality violation. | [Detect the violation and scope a rewind](./remediating-stuck-or-dropped-messages.md#detect-and-scope-the-range); ordinary confirmation waiting or job reschedule will not recover those tasks. |
 | `admission/*` | A policy or publication decision blocked progress. | Continue to step 5. |
 | `admission/published` | The message entered verification. | Continue to step 6. |
 | `verification/*` | Verification has a result or is retrying. | Continue to step 6. |
@@ -165,6 +170,12 @@ sum by (outcome, reason) (
 | `rules_state_unknown` | The verifier cannot determine disablement rules. |
 | `queue_publish_error` | The verifier could not publish work for verification. Investigate the queue/publisher. |
 | `published` | Continue to verification. |
+
+Confirmed curse and disablement drops occur before queue admission and do not create
+failed archive rows. Once the cause clears, use the remediation runbook's
+[detection and rewind procedure](./remediating-stuck-or-dropped-messages.md#detect-and-scope-the-range).
+`curse_state_unknown` and `rules_state_unknown` instead retain pending work and hold
+the persisted checkpoint; resolve the dependency and allow polling to retry.
 
 ## 6. Diagnose Verification
 
