@@ -5,6 +5,14 @@ name: Publish GA Image From Release Tag
 # token, which triggers this workflow. In GitHub Actions
 # tag globs `*` does not match `/`, so `v[0-9]+.[0-9]+.[0-9]+` matches only the bare
 # root tag — never module tags (`deployment/vX.Y.Z`) or RC tags (`<svc>/vX.Y.Z-rc`).
+#
+# Each release image is published under BOTH the versioned tag `vX.Y.Z` and the
+# "bare" tag `X.Y.Z` (the `v` prefix stripped). For the private ECR (just
+# publish) and GCP Marketplace (buildx -t) jobs this is done by tagging the same
+# locally-built image twice; for the public ECR build this is done by passing
+# `X.Y.Z` as a `docker-manifest-additional-tag`, which aliases the same manifest
+# index as `vX.Y.Z`. The bare tag is therefore a real, pullable image/same digest
+# as the `v`-prefixed tag.
 on:
   push:
     tags:
@@ -58,8 +66,10 @@ jobs:
           just "$MODULE"/build
           echo "Publishing GA Image (primary).."
           just "$MODULE"/publish "$ECR_REGISTRY_PRIMARY" "$VERSION"
+          just "$MODULE"/publish "$ECR_REGISTRY_PRIMARY" "${VERSION#v}"
           echo "Publishing GA Image (secondary).."
           just "$MODULE"/publish "$ECR_REGISTRY_SECONDARY" "$VERSION"
+          just "$MODULE"/publish "$ECR_REGISTRY_SECONDARY" "${VERSION#v}"
   
   build-marketplace-gcp:
     name: Push ${{ matrix.module }} to GCP Marketplace AR
@@ -90,14 +100,27 @@ jobs:
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       - run: gcloud auth configure-docker us-docker.pkg.dev --quiet
       - run: |
+          IMG_TAG="${GITHUB_REF_NAME#v}"
           docker buildx build --platform linux/amd64,linux/arm64 \
             -f ${{ matrix.dockerfile }} ${{ matrix.build_args }} \
             --annotation "index:com.googleapis.cloudmarketplace.product.service.name=services/chainlink-ccv-starter-kit.endpoints.chainlink-labs-ltd-public.cloud.goog" \
             -t us-docker.pkg.dev/chainlink-labs-ltd-public/google-marketplace-chainlink-ccv/${{ matrix.image }}:${{ github.ref_name }} \
+            -t us-docker.pkg.dev/chainlink-labs-ltd-public/google-marketplace-chainlink-ccv/${{ matrix.image }}:${IMG_TAG} \
             --push .
+
+  compute-tags:
+    name: Compute bare version tag (without the `v` prefix)
+    runs-on: ubuntu-latest
+    outputs:
+      bare-version: ${{ steps.out.outputs.bare-version }}
+    steps:
+      - name: Strip v prefix
+        id: out
+        run: echo "bare-version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
   build-public:
     name: Build, sign & publish public ${{ matrix.module }} image
+    needs: compute-tags
     strategy:
       fail-fast: false
       matrix:
@@ -122,6 +145,7 @@ jobs:
       docker-build-context: .
       docker-build-args: ${{ matrix.build_args }}
       docker-manifest-sign: 'true'
+      docker-manifest-additional-tags: ${{ needs.compute-tags.outputs.bare-version }}
       docker-registry-url-override: public.ecr.aws/chainlink
       git-sha: ${{ github.sha }}
       github-event-name: ${{ github.event_name }}
