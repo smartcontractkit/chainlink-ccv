@@ -142,8 +142,11 @@ func (r *VerifierResultsResponse) ToVerifierResults() (map[protocol.Bytes32]prot
 	mappedResults := make(map[protocol.Bytes32]protocol.VerifierResult)
 
 	for i, responseResult := range r.Results {
-		// Response is nil if message not found in aggregator
-		if responseResult == nil {
+		// Response is nil, or has a nil Message, if the message was not found in
+		// the aggregator. Treat both as "no verification available" and skip rather
+		// than fail the whole batch; otherwise a single pending message poisons
+		// every other (valid) message ID in the same batch.
+		if responseResult == nil || responseResult.Message == nil {
 			continue
 		}
 
