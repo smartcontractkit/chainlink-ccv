@@ -232,9 +232,11 @@ service's bootstrap keystore config in your env file (pre-provision the KMS keys
 [verifier.bootstrap.keystore]
 backend = "kms"
 [verifier.bootstrap.keystore.kms]
-region         = "us-west-2"
+provider       = "aws"
 ecdsa_key_id   = "arn:aws:kms:us-west-2:<acct>:key/<id>"   # secp256k1
 ed25519_key_id = "arn:aws:kms:us-west-2:<acct>:key/<id>"   # Ed25519 CSA key
+[verifier.bootstrap.keystore.kms.aws]
+region         = "us-west-2"
 ```
 
 The container reaches KMS via the AWS default credential chain, so export credentials into the shell
@@ -253,6 +255,38 @@ The IAM principal needs `kms:Sign`, `kms:GetPublicKey`, `kms:DescribeKey` on tho
 credential forwarding is a local-dev convenience only; production uses IRSA / instance roles. Verify
 via the bootstrap info server (`POST /keystore/reader/getkeys`) — the returned public keys should
 match `aws kms get-public-key` for the ARNs.
+
+## Testing with GCP KMS (keystore backend)
+
+Same idea, Google Cloud flavor: `provider` selects the key-ID format, and credentials come
+exclusively from Application Default Credentials.
+
+```toml
+[verifier.bootstrap.keystore]
+backend = "kms"
+[verifier.bootstrap.keystore.kms]
+provider = "gcp"
+ecdsa_key_id   = "projects/<p>/locations/<l>/keyRings/<r>/cryptoKeys/<k>/cryptoKeyVersions/<n>"   # secp256k1
+ed25519_key_id = "projects/<p>/locations/<l>/keyRings/<r>/cryptoKeys/<k>/cryptoKeyVersions/<n>"   # Ed25519 CSA key
+```
+
+Key IDs must be version-qualified CryptoKeyVersion resource names, bare CryptoKey names are
+rejected by Cloud KMS on the asymmetric endpoints. The container reaches Cloud KMS via ADC, so
+export `GOOGLE_APPLICATION_CREDENTIALS` into the shell that runs `ccv up` first then devenv will forward it
+(and mounts the referenced file at the same path) into the container, but **only** for KMS-backed
+services (see `ForwardedGCPCreds` in `services/common.go`):
+
+```bash
+export GOOGLE_APPLICATION_CREDENTIALS="$HOME/.config/gcloud/application_default_credentials.json"
+ccv up env.toml
+```
+
+The IAM principal needs `roles/cloudkms.signerVerifier` (or granular
+`cloudkms.cryptoKeyVersions.useToSign` / `cloudkms.cryptoKeyVersions.viewPublicKey` /
+`cloudkms.cryptoKeys.get`) on those keys. This credential forwarding is a local-dev convenience
+only; production uses Workload Identity. Verify via the bootstrap info server
+(`POST /keystore/reader/getkeys`) — the returned public keys should match
+`gcloud kms keys versions get-public-key <n> --key=<k> --keyring=<r> --location=<l>` for the key IDs.
 
 ## Running without a Job Distributor (`app_config_source = "local"`)
 

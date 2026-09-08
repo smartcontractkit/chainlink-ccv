@@ -284,16 +284,25 @@ func launchExecutor(ctx context.Context, in *Input, outputs []*blockchain.Output
 		return nil, fmt.Errorf("failed to write bootstrap secrets to file: %w", err)
 	}
 
-	// When the bootstrap keystore uses the KMS backend, the container reaches AWS KMS via the default
-	// credential chain — forward the host's AWS credentials so it can authenticate. Only done for the
-	// KMS backend.
+	// When the bootstrap keystore uses the KMS backend, the container reaches cloud KMS via the
+	// default credential chain — forward the host's cloud credentials so it can authenticate. AWS
+	// uses the AWS_* env chain; GCP uses GOOGLE_APPLICATION_CREDENTIALS (which also mounts the
+	// service-account key file). Only done for the KMS backend.
 	var envVars map[string]string
+	var credFiles []testcontainers.ContainerFile
 	if bs.Keystore != nil && bs.Keystore.Backend == bootstrap.KeystoreBackendKMS {
-		envVars = services.ForwardedAWSEnv()
+		if bs.Keystore.KMS.Provider == bootstrap.KMSProviderGCP {
+			envVars, credFiles = services.ForwardedGCPCreds()
+		} else {
+			envVars = services.ForwardedAWSEnv()
+		}
 	}
 	req, err := baseImageRequest(in, envVars, bootstrapConfigFilePath, bootstrapSecretsFilePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create base image request: %w", err)
+	}
+	if len(credFiles) > 0 {
+		req.Files = append(req.Files, credFiles...)
 	}
 
 	modifier, ok := modifiers[in.ChainFamily]

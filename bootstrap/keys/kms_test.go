@@ -386,3 +386,15 @@ func TestKMSKeystore_DuplicateKeyIDFails(t *testing.T) {
 	require.Contains(t, err.Error(), "key_a")
 	require.Contains(t, err.Error(), "key_b")
 }
+
+func TestValidateAWSKeyID(t *testing.T) {
+	t.Parallel()
+
+	require.NoError(t, ValidateAWSKeyID("12345678-1234-1234-1234-123456789abc"))          // raw Key ID
+	require.NoError(t, ValidateAWSKeyID("arn:aws:kms:us-east-1:123456789012:key/abc123")) // ARN
+	require.NoError(t, ValidateAWSKeyID("alias/my-alias"))                                // alias form
+
+	err := ValidateAWSKeyID("")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "must not be empty")
+}

@@ -348,16 +348,25 @@ func launchVerifier(ctx context.Context, in *Input, outputs []*blockchain.Output
 	// delivered by copying it into the running container (below / DeliverLocalAppConfig), not via a bind
 	// mount, so the container boots serving keys and the config can arrive at launch (in.LocalAppConfig
 	// set) or later (no-JD path: once contracts are deployed and the config is known).
-	// When the bootstrap keystore uses the KMS backend, the container reaches AWS KMS via the default
-	// credential chain. Forward the host's AWS credentials so it can authenticate. Only done for the
-	// KMS backend.
+	// When the bootstrap keystore uses the KMS backend, the container reaches cloud KMS via the
+	// default credential chain. Forward the host's cloud credentials so it can authenticate. AWS
+	// uses the AWS_* env chain; GCP uses GOOGLE_APPLICATION_CREDENTIALS (which also mounts the
+	// service-account key file). Only done for the KMS backend.
 	var envVars map[string]string
+	var credFiles []testcontainers.ContainerFile
 	if bootstrapInput.Keystore != nil && bootstrapInput.Keystore.Backend == bootstrap.KeystoreBackendKMS {
-		envVars = services.ForwardedAWSEnv()
+		if bootstrapInput.Keystore.KMS.Provider == bootstrap.KMSProviderGCP {
+			envVars, credFiles = services.ForwardedGCPCreds()
+		} else {
+			envVars = services.ForwardedAWSEnv()
+		}
 	}
 	req, err := baseImageRequest(in, envVars, bootstrapConfigFilePath, bootstrapSecretsFilePath, verifierSecretsFilePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create base image request: %w", err)
+	}
+	if len(credFiles) > 0 {
+		req.Files = append(req.Files, credFiles...)
 	}
 
 	// Get the modifier for the chain family.

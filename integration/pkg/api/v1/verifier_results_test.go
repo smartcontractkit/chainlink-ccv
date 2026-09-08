@@ -663,6 +663,104 @@ func TestVerifierResultsResponse_SchemaCompatibility(t *testing.T) {
 	})
 }
 
+// TestVerifierResultsResponse_ToVerifierResults_NilMessage documents that a
+// downstream aggregator returning a *VerifierResult whose Message is nil (i.e.
+// the verification is not available) is treated as "not found" and skipped
+// rather than failing. Previously this surfaced as:
+//
+//	error mapping message at index 0: failed to convert VerifierResultMessage
+//	to Message: message field is nil
+func TestVerifierResultsResponse_ToVerifierResults_NilMessage(t *testing.T) {
+	response := &VerifierResultsResponse{
+		GetVerifierResultsForMessageResponse: &v1.GetVerifierResultsForMessageResponse{
+			Results: []*v1.VerifierResult{
+				{
+					Message:                nil, // downstream omitted the message body
+					MessageCcvAddresses:    [][]byte{{0x13, 0x14, 0x15}},
+					MessageExecutorAddress: []byte{0x16, 0x17, 0x18},
+					CcvData:                []byte{0x19, 0x1a, 0x1b},
+					Metadata: &v1.VerifierResultMetadata{
+						Timestamp:             1234567890,
+						VerifierSourceAddress: []byte{0xa1, 0xa2},
+						VerifierDestAddress:   []byte{0xb1, 0xb2},
+					},
+				},
+			},
+		},
+	}
+
+	results, err := response.ToVerifierResults()
+
+	require.NoError(t, err)
+	require.Empty(t, results)
+}
+
+// TestVerifierResultsResponse_ToVerifierResults_BatchWithNilMessageIsSkipped
+// asserts the fix for the batch-poisoning bug: when the aggregator returns a
+// batch where one result has a nil Message (verification not available), that
+// entry is skipped while the other (valid) messageIDs in the batch are still
+// converted and returned. Previously a single nil-Message result failed the
+// entire batch.
+func TestVerifierResultsResponse_ToVerifierResults_BatchWithNilMessageIsSkipped(t *testing.T) {
+	validMsg := &v1.Message{
+		Version:              1,
+		SourceChainSelector:  100,
+		DestChainSelector:    200,
+		SequenceNumber:       42,
+		OnRampAddress:        []byte{0x01, 0x02, 0x03},
+		OffRampAddress:       []byte{0x04, 0x05, 0x06},
+		Finality:             10,
+		ExecutionGasLimit:    200000,
+		CcipReceiveGasLimit:  150000,
+		CcvAndExecutorHash:   make([]byte, 32),
+		Sender:               []byte{0x07, 0x08, 0x09},
+		Receiver:             []byte{0x0a, 0x0b, 0x0c},
+		OnRampAddressLength:  3,
+		OffRampAddressLength: 3,
+		SenderLength:         3,
+		ReceiverLength:       3,
+	}
+	validID, err := (&VerifierResultMessage{Message: validMsg}).ToMessage()
+	require.NoError(t, err)
+	expectedID, err := validID.MessageID()
+	require.NoError(t, err)
+
+	response := &VerifierResultsResponse{
+		GetVerifierResultsForMessageResponse: &v1.GetVerifierResultsForMessageResponse{
+			Results: []*v1.VerifierResult{
+				{
+					Message: validMsg,
+					MessageCcvAddresses: [][]byte{
+						{0x13, 0x14, 0x15},
+					},
+					MessageExecutorAddress: []byte{0x16, 0x17, 0x18},
+					CcvData:                []byte{0x19, 0x1a, 0x1b},
+					Metadata: &v1.VerifierResultMetadata{
+						Timestamp:             1234567890,
+						VerifierSourceAddress: []byte{0xa1, 0xa2},
+						VerifierDestAddress:   []byte{0xb1, 0xb2},
+					},
+				},
+				{
+					// malformed sibling: Message is nil -> treated as not found
+					Message:                nil,
+					MessageCcvAddresses:    [][]byte{{0x22}},
+					MessageExecutorAddress: []byte{0x23},
+					CcvData:                []byte{0x24},
+				},
+			},
+		},
+	}
+
+	results, err := response.ToVerifierResults()
+
+	// No error, and the valid message survives while the malformed sibling is skipped.
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	require.NotNil(t, results[expectedID])
+	assert.Equal(t, protocol.SequenceNumber(42), results[expectedID].Message.SequenceNumber)
+}
+
 func TestVerifierResultsResponse_ToVerifierResults_HandlesNilResults(t *testing.T) {
 	t.Run("skips nil results without panicking", func(t *testing.T) {
 		// This test simulates the aggregator response when some message IDs are not found.

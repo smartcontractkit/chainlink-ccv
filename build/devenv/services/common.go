@@ -51,6 +51,30 @@ func ForwardedAWSEnv() map[string]string {
 	return env
 }
 
+// gcpCredentialEnvVar is the standard Google Cloud env var carrying the path to a service-account
+// JSON key, which Application Default Credentials reads to authenticate (the GCP analog of the AWS
+// credential chain).
+const gcpCredentialEnvVar = "GOOGLE_APPLICATION_CREDENTIALS"
+
+// ForwardedGCPCreds returns the environment and container files needed for a container to reach
+// Google Cloud KMS via Application Default Credentials, mirroring ForwardedAWSEnv for AWS. When the
+// host sets GOOGLE_APPLICATION_CREDENTIALS, the env var is forwarded and the referenced key file is
+// mounted into the container at the same absolute path so ADC finds it. Returns an empty (non-nil)
+// env map and no files when the host has no GCP credentials configured, so callers can merge
+// unconditionally.
+func ForwardedGCPCreds() (env map[string]string, files []testcontainers.ContainerFile) {
+	env = make(map[string]string)
+	if p, ok := os.LookupEnv(gcpCredentialEnvVar); ok && p != "" {
+		env[gcpCredentialEnvVar] = p
+		files = append(files, testcontainers.ContainerFile{
+			HostFilePath:      p,
+			ContainerFilePath: p,
+			FileMode:          0o644,
+		})
+	}
+	return env, files
+}
+
 // CwdSourcePath returns source path for current working directory.
 func CwdSourcePath(sourcePath string) (string, error) {
 	wd, err := os.Getwd()

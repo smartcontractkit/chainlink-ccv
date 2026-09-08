@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.10.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.9.1...v0.10.0) (2026-09-08)
+
+
+### ⚠ BREAKING CHANGES
+
+* Add GCP support ([#1410](https://github.com/smartcontractkit/chainlink-ccv/issues/1410))
+
+### Features
+
+* Add GCP support ([#1410](https://github.com/smartcontractkit/chainlink-ccv/issues/1410)) ([b84dbed](https://github.com/smartcontractkit/chainlink-ccv/commit/b84dbed0c9e95663dd93e3ea10cbe92f421cf775))
+
+
+### Bug Fixes
+
+* **indexer:** skip nil-message verifier results so they cannot poison a shared batch ([#1427](https://github.com/smartcontractkit/chainlink-ccv/issues/1427)) ([0d9d551](https://github.com/smartcontractkit/chainlink-ccv/commit/0d9d5515d44b997f66289ad2ce4019cf3a0c36df))
+
+## [0.9.1](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.9.0...v0.9.1) (2026-09-07)
+
+
+### Bug Fixes
+
+* **integration:** defer rmn remote read to query time ([#1424](https://github.com/smartcontractkit/chainlink-ccv/issues/1424)) ([f0dfb98](https://github.com/smartcontractkit/chainlink-ccv/commit/f0dfb9834c5a3122387a92ccbac8272972121228))
+
 ## [0.9.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.8.1...v0.9.0) (2026-09-04)
 
 
