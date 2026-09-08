@@ -823,14 +823,16 @@ func TestInitializeKeystore_CSASignerOptional(t *testing.T) {
 	require.NoError(t, err)
 	defer dbConn.Close()
 
-	ks, csaSigner, err := initializeKeystore(ctx, logger.Test(t),
+	b := &Bootstrapper{lggr: logger.Test(t)}
+
+	ks, csaSigner, err := b.initializeKeystore(ctx,
 		KeystoreConfig{Password: "testpassword"}, dbConn,
 		[]keyToInit{{"signing", "signing", keystore.ECDSA_S256}}, nil)
 	require.NoError(t, err)
 	require.NotNil(t, ks)
 	require.Nil(t, csaSigner, "no CSA-purpose key declared → nil signer")
 
-	ks, csaSigner, err = initializeKeystore(ctx, logger.Test(t),
+	ks, csaSigner, err = b.initializeKeystore(ctx,
 		KeystoreConfig{Password: "testpassword"}, dbConn,
 		[]keyToInit{{DefaultCSAKeyName, csaKeyPurpose, keystore.Ed25519}}, nil)
 	require.NoError(t, err)
@@ -873,4 +875,54 @@ func TestChainTypeFromString(t *testing.T) {
 			require.Equal(t, tt.wantType, got.String())
 		})
 	}
+}
+
+// TestInitializeKeystore_GCPFactoryInjection verifies the withGCPKMSKeystoreFactory fn: the
+// injected factory receives the logical-name → Key-ID map built from the declared keys, and the
+// keystore it returns is what the CSA signer is built over.
+func TestInitializeKeystore_GCPFactoryInjection(t *testing.T) {
+	t.Parallel()
+
+	ecdsaKeyID := "projects/p/locations/l/keyRings/r/cryptoKeys/k/cryptoKeyVersions/1"
+	ed25519KeyID := "projects/p/locations/l/keyRings/r/cryptoKeys/e/cryptoKeyVersions/1"
+	cfgPath, secretsPath := writeBootstrapConfigFiles(t, localKMSBootstrapTOML(
+		fmt.Sprintf("provider = \"gcp\"\necdsa_key_id = %q\ned25519_key_id = %q\n", ecdsaKeyID, ed25519KeyID)))
+
+	var gotNameToID map[string]string
+	factoryCalled := false
+	fakeFactory := func(ctx context.Context, nameToID map[string]string) (keystore.Keystore, error) {
+		factoryCalled = true
+		gotNameToID = nameToID
+		// A real memory-backed keystore carrying the CSA key, so the signer step succeeds.
+		ks, err := keystore.LoadKeystore(ctx, keystore.NewMemoryStorage(), "test",
+			keystore.WithScryptParams(keystore.FastScryptParams))
+		if err != nil {
+			return nil, err
+		}
+		if _, err := ks.CreateKeys(ctx, keystore.CreateKeysRequest{
+			Keys: []keystore.CreateKeyRequest{{KeyName: DefaultCSAKeyName, KeyType: keystore.Ed25519}},
+		}); err != nil {
+			return nil, err
+		}
+		return ks, nil
+	}
+
+	b, err := NewBootstrapper("t", &mockServiceFactory{},
+		withBootstrapperConfigPath(cfgPath),
+		withBootstrapperSecretsPath(secretsPath),
+		withGCPKMSKeystoreFactory(fakeFactory))
+	require.NoError(t, err)
+
+	ks, signer, err := b.initializeKeystore(context.Background(),
+		KeystoreConfig{Backend: KeystoreBackendKMS, KMS: KMSKeystoreConfig{
+			Provider:     KMSProviderGCP,
+			EcdsaKeyID:   ecdsaKeyID,
+			Ed25519KeyID: ed25519KeyID,
+		}},
+		nil, []keyToInit{{DefaultCSAKeyName, csaKeyPurpose, keystore.Ed25519}}, nil)
+	require.NoError(t, err)
+	require.NotNil(t, ks)
+	require.NotNil(t, signer)
+	require.True(t, factoryCalled, "the injected GCP factory must be invoked")
+	require.Equal(t, map[string]string{DefaultCSAKeyName: ed25519KeyID}, gotNameToID)
 }

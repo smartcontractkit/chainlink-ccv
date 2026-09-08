@@ -56,9 +56,13 @@ const (
 )
 
 // KMSKeystoreConfig configures the cloud KMS keystore backend ("kms"). The provider selects which
-// provider-specific sub-configuration ([keystore.kms.aws] or [keystore.kms.gcp]) is valid; the
-// shared key IDs (ecdsa_key_id / ed25519_key_id) live at the [keystore.kms] level because their
-// format is the only provider-dependent part (a Key ID/ARN vs a CryptoKeyVersion resource name).
+// provider-specific sub-configuration applies ([keystore.kms.aws]; GCP has none); the shared key
+// IDs (ecdsa_key_id / ed25519_key_id) live at the [keystore.kms] level because their format is the
+// only provider-dependent part (a Key ID/ARN vs a CryptoKeyVersion resource name).
+//
+// Credentials come exclusively from each cloud's default mechanism — never from this config: AWS
+// uses its default credential chain and GCP uses Application Default Credentials
+// (GOOGLE_APPLICATION_CREDENTIALS locally, Workload Identity in production).
 type KMSKeystoreConfig struct {
 	// Provider selects the cloud KMS provider: "aws" or "gcp". Required when backend is "kms".
 	Provider KMSProvider `toml:"provider,omitempty"`
@@ -73,8 +77,6 @@ type KMSKeystoreConfig struct {
 
 	// AWS holds the AWS-specific settings. Only valid when provider is "aws".
 	*AWSKMSConfig `toml:"aws,omitempty"`
-	// GCP holds the GCP-specific settings. Only valid when provider is "gcp".
-	*GCPKMSConfig `toml:"gcp,omitempty"`
 }
 
 // AWSKMSConfig is the AWS-specific [keystore.kms.aws] configuration.
@@ -86,14 +88,6 @@ type AWSKMSConfig struct {
 	Region string `toml:"region,omitempty"`
 }
 
-// GCPKMSConfig is the GCP-specific [keystore.kms.gcp] configuration.
-type GCPKMSConfig struct {
-	// CredentialsFile is the path to a GCP service account JSON key. Local development —
-	// leave empty in production, where credentials come from Application Default Credentials
-	// (GKE Workload Identity, GCE instance/service accounts, or GOOGLE_APPLICATION_CREDENTIALS).
-	CredentialsFile string `toml:"credentials_file,omitempty"`
-}
-
 // AWS returns the AWS-specific settings; the zero value when the [keystore.kms.aws] section is
 // absent, so callers never dereference a nil pointer.
 func (c *KMSKeystoreConfig) AWS() AWSKMSConfig {
@@ -101,15 +95,6 @@ func (c *KMSKeystoreConfig) AWS() AWSKMSConfig {
 		return AWSKMSConfig{}
 	}
 	return *c.AWSKMSConfig
-}
-
-// GCP returns the GCP-specific settings; the zero value when the [keystore.kms.gcp] section is
-// absent, so callers never dereference a nil pointer.
-func (c *KMSKeystoreConfig) GCP() GCPKMSConfig {
-	if c.GCPKMSConfig == nil {
-		return GCPKMSConfig{}
-	}
-	return *c.GCPKMSConfig
 }
 
 // resolveProvider returns the KMS provider. It must be explicitly configured — there is no
@@ -134,9 +119,6 @@ func (c *KMSKeystoreConfig) validateProvider() error {
 	if c.AWSKMSConfig != nil && provider != KMSProviderAWS {
 		return fmt.Errorf("the [keystore.kms.aws] section is only valid when provider is %q", KMSProviderAWS)
 	}
-	if c.GCPKMSConfig != nil && provider != KMSProviderGCP {
-		return fmt.Errorf("the [keystore.kms.gcp] section is only valid when provider is %q", KMSProviderGCP)
-	}
 	return nil
 }
 
@@ -148,9 +130,9 @@ type KeystoreConfig struct {
 	Password string `toml:"password,omitempty"`
 	// KMS configures the cloud KMS backend. Required when backend is "kms".
 	//
-	// Provider selection: [keystore.kms].provider = "aws" or "gcp" (required); the matching
-	// provider-specific section ([keystore.kms.aws] / [keystore.kms.gcp]) holds its settings.
-	// Scope the workload's credentials as tightly as possible to exactly the keys configured below
+	// Provider selection: [keystore.kms].provider = "aws" or "gcp" (required); the AWS-specific
+	// section [keystore.kms.aws] holds AWS settings (GCP has none — see below). Scope the
+	// workload's credentials as tightly as possible to exactly the keys configured below
 	// (ecdsa_key_id / ed25519_key_id):
 	//
 	//   - AWS: grant only kms:Sign, kms:GetPublicKey, and kms:DescribeKey, restricted to exactly the

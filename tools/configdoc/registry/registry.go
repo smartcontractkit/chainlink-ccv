@@ -309,9 +309,6 @@ func bootstrapSecretsInstance() any {
 					Profile: "my-aws-profile",
 					Region:  "us-east-1",
 				},
-				GCPKMSConfig: &bootstrap.GCPKMSConfig{ //nolint:gosec // G101: this is a file path, not a credential
-					CredentialsFile: "/etc/bootstrap/gcp-service-account.json",
-				},
 			},
 		},
 		DB: bootstrap.DBConfig{URL: "postgres://user:password@localhost:5432/bootstrapper?sslmode=disable"}, //nolint:gosec // G101: placeholder example value in generated docs, not a real credential

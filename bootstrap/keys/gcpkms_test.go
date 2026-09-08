@@ -172,3 +172,19 @@ func TestGCPKMSKeystore_GetKeys_EmptyRequestListsOnlyMappedKeys(t *testing.T) {
 	require.Len(t, resp.Keys, 1)
 	require.Equal(t, "evm/tx/my_signing_key", resp.Keys[0].KeyInfo.Name)
 }
+
+func TestValidateGCPKeyID(t *testing.T) {
+	t.Parallel()
+
+	valid := "projects/p/locations/l/keyRings/r/cryptoKeys/k/cryptoKeyVersions/1"
+	require.NoError(t, ValidateGCPKeyID(valid))
+
+	// A bare CryptoKey name (no version) must be rejected: Cloud KMS rejects it on the
+	// asymmetric endpoints.
+	err := ValidateGCPKeyID("projects/p/locations/l/keyRings/r/cryptoKeys/k")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid GCP CryptoKeyVersion resource name")
+
+	err = ValidateGCPKeyID("")
+	require.Error(t, err)
+}

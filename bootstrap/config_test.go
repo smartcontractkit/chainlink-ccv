@@ -225,39 +225,9 @@ func TestKeystoreConfig_validate(t *testing.T) {
 			errContains: []string{"[keystore.kms.aws] section is only valid when provider is \"aws\""},
 		},
 		{
-			name: "gcp section under aws provider is invalid",
-			mode: AppConfigModeLocal,
-			config: &KeystoreConfig{
-				Backend: KeystoreBackendKMS,
-				KMS: KMSKeystoreConfig{
-					Provider:     KMSProviderAWS,
-					EcdsaKeyID:   "ecdsa-key-id",
-					GCPKMSConfig: &GCPKMSConfig{CredentialsFile: "/etc/bootstrap/gcp-sa.json"},
-				},
-			},
-			wantErr:     true,
-			errContains: []string{"[keystore.kms.gcp] section is only valid when provider is \"gcp\""},
-		},
-		{
-			// Both sections can never be valid: provider selects exactly one, so one of the two
-			// section/provider checks necessarily fires.
-			name: "both provider sections is invalid",
-			mode: AppConfigModeLocal,
-			config: &KeystoreConfig{
-				Backend: KeystoreBackendKMS,
-				KMS: KMSKeystoreConfig{
-					Provider:     KMSProviderAWS,
-					EcdsaKeyID:   "ecdsa-key-id",
-					AWSKMSConfig: &AWSKMSConfig{Profile: "my-profile"},
-					GCPKMSConfig: &GCPKMSConfig{CredentialsFile: "/etc/bootstrap/gcp-sa.json"},
-				},
-			},
-			wantErr:     true,
-			errContains: []string{"[keystore.kms.gcp] section is only valid when provider is \"gcp\""},
-		},
-		{
 			// The matching sub-section is optional even when the provider is set: AWS works with the
-			// default credential chain (no profile/region) and GCP with ADC (no credentials_file).
+			// default credential chain (no profile/region) and GCP with ADC (no GCP-specific config
+			// exists — credentials come from GOOGLE_APPLICATION_CREDENTIALS / Workload Identity).
 			name: "provider with no sub-section is valid",
 			mode: AppConfigModeLocal,
 			config: &KeystoreConfig{
@@ -807,10 +777,11 @@ url = "postgres://localhost:5432/bootstrapper"
 		require.Contains(t, err.Error(), "does-not-exist.toml")
 	})
 
-	// The KMS provider sections decode into their embedded pointer sub-structs: the section's
-	// presence allocates the pointer, its absence leaves it nil, and validation enforces that a
-	// section matches [keystore.kms].provider. All cases run in JD mode so the keystore section is
-	// validated at load time (local mode defers keystore validation to startup).
+	// The AWS section decodes into its embedded pointer sub-struct: the section's presence
+	// allocates the pointer, its absence leaves it nil, and validation enforces that the section
+	// matches [keystore.kms].provider. All cases run in JD mode so the keystore section is validated
+	// at load time (local mode defers keystore validation to startup). GCP has no sub-section — its
+	// credentials come exclusively from GOOGLE_APPLICATION_CREDENTIALS / ADC.
 	t.Run("kms provider sections decode and validate", func(t *testing.T) {
 		load := func(t *testing.T, kmsTOML string) *Config {
 			t.Helper()
@@ -821,7 +792,7 @@ url = "postgres://localhost:5432/bootstrapper"
 			return cfg
 		}
 
-		t.Run("gcp section decodes into the GCP sub-struct", func(t *testing.T) {
+		t.Run("gcp provider with no sub-section decodes shared fields", func(t *testing.T) {
 			cfg := load(t, `
 [keystore]
 backend = "kms"
@@ -831,15 +802,11 @@ provider = "gcp"
 ecdsa_key_id = "projects/p/locations/l/keyRings/r/cryptoKeys/k/cryptoKeyVersions/1"
 ed25519_key_id = "projects/p/locations/l/keyRings/r/cryptoKeys/e/cryptoKeyVersions/1"
 
-[keystore.kms.gcp]
-credentials_file = "/etc/bootstrap/gcp-sa.json"
-
 [db]
 url = "postgres://localhost:5432/bootstrapper"
 `)
-			require.NotNil(t, cfg.Keystore.KMS.GCPKMSConfig)
 			require.Nil(t, cfg.Keystore.KMS.AWSKMSConfig)
-			require.Equal(t, "/etc/bootstrap/gcp-sa.json", cfg.Keystore.KMS.GCP().CredentialsFile)
+			require.Equal(t, KMSProviderGCP, cfg.Keystore.KMS.Provider)
 		})
 
 		t.Run("aws section decodes into the AWS sub-struct", func(t *testing.T) {
@@ -860,7 +827,6 @@ region = "us-east-1"
 url = "postgres://localhost:5432/bootstrapper"
 `)
 			require.NotNil(t, cfg.Keystore.KMS.AWSKMSConfig)
-			require.Nil(t, cfg.Keystore.KMS.GCPKMSConfig)
 			require.Equal(t, "my-profile", cfg.Keystore.KMS.AWS().Profile)
 			require.Equal(t, "us-east-1", cfg.Keystore.KMS.AWS().Region)
 		})
