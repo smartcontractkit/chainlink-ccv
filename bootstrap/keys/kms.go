@@ -2,6 +2,7 @@ package keys
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/smartcontractkit/chainlink-common/keystore"
@@ -12,6 +13,16 @@ import (
 type signerReader interface {
 	keystore.Reader
 	keystore.Signer
+}
+
+// ValidateAWSKeyID checks that a configured AWS KMS key identifier is usable. AWS accepts a broad
+// set of identifiers — raw Key IDs, ARNs, and alias forms — and resolves them per partition and
+// API, so over-validating here would risk rejecting valid identifiers; only emptiness is rejected.
+func ValidateAWSKeyID(keyID string) error {
+	if keyID == "" {
+		return errors.New("AWS KMS key ID must not be empty: set ecdsa_key_id / ed25519_key_id to a Key ID or ARN")
+	}
+	return nil
 }
 
 // KMSKeystore wraps a chainlink-common KMS keystore with logical-name translation.

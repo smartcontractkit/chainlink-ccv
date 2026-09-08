@@ -120,16 +120,25 @@ func descend(t reflect.Type) reflect.Type {
 // fieldByTOMLKey finds the field of struct type t (including promoted fields from
 // embedded structs) whose TOML key matches key, returning the field and its
 // declaring type (which, for a promoted field, is the embedded struct).
+//
+// Embedded struct fields are matched by their own TOML key only when they carry a
+// tag: the encoder renders a tagged embed as its own table ([kms.aws]), while an
+// untagged embed is flattened into the parent and its promoted fields — which also
+// appear in VisibleFields — are matched individually.
 func fieldByTOMLKey(t reflect.Type, key string) (reflect.StructField, reflect.Type, bool) {
 	t = deref(t)
 	if t.Kind() != reflect.Struct {
 		return reflect.StructField{}, nil, false
 	}
 	for _, f := range reflect.VisibleFields(t) {
-		if !f.IsExported() || f.Anonymous {
+		if !f.IsExported() {
 			continue
 		}
-		if k, ok := tomlKey(f); ok && k == key {
+		k, hasTag := tomlKey(f)
+		if f.Anonymous && !hasTag {
+			continue
+		}
+		if hasTag && k == key {
 			return f, declaringType(t, f.Index), true
 		}
 	}

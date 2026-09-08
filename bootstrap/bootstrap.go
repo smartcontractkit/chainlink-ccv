@@ -236,6 +236,10 @@ type Bootstrapper struct {
 	// localConfigPath is the app config file read in local mode (config.LocalAppConfigPath).
 	localConfigPath string
 
+	// gcpKMSKeystoreFactory builds the Cloud KMS keystore adapter when the keystore backend is
+	// "kms" with provider "gcp".
+	gcpKMSKeystoreFactory func(ctx context.Context, nameToID map[string]string) (keystore.Keystore, error)
+
 	// application
 	fac              ServiceFactory
 	name             string
@@ -268,6 +272,9 @@ func NewBootstrapper(
 	b := &Bootstrapper{
 		fac:  fac,
 		name: name,
+	}
+	b.gcpKMSKeystoreFactory = func(ctx context.Context, nameToID map[string]string) (keystore.Keystore, error) {
+		return keys.NewGCPKMSKeystore(ctx, nameToID)
 	}
 	for _, opt := range opts {
 		if err := opt(b); err != nil {
@@ -405,7 +412,7 @@ func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 		return fmt.Errorf("failed to connect to bootstrapper database: %w", err)
 	}
 
-	keyStore, csaSigner, err := initializeKeystore(ctx, b.lggr, b.config.Keystore, db, b.keys, b.config.KeyImport)
+	keyStore, csaSigner, err := b.initializeKeystore(ctx, b.config.Keystore, db, b.keys, b.config.KeyImport)
 	if err != nil {
 		return fmt.Errorf("failed to initialize keystore: %w", err)
 	}
@@ -529,7 +536,7 @@ func (b *Bootstrapper) startLocal(ctx context.Context) error {
 	}
 	switch backend {
 	case KeystoreBackendKMS:
-		keyStore, csaSigner, err = initializeKeystore(ctx, b.lggr, b.config.Keystore, nil, b.keys, b.config.KeyImport)
+		keyStore, csaSigner, err = b.initializeKeystore(ctx, b.config.Keystore, nil, b.keys, b.config.KeyImport)
 		if err != nil {
 			return fmt.Errorf("failed to initialize KMS keystore: %w", err)
 		}
@@ -543,7 +550,7 @@ func (b *Bootstrapper) startLocal(ctx context.Context) error {
 			if err != nil {
 				return fmt.Errorf("failed to connect to bootstrapper database: %w", err)
 			}
-			keyStore, csaSigner, err = initializeKeystore(ctx, b.lggr, b.config.Keystore, db, b.keys, b.config.KeyImport)
+			keyStore, csaSigner, err = b.initializeKeystore(ctx, b.config.Keystore, db, b.keys, b.config.KeyImport)
 			if err != nil {
 				return fmt.Errorf("failed to initialize keystore: %w", err)
 			}
@@ -821,9 +828,8 @@ func bootstrapConfigPaths(explicitConfig, explicitSecrets string) []string {
 	return paths
 }
 
-func initializeKeystore(
+func (b *Bootstrapper) initializeKeystore(
 	ctx context.Context,
-	lggr logger.Logger,
 	ksCfg KeystoreConfig,
 	db *sqlx.DB,
 	requiredKeys []keyToInit,
@@ -846,9 +852,22 @@ func initializeKeystore(
 		if err != nil {
 			return nil, nil, fmt.Errorf("invalid KMS config: %w", err)
 		}
-		ks, err = keys.NewKMSKeystore(ctx, ksCfg.KMS.Profile, ksCfg.KMS.Region, nameToID)
+		provider, err := ksCfg.KMS.resolveProvider()
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to load KMS keystore: %w", err)
+			return nil, nil, fmt.Errorf("invalid KMS config: %w", err)
+		}
+		switch provider {
+		case KMSProviderGCP:
+			ks, err = b.gcpKMSKeystoreFactory(ctx, nameToID)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to load GCP KMS keystore: %w", err)
+			}
+		case KMSProviderAWS:
+			aws := ksCfg.KMS.AWS()
+			ks, err = keys.NewKMSKeystore(ctx, aws.Profile, aws.Region, nameToID)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to load KMS keystore: %w", err)
+			}
 		}
 	default: // postgres
 		ks, err = keystore.LoadKeystore(ctx, keys.NewPGStorage(db, "default"), ksCfg.Password)
@@ -857,10 +876,10 @@ func initializeKeystore(
 		}
 		for _, k := range requiredKeys {
 			if importKeyName != "" && k.name == importKeyName {
-				if err := keys.EnsureImportedKey(ctx, lggr, ks, k.name, k.purpose, k.keyType, importSpec); err != nil {
+				if err := keys.EnsureImportedKey(ctx, b.lggr, ks, k.name, k.purpose, k.keyType, importSpec); err != nil {
 					return nil, nil, fmt.Errorf("failed to import key %q (purpose=%q, type=%v): %w", k.name, k.purpose, k.keyType, err)
 				}
-			} else if err := keys.EnsureKey(ctx, lggr, ks, k.name, k.purpose, k.keyType); err != nil {
+			} else if err := keys.EnsureKey(ctx, b.lggr, ks, k.name, k.purpose, k.keyType); err != nil {
 				return nil, nil, fmt.Errorf("failed to ensure key %q (purpose=%q, type=%v): %w", k.name, k.purpose, k.keyType, err)
 			}
 		}
@@ -921,10 +940,23 @@ func resolveKeyImport(backend KeystoreBackend, requiredKeys []keyToInit, keyImpo
 	}
 }
 
-// buildKMSNameMap maps logical key names to KMS Key IDs by key type. The supported key types and the
-// config field each one draws its Key ID from are declared as data (keyIDByType) rather than control
-// flow, so adding a type is a one-line table entry.
+// buildKMSNameMap maps logical key names to KMS key identifiers (a Key ID/ARN for AWS, or a
+// CryptoKeyVersion resource name for GCP) by key type. The supported key types and the config field each
+// one draws its identifier from are declared as data (keyIDByType) rather than control flow, so
+// adding a type is a one-line table entry.
 func buildKMSNameMap(cfg KMSKeystoreConfig, requiredKeys []keyToInit) (map[string]string, error) {
+	if err := cfg.validateProvider(); err != nil {
+		return nil, err
+	}
+	provider, err := cfg.resolveProvider()
+	if err != nil {
+		return nil, err
+	}
+	validateKeyID := keys.ValidateAWSKeyID
+	if provider == KMSProviderGCP {
+		validateKeyID = keys.ValidateGCPKeyID
+	}
+
 	// keyType -> (configured Key ID, TOML field name for error messages).
 	keyIDByType := map[keystore.KeyType]struct {
 		id       string
@@ -943,6 +975,9 @@ func buildKMSNameMap(cfg KMSKeystoreConfig, requiredKeys []keyToInit) (map[strin
 		}
 		if entry.id == "" {
 			return nil, fmt.Errorf("KMS %s is required for key %q (type %q)", entry.tomlName, k.name, k.keyType)
+		}
+		if err := validateKeyID(entry.id); err != nil {
+			return nil, fmt.Errorf("KMS %s for key %q: %w", entry.tomlName, k.name, err)
 		}
 		// The KMS config carries a single Key ID per key type, so two required keys of the same type
 		// (or two types pointed at the same Key ID) would both resolve here to one KMS Key ID. Each
@@ -1016,6 +1051,18 @@ func withBootstrapperConfigPath(path string) Option {
 func withBootstrapperSecretsPath(path string) Option {
 	return func(b *Bootstrapper) error {
 		b.secretsPath = path
+		return nil
+	}
+}
+
+// gcpKMSKeystoreFactoryFn is the signature of the factory that builds the Cloud KMS keystore
+// adapter for the bootstrap "kms" backend.
+type gcpKMSKeystoreFactoryFn = func(ctx context.Context, nameToID map[string]string) (keystore.Keystore, error)
+
+// withGCPKMSKeystoreFactory is only used in tests.
+func withGCPKMSKeystoreFactory(fn gcpKMSKeystoreFactoryFn) Option {
+	return func(b *Bootstrapper) error {
+		b.gcpKMSKeystoreFactory = fn
 		return nil
 	}
 }
