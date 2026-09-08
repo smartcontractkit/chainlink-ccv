@@ -2,6 +2,7 @@ package preflight_test
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -26,11 +27,12 @@ const (
 // verifierSpecFor builds a job spec that references the given chain selectors, which is
 // how a deployed verifier spec records the chains it serves.
 func verifierSpecFor(selectors ...uint64) string {
-	spec := "[verifier]\n"
+	var spec strings.Builder
+	spec.WriteString("[verifier]\n")
 	for _, selector := range selectors {
-		spec += fmt.Sprintf("[verifier.chains.%d]\nenabled = true\n", selector)
+		fmt.Fprintf(&spec, "[verifier.chains.%d]\nenabled = true\n", selector)
 	}
-	return spec
+	return spec.String()
 }
 
 func jobInfo(jobID shared.JobID, spec string, status shared.JobProposalStatus) shared.JobInfo {
