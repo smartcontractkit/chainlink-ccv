@@ -349,8 +349,9 @@ maps to, not under a policy class. Failures from the endpoint itself are classif
 Endpoint latency is a separate histogram, `verifier_policy_http_request_duration_seconds`, labeled
 with the same `policy_passed` / `policy_rejected` / `policy_unavailable` outcome vocabulary (a
 skipped task makes no call, so it never appears here). The outcome counters only count; an
-endpoint that is slow but not yet timing out shows up here first. Buckets run from 1ms to 10s,
-around the per-call timeout.
+endpoint that is slow but not yet timing out shows up here first. Buckets run from 1ms to 15s,
+the largest `request_timeout` an operator may configure, so a call that runs to the ceiling still
+lands in a bucket.
 
 A rising `policy_skipped` says something upstream is feeding the verifier messages it cannot sign.
 It is not a policy problem and paging on it as one would be wrong.
