@@ -209,4 +209,13 @@ type MetricLabeler interface {
 	// RecordTokenHTTPCooldownSeconds records how long until the outbound attestation
 	// API cools down (0 if not currently cooling down).
 	RecordTokenHTTPCooldownSeconds(ctx context.Context, provider string, cooldown time.Duration)
+
+	// Policy hook (outbound policy endpoint) metrics
+
+	// RecordPolicyHTTPRequestDuration records how long one call to the operator's policy
+	// endpoint took. outcome is one of the monitoring.MessageTransitionOutcomePolicy* constants
+	// the stage's transition counter uses; policy_skipped never occurs here because a skipped
+	// task makes no call. A slow endpoint that is not yet timing out is invisible on the
+	// outcome counters, which is what this histogram is for.
+	RecordPolicyHTTPRequestDuration(ctx context.Context, outcome string, duration time.Duration)
 }

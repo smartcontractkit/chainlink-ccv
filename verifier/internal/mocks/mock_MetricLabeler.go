@@ -806,6 +806,41 @@ func (_c *MockMetricLabeler_RecordOldestMessageAge_Call) RunAndReturn(run func(c
 	return _c
 }
 
+// RecordPolicyHTTPRequestDuration provides a mock function with given fields: ctx, outcome, duration
+func (_m *MockMetricLabeler) RecordPolicyHTTPRequestDuration(ctx context.Context, outcome string, duration time.Duration) {
+	_m.Called(ctx, outcome, duration)
+}
+
+// MockMetricLabeler_RecordPolicyHTTPRequestDuration_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RecordPolicyHTTPRequestDuration'
+type MockMetricLabeler_RecordPolicyHTTPRequestDuration_Call struct {
+	*mock.Call
+}
+
+// RecordPolicyHTTPRequestDuration is a helper method to define mock.On call
+//   - ctx context.Context
+//   - outcome string
+//   - duration time.Duration
+func (_e *MockMetricLabeler_Expecter) RecordPolicyHTTPRequestDuration(ctx interface{}, outcome interface{}, duration interface{}) *MockMetricLabeler_RecordPolicyHTTPRequestDuration_Call {
+	return &MockMetricLabeler_RecordPolicyHTTPRequestDuration_Call{Call: _e.mock.On("RecordPolicyHTTPRequestDuration", ctx, outcome, duration)}
+}
+
+func (_c *MockMetricLabeler_RecordPolicyHTTPRequestDuration_Call) Run(run func(ctx context.Context, outcome string, duration time.Duration)) *MockMetricLabeler_RecordPolicyHTTPRequestDuration_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(time.Duration))
+	})
+	return _c
+}
+
+func (_c *MockMetricLabeler_RecordPolicyHTTPRequestDuration_Call) Return() *MockMetricLabeler_RecordPolicyHTTPRequestDuration_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockMetricLabeler_RecordPolicyHTTPRequestDuration_Call) RunAndReturn(run func(context.Context, string, time.Duration)) *MockMetricLabeler_RecordPolicyHTTPRequestDuration_Call {
+	_c.Run(run)
+	return _c
+}
+
 // RecordReorgTrackedSeqNums provides a mock function with given fields: ctx, count
 func (_m *MockMetricLabeler) RecordReorgTrackedSeqNums(ctx context.Context, count int64) {
 	_m.Called(ctx, count)

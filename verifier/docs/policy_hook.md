@@ -402,6 +402,13 @@ log line says so (`Policy hook request could not be built, scheduling retry - th
 called`). Both retry, but only the first is an incident on the operator's side, so alert on
 `policy_endpoint_error` rather than on the outcome.
 
+Endpoint latency is a separate histogram, `verifier_policy_http_request_duration_seconds`, labeled
+with the same `policy_passed` / `policy_rejected` / `policy_unavailable` outcome vocabulary. It
+counts calls, not messages: a skipped task and a `policy_request_invalid` task both make no call,
+so neither appears here. The outcome counters only count; an endpoint that is slow but not yet
+timing out shows up here first. Buckets run from 1ms to 15s, the largest `request_timeout` an
+operator may configure, so a call that runs to the ceiling still lands in a bucket.
+
 A rising `policy_skipped` says something upstream is feeding the verifier messages it cannot sign.
 It is not a policy problem and paging on it as one would be wrong.
 
