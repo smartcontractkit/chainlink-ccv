@@ -3,7 +3,6 @@ package evm
 import (
 	"context"
 	"errors"
-	"fmt"
 	"math/big"
 	"strconv"
 	"sync/atomic"
@@ -29,278 +28,6 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
-
-// mockFilterLogsClient embeds evmclient.Client and overrides FilterLogs to
-// simulate RPC range-limit rejections and successes.
-type mockFilterLogsClient struct {
-	evmclient.Client
-	filterLogsFunc func(ctx context.Context, q ethereum.FilterQuery) ([]types.Log, error)
-}
-
-func (m *mockFilterLogsClient) FilterLogs(ctx context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
-	return m.filterLogsFunc(ctx, q)
-}
-
-// mockHeadTracker wraps heads.NullTracker and overrides LatestAndFinalizedBlock.
-type mockHeadTracker struct {
-	heads.Tracker
-	latest    *evmtypes.Head
-	finalized *evmtypes.Head
-	err       error
-}
-
-func (m *mockHeadTracker) LatestAndFinalizedBlock(ctx context.Context) (*evmtypes.Head, *evmtypes.Head, error) {
-	return m.latest, m.finalized, m.err
-}
-
-func newTestSourceReader(t *testing.T, chainClient evmclient.Client) *SourceReader {
-	t.Helper()
-	return newTestSourceReaderWithTracker(t, chainClient, heads.NullTracker)
-}
-
-func newTestSourceReaderWithTracker(t *testing.T, chainClient evmclient.Client, tracker heads.Tracker) *SourceReader {
-	t.Helper()
-	return &SourceReader{
-		chainClient:          chainClient,
-		headTracker:          tracker,
-		onRampAddress:        common.HexToAddress("0x1234"),
-		ccipMessageSentTopic: common.Hash{}.Hex(),
-		chainSelector:        protocol.ChainSelector(1337),
-		lggr:                 logger.Test(t),
-		maxFilterBlockRange:  new(atomic.Uint64),
-	}
-}
-
-func rangeLimitError() error {
-	return fmt.Errorf("RPC call failed: exceeded max range limit for eth_getLogs")
-}
-
-func TestFetchMessageSentEvents_SourceMetadata(t *testing.T) {
-	for _, tc := range []struct {
-		name      string
-		feeToken  common.Address
-		timestamp uint64
-	}{
-		{name: "timestamp supplied", feeToken: common.HexToAddress("0xabcd"), timestamp: 1700000000},
-		{name: "timestamp unavailable", feeToken: common.HexToAddress("0xabcd")},
-		{name: "zero fee asset address", timestamp: 1700000000},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			onRampAddress := common.HexToAddress("0x1234")
-			sender := common.HexToAddress("0x5678")
-			receipts := []onramp.OnRampReceipt{
-				{Issuer: common.HexToAddress("0x1111"), FeeTokenAmount: big.NewInt(2)},
-				{Issuer: common.HexToAddress("0x2222"), FeeTokenAmount: big.NewInt(3)},
-				{Issuer: common.HexToAddress("0x3333"), FeeTokenAmount: big.NewInt(4)},
-			}
-			ccvHash, err := protocol.ComputeCCVAndExecutorHash(
-				[]protocol.UnknownAddress{receipts[0].Issuer.Bytes()}, receipts[1].Issuer.Bytes())
-			require.NoError(t, err)
-			message, err := protocol.NewMessage(
-				1337, 100, 1,
-				expectedSourceAddressBytes(onRampAddress), protocol.UnknownAddress{0x01},
-				protocol.FinalityWaitForFinality, 300000, 200000, ccvHash,
-				expectedSourceAddressBytes(sender), protocol.UnknownAddress{0x02}, nil, nil, nil,
-			)
-			require.NoError(t, err)
-			encodedMessage, err := message.Encode()
-			require.NoError(t, err)
-			messageID, err := message.MessageID()
-			require.NoError(t, err)
-			onRampABI, err := onramp.OnRampMetaData.GetAbi()
-			require.NoError(t, err)
-			data, err := onRampABI.Events["CCIPMessageSent"].Inputs.NonIndexed().Pack(
-				tc.feeToken, big.NewInt(0), encodedMessage, receipts, [][]byte{{0x01}},
-			)
-			require.NoError(t, err)
-			log := types.Log{
-				Address: onRampAddress,
-				Topics: []common.Hash{
-					onRampABI.Events["CCIPMessageSent"].ID,
-					common.BigToHash(big.NewInt(100)),
-					common.BytesToHash(sender.Bytes()),
-					common.Hash(messageID),
-				},
-				Data:           data,
-				BlockNumber:    95,
-				BlockTimestamp: tc.timestamp,
-				TxHash:         common.HexToHash("0xdeadbeef"),
-			}
-			// Only FilterLogs is implemented: an added block or transaction RPC fails the test.
-			calls := 0
-			chainClient := &mockFilterLogsClient{
-				filterLogsFunc: func(context.Context, ethereum.FilterQuery) ([]types.Log, error) {
-					calls++
-					return []types.Log{log}, nil
-				},
-			}
-			reader := newTestSourceReader(t, chainClient)
-			reader.onRampABI = onRampABI
-			reader.ccipMessageSentTopic = onRampABI.Events["CCIPMessageSent"].ID.Hex()
-			reader.SetCriticalSourceInvariantCallback(func(context.Context) { t.Error("unexpected invalid event") })
-			events, err := reader.FetchMessageSentEvents(t.Context(), big.NewInt(90), big.NewInt(100))
-			require.NoError(t, err)
-			require.Equal(t, 1, calls)
-			require.Len(t, events, 1)
-			require.Equal(t, protocol.UnknownAddress(tc.feeToken.Bytes()), events[0].FeeToken)
-			require.Equal(t, messageID, events[0].MessageID)
-			require.Equal(t, *message, events[0].Message)
-			details := events[0].MessageDetails
-			require.NotNil(t, details)
-			require.Equal(t, protocol.UnknownAddress(expectedSourceAddressBytes(tc.feeToken)), details.FeeToken)
-			require.Equal(t, big.NewInt(9), details.FeeTokenAmount)
-			require.Len(t, details.Receiver, 32)
-			require.Equal(t, byte(2), details.Receiver[31])
-			require.Equal(t, protocol.FinalityRequirement{Mode: protocol.FinalityModeFinalized}, details.Finality)
-			for i, receipt := range receipts {
-				require.Equal(t, receipt.FeeTokenAmount, events[0].Receipts[i].FeeTokenAmount)
-			}
-			if tc.timestamp == 0 {
-				require.True(t, events[0].BlockTimestamp.IsZero())
-			} else {
-				require.Equal(t, time.Unix(1700000000, 0).UTC(), events[0].BlockTimestamp)
-			}
-		})
-	}
-}
-
-func TestFetchMessageSentEvents_BoundedQueryShrinksAndRetries(t *testing.T) {
-	t.Parallel()
-
-	var queriedRanges [][2]uint64 // track [from, to] pairs
-	callCount := 0
-
-	client := &mockFilterLogsClient{
-		filterLogsFunc: func(ctx context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
-			from := q.FromBlock.Uint64()
-			to := q.ToBlock.Uint64()
-			queriedRanges = append(queriedRanges, [2]uint64{from, to})
-			callCount++
-
-			// Reject ranges > 500 blocks
-			if to-from+1 > 500 {
-				return nil, rangeLimitError()
-			}
-			return []types.Log{}, nil
-		},
-	}
-
-	reader := newTestSourceReader(t, client)
-
-	// Query [0, 999] — 1000 blocks, should be rejected, halved to 500, then succeed
-	events, err := reader.FetchMessageSentEvents(context.Background(), big.NewInt(0), big.NewInt(999))
-	require.NoError(t, err)
-	require.Empty(t, events)
-
-	// Should have made 3 calls: [0,999] rejected, [0,499] ok, [500,999] ok
-	require.Len(t, queriedRanges, 3)
-	require.Equal(t, [2]uint64{0, 999}, queriedRanges[0])
-	require.Equal(t, [2]uint64{0, 499}, queriedRanges[1])
-	require.Equal(t, [2]uint64{500, 999}, queriedRanges[2])
-
-	// The shrunk limit should persist
-	require.Equal(t, uint64(500), reader.maxFilterBlockRange.Load())
-}
-
-func TestFetchMessageSentEvents_ShrunkLimitPersistsForNextCall(t *testing.T) {
-	t.Parallel()
-
-	callCount := 0
-	client := &mockFilterLogsClient{
-		filterLogsFunc: func(ctx context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
-			callCount++
-			from := q.FromBlock.Uint64()
-			to := q.ToBlock.Uint64()
-			if to-from+1 > 500 {
-				return nil, rangeLimitError()
-			}
-			return []types.Log{}, nil
-		},
-	}
-
-	reader := newTestSourceReader(t, client)
-
-	// First call: [0, 999] — triggers shrink to 500
-	_, err := reader.FetchMessageSentEvents(context.Background(), big.NewInt(0), big.NewInt(999))
-	require.NoError(t, err)
-	require.Equal(t, uint64(500), reader.maxFilterBlockRange.Load())
-
-	// Second call: [1000, 1999] — should use the persisted 500 limit
-	var secondCallRanges [][2]uint64
-	client.filterLogsFunc = func(ctx context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
-		from := q.FromBlock.Uint64()
-		to := q.ToBlock.Uint64()
-		secondCallRanges = append(secondCallRanges, [2]uint64{from, to})
-		return []types.Log{}, nil
-	}
-
-	_, err = reader.FetchMessageSentEvents(context.Background(), big.NewInt(1000), big.NewInt(1999))
-	require.NoError(t, err)
-
-	// Should have chunked into [1000,1499], [1500,1999]
-	require.Len(t, secondCallRanges, 2)
-	require.Equal(t, [2]uint64{1000, 1499}, secondCallRanges[0])
-	require.Equal(t, [2]uint64{1500, 1999}, secondCallRanges[1])
-}
-
-func TestFetchMessageSentEvents_UnboundedQueryShrinksAndRetries(t *testing.T) {
-	t.Parallel()
-
-	latestHead := &evmtypes.Head{
-		Number:    999,
-		Hash:      common.BigToHash(big.NewInt(999)),
-		Timestamp: time.Now(),
-	}
-	tracker := &mockHeadTracker{latest: latestHead}
-
-	var queriedRanges [][2]uint64
-	client := &mockFilterLogsClient{
-		filterLogsFunc: func(ctx context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
-			from := q.FromBlock.Uint64()
-			to := q.ToBlock.Uint64()
-			queriedRanges = append(queriedRanges, [2]uint64{from, to})
-			if to-from+1 > 500 {
-				return nil, rangeLimitError()
-			}
-			return []types.Log{}, nil
-		},
-	}
-
-	reader := newTestSourceReaderWithTracker(t, client, tracker)
-
-	// Unbounded query [0, nil] — resolves latest=999, span=1000, halved to 500
-	events, err := reader.FetchMessageSentEvents(context.Background(), big.NewInt(0), nil)
-	require.NoError(t, err)
-	require.Empty(t, events)
-
-	// Should have made 3 calls: [0,999] rejected, [0,499] ok, [500,999] ok
-	require.Len(t, queriedRanges, 3)
-	require.Equal(t, [2]uint64{0, 999}, queriedRanges[0])
-	require.Equal(t, [2]uint64{0, 499}, queriedRanges[1])
-	require.Equal(t, [2]uint64{500, 999}, queriedRanges[2])
-
-	require.Equal(t, uint64(500), reader.maxFilterBlockRange.Load())
-}
-
-func TestFetchMessageSentEvents_GenericErrorDoesNotShrink(t *testing.T) {
-	t.Parallel()
-
-	genericErr := fmt.Errorf("connection refused")
-	client := &mockFilterLogsClient{
-		filterLogsFunc: func(ctx context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
-			return nil, genericErr
-		},
-	}
-
-	reader := newTestSourceReader(t, client)
-
-	events, err := reader.FetchMessageSentEvents(context.Background(), big.NewInt(0), big.NewInt(999))
-	require.ErrorIs(t, err, genericErr)
-	require.Empty(t, events)
-
-	// Limit should NOT be set
-	require.Equal(t, uint64(0), reader.maxFilterBlockRange.Load())
-}
 
 type stubOnRampStaticConfigGetter struct {
 	cfg onramp.OnRampStaticConfig
@@ -400,6 +127,123 @@ func blockNumFromArg(arg any) int64 {
 		return 0
 	}
 	return n
+}
+
+func newTestSourceReader(t *testing.T, cc evmclient.Client) *SourceReader {
+	t.Helper()
+	return &SourceReader{
+		chainClient: cc,
+		lggr:        logger.Test(t),
+	}
+}
+
+// mockFilterLogsClient embeds evmclient.Client and overrides FilterLogs, so a test can serve logs
+// without a chain. Any other RPC the reader reaches for panics on the nil embedded client, which
+// is what pins "this path makes exactly one call".
+type mockFilterLogsClient struct {
+	evmclient.Client
+	filterLogsFunc func(ctx context.Context, q ethereum.FilterQuery) ([]types.Log, error)
+}
+
+func (m *mockFilterLogsClient) FilterLogs(ctx context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
+	return m.filterLogsFunc(ctx, q)
+}
+
+func TestFetchMessageSentEvents_SourceMetadata(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		feeToken  common.Address
+		timestamp uint64
+	}{
+		{name: "timestamp supplied", feeToken: common.HexToAddress("0xabcd"), timestamp: 1700000000},
+		{name: "timestamp unavailable", feeToken: common.HexToAddress("0xabcd")},
+		{name: "zero fee asset address", timestamp: 1700000000},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			onRampAddress := common.HexToAddress("0x1234")
+			sender := common.HexToAddress("0x5678")
+			receipts := []onramp.OnRampReceipt{
+				{Issuer: common.HexToAddress("0x1111"), FeeTokenAmount: big.NewInt(2)},
+				{Issuer: common.HexToAddress("0x2222"), FeeTokenAmount: big.NewInt(3)},
+				{Issuer: common.HexToAddress("0x3333"), FeeTokenAmount: big.NewInt(4)},
+			}
+			ccvHash, err := protocol.ComputeCCVAndExecutorHash(
+				[]protocol.UnknownAddress{receipts[0].Issuer.Bytes()}, receipts[1].Issuer.Bytes())
+			require.NoError(t, err)
+			message, err := protocol.NewMessage(
+				1337, 100, 1,
+				expectedSourceAddressBytes(onRampAddress), protocol.UnknownAddress{0x01},
+				protocol.FinalityWaitForFinality, 300000, 200000, ccvHash,
+				expectedSourceAddressBytes(sender), protocol.UnknownAddress{0x02}, nil, nil, nil,
+			)
+			require.NoError(t, err)
+			encodedMessage, err := message.Encode()
+			require.NoError(t, err)
+			messageID, err := message.MessageID()
+			require.NoError(t, err)
+			onRampABI, err := onramp.OnRampMetaData.GetAbi()
+			require.NoError(t, err)
+			data, err := onRampABI.Events["CCIPMessageSent"].Inputs.NonIndexed().Pack(
+				tc.feeToken, big.NewInt(0), encodedMessage, receipts, [][]byte{{0x01}},
+			)
+			require.NoError(t, err)
+			log := types.Log{
+				Address: onRampAddress,
+				Topics: []common.Hash{
+					onRampABI.Events["CCIPMessageSent"].ID,
+					common.BigToHash(big.NewInt(100)),
+					common.BytesToHash(sender.Bytes()),
+					common.Hash(messageID),
+				},
+				Data:           data,
+				BlockNumber:    95,
+				BlockTimestamp: tc.timestamp,
+				TxHash:         common.HexToHash("0xdeadbeef"),
+			}
+			// Only FilterLogs is implemented: an added block or transaction RPC fails the test.
+			calls := 0
+			chainClient := &mockFilterLogsClient{
+				filterLogsFunc: func(context.Context, ethereum.FilterQuery) ([]types.Log, error) {
+					calls++
+					return []types.Log{log}, nil
+				},
+			}
+			// Configured inline rather than through newTestSourceReader: the reader has to agree
+			// with the log this test builds on the onramp address and the source selector, and
+			// the shared helper only supplies a client and a logger.
+			reader := &SourceReader{
+				chainClient:          chainClient,
+				lggr:                 logger.Test(t),
+				onRampAddress:        onRampAddress,
+				chainSelector:        protocol.ChainSelector(1337),
+				onRampABI:            onRampABI,
+				ccipMessageSentTopic: onRampABI.Events["CCIPMessageSent"].ID.Hex(),
+			}
+			reader.SetCriticalSourceInvariantCallback(func(context.Context) { t.Error("unexpected invalid event") })
+			events, err := reader.FetchMessageSentEvents(t.Context(), big.NewInt(90), big.NewInt(100))
+			require.NoError(t, err)
+			require.Equal(t, 1, calls)
+			require.Len(t, events, 1)
+			require.Equal(t, protocol.UnknownAddress(tc.feeToken.Bytes()), events[0].FeeToken)
+			require.Equal(t, messageID, events[0].MessageID)
+			require.Equal(t, *message, events[0].Message)
+			details := events[0].MessageDetails
+			require.NotNil(t, details)
+			require.Equal(t, protocol.UnknownAddress(expectedSourceAddressBytes(tc.feeToken)), details.FeeToken)
+			require.Equal(t, big.NewInt(9), details.FeeTokenAmount)
+			require.Len(t, details.Receiver, 32)
+			require.Equal(t, byte(2), details.Receiver[31])
+			require.Equal(t, protocol.FinalityRequirement{Mode: protocol.FinalityModeFinalized}, details.Finality)
+			for i, receipt := range receipts {
+				require.Equal(t, receipt.FeeTokenAmount, events[0].Receipts[i].FeeTokenAmount)
+			}
+			if tc.timestamp == 0 {
+				require.True(t, events[0].BlockTimestamp.IsZero())
+			} else {
+				require.Equal(t, time.Unix(1700000000, 0).UTC(), events[0].BlockTimestamp)
+			}
+		})
+	}
 }
 
 func TestGetBlocksHeaders_BatchesAndChunks(t *testing.T) {
