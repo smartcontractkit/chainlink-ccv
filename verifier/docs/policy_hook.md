@@ -395,6 +395,13 @@ the node's own error, so it lands on the message-failure counter under whatever 
 maps to, not under a policy class. Failures from the endpoint itself are classified as
 `policy_rejected` or `policy_endpoint_error`.
 
+`policy_unavailable` splits on its `reason`. `policy_endpoint_error` is the endpoint: it answered
+badly, timed out, or could not be reached. `policy_request_invalid` is the verifier: the call never
+went out because the task reached this stage without the reader-supplied message details, and the
+log line says so (`Policy hook request could not be built, scheduling retry - the endpoint was not
+called`). Both retry, but only the first is an incident on the operator's side, so alert on
+`policy_endpoint_error` rather than on the outcome.
+
 A rising `policy_skipped` says something upstream is feeding the verifier messages it cannot sign.
 It is not a policy problem and paging on it as one would be wrong.
 

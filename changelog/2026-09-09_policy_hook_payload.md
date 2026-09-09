@@ -19,6 +19,7 @@
 | `taskverifier.Processor.processJobs` | behavior-changed | `MessageDetails` | `verifier/pkg/taskverifier/processor.go:317` | [Reader ownership](#reader-ownership) |
 | `protocol.MessageDetails` / `MessageSentEvent.MessageDetails` / `vtypes.VerificationTask.MessageDetails` | added | `MessageSentEvent\{\|VerificationTask\{` | `protocol/message_details.go:8` | [Reader ownership](#reader-ownership) |
 | `chainaccess.NewMessageDetails` | added | `FetchMessageSentEvents\(` | `pkg/chainaccess/message_details.go:12` | [Reader ownership](#reader-ownership) |
+| `monitoring.MessageTransitionReasonPolicyRequestInvalid` / `policy.GatedVerifier.requestErrorResult` | added | `policy_request_invalid` | `verifier/pkg/monitoring/metrics.go:58` | [Reader ownership](#reader-ownership) |
 | `protocol.Finality.Requirement`, `FinalityRequirement`, `FinalityMode` | added | `\.Finality\b` | `protocol/finality.go:65` | [Decoded finality](#decoded-finality) |
 | `protocol.MessageSentEvent.FeeToken`, `.BlockTimestamp` | added | `MessageSentEvent\{` | `protocol/common_types.go:365` | [Source metadata](#source-metadata) |
 | `vtypes.VerificationTask.FeeToken`, `.SourceBlockTimestamp` | added | `VerificationTask\{` | `verifier/pkg/vtypes/types.go:18` | [Source metadata](#source-metadata) |
@@ -105,6 +106,10 @@ additional RPCs. Already-persisted details are preserved, including unavailable 
 
 Policy serializes these supplied values without normalization, receipt aggregation or bit decoding.
 Missing details are a construction error; the gate retries without contacting the endpoint or
-signing. This catches callers that bypass the reader boundary without silently screening a
-different set of addresses. Future transaction-origin metadata must also be supplied by readers;
+signing. It is counted apart from an endpoint failure: outcome `policy_unavailable` (the message
+got no verdict, so the stage's four outcomes still add up) with the new
+`monitoring.MessageTransitionReasonPolicyRequestInvalid` (`policy_request_invalid`) reason, and its
+own log line naming the endpoint as uncalled. An operator alerting on `policy_endpoint_error` is
+not paged for a verifier-side gap. This catches callers that bypass the reader boundary without
+silently screening a different set of addresses. Future transaction-origin metadata must also be supplied by readers;
 no such lookup is added here.

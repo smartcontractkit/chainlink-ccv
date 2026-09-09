@@ -55,6 +55,7 @@ const (
 	MessageTransitionReasonRulesStateUnknown      = "rules_state_unknown"
 	MessageTransitionReasonPolicyRejected         = "policy_rejected"
 	MessageTransitionReasonPolicyEndpointError    = "policy_endpoint_error"
+	MessageTransitionReasonPolicyRequestInvalid   = "policy_request_invalid"
 	MessageTransitionReasonTaskInvalid            = "task_invalid"
 	MessageTransitionReasonQueuePublishFailed     = "queue_publish_failed"
 	MessageTransitionReasonVerificationFailed     = "verification_failed"

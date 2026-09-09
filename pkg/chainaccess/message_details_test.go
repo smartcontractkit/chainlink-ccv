@@ -81,7 +81,16 @@ func TestNewMessageDetails_FeeTotal(t *testing.T) {
 	assert.Equal(t, "123456789012345678901234567899", details.FeeTokenAmount.String())
 	assert.Equal(t, "123456789012345678901234567890", largeFee.String())
 	assert.Nil(t, NewMessageDetails(protocol.Message{}, nil, nil).FeeTokenAmount)
-	assert.Nil(t, NewMessageDetails(protocol.Message{}, append(receipts, protocol.ReceiptWithBlob{}), nil).FeeTokenAmount)
+
+	// One receipt without a fee amount makes the whole total unknown rather than short.
+	withUnpricedReceipt := []protocol.ReceiptWithBlob{
+		{FeeTokenAmount: largeFee},
+		{FeeTokenAmount: big.NewInt(2)},
+		{FeeTokenAmount: big.NewInt(3)},
+		{FeeTokenAmount: big.NewInt(4)},
+		{},
+	}
+	assert.Nil(t, NewMessageDetails(protocol.Message{}, withUnpricedReceipt, nil).FeeTokenAmount)
 	details = NewMessageDetails(protocol.Message{}, []protocol.ReceiptWithBlob{{FeeTokenAmount: big.NewInt(0)}}, nil)
 	require.NotNil(t, details.FeeTokenAmount)
 	assert.Zero(t, details.FeeTokenAmount.Sign())
