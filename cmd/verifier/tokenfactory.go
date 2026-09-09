@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
+	"strconv"
 	"time"
 
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -151,6 +153,7 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 				ctx,
 				verifierConfig.VerifierID,
 				verifierConfig.LombardConfig,
+				cfg.DisableFinalityCheckers,
 				tvf.lggr,
 				sourceReaders,
 				storage.NewCCVWriter(
@@ -170,6 +173,7 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 				ctx,
 				verifierConfig.VerifierID,
 				verifierConfig.CCTPConfig,
+				cfg.DisableFinalityCheckers,
 				tvf.lggr,
 				sourceReaders,
 				storage.NewCCVWriter(
@@ -232,6 +236,7 @@ func createCCTPCoordinator(
 	ctx context.Context,
 	verifierID string,
 	cctpConfig *cctp.CCTPConfig,
+	disableFinalityCheckers []string,
 	lggr logger.Logger,
 	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
 	ccvStorage protocol.CCVNodeDataWriter,
@@ -240,7 +245,7 @@ func createCCTPCoordinator(
 	chainStatusManager protocol.ChainStatusManager,
 	db sqlutil.DataSource,
 ) (*verifier.Coordinator, error) {
-	cctpSourceConfigs := createSourceConfigs(cctpConfig.ParsedVerifierResolvers)
+	cctpSourceConfigs := createSourceConfigs(cctpConfig.ParsedVerifierResolvers, disableFinalityCheckers)
 
 	attestationService, err := cctp.NewAttestationService(lggr, verifierMonitoring, *cctpConfig)
 	if err != nil {
@@ -282,6 +287,7 @@ func createLombardCoordinator(
 	_ context.Context,
 	verifierID string,
 	lombardConfig *lombard.LombardConfig,
+	disableFinalityCheckers []string,
 	lggr logger.Logger,
 	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
 	ccvStorage protocol.CCVNodeDataWriter,
@@ -290,7 +296,7 @@ func createLombardCoordinator(
 	chainStatusManager protocol.ChainStatusManager,
 	db sqlutil.DataSource,
 ) (*verifier.Coordinator, error) {
-	sourceConfigs := createSourceConfigs(lombardConfig.ParsedVerifierResolvers)
+	sourceConfigs := createSourceConfigs(lombardConfig.ParsedVerifierResolvers, disableFinalityCheckers)
 	attestationService, err := lombard.NewAttestationService(lggr, verifierMonitoring, *lombardConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Lombard attestation service: %w", err)
@@ -332,14 +338,19 @@ func createLombardCoordinator(
 	return coordinator, nil
 }
 
-func createSourceConfigs(verifiers map[protocol.ChainSelector]protocol.UnknownAddress) map[protocol.ChainSelector]verifier.SourceConfig {
+func createSourceConfigs(
+	verifiers map[protocol.ChainSelector]protocol.UnknownAddress,
+	disableFinalityCheckers []string,
+) map[protocol.ChainSelector]verifier.SourceConfig {
 	sourceConfigs := make(map[protocol.ChainSelector]verifier.SourceConfig)
 	for selector, address := range verifiers {
+		strSelector := strconv.FormatUint(uint64(selector), 10)
 		sourceConfigs[selector] = verifier.SourceConfig{
 			VerifierAddress:        address,
 			DefaultExecutorAddress: nil,
 			PollInterval:           verifier.SourceReaderPollInterval,
 			ChainSelector:          selector,
+			DisableFinalityChecker: slices.Contains(disableFinalityCheckers, strSelector),
 		}
 	}
 	return sourceConfigs
