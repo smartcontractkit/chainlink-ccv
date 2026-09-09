@@ -12,6 +12,7 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	oteltrace "go.opentelemetry.io/otel/trace"
 
+	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/common/monitoring/tracing"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/jobqueue"
@@ -119,7 +120,7 @@ func newProcessor(
 	resultQueue jobqueue.JobQueue[protocol.VerifierNodeResult],
 	config verifier.CoordinatorConfig,
 ) *Processor {
-	storageBatchSize, _, retryDelay, backoffFactor, backoffMax := configWithDefaults(lggr, config)
+	d := configWithDefaults(lggr, config)
 
 	return &Processor{
 		lggr:                    lggr,
@@ -128,12 +129,12 @@ func newProcessor(
 		messageTracker:          messageTracker,
 		storage:                 storage,
 		resultQueue:             resultQueue,
-		retryDelay:              retryDelay,
-		retryBackoffFactor:      backoffFactor,
-		retryBackoffMax:         backoffMax,
+		retryDelay:              d.retryDelay,
+		retryBackoffFactor:      d.backoffFactor,
+		retryBackoffMax:         d.backoffMax,
 		cleanupInterval:         defaultCleanupInterval,
 		retentionPeriod:         defaultRetentionPeriod,
-		batchSize:               storageBatchSize,
+		batchSize:               d.batchSize,
 		pendingFallbackInterval: defaultPendingFallbackInterval,
 		staleReclaimInterval:    defaultStaleReclaimInterval,
 		stopCh:                  make(chan struct{}),
@@ -537,21 +538,28 @@ func (s *Processor) scheduleStorageRetries(ctx context.Context, jobs []jobqueue.
 	}
 
 	for delay, jobIDs := range jobIDsByDelay {
-		s.lggr.Infow("Scheduling retry for failed storage writes",
-			"retryCount", len(jobIDs),
-			"delay", delay,
-		)
-		retryCtx, cancel := context.WithTimeout(ctx, verifier.DefaultJobQueueOperationTimeout)
-		if retryErr := s.resultQueue.Retry(retryCtx, delay, errorsByDelay[delay], jobIDs...); retryErr != nil {
-			s.lggr.Errorw("Failed to schedule retry for storage writes",
-				"error", retryErr,
-				"count", len(jobIDs),
-				"delay", delay,
+		func() {
+			// Jitter the wait before issuing the Retry call. Retries derive from the same
+			// attempt count, so without jitter every verifier in the committee would land on
+			// the aggregator on the same tick; jittering per group desynchronizes them while
+			// keeping each group batched into a single Retry call.
+			jitteredDelay := common.WithJitter(delay)
+			s.lggr.Infow("Scheduling retry for failed storage writes",
+				"retryCount", len(jobIDs),
+				"delay", jitteredDelay,
 			)
-		}
-		// Call cancel immediately after Retry, not deferred, to bound each group's
-		// timeout to its own Retry call.
-		cancel()
+			// defer the cancel so a future early return/continue still releases the timeout
+			// context; the closure keeps it bounded to this group's Retry call.
+			retryCtx, cancel := context.WithTimeout(ctx, verifier.DefaultJobQueueOperationTimeout)
+			defer cancel()
+			if retryErr := s.resultQueue.Retry(retryCtx, jitteredDelay, errorsByDelay[delay], jobIDs...); retryErr != nil {
+				s.lggr.Errorw("Failed to schedule retry for storage writes",
+					"error", retryErr,
+					"count", len(jobIDs),
+					"delay", jitteredDelay,
+				)
+			}
+		}()
 	}
 }
 
@@ -595,38 +603,48 @@ func (s *Processor) HealthReport() map[string]error {
 	return report
 }
 
-func configWithDefaults(lggr logger.Logger, config verifier.CoordinatorConfig) (int, time.Duration, time.Duration, int, time.Duration) {
-	storageBatchSize := config.StorageBatchSize
+// storageWriteDefaults holds the resolved storage-write configuration after applying defaults. It
+// exists so configWithDefaults returns a small, self-describing value instead of a wide tuple.
+type storageWriteDefaults struct {
+	batchSize     int
+	batchTimeout  time.Duration
+	retryDelay    time.Duration
+	backoffFactor int
+	backoffMax    time.Duration
+}
+
+func configWithDefaults(lggr logger.Logger, config verifier.CoordinatorConfig) storageWriteDefaults {
+	d := storageWriteDefaults{batchSize: config.StorageBatchSize}
 	if config.StorageBatchSize <= 0 {
-		storageBatchSize = 50
+		d.batchSize = 50
 		lggr.Debugw("Using default StorageBatchSize", "value", config.StorageBatchSize)
 	}
 
-	storageBatchTimeout := config.StorageBatchTimeout
-	if storageBatchTimeout <= 0 {
-		storageBatchTimeout = 1 * time.Second
+	d.batchTimeout = config.StorageBatchTimeout
+	if config.StorageBatchTimeout <= 0 {
+		d.batchTimeout = 1 * time.Second
 		lggr.Debugw("Using default StorageBatchTimeout", "value", config.StorageBatchTimeout)
 	}
 
-	retryDelay := config.StorageRetryDelay
-	if retryDelay <= 0 {
-		retryDelay = 2 * time.Second
-		lggr.Debugw("Using default StorageRetryDelay", "value", retryDelay)
+	d.retryDelay = config.StorageRetryDelay
+	if config.StorageRetryDelay <= 0 {
+		d.retryDelay = 2 * time.Second
+		lggr.Debugw("Using default StorageRetryDelay", "value", config.StorageRetryDelay)
 	}
 
-	backoffFactor := config.StorageBackoffFactor
-	if backoffFactor <= 0 {
-		backoffFactor = DefaultBackoffFactor
-		lggr.Debugw("Using default StorageBackoffFactor", "value", backoffFactor)
+	d.backoffFactor = config.StorageBackoffFactor
+	if config.StorageBackoffFactor <= 0 {
+		d.backoffFactor = DefaultBackoffFactor
+		lggr.Debugw("Using default StorageBackoffFactor", "value", d.backoffFactor)
 	}
 
-	backoffMax := config.StorageBackoffMax
-	if backoffMax <= 0 {
-		backoffMax = DefaultBackoffMax
-		lggr.Debugw("Using default StorageBackoffMax", "value", backoffMax)
+	d.backoffMax = config.StorageBackoffMax
+	if config.StorageBackoffMax <= 0 {
+		d.backoffMax = DefaultBackoffMax
+		lggr.Debugw("Using default StorageBackoffMax", "value", d.backoffMax)
 	}
 
-	return storageBatchSize, storageBatchTimeout, retryDelay, backoffFactor, backoffMax
+	return d
 }
 
 var (

@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	mrand "math/rand/v2"
 	"sync"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
@@ -274,12 +274,7 @@ func (g *GatedVerifier) endpointErrorResult(ctx context.Context, task vtypes.Ver
 // that grows with the attempt count needs the queue's attempt_count on the task and is tracked
 // separately.
 func (g *GatedVerifier) retryDelayWithJitter() time.Duration {
-	half := int64(g.retryDelay / 2)
-	if half <= 0 {
-		return g.retryDelay
-	}
-	//nolint:gosec // G404: jitter spreads retry load, it is not a security decision.
-	return g.retryDelay - time.Duration(half) + time.Duration(mrand.Int64N(2*half+1))
+	return common.WithJitter(g.retryDelay)
 }
 
 func (g *GatedVerifier) messageMetrics(message protocol.Message) vtypes.MetricLabeler {
