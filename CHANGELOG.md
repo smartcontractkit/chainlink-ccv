@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.11.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.10.1...v0.11.0) (2026-09-09)
+
+
+### Features
+
+* remove configure lombard evm dependency ([#1394](https://github.com/smartcontractkit/chainlink-ccv/issues/1394)) ([14a9d8b](https://github.com/smartcontractkit/chainlink-ccv/commit/14a9d8ba943c707baedb50c3faf63a42e450bba8))
+* **verifier:** policy endpoint latency histogram ([#1415](https://github.com/smartcontractkit/chainlink-ccv/issues/1415)) ([51663c6](https://github.com/smartcontractkit/chainlink-ccv/commit/51663c652f04181703510d344002bf2c99c85a8b))
+
+
+### Bug Fixes
+
+* pass unbounded queries through without bisection ([#1429](https://github.com/smartcontractkit/chainlink-ccv/issues/1429)) ([0228036](https://github.com/smartcontractkit/chainlink-ccv/commit/02280364f9676b02d81523c9a5442b1ebadb6099))
+* **verifier:** reduce aggregator retry spam, use exponential backoff ([#1436](https://github.com/smartcontractkit/chainlink-ccv/issues/1436)) ([33570c0](https://github.com/smartcontractkit/chainlink-ccv/commit/33570c0f7c1771f5d4babef5b0649c13a9fb2385))
+* **verifier:** reject [policy_hook] in Chainlink-node mode at boot ([#1414](https://github.com/smartcontractkit/chainlink-ccv/issues/1414)) ([23f8516](https://github.com/smartcontractkit/chainlink-ccv/commit/23f8516dbaf4b1e68154389956f642f9534464a5))
+
 ## [0.10.1](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.10.0...v0.10.1) (2026-09-08)
 
 
