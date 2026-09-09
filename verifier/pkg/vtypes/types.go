@@ -61,9 +61,9 @@ type CoordinatorConfig struct {
 	// StorageBackoffMax caps the truncated exponential backoff so failed storage writes do
 	// not space out unbounded (default: 1m).
 	StorageBackoffMax time.Duration `json:"storage_backoff_max"`
-	CursePollInterval   time.Duration                           `json:"curse_poll_interval"`   // How often to poll RMN Remote contracts for curse status (default: 10s)
-	CurseRPCTimeout     time.Duration                           `json:"curse_rpc_timeout"`     // Timeout for each RMN RPC call (default: 5s)
-	HeartbeatInterval   time.Duration                           `json:"heartbeat_interval"`    // How often to send heartbeat to aggregator (default: 10s, 0 disables heartbeat)
+	CursePollInterval time.Duration `json:"curse_poll_interval"` // How often to poll RMN Remote contracts for curse status (default: 10s)
+	CurseRPCTimeout   time.Duration `json:"curse_rpc_timeout"`   // Timeout for each RMN RPC call (default: 5s)
+	HeartbeatInterval time.Duration `json:"heartbeat_interval"`  // How often to send heartbeat to aggregator (default: 10s, 0 disables heartbeat)
 	// ChainStatusFlushInterval is how often buffered chain statuses are written to
 	// the database (default: 30s). A disabled status is always written immediately.
 	ChainStatusFlushInterval time.Duration `json:"chain_status_flush_interval"`

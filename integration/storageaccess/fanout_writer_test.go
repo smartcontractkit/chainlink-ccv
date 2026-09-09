@@ -251,7 +251,7 @@ func (s *countingStub) WriteCCVNodeData(_ context.Context, _ []protocol.Verifier
 	return s.results[i], err
 }
 
-// TestFanOutWriter_SkipsAlreadyAckedAggregatorOnRetry verifies the core behaviour: once an
+// TestFanOutWriter_SkipsAlreadyAckedAggregatorOnRetry verifies the core behavior: once an
 // aggregator confirms a message, a later retry of that message does not re-send it to that
 // aggregator — only the still-pending aggregator is re-attempted, so a down aggregator no
 // longer makes the healthy ones receive the same item on every retry.
@@ -285,7 +285,7 @@ func TestFanOutWriter_SkipsAlreadyAckedAggregatorOnRetry(t *testing.T) {
 	assert.Equal(t, 2, b.calls)
 }
 
-// TestFanOutWriter_RetryOnlyResendsFailedItems mirrors the real queue behaviour: a batch
+// TestFanOutWriter_RetryOnlyResendsFailedItems mirrors the real queue behavior: a batch
 // failure retries only the items that failed, not the ones every aggregator already acked. A
 // healthy aggregator that acked a failed item is therefore skipped, and only the still-pending
 // aggregator is re-sent that item.
