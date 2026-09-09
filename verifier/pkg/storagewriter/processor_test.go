@@ -558,9 +558,11 @@ func TestConfigWithDefaults(t *testing.T) {
 		{
 			name: "uses provided config values when valid",
 			config: verifier.CoordinatorConfig{
-				StorageBatchSize:    100,
-				StorageBatchTimeout: 5 * time.Second,
-				StorageRetryDelay:   3 * time.Second,
+				StorageBatchSize:     100,
+				StorageBatchTimeout:  5 * time.Second,
+				StorageRetryDelay:    3 * time.Second,
+				StorageBackoffFactor: 2,
+				StorageBackoffMax:    1 * time.Minute,
 			},
 			expectedBatchSize:  100,
 			expectedBatchTime:  5 * time.Second,
@@ -593,11 +595,21 @@ func TestConfigWithDefaults(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lggr := logger.Test(t)
-			batchSize, batchTimeout, retryDelay := configWithDefaults(lggr, tt.config)
+			batchSize, batchTimeout, retryDelay, backoffFactor, backoffMax := configWithDefaults(lggr, tt.config)
 
 			require.Equal(t, tt.expectedBatchSize, batchSize)
 			require.Equal(t, tt.expectedBatchTime, batchTimeout)
 			require.Equal(t, tt.expectedRetryDelay, retryDelay)
+			if tt.config.StorageBackoffFactor > 0 {
+				require.Equal(t, tt.config.StorageBackoffFactor, backoffFactor)
+			} else {
+				require.Equal(t, DefaultBackoffFactor, backoffFactor)
+			}
+			if tt.config.StorageBackoffMax > 0 {
+				require.Equal(t, tt.config.StorageBackoffMax, backoffMax)
+			} else {
+				require.Equal(t, DefaultBackoffMax, backoffMax)
+			}
 		})
 	}
 }

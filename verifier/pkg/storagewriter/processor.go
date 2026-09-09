@@ -79,10 +79,12 @@ type Processor struct {
 	resultQueue jobqueue.JobQueue[protocol.VerifierNodeResult]
 
 	// Configuration
-	cleanupInterval time.Duration
-	retentionPeriod time.Duration
-	batchSize       int
-	retryDelay      time.Duration
+	cleanupInterval    time.Duration
+	retentionPeriod    time.Duration
+	batchSize          int
+	retryDelay         time.Duration
+	retryBackoffFactor int
+	retryBackoffMax    time.Duration
 
 	// pendingFallbackInterval and staleReclaimInterval drive the signal-driven loop.
 	pendingFallbackInterval time.Duration
@@ -117,7 +119,7 @@ func newProcessor(
 	resultQueue jobqueue.JobQueue[protocol.VerifierNodeResult],
 	config verifier.CoordinatorConfig,
 ) *Processor {
-	storageBatchSize, _, retryDelay := configWithDefaults(lggr, config)
+	storageBatchSize, _, retryDelay, backoffFactor, backoffMax := configWithDefaults(lggr, config)
 
 	return &Processor{
 		lggr:                    lggr,
@@ -127,6 +129,8 @@ func newProcessor(
 		storage:                 storage,
 		resultQueue:             resultQueue,
 		retryDelay:              retryDelay,
+		retryBackoffFactor:      backoffFactor,
+		retryBackoffMax:         backoffMax,
 		cleanupInterval:         defaultCleanupInterval,
 		retentionPeriod:         defaultRetentionPeriod,
 		batchSize:               storageBatchSize,
@@ -345,9 +349,7 @@ func (s *Processor) processJobs(ctx context.Context, jobs []jobqueue.Job[protoco
 
 		// Schedule retry for all jobs in this batch
 		errorMap := make(map[string]error)
-		jobIDs := make([]string, len(jobs))
 		for i, job := range jobs {
-			jobIDs[i] = job.ID
 			errorMap[job.ID] = err
 
 			span := tracing.SpanFromContext(results[i].TraceContext)
@@ -368,15 +370,7 @@ func (s *Processor) processJobs(ctx context.Context, jobs []jobqueue.Job[protoco
 				monitoring.MessageTransitionReasonBatchWriteFailed)
 		}
 
-		retryCtx, cancel := context.WithTimeout(ctx, verifier.DefaultJobQueueOperationTimeout)
-		defer cancel()
-
-		if retryErr := s.resultQueue.Retry(retryCtx, s.retryDelay, errorMap, jobIDs...); retryErr != nil {
-			s.lggr.Errorw("Failed to schedule retry for CCV data batch",
-				"error", retryErr,
-				"batchSize", len(jobs),
-			)
-		}
+		s.scheduleStorageRetries(ctx, jobs, errorMap)
 		return err
 	}
 
@@ -468,22 +462,9 @@ func (s *Processor) processJobs(ctx context.Context, jobs []jobqueue.Job[protoco
 		"nonRetriableFailed", len(nonRetriableFailedJobs),
 	)
 
-	// Schedule retry for retriable failed jobs only
+	// Schedule retry for retriable failed jobs only, backed off per job by attempt count
 	if len(retriableFailedJobs) > 0 {
-		s.lggr.Infow("Scheduling retry for failed writes",
-			"retriableFailedCount", len(retriableFailedJobs),
-			"retryDelay", s.retryDelay,
-		)
-
-		retryCtx, cancel := context.WithTimeout(ctx, verifier.DefaultJobQueueOperationTimeout)
-		defer cancel()
-
-		if retryErr := s.resultQueue.Retry(retryCtx, s.retryDelay, failedErrorMap, retriableFailedJobs...); retryErr != nil {
-			s.lggr.Errorw("Failed to schedule retry for failed writes",
-				"error", retryErr,
-				"retriableFailedCount", len(retriableFailedJobs),
-			)
-		}
+		s.scheduleStorageRetries(ctx, jobs, failedErrorMap)
 	}
 
 	// Mark non-retryable failed jobs as failed permanently
@@ -527,6 +508,53 @@ func (s *Processor) processJobs(ctx context.Context, jobs []jobqueue.Job[protoco
 	return nil
 }
 
+// scheduleStorageRetries reschedules the given failed jobs, backing off per job from its
+// attempt count using a truncated exponential backoff. Jobs are grouped by their computed
+// delay and each group is scheduled with a single Retry call, mirroring the task verifier.
+//
+// A failure to schedule a group is logged and left to stale-lock reclaim rather than
+// failing the write: those jobs remain in 'processing' and are retried on the next sweep,
+// when their backoff is recomputed from the incremented attempt count.
+func (s *Processor) scheduleStorageRetries(ctx context.Context, jobs []jobqueue.Job[protocol.VerifierNodeResult], errorMap map[string]error) {
+	if len(errorMap) == 0 {
+		return
+	}
+
+	jobIDsByDelay := make(map[time.Duration][]string)
+	errorsByDelay := make(map[time.Duration]map[string]error)
+
+	for _, job := range jobs {
+		if _, ok := errorMap[job.ID]; !ok {
+			continue
+		}
+		delay := backoffDelay(job.AttemptCount, s.retryDelay, s.retryBackoffFactor, s.retryBackoffMax)
+		if jobIDsByDelay[delay] == nil {
+			jobIDsByDelay[delay] = make([]string, 0)
+			errorsByDelay[delay] = make(map[string]error)
+		}
+		jobIDsByDelay[delay] = append(jobIDsByDelay[delay], job.ID)
+		errorsByDelay[delay][job.ID] = errorMap[job.ID]
+	}
+
+	for delay, jobIDs := range jobIDsByDelay {
+		s.lggr.Infow("Scheduling retry for failed storage writes",
+			"retryCount", len(jobIDs),
+			"delay", delay,
+		)
+		retryCtx, cancel := context.WithTimeout(ctx, verifier.DefaultJobQueueOperationTimeout)
+		if retryErr := s.resultQueue.Retry(retryCtx, delay, errorsByDelay[delay], jobIDs...); retryErr != nil {
+			s.lggr.Errorw("Failed to schedule retry for storage writes",
+				"error", retryErr,
+				"count", len(jobIDs),
+				"delay", delay,
+			)
+		}
+		// Call cancel immediately after Retry, not deferred, to bound each group's
+		// timeout to its own Retry call.
+		cancel()
+	}
+}
+
 func (s *Processor) messageMetrics(message protocol.Message) verifier.MetricLabeler {
 	return s.monitoring.Metrics().With(
 		"source_chain", message.SourceChainSelector.String(),
@@ -567,7 +595,7 @@ func (s *Processor) HealthReport() map[string]error {
 	return report
 }
 
-func configWithDefaults(lggr logger.Logger, config verifier.CoordinatorConfig) (int, time.Duration, time.Duration) {
+func configWithDefaults(lggr logger.Logger, config verifier.CoordinatorConfig) (int, time.Duration, time.Duration, int, time.Duration) {
 	storageBatchSize := config.StorageBatchSize
 	if config.StorageBatchSize <= 0 {
 		storageBatchSize = 50
@@ -586,7 +614,19 @@ func configWithDefaults(lggr logger.Logger, config verifier.CoordinatorConfig) (
 		lggr.Debugw("Using default StorageRetryDelay", "value", retryDelay)
 	}
 
-	return storageBatchSize, storageBatchTimeout, retryDelay
+	backoffFactor := config.StorageBackoffFactor
+	if backoffFactor <= 0 {
+		backoffFactor = DefaultBackoffFactor
+		lggr.Debugw("Using default StorageBackoffFactor", "value", backoffFactor)
+	}
+
+	backoffMax := config.StorageBackoffMax
+	if backoffMax <= 0 {
+		backoffMax = DefaultBackoffMax
+		lggr.Debugw("Using default StorageBackoffMax", "value", backoffMax)
+	}
+
+	return storageBatchSize, storageBatchTimeout, retryDelay, backoffFactor, backoffMax
 }
 
 var (

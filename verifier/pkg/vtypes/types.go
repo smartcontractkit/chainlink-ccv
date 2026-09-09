@@ -54,7 +54,13 @@ type CoordinatorConfig struct {
 	VerifierID          string                                  `json:"verifier_id"`
 	StorageBatchSize    int                                     `json:"storage_batch_size"`    // Maximum number of CCVData items to batch before writing to storage (default: 50)
 	StorageBatchTimeout time.Duration                           `json:"storage_batch_timeout"` // Maximum duration to wait before flushing incomplete storage batch (default: 100ms)
-	StorageRetryDelay   time.Duration                           `json:"storage_retry_delay"`   // Delay before retrying failed storage writes (default: 2s)
+	StorageRetryDelay   time.Duration                           `json:"storage_retry_delay"`   // Base delay before retrying a failed storage write, doubled each attempt by StorageBackoffFactor (default: 2s)
+	// StorageBackoffFactor is the exponential multiplier applied to StorageRetryDelay on each
+	// successive failed write attempt (default: 2). A value below 2 disables backoff growth.
+	StorageBackoffFactor int `json:"storage_backoff_factor"`
+	// StorageBackoffMax caps the truncated exponential backoff so failed storage writes do
+	// not space out unbounded (default: 1m).
+	StorageBackoffMax time.Duration `json:"storage_backoff_max"`
 	CursePollInterval   time.Duration                           `json:"curse_poll_interval"`   // How often to poll RMN Remote contracts for curse status (default: 10s)
 	CurseRPCTimeout     time.Duration                           `json:"curse_rpc_timeout"`     // Timeout for each RMN RPC call (default: 5s)
 	HeartbeatInterval   time.Duration                           `json:"heartbeat_interval"`    // How often to send heartbeat to aggregator (default: 10s, 0 disables heartbeat)
