@@ -49,16 +49,15 @@ type namedWriter struct {
 // tracked per (aggregator, message) in process memory. Once an aggregator acks a message it is
 // skipped on every later attempt, so a single down aggregator no longer makes the healthy ones
 // receive the same item on every retry. The tracking is best-effort and volatile: after a
-// restart every aggregator receives each message once more, then the acks are re-learned.
+// restart every aggregator receives each message once more, then the acks are re-learned. It is
+// also bounded (see ackCache) so a prolonged outage cannot grow memory without limit.
 type FanOutWriter struct {
 	writers []namedWriter
 	closers []*AggregatorWriter
 	lggr    logger.Logger
 
-	mu sync.Mutex
-	// acked records, per aggregator label, the set of message IDs that aggregator has
-	// already confirmed. Guarded by mu.
-	acked map[string]map[string]struct{}
+	// acks is a bounded LRU of (aggregator, message) confirmations; see ackCache.
+	acks *ackCache
 }
 
 // NewFanOutAggregatorWriter builds a fan-out writer over the given aggregator targets. For each
@@ -75,10 +74,14 @@ func NewFanOutAggregatorWriter(
 		return nil, fmt.Errorf("fan-out writer requires at least one aggregator target")
 	}
 
+	acks, err := newAckCache(DefaultAckCacheSize)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create ack cache: %w", err)
+	}
 	f := &FanOutWriter{
 		writers: make([]namedWriter, 0, len(targets)),
 		closers: make([]*AggregatorWriter, 0, len(targets)),
-		acked:   make(map[string]map[string]struct{}, len(targets)),
+		acks:    acks,
 		lggr:    lggr,
 	}
 
@@ -112,7 +115,6 @@ func NewFanOutAggregatorWriter(
 
 		f.writers = append(f.writers, namedWriter{label: t.Label, writer: observed})
 		f.closers = append(f.closers, aggWriter)
-		f.acked[t.Label] = make(map[string]struct{})
 	}
 
 	return f, nil
@@ -270,43 +272,23 @@ func (f *FanOutWriter) merge(ccvDataList []protocol.VerifierNodeResult, perAggre
 	return merged
 }
 
-// isAcked reports whether the given aggregator has already confirmed the message. A
-// zero-value FanOutWriter (e.g. one built directly in a test) has no tracking and is treated
-// as having no acks, so every item is still attempted.
+// isAcked reports whether the given aggregator has already confirmed the message. A nil cache
+// (e.g. an uninitialized FanOutWriter built directly in a test) reports no acks, so every item
+// is still attempted.
 func (f *FanOutWriter) isAcked(label string, msg protocol.Bytes32) bool {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.acked == nil {
-		return false
-	}
-	_, ok := f.acked[label][msg.String()]
-	return ok
+	return f.acks.has(label, msg.String())
 }
 
-// recordAck marks the message as confirmed by the aggregator, lazily creating the tracking
-// maps so the writer stays usable even when constructed without them.
+// recordAck marks the message as confirmed by the aggregator, bumping its recency in the ack
+// cache.
 func (f *FanOutWriter) recordAck(label string, msg protocol.Bytes32) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.acked == nil {
-		f.acked = make(map[string]map[string]struct{})
-	}
-	agg := f.acked[label]
-	if agg == nil {
-		agg = make(map[string]struct{})
-		f.acked[label] = agg
-	}
-	agg[msg.String()] = struct{}{}
+	f.acks.add(label, msg.String())
 }
 
-// forgetAck removes the message from the aggregator's confirmed set. Used to bound memory
-// once every aggregator has acked a message and the item will not be retried.
+// forgetAck removes the message from the aggregator's confirmed set. Used to release memory as
+// soon as every aggregator has acked a message and the item will not be retried.
 func (f *FanOutWriter) forgetAck(label string, msg protocol.Bytes32) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if agg, ok := f.acked[label]; ok {
-		delete(agg, msg.String())
-	}
+	f.acks.remove(label, msg.String())
 }
 
 // GetStats aggregates per-aggregator stats keyed by aggregator label.

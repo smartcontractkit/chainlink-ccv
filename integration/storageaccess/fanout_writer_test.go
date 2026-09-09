@@ -39,7 +39,9 @@ func failure(in protocol.VerifierNodeResult, retryable bool) protocol.WriteResul
 
 func newFanOut(t *testing.T, writers ...namedWriter) *FanOutWriter {
 	t.Helper()
-	return &FanOutWriter{writers: writers, lggr: logger.Test(t)}
+	acks, err := newAckCache(DefaultAckCacheSize)
+	require.NoError(t, err)
+	return &FanOutWriter{writers: writers, lggr: logger.Test(t), acks: acks}
 }
 
 func TestFanOutWriter_AllSucceed(t *testing.T) {
@@ -337,8 +339,7 @@ func TestFanOutWriter_ForgetsFullyAckedItem(t *testing.T) {
 	assert.Equal(t, protocol.WriteSuccess, got[0].Status)
 	assert.Equal(t, 1, a.calls)
 	assert.Equal(t, 1, b.calls)
-	assert.Empty(t, f.acked["a"], "fully acked item must be forgotten to bound memory")
-	assert.Empty(t, f.acked["b"])
+	assert.Equal(t, 0, f.acks.len(), "fully acked item must be forgotten to bound memory")
 
 	// A fresh call re-learns the acks because the previous ones were forgotten.
 	got, err = f.WriteCCVNodeData(context.Background(), in)
