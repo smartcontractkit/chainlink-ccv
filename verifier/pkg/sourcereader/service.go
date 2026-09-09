@@ -30,7 +30,7 @@ import (
 const (
 	DefaultPollInterval  = 2100 * time.Millisecond
 	DefaultPollTimeout   = 10 * time.Second
-	DefaultMaxBlockRange = 1500
+	DefaultMaxBlockRange = 100
 )
 
 type blockRange struct {
