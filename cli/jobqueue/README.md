@@ -47,7 +47,7 @@ verifier ccv job-queue list --queue task-verifier --verifier-id <id> --limit 0
 verifier ccv job-queue reschedule --queue task-verifier --verifier-id <id> --message-id 0x...
 ```
 
-In devenv or any Docker deployment: `docker exec <verifier-container> /bin/verifier ccv job-queue ...`.
+In a Docker deployment: `docker exec <verifier-container> /bin/verifier ccv job-queue ...`.
 
 ## Operator notes
 

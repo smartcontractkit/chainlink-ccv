@@ -1,28 +1,12 @@
 # Runbook: Remediating a Stuck or Dropped Message
 
+_Last reviewed: 2026-09-04._
+
 ## Scenario
 
 A triage runbook ([Message Unverified After 15 Minutes](./unverified-message-after-15-minutes.md)
 or [Message Unexecuted After 15 Minutes](./unexecuted-message-after-15-minutes.md)) has
 identified a stuck or dropped message and its scope. This runbook picks the recovery lever.
-
-> **Status of the levers, as of 2026-09-04.**
->
-> Checkpoint rewind has been run in production (testnet), through the chainlink-cluster
-> chart's `jobs` list with `pauseNode: true`.
->
-> `job-queue reschedule` is exercised end to end in devenv: `TestE2ESmoke_PolicyHook`
-> (phase `fail drops and reschedule recovers`) drops a real message on a policy FAIL,
-> reschedules it on every committee member with the node still running, and asserts the
-> message is signed. It runs in CI. It has not been run in production yet, so treat the
-> first production use as a validation exercise and record the outcome in the incident
-> notes.
->
-> `job-queue` exists only in the standalone `verifier` binary. The Chainlink node's `ccv`
-> command group exposes `chain-statuses` alone (chainlink core `core/cmd/shell_local.go`,
-> `initCCVCommand`, develop as of 2026-09-04). A node running in CL mode has no per-message
-> reschedule today; its only lever is the checkpoint rewind in step 4. Wiring `job-queue`
-> into the node binary is a chainlink core change, tracked under CCIP-13332.
 
 ## 1. Pick the Lever
 
@@ -37,11 +21,15 @@ identified a stuck or dropped message and its scope. This runbook picks the reco
 queue, skipping source-event discovery and the source reader's finality, curse, and
 disablement admission checks. A `task-verifier` reschedule re-runs verification, including
 the policy hook; a `storage-writer` reschedule retries persistence of the existing result.
-Use a checkpoint rewind and restart when fresh source-reader checks are required.
 
-`indexer replay` is none of these. It backfills the indexer's own tables from the
-aggregator and has no effect on a dropped message. Despite the name, it is not a
-message-replay lever.
+Two cases need the checks run again, and so need a checkpoint rewind and restart. The first
+is a source event that may no longer be canonical, after a reorg or a finality violation on
+that chain: reschedule replays the payload saved at discovery, so it would re-verify an event
+the canonical chain no longer carries, while a rewind only rediscovers events that are still
+there. The second is a curse or disablement rule that has since been lifted, where the
+messages were dropped before admission and have no archive row to reschedule at all. A policy
+FAIL, a failed write, or an endpoint outage leaves the saved payload valid, so reschedule is
+the right lever for those.
 
 ## 2. Check the Time Windows
 
@@ -63,7 +51,7 @@ deletions prevent using those counters as a count of messages available to repla
 Check `job-queue list` (step 3) for the retained rows, their `Last Error`, and `Archived At`
 before planning around reschedule. Even an archive row is only a recovery candidate: it can
 refer to a message already attested by another path, or collide with an active job. Archive
-monitoring is follow-up work; the existing retention-alert gap is tracked in CCIP-13332.
+monitoring is follow-up work.
 
 ## 3. Reschedule a Single Dropped Message
 
@@ -78,8 +66,8 @@ have no archived job to reschedule; use step 4.
    and dropped the message on its own verdict. Expect to repeat the remaining steps once per
    member, against that member's database.
 2. On each affected verifier, confirm the archived job exists. `CL_DATABASE_URL` (or
-   `[db].url` in the verifier secrets file) must point at that verifier's database. In
-   devenv or any Docker deployment the command runs as
+   `[db].url` in the verifier secrets file) must point at that verifier's database. In a
+   Docker deployment the command runs as
    `docker exec <verifier-container> /bin/verifier ccv ...`.
 
    ```bash
@@ -279,10 +267,11 @@ rather than an individual message. Reference:
 
 ## 6. Known Limitations
 
-Current limitations; see CCIP-13332 for existing recovery follow-up work:
+Current limitations:
 
 - The Chainlink node binary has no `job-queue` command. In CL mode the only recovery for a
-  dropped message is the checkpoint rewind, node stopped.
+  dropped message is the checkpoint rewind, node stopped. Wiring it into the node binary is a
+  chainlink core change and is follow-up work.
 - No command maps a message ID to the verifier IDs that dropped it across nodes. Per
   database, `job-queue list` without `--verifier-id` shows every owner's failed rows; the
   cross-node step is an Atlas/indexer lookup by hand. `list` has no `--message-id` filter
