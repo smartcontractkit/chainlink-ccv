@@ -38,6 +38,8 @@ type HeadTracker interface {
 type SourceReader interface {
 	// FetchMessageSentEvents returns MessageSentEvents in the given block range.
 	// The toBlock parameter can be nil to query up to the latest block.
+	// Readers should populate MessageDetails using NewMessageDetails and retain the original
+	// Message for signing. Consumers may fill absent details for older reader implementations.
 	FetchMessageSentEvents(ctx context.Context, fromBlock, toBlock *big.Int) ([]protocol.MessageSentEvent, error)
 
 	// GetBlocksHeaders returns the full block headers for a batch of block numbers.

@@ -34,3 +34,21 @@ accessor, err := chainAccessRegistry.GetAccessor(ctx, chainsel.ETHEREUM_MAINNET)
 ```
 
 RPC endpoints and other operator-owned connection settings must not be placed in app/job config.
+
+# Message details
+
+Source readers supply `protocol.MessageSentEvent.MessageDetails` alongside the original decoded
+`Message`. Build it from the existing event data with
+`chainaccess.NewMessageDetails(message, receipts, feeToken)`. The helper normalizes addresses to
+at least 32 bytes, preserves longer addresses and leading zeros, sums all receipt fees, and uses
+`protocol.Finality.Requirement()` to decode finality. It performs no RPCs and uses no API types or
+chain-family lookups. Missing fee data remains unavailable.
+
+The details own their address bytes. Keep `Message` unchanged: it is the message whose ID and
+signature are verified. Consumers such as policy hooks serialize the supplied details instead of
+interpreting raw addresses or receipt/finality encodings. The source-reader service and task queue
+consumer fill absent details for older readers and queued tasks with the same helper, while
+preserving details that were already supplied.
+
+Transaction-origin lookup remains deferred. Any future origin metadata belongs in the reader's
+shared output, with availability determined by the source chain, rather than in a policy client.

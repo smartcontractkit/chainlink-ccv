@@ -75,6 +75,95 @@ func rangeLimitError() error {
 	return fmt.Errorf("RPC call failed: exceeded max range limit for eth_getLogs")
 }
 
+func TestFetchMessageSentEvents_SourceMetadata(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		feeToken  common.Address
+		timestamp uint64
+	}{
+		{name: "timestamp supplied", feeToken: common.HexToAddress("0xabcd"), timestamp: 1700000000},
+		{name: "timestamp unavailable", feeToken: common.HexToAddress("0xabcd")},
+		{name: "zero fee asset address", timestamp: 1700000000},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			onRampAddress := common.HexToAddress("0x1234")
+			sender := common.HexToAddress("0x5678")
+			receipts := []onramp.OnRampReceipt{
+				{Issuer: common.HexToAddress("0x1111"), FeeTokenAmount: big.NewInt(2)},
+				{Issuer: common.HexToAddress("0x2222"), FeeTokenAmount: big.NewInt(3)},
+				{Issuer: common.HexToAddress("0x3333"), FeeTokenAmount: big.NewInt(4)},
+			}
+			ccvHash, err := protocol.ComputeCCVAndExecutorHash(
+				[]protocol.UnknownAddress{receipts[0].Issuer.Bytes()}, receipts[1].Issuer.Bytes())
+			require.NoError(t, err)
+			message, err := protocol.NewMessage(
+				1337, 100, 1,
+				expectedSourceAddressBytes(onRampAddress), protocol.UnknownAddress{0x01},
+				protocol.FinalityWaitForFinality, 300000, 200000, ccvHash,
+				expectedSourceAddressBytes(sender), protocol.UnknownAddress{0x02}, nil, nil, nil,
+			)
+			require.NoError(t, err)
+			encodedMessage, err := message.Encode()
+			require.NoError(t, err)
+			messageID, err := message.MessageID()
+			require.NoError(t, err)
+			onRampABI, err := onramp.OnRampMetaData.GetAbi()
+			require.NoError(t, err)
+			data, err := onRampABI.Events["CCIPMessageSent"].Inputs.NonIndexed().Pack(
+				tc.feeToken, big.NewInt(0), encodedMessage, receipts, [][]byte{{0x01}},
+			)
+			require.NoError(t, err)
+			log := types.Log{
+				Address: onRampAddress,
+				Topics: []common.Hash{
+					onRampABI.Events["CCIPMessageSent"].ID,
+					common.BigToHash(big.NewInt(100)),
+					common.BytesToHash(sender.Bytes()),
+					common.Hash(messageID),
+				},
+				Data:           data,
+				BlockNumber:    95,
+				BlockTimestamp: tc.timestamp,
+				TxHash:         common.HexToHash("0xdeadbeef"),
+			}
+			// Only FilterLogs is implemented: an added block or transaction RPC fails the test.
+			calls := 0
+			chainClient := &mockFilterLogsClient{
+				filterLogsFunc: func(context.Context, ethereum.FilterQuery) ([]types.Log, error) {
+					calls++
+					return []types.Log{log}, nil
+				},
+			}
+			reader := newTestSourceReader(t, chainClient)
+			reader.onRampABI = onRampABI
+			reader.ccipMessageSentTopic = onRampABI.Events["CCIPMessageSent"].ID.Hex()
+			reader.SetCriticalSourceInvariantCallback(func(context.Context) { t.Error("unexpected invalid event") })
+			events, err := reader.FetchMessageSentEvents(t.Context(), big.NewInt(90), big.NewInt(100))
+			require.NoError(t, err)
+			require.Equal(t, 1, calls)
+			require.Len(t, events, 1)
+			require.Equal(t, protocol.UnknownAddress(tc.feeToken.Bytes()), events[0].FeeToken)
+			require.Equal(t, messageID, events[0].MessageID)
+			require.Equal(t, *message, events[0].Message)
+			details := events[0].MessageDetails
+			require.NotNil(t, details)
+			require.Equal(t, protocol.UnknownAddress(expectedSourceAddressBytes(tc.feeToken)), details.FeeToken)
+			require.Equal(t, big.NewInt(9), details.FeeTokenAmount)
+			require.Len(t, details.Receiver, 32)
+			require.Equal(t, byte(2), details.Receiver[31])
+			require.Equal(t, protocol.FinalityRequirement{Mode: protocol.FinalityModeFinalized}, details.Finality)
+			for i, receipt := range receipts {
+				require.Equal(t, receipt.FeeTokenAmount, events[0].Receipts[i].FeeTokenAmount)
+			}
+			if tc.timestamp == 0 {
+				require.True(t, events[0].BlockTimestamp.IsZero())
+			} else {
+				require.Equal(t, time.Unix(1700000000, 0).UTC(), events[0].BlockTimestamp)
+			}
+		})
+	}
+}
+
 func TestFetchMessageSentEvents_BoundedQueryShrinksAndRetries(t *testing.T) {
 	t.Parallel()
 

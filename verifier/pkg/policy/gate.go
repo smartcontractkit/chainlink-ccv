@@ -196,7 +196,11 @@ func (g *GatedVerifier) evaluateAll(ctx context.Context, tasks []vtypes.Verifica
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			req := NewEvaluateRequest(g.verifierID, &tasks[index])
+			req, err := NewEvaluateRequest(g.verifierID, &tasks[index])
+			if err != nil {
+				out[index] = evaluation{err: err}
+				return
+			}
 			verdict, err := g.checker.Evaluate(ctx, req)
 			out[index] = evaluation{verdict: verdict, err: err}
 		}(i)

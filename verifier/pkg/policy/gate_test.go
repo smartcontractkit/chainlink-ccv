@@ -181,6 +181,9 @@ func msgID(n byte) string {
 func newTask(messageID string) vtypes.VerificationTask {
 	return vtypes.VerificationTask{
 		MessageID: messageID,
+		MessageDetails: &protocol.MessageDetails{
+			Finality: protocol.FinalityRequirement{Mode: protocol.FinalityModeFinalized},
+		},
 		Message: protocol.Message{
 			SourceChainSelector: 1,
 			DestChainSelector:   2,
@@ -227,6 +230,21 @@ func TestGatedVerifier_PassIsForwarded(t *testing.T) {
 	require.Len(t, results, 1)
 	require.NotNil(t, results[0].Result)
 	assert.Equal(t, []string{msgID(1)}, inner.forwarded())
+}
+
+func TestGatedVerifier_MissingReaderDetailsRetriesWithoutCallingEndpoint(t *testing.T) {
+	checker := &stubChecker{}
+	inner := &stubVerifier{}
+	gate := newGate(t, checker, inner)
+	task := newTask(msgID(1))
+	task.MessageDetails = nil
+	results := gate.VerifyMessages(t.Context(), []vtypes.VerificationTask{task})
+	require.Len(t, results, 1)
+	require.NotNil(t, results[0].Error)
+	assert.True(t, results[0].Error.Retryable)
+	assert.Contains(t, results[0].Error.Error.Error(), "reader-supplied message details")
+	assert.Empty(t, checker.calls)
+	assert.Empty(t, inner.forwarded())
 }
 
 func TestGatedVerifier_FailIsDroppedPermanently(t *testing.T) {

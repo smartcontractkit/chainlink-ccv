@@ -203,7 +203,17 @@ Two NOPs in the same committee can run different policies, or one can run none.
 
 The verifier POSTs JSON to `<base_url>/v1/evaluate` with `Content-Type: application/json`. The
 request carries the decoded CCIP message and its source-chain provenance so the endpoint does not
-have to fetch or decode anything:
+have to fetch or decode anything.
+
+Readers supply normalized addresses, the total fee and the decoded finality requirement through
+`protocol.MessageDetails`. These details travel alongside the original message in the durable
+verification task. The policy client serializes the supplied values; it does not pad addresses,
+aggregate receipts, decode finality flags or look up transaction origin. The original message is
+retained for message IDs and signing. For older readers and queued tasks without details, the
+source-read and queue-read paths use the same shared reader helper to populate them before policy
+evaluation, using existing data and no additional RPCs. Persisted details are preserved on retries.
+
+An example request:
 
 ```json
 {
@@ -212,6 +222,9 @@ have to fetch or decode anything:
   "message_id": "0x9f2b...3e4",
   "source_tx_hash": "0x4c0f...4e3",
   "source_block_number": 1837421,
+  "source_block_timestamp": "2026-09-09T12:34:56Z",
+  "fee_token": "0x0000000000000000000000001111111111111111111111111111111111111111",
+  "fee_token_amount": "1000000000000000",
   "finalized_block_number": 1837436,
   "block_depth": 15,
   "message": {
@@ -221,6 +234,7 @@ have to fetch or decode anything:
     "sequence_number": 42,
     "sender": "0x...",
     "receiver": "0x...",
+    "finality": { "mode": "finalized", "block_depth": 0, "safe": false },
     "data": "0x...",
     "token_transfer": { "amount": "1000000000000000000", "...": "..." }
   }
@@ -241,6 +255,41 @@ rather than the customer data behind the decision. Anything past 256 characters 
 
 Things worth knowing when building the endpoint:
 
+* `fee_token` identifies the source-chain fee asset. `fee_token_amount` is the sum of all emitted
+  receipt fees, including verifier, token, executor and network fees, in that asset's smallest
+  unit. It is a decimal string so large amounts retain their precision. These are event metadata
+  alongside `message`, rather than fields of the signed message. A fee asset missing from the
+  source reader or an older queued task is omitted; a missing receipt amount makes the total
+  unavailable and omitted too. A supplied zero address and a known zero fee are preserved.
+* `source_block_timestamp` is the time of the block containing the message, in UTC RFC 3339
+  format. The verifier carries it from the source event, or uses a block header already fetched
+  during discovery or readiness when its number matches the message's block. It never uses a
+  different block's timestamp or fetches an extra block just for the hook. If the source reader
+  or provider supplies no timestamp and no fetched header matches, the field is omitted. Older
+  queued tasks without the field also omit it. Available metadata survives queue persistence and
+  retries.
+* Every address field uses lowercase `0x`-prefixed hex, left-padded with zeros to at least 32 bytes:
+  sender, receiver, ramps, token pool, token addresses, token receiver and fee token. This makes
+  a 20-byte address and its 32-byte padded form identical in the hook request. The same rule
+  applies to every chain, without registry lookups or native-address conversion. Addresses longer
+  than 32 bytes retain all bytes and leading zeros; an empty address is `"0x"`. Payloads, hashes
+  and other non-address byte fields retain their original lengths. Readers apply this normalization
+  to the separate details object; the original message bytes and signatures are unaffected.
+* `message.finality` describes the requirement the verifier applied, using the objects below.
+  Its `block_depth` is the requested confirmation count; the request's top-level `block_depth`
+  remains the observed distance below the finalized head when the message became ready.
+
+  | Requirement | `message.finality` |
+  | --- | --- |
+  | Full finality | `{"mode":"finalized","block_depth":0,"safe":false}` |
+  | N confirmations, capped by full finality | `{"mode":"blockDepth","block_depth":N,"safe":false}` |
+  | Safe head, falling back to full finality when unavailable | `{"mode":"finalized","block_depth":0,"safe":true}` |
+
+  Unsupported flags or combinations of flags and depth use the full-finality object, matching
+  the verifier's readiness rules. The object describes the requirement, not which head ultimately
+  satisfied it.
+* `sender` is the source-chain account that sent the CCIP message, which can be an application
+  contract. No transaction-origin or end-user identity is inferred or looked up.
 * Calls are idempotent from the verifier's side. A retried message arrives again with the same
   `message_id` and the same verdict is expected.
 * `message_id` in the response echoes the request. Recommended, not required: nothing else in a

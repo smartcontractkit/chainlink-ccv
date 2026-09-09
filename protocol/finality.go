@@ -26,6 +26,25 @@ import (
 //		  0x00000001..0x0000FFFF — wait for N block confirmations (lower 16 bits).
 type Finality uint32
 
+// FinalityMode identifies the decoded readiness requirement.
+type FinalityMode string
+
+const (
+	// FinalityModeFinalized waits for a finalized or safe head.
+	FinalityModeFinalized FinalityMode = "finalized"
+
+	// FinalityModeBlockDepth waits for confirmations, capped by full finality.
+	FinalityModeBlockDepth FinalityMode = "blockDepth"
+)
+
+// FinalityRequirement is a decoded finality requirement, independent of any API contract.
+// Safe requests fall back to full finality when the chain does not expose a safe head.
+type FinalityRequirement struct {
+	Mode       FinalityMode `json:"mode"`
+	BlockDepth uint16       `json:"block_depth"`
+	Safe       bool         `json:"safe"`
+}
+
 const (
 	// FinalityWaitForFinality signals waiting for full on-chain finality (default, safest).
 	FinalityWaitForFinality Finality = 0x00000000
@@ -40,6 +59,20 @@ const (
 // NewFinality returns the zero Finality value (FinalityWaitForFinality).
 // Use it as the single entry point for all builder chains.
 func NewFinality() Finality { return FinalityWaitForFinality }
+
+// Requirement reports the semantics used by IsMessageReady. Unsupported flags or
+// flag/depth combinations require full finality, rather than a partially decoded requirement.
+func (f Finality) Requirement() FinalityRequirement {
+	out := FinalityRequirement{Mode: FinalityModeFinalized}
+	switch {
+	case f == FinalityWaitForSafe:
+		out.Safe = true
+	case f != FinalityWaitForFinality && f&FinalityFlagMask == 0:
+		out.Mode = FinalityModeBlockDepth
+		out.BlockDepth = uint16(f & FinalityBlockDepthMask)
+	}
+	return out
+}
 
 // WithSafe sets the safe-head flag (bit 16).
 func (f Finality) WithSafe() Finality { return f | FinalityWaitForSafe }

@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"encoding/json"
 	"math/big"
 	"testing"
 
@@ -229,4 +230,46 @@ func TestFinality_IsMessageReady(t *testing.T) {
 			})
 		}
 	})
+}
+
+func TestFinality_Requirement(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		finality Finality
+		want     string
+	}{
+		{name: "full finality", finality: FinalityWaitForFinality, want: `{"mode":"finalized","block_depth":0,"safe":false}`},
+		{name: "block depth", finality: NewFinality().WithBlockDepth(15), want: `{"mode":"blockDepth","block_depth":15,"safe":false}`},
+		{name: "maximum depth", finality: NewFinality().WithBlockDepth(65535), want: `{"mode":"blockDepth","block_depth":65535,"safe":false}`},
+		{name: "safe", finality: FinalityWaitForSafe, want: `{"mode":"finalized","block_depth":0,"safe":true}`},
+		{name: "safe with depth falls back", finality: NewFinality().WithSafe().WithBlockDepth(10), want: `{"mode":"finalized","block_depth":0,"safe":false}`},
+		{name: "reserved flag falls back", finality: 0x00020000, want: `{"mode":"finalized","block_depth":0,"safe":false}`},
+		{name: "all bits set falls back", finality: 0xffffffff, want: `{"mode":"finalized","block_depth":0,"safe":false}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.finality.Requirement()
+			encoded, err := json.Marshal(got)
+			require.NoError(t, err)
+			assert.JSONEq(t, tc.want, string(encoded))
+
+			// The decoded requirement must have the same readiness behavior, including
+			// fallback on chains without a safe head and for unsupported flag combinations.
+			reconstructed := NewFinality()
+			if got.Mode == "blockDepth" {
+				reconstructed = reconstructed.WithBlockDepth(got.BlockDepth)
+			}
+			if got.Safe {
+				reconstructed = reconstructed.WithSafe()
+			}
+			for _, safe := range []*big.Int{nil, big.NewInt(110)} {
+				for _, block := range []int64{95, 100, 105, 115} {
+					wantReady, err := tc.finality.IsMessageReady(big.NewInt(block), big.NewInt(120), safe, big.NewInt(100))
+					require.NoError(t, err)
+					gotReady, err := reconstructed.IsMessageReady(big.NewInt(block), big.NewInt(120), safe, big.NewInt(100))
+					require.NoError(t, err)
+					assert.Equal(t, wantReady, gotReady)
+				}
+			}
+		})
+	}
 }

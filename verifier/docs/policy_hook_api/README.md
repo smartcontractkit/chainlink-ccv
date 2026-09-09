@@ -15,6 +15,7 @@ All URIs are relative to *https://policy.example.com*
 
  - [EvaluateRequest](./Models/EvaluateRequest.md)
  - [EvaluateResponse](./Models/EvaluateResponse.md)
+ - [Finality](./Models/Finality.md)
  - [Message](./Models/Message.md)
  - [TokenTransfer](./Models/TokenTransfer.md)
 

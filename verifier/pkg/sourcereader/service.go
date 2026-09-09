@@ -405,12 +405,20 @@ func (r *Service) processEventCycle(ctx context.Context, latest, finalized *prot
 
 		carrier := propagation.MapCarrier{}
 		otel.GetTextMapPropagator().Inject(sCtx, carrier)
+		details := event.MessageDetails
+		if details == nil {
+			// Support readers that predate the shared view at the source-read boundary.
+			details = chainaccess.NewMessageDetails(event.Message, event.Receipts, event.FeeToken)
+		}
 		task := verifier.VerificationTask{
 			Message:              event.Message,
+			MessageDetails:       details,
 			ReceiptBlobs:         event.Receipts,
 			BlockNumber:          event.BlockNumber,
 			MessageID:            onchainMessageID,
 			TxHash:               event.TxHash,
+			FeeToken:             event.FeeToken,
+			SourceBlockTimestamp: sourceBlockTimestamp(event.BlockNumber, event.BlockTimestamp, latest, finalized),
 			FinalizedBlockAtRead: finalized.Number,
 			TraceParent:          carrier.Get("traceparent"),
 			TraceContext:         sCtx,
@@ -460,6 +468,20 @@ func (r *Service) processEventCycle(ctx context.Context, latest, finalized *prot
 		"advancedTo", newBlock.String(),
 		"eventsFound", len(events))
 	return err == nil
+}
+
+// sourceBlockTimestamp reuses a header already fetched for this poll only if it is the
+// event's block. The current head's timestamp is not a substitute for a historical block's time.
+func sourceBlockTimestamp(blockNumber uint64, known time.Time, headers ...*protocol.BlockHeader) time.Time {
+	if !known.IsZero() {
+		return known
+	}
+	for _, header := range headers {
+		if header != nil && header.Number == blockNumber && !header.Timestamp.IsZero() {
+			return header.Timestamp
+		}
+	}
+	return time.Time{}
 }
 
 func (r *Service) initializeStartBlock(ctx context.Context) (*big.Int, error) {
@@ -767,6 +789,8 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 			}
 
 			if r.isMessageReadyForVerification(task, latestBlock, latestSafeBlock, latestFinalizedBlock) {
+				task.SourceBlockTimestamp = sourceBlockTimestamp(task.BlockNumber, task.SourceBlockTimestamp, latest, safe, finalized)
+
 				// Set the timestamp when message became ready for verification
 				// This is the finalized block timestamp which represents when the message met finality criteria
 				task.ReadyForVerificationAt = latest.Timestamp
