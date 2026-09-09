@@ -225,3 +225,126 @@ func TestFanOutWriter_EmptyInput(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, got)
 }
+
+// countingStub returns a scripted per-call result slice and records the number of
+// invocations. Each stub is driven by a single aggregator goroutine and read only after the
+// fan-out Wg has been waited on, so it needs no locking.
+type countingStub struct {
+	calls   int
+	results [][]protocol.WriteResult
+	errs    []error
+}
+
+func (s *countingStub) WriteCCVNodeData(_ context.Context, _ []protocol.VerifierNodeResult) ([]protocol.WriteResult, error) {
+	s.calls++
+	i := s.calls - 1
+	if len(s.results) == 0 {
+		return nil, nil
+	}
+	if i >= len(s.results) {
+		i = len(s.results) - 1
+	}
+	var err error
+	if i < len(s.errs) {
+		err = s.errs[i]
+	}
+	return s.results[i], err
+}
+
+// TestFanOutWriter_SkipsAlreadyAckedAggregatorOnRetry verifies the core behaviour: once an
+// aggregator confirms a message, a later retry of that message does not re-send it to that
+// aggregator — only the still-pending aggregator is re-attempted, so a down aggregator no
+// longer makes the healthy ones receive the same item on every retry.
+func TestFanOutWriter_SkipsAlreadyAckedAggregatorOnRetry(t *testing.T) {
+	in := []protocol.VerifierNodeResult{item(1)}
+	a := &countingStub{results: [][]protocol.WriteResult{{success(in[0])}}}
+	b := &countingStub{results: [][]protocol.WriteResult{
+		{failure(in[0], true)},
+		{success(in[0])},
+	}}
+	f := newFanOut(t,
+		namedWriter{label: "a", writer: a},
+		namedWriter{label: "b", writer: b},
+	)
+
+	// First attempt: a acks, b fails retryably.
+	got, err := f.WriteCCVNodeData(context.Background(), in)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, protocol.WriteFailure, got[0].Status)
+	assert.True(t, got[0].Retryable)
+	assert.Equal(t, 1, a.calls)
+	assert.Equal(t, 1, b.calls)
+
+	// Retry: a already acked and is skipped; only b is re-attempted and now acks.
+	got, err = f.WriteCCVNodeData(context.Background(), in)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, protocol.WriteSuccess, got[0].Status)
+	assert.Equal(t, 1, a.calls, "healthy aggregator must not be re-sent on retry")
+	assert.Equal(t, 2, b.calls)
+}
+
+// TestFanOutWriter_RetryOnlyResendsFailedItems mirrors the real queue behaviour: a batch
+// failure retries only the items that failed, not the ones every aggregator already acked. A
+// healthy aggregator that acked a failed item is therefore skipped, and only the still-pending
+// aggregator is re-sent that item.
+func TestFanOutWriter_RetryOnlyResendsFailedItems(t *testing.T) {
+	in := []protocol.VerifierNodeResult{item(1), item(2)}
+	// a acks both items up front; b acks item[0] but fails item[1] retryably, then acks it.
+	a := &countingStub{results: [][]protocol.WriteResult{{success(in[0]), success(in[1])}}}
+	b := &countingStub{results: [][]protocol.WriteResult{
+		{success(in[0]), failure(in[1], true)},
+		{success(in[1])},
+	}}
+	f := newFanOut(t,
+		namedWriter{label: "a", writer: a},
+		namedWriter{label: "b", writer: b},
+	)
+
+	got, err := f.WriteCCVNodeData(context.Background(), in)
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	assert.Equal(t, protocol.WriteSuccess, got[0].Status, "item[0] acked by both aggregators")
+	assert.Equal(t, protocol.WriteFailure, got[1].Status, "item[1] failed by b")
+	assert.True(t, got[1].Retryable)
+
+	// The queue retries only the failed item[1].
+	got, err = f.WriteCCVNodeData(context.Background(), []protocol.VerifierNodeResult{in[1]})
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, protocol.WriteSuccess, got[0].Status)
+	assert.Equal(t, 1, a.calls, "a already acked item[1], must not be re-sent")
+	assert.Equal(t, 2, b.calls)
+}
+
+// TestFanOutWriter_ForgetsFullyAckedItem verifies that once every aggregator has confirmed a
+// message, its acks are dropped so tracking memory stays bounded. The tracking is a per-process
+// optimization, not a guarantee: a fully acked item is never retried by the queue, so forgetting
+// it cannot reintroduce spam in practice.
+func TestFanOutWriter_ForgetsFullyAckedItem(t *testing.T) {
+	in := []protocol.VerifierNodeResult{item(1)}
+	a := &countingStub{results: [][]protocol.WriteResult{{success(in[0]), success(in[0])}}}
+	b := &countingStub{results: [][]protocol.WriteResult{{success(in[0])}}}
+	f := newFanOut(t,
+		namedWriter{label: "a", writer: a},
+		namedWriter{label: "b", writer: b},
+	)
+
+	got, err := f.WriteCCVNodeData(context.Background(), in)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, protocol.WriteSuccess, got[0].Status)
+	assert.Equal(t, 1, a.calls)
+	assert.Equal(t, 1, b.calls)
+	assert.Empty(t, f.acked["a"], "fully acked item must be forgotten to bound memory")
+	assert.Empty(t, f.acked["b"])
+
+	// A fresh call re-learns the acks because the previous ones were forgotten.
+	got, err = f.WriteCCVNodeData(context.Background(), in)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, protocol.WriteSuccess, got[0].Status)
+	assert.Equal(t, 2, a.calls)
+	assert.Equal(t, 2, b.calls)
+}
