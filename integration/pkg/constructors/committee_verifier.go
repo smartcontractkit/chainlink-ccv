@@ -2,6 +2,7 @@ package constructors
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -36,9 +37,8 @@ import (
 // credential is keyed by "".
 //
 // This constructor is called from the Chainlink node repo, so the signature must not grow
-// positionally: an optional dependency is added as a variadic functional option, which a caller
-// that never passes it does not notice. A positional parameter breaks that build the moment it
-// lands, and the two repos cannot land a change at the same instant.
+// positionally: a new parameter breaks that build the moment it lands, and the two repos cannot
+// land a change at the same instant.
 func NewVerificationCoordinator(
 	lggr logger.Logger,
 	cfg commit.Config,
@@ -50,17 +50,23 @@ func NewVerificationCoordinator(
 ) (*verifier.Coordinator, error) {
 	lggr = logging.WithService(lggr, "verifier")
 
-	if err := cfg.Validate(); err != nil {
-		lggr.Errorw("Invalid CCV verifier configuration.", "error", err)
-		return nil, fmt.Errorf("invalid ccv verifier configuration: %w", err)
-	}
-
 	// The policy hook is not supported on a verifier running inside a Chainlink node: its HMAC
 	// credential is resolved from the standalone verifier's secrets file, which does not exist
 	// here. Configuring the section must fail loudly rather than screen traffic with an
 	// unauthenticated hook.
+	//
+	// Checked before cfg.Validate, which validates the section's own fields: a malformed hook on
+	// an entry point where no hook is valid should report that it is unsupported, not that its
+	// base_url is wrong.
 	if cfg.PolicyHook != nil {
-		return nil, fmt.Errorf("invalid ccv verifier configuration: [policy_hook] is not supported on a verifier running inside a Chainlink node; run the standalone verifier to use the policy hook")
+		err := errors.New("[policy_hook] is not supported on a verifier running inside a Chainlink node; run the standalone verifier to use the policy hook")
+		lggr.Errorw("Invalid CCV verifier configuration.", "error", err)
+		return nil, fmt.Errorf("invalid ccv verifier configuration: %w", err)
+	}
+
+	if err := cfg.Validate(); err != nil {
+		lggr.Errorw("Invalid CCV verifier configuration.", "error", err)
+		return nil, fmt.Errorf("invalid ccv verifier configuration: %w", err)
 	}
 
 	if err := commit.ValidateSignerAddress(cfg.SignerAddress, signingAddress); err != nil {
