@@ -1194,7 +1194,7 @@ func TestSRS_LargeRangeChunkedInSingleCycle(t *testing.T) {
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
-	srs, _, _ := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 0)
+	srs, _, _ := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 1500)
 	srs.lastProcessedFinalizedBlock.Store(big.NewInt(99))
 
 	srs.processEventCycle(ctx, latest, finalized)
