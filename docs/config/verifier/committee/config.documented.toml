@@ -145,6 +145,10 @@ disable_finality_checkers = []
 # default) leaves the verifier behaving exactly as it did before the hook existed; the
 # section is omitted from marshaled job specs when unset, so specs are unchanged for a
 # verifier that does not use it.
+# Supported on the standalone verifier only. The endpoint credential is resolved from the
+# verifier secrets file, which a verifier running inside a Chainlink node does not have, so
+# that entry point rejects this section at startup instead of calling the endpoint
+# unauthenticated.
 [policy_hook]
   # base_url is the root the operator serves the policy operation under. The verifier POSTs to
   # base_url + "/v1/evaluate", once per message. Required, and must be https unless

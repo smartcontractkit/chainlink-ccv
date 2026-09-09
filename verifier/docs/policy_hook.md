@@ -142,6 +142,10 @@ The hook is off unless the `[policy_hook]` section is present in the committee v
 verifier without it behaves exactly as it did before the hook existed, down to the bytes of its job
 spec.
 
+The hook runs on the standalone verifier only. A verifier running inside a Chainlink node has no
+secrets file to resolve the endpoint credential from, so it rejects the section at startup rather
+than calling the endpoint unauthenticated.
+
 ```toml
 [policy_hook]
   base_url = "https://policy.internal.example.com"
@@ -180,12 +184,15 @@ checkpoint rewind to recover, so an outage approaching a week is an operational 
 something the retry loop rides out.
 
 In a JD deployment the section is emitted into the job spec from the NOP's entry in the environment
-topology, which is where an operator sets their own endpoint:
+topology, which is where an operator sets their own endpoint. The NOP has to be in `standalone`
+mode, since that is the only deployment the hook is supported on; `ApplyVerifierConfig` refuses to
+build a spec for a `cl`-mode NOP that sets the section:
 
 ```toml
 [[environment_topology.nop_topology.nops]]
 alias = "acme-verifier-1"
 name = "acme-verifier-1"
+mode = "standalone"
   [environment_topology.nop_topology.nops.policy_hook]
   base_url = "https://policy.internal.acme.example"
 ```
@@ -309,14 +316,16 @@ at least 32 bytes hex-encoded, which is what the shared scheme requires; generat
 `hmac.GenerateCredentials`. Setting one of the two and not the other is a startup error rather than
 a silent downgrade to no authentication.
 
-A verifier running inside a Chainlink node has no secrets file, so the node supplies its credential
-through `constructors.WithPolicyHookCredential`, the same way it supplies the aggregator
-credentials. Without that option the endpoint is called unauthenticated.
+A verifier running inside a Chainlink node has no secrets file, and the hook is not supported
+there: configuring the `[policy_hook]` section on that entry point is a startup error rather than
+a silent downgrade to calling the endpoint unauthenticated. Run the standalone verifier to use the
+hook.
 
 Set `require_auth = true` on any verifier whose endpoint checks the signature. Without it a
 credential that failed to reach the container leaves the verifier calling unauthenticated, the
 endpoint answering 401, and every message on the lane retrying until the queue's 7-day deadline. With
-it the node refuses to start. The boot log line carries `authenticated=true|false` either way.
+it the verifier process refuses to start. The boot log line carries `authenticated=true|false`
+either way.
 
 ## Observing it
 
