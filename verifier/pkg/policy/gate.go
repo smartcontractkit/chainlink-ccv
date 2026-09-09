@@ -281,10 +281,16 @@ func (g *GatedVerifier) endpointErrorResult(ctx context.Context, task vtypes.Ver
 	return &verificationErr
 }
 
-// maxRetryDelay caps how far the retry delay grows with the attempt count. The queue's retry
-// deadline bounds a message's total lifetime; this bounds the gap between attempts, so a days-long
-// outage still gets a message another look every hour rather than every few days.
-const maxRetryDelay = time.Hour
+const (
+	// maxRetryDelay caps how far the retry delay grows with the attempt count. The queue's retry
+	// deadline bounds a message's total lifetime; this bounds the gap between attempts, so a
+	// days-long outage still gets a message another look every hour rather than every few days.
+	// It also bounds a misconfigured retry_delay: a base above the cap is clamped to it.
+	maxRetryDelay = time.Hour
+
+	// retryBackoffFactor doubles the wait on each attempt beyond the first.
+	retryBackoffFactor = 2
+)
 
 // retryDelayWithJitter spreads a message's next attempt across [base/2, base*3/2], where base is
 // retryDelay doubled once per attempt beyond the first, capped at maxRetryDelay. An outage stalls
@@ -294,21 +300,7 @@ const maxRetryDelay = time.Hour
 // rate-limiting, and the endpoint is the operator's to pay for. The jitter only spreads the load;
 // the per-attempt growth is what brings the call volume down.
 func (g *GatedVerifier) retryDelayWithJitter(attemptCount int) time.Duration {
-	return common.WithJitter(retryBackoff(g.retryDelay, attemptCount))
-}
-
-// retryBackoff doubles base for each attempt beyond the first, capped at maxRetryDelay.
-// attemptCount is the queue's attempt_count, 1 on the first attempt, so the first retry waits
-// base; a task that never got stamped (zero) is treated as a first attempt.
-func retryBackoff(base time.Duration, attemptCount int) time.Duration {
-	delay := base
-	for attempt := 1; attempt < attemptCount; attempt++ {
-		delay *= 2
-		if delay >= maxRetryDelay {
-			return maxRetryDelay
-		}
-	}
-	return delay
+	return common.WithJitter(common.BackoffDelay(attemptCount, g.retryDelay, retryBackoffFactor, maxRetryDelay))
 }
 
 func (g *GatedVerifier) messageMetrics(message protocol.Message) vtypes.MetricLabeler {

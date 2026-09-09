@@ -96,6 +96,7 @@ type Config struct {
 	// value doubles with each attempt, capped at one hour, and the result is jittered per
 	// message across half to one and a half times it, so an outage neither hammers the endpoint
 	// every few seconds for a week nor sends the whole held backlog at it on the same tick.
+	// A value above the one-hour cap is clamped to it, so the cap holds from the first retry.
 	RetryDelay string `toml:"retry_delay"`
 	// InsecureConnection allows a plain http:// endpoint. Only for local development and
 	// tests: a policy verdict carries compliance weight and must not travel in the clear.

@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	vtypes "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
@@ -299,18 +300,37 @@ func TestGatedVerifier_RetryDelayIsJittered(t *testing.T) {
 // TestGatedVerifier_RetryDelayBacksOff pins the growth: the midpoint of the jittered range doubles
 // with each attempt, so a long outage costs the endpoint less and less traffic, up to the cap.
 func TestGatedVerifier_RetryDelayBacksOff(t *testing.T) {
-	base := retryBackoff(time.Second, 0)
-	assert.Equal(t, time.Second, base, "an unstamped task is a first attempt")
-	assert.Equal(t, time.Second, retryBackoff(time.Second, 1))
-	assert.Equal(t, 2*time.Second, retryBackoff(time.Second, 2))
-	assert.Equal(t, 4*time.Second, retryBackoff(time.Second, 3))
-	assert.Equal(t, maxRetryDelay, retryBackoff(time.Second, 100), "the cap bounds the gap between attempts")
+	backoff := func(attempt int) time.Duration {
+		return common.BackoffDelay(attempt, time.Second, retryBackoffFactor, maxRetryDelay)
+	}
+	assert.Equal(t, time.Second, backoff(0), "an unstamped task is a first attempt")
+	assert.Equal(t, time.Second, backoff(1))
+	assert.Equal(t, 2*time.Second, backoff(2))
+	assert.Equal(t, 4*time.Second, backoff(3))
+	assert.Equal(t, maxRetryDelay, backoff(100), "the cap bounds the gap between attempts")
 
 	gate := newGate(t, &stubChecker{}, &stubVerifier{})
 	for range 100 {
 		delay := gate.retryDelayWithJitter(3)
 		require.GreaterOrEqual(t, delay, 2*time.Second, "attempt 3 jitters around 4x the configured delay")
 		require.LessOrEqual(t, delay, 6*time.Second)
+	}
+}
+
+// A retry_delay configured above the cap must not escape it on the very first retry. The cap is
+// what bounds the gap between attempts, and a base that outruns it would leave a message waiting
+// longer than the documented hour before the endpoint is asked again.
+func TestGatedVerifier_RetryDelayCapsAnOversizedBase(t *testing.T) {
+	gate, err := NewGatedVerifier(
+		logger.Test(t), "committee-verifier-1", &stubVerifier{}, &stubChecker{},
+		monitoring.NewFakeVerifierMonitoring(), 24*time.Hour)
+	require.NoError(t, err)
+
+	for _, attempt := range []int{0, 1, 2, 50} {
+		delay := gate.retryDelayWithJitter(attempt)
+		require.LessOrEqual(t, delay, maxRetryDelay+maxRetryDelay/2,
+			"attempt %d must jitter around the cap, not around the configured base", attempt)
+		require.GreaterOrEqual(t, delay, maxRetryDelay/2)
 	}
 }
 

@@ -175,7 +175,8 @@ work itself, and answer with an error until it has a verdict.
 defaults to 10s. The delay doubles with each attempt, capped at one hour, and the result is jittered
 per message across half to one and a half times it: an outage stalls every message the node is
 holding at once, and a fixed delay would send the whole backlog at the endpoint together on each
-retry. The growth is what brings call volume down over a long outage; the jitter only spreads it.
+retry. The growth is what brings call volume down over a long outage; the jitter only spreads it. A
+`retry_delay` set above the cap is clamped to it, so the hour holds from the first retry.
 
 Retries are bounded by the task queue's own retry window, currently 7 days from when the message was
 queued. An outage shorter than that delays messages rather than losing them. A message still without
