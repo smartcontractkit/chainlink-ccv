@@ -197,6 +197,8 @@ func (g *GatedVerifier) evaluateAll(ctx context.Context, tasks []vtypes.Verifica
 			defer func() { <-sem }()
 
 			req := NewEvaluateRequest(g.verifierID, &tasks[index])
+			// Started after the request is built, so the histogram measures the endpoint and
+			// not the marshaling in front of it.
 			start := time.Now()
 			verdict, err := g.checker.Evaluate(ctx, req)
 			g.messageMetrics(tasks[index].Message).RecordPolicyHTTPRequestDuration(ctx, callOutcome(verdict, err), time.Since(start))

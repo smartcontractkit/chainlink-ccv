@@ -14,6 +14,8 @@ type VerificationTask struct {
 	MessageID                   string                     `json:"message_id"`
 	Message                     protocol.Message           `json:"message"`
 	TxHash                      protocol.ByteSlice         `json:"tx_hash"`
+	FeeToken                    protocol.UnknownAddress    `json:"fee_token,omitempty"`
+	SourceBlockTimestamp        time.Time                  `json:"source_block_timestamp,omitzero"` // Source-block time; zero when unavailable
 	BlockNumber                 uint64                     `json:"block_number"`                    // Block number when the message was included
 	FinalizedBlockAtRead        uint64                     `json:"finalized_block_at_read"`         // Finalized block number when the event was read from chain
 	FinalizedBlockAtReady       uint64                     `json:"finalized_block_at_ready"`        // Finalized block number when the message met its finality requirement (0 until it does)

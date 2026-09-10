@@ -8,6 +8,7 @@ import (
 	"math/big"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // ChainSelector represents chainlink-specific chain id.
@@ -359,6 +360,13 @@ type MessageSentEvent struct {
 	Receipts    []ReceiptWithBlob // Verifier receipts + executor receipt
 	BlockNumber uint64            // Block number where event occurred
 	TxHash      ByteSlice         // Transaction hash of the event
+
+	// FeeToken is the source-chain fee asset. Empty when the source reader cannot supply it.
+	FeeToken UnknownAddress
+
+	// BlockTimestamp is the event's source-block time, if supplied by the source reader.
+	// A zero time means unavailable, not the time the event was discovered or finalized.
+	BlockTimestamp time.Time
 }
 
 // CCVAddressInfo represents the ccv verifier addresses needed to submit a message.

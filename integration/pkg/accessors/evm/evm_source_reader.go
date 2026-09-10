@@ -397,12 +397,20 @@ func (r *SourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, to
 			continue // to next message
 		}
 
+		// Some providers include the source-block time in their log response. Keep an
+		// omitted timestamp unavailable instead of inventing an epoch time or fetching a block.
+		var blockTimestamp time.Time
+		if log.BlockTimestamp > 0 {
+			blockTimestamp = time.Unix(int64(log.BlockTimestamp), 0).UTC() // #nosec G115 -- chain timestamps are within int64 range
+		}
 		results = append(results, protocol.MessageSentEvent{
-			MessageID:   event.MessageId,
-			Message:     *decodedMsg,
-			Receipts:    allReceipts, // Keep original order from OnRamp event
-			BlockNumber: log.BlockNumber,
-			TxHash:      log.TxHash.Bytes(),
+			MessageID:      event.MessageId,
+			Message:        *decodedMsg,
+			Receipts:       allReceipts, // Keep original order from OnRamp event
+			BlockNumber:    log.BlockNumber,
+			TxHash:         log.TxHash.Bytes(),
+			FeeToken:       event.FeeToken.Bytes(),
+			BlockTimestamp: blockTimestamp,
 		})
 	}
 	return results, nil

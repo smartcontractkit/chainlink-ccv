@@ -126,7 +126,10 @@ func TestSRS_FetchesAndQueuesMessages(t *testing.T) {
 
 	blockNums := []uint64{101, 102, 105}
 	events := createTestMessageSentEvents(t, 1, chain, defaultDestChain, blockNums)
-
+	for i := range events {
+		events[i].FeeToken = protocol.UnknownAddress{0x00, 0x01}
+		events[i].BlockTimestamp = time.Unix(1700000000+int64(i), 0).UTC()
+	}
 	reader.EXPECT().
 		FetchMessageSentEvents(mock.Anything, big.NewInt(95), mock.Anything).
 		Return(events, nil)
@@ -155,6 +158,60 @@ func TestSRS_FetchesAndQueuesMessages(t *testing.T) {
 		task, ok := srs.pendingTasks[id]
 		require.True(t, ok, "task with MessageID %s should be present", id)
 		require.Equal(t, ev.BlockNumber, task.BlockNumber)
+		require.Equal(t, ev.FeeToken, task.FeeToken)
+		require.Equal(t, ev.BlockTimestamp, task.SourceBlockTimestamp)
+		// The task carries the raw event data policy derives its published view from; the
+		// derivation itself is covered in verifier/pkg/policy and pkg/chainaccess.
+		require.Equal(t, ev.Receipts, task.ReceiptBlobs)
+		require.Equal(t, ev.Message, task.Message)
+	}
+}
+
+func TestSRS_SourceBlockTimestamp(t *testing.T) {
+	latest := &protocol.BlockHeader{Number: 110, Timestamp: time.Unix(1700000110, 0).UTC()}
+	safe := &protocol.BlockHeader{Number: 105, Timestamp: time.Unix(1700000105, 0).UTC()}
+	finalized := &protocol.BlockHeader{Number: 100, Timestamp: time.Unix(1700000100, 0).UTC()}
+	eventTime := time.Unix(1700000090, 0).UTC()
+	for _, tc := range []struct {
+		name      string
+		block     uint64
+		eventTime time.Time
+		want      time.Time
+	}{
+		{name: "event timestamp", block: 90, eventTime: eventTime, want: eventTime},
+		{name: "preserve supplied timestamp", block: 110, eventTime: eventTime, want: eventTime},
+		{name: "matching latest header", block: 110, want: latest.Timestamp},
+		{name: "matching finalized header", block: 100, want: finalized.Timestamp},
+		{name: "matching safe header at readiness", block: 105, want: safe.Timestamp},
+		{name: "historical block without timestamp", block: 95},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			chain := protocol.ChainSelector(1337)
+			reader := mocks.NewMockSourceReader(t)
+			events := createTestMessageSentEvents(t, 1, chain, defaultDestChain, []uint64{tc.block})
+			events[0].BlockTimestamp = tc.eventTime
+			reader.EXPECT().FetchMessageSentEvents(mock.Anything, big.NewInt(90), mock.Anything).Return(events, nil).Once()
+			chainStatusMgr := mocks.NewMockChainStatusManager(t)
+			curseDetector := mocks.NewMockCurseCheckerService(t)
+			curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
+			srs, _, queue := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, time.Second, 5000)
+			srs.lastProcessedFinalizedBlock.Store(big.NewInt(90))
+			require.True(t, srs.processEventCycle(t.Context(), latest, finalized))
+			task, ok := srs.pendingTasks[events[0].MessageID.String()]
+			require.True(t, ok)
+			if tc.block == safe.Number {
+				assert.True(t, task.SourceBlockTimestamp.IsZero(), "safe header is only available at readiness")
+			} else {
+				assert.Equal(t, tc.want, task.SourceBlockTimestamp)
+			}
+
+			// Advance finality enough to publish every task. Previously captured source
+			// timestamps survive; a matching safe header fills in its own block's time only.
+			srs.sendReadyMessages(t.Context(), latest, safe, latest)
+			published := queue.Published()
+			require.Len(t, published, 1)
+			assert.Equal(t, tc.want, published[0].SourceBlockTimestamp)
+		})
 	}
 }
 

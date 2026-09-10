@@ -31,9 +31,9 @@ actions:
   - target: "$.components.schemas.Message.properties.ccip_receive_gas_limit"
     update:
       x-go-type: uint32
-  - target: "$.components.schemas.Message.properties.finality"
+  - target: "$.components.schemas.Finality.properties.block_depth"
     update:
-      x-go-type: uint32
+      x-go-type: uint16
   - target: "$.components.schemas.TokenTransfer.properties.version"
     update:
       x-go-type: uint8
