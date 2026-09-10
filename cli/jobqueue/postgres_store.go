@@ -144,16 +144,16 @@ func (s *PostgresStore) listFailedFromTable(
 		}
 
 		job := ArchivedJob{
-			JobID:         jobID,
-			MessageID:     messageID,
-			OwnerID:       ownerIDVal,
-			ChainSelector: chainSelectorBig.Uint64(),
-			Status:        status,
-			AttemptCount:  attemptCount,
-			LastError:     lastError,
-			CreatedAt:     createdAt,
-			RetryDeadline: retryDeadline,
-			Queue:         queue,
+			JobID:           jobID,
+			MessageID:       messageID,
+			OwnerID:         ownerIDVal,
+			ChainSelector:   chainSelectorBig.Uint64(),
+			Status:          status,
+			AttemptCount:    attemptCount,
+			LastError:       lastError,
+			CreatedAt:       createdAt,
+			RetryDeadline:   retryDeadline,
+			Queue:           queue,
 			FailureCategory: failureCategory,
 		}
 		if archivedAt.Valid {

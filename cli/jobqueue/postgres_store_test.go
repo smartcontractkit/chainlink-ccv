@@ -8,9 +8,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
+
 	"github.com/smartcontractkit/chainlink-ccv/cli/jobqueue"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
-	"github.com/stretchr/testify/require"
 )
 
 func TestArchiveLookupAndAtomicOwnerResolution(t *testing.T) {
@@ -35,7 +36,7 @@ func TestArchiveLookupAndAtomicOwnerResolution(t *testing.T) {
 	id := make([]byte, 32)
 	id[0] = 1
 	old := seed(jobqueue.QueueTypeTaskVerifier, "owner-a", id, 48*time.Hour)
-	for i := 0; i < 60; i++ {
+	for i := range 60 {
 		seed(jobqueue.QueueTypeTaskVerifier, "owner-a", []byte{byte(i), 2}, time.Minute)
 	}
 	rows, err := store.ListFailedFiltered(ctx, nil, "", [][]byte{id}, 1)
@@ -70,8 +71,11 @@ func TestArchiveLookupAndAtomicOwnerResolution(t *testing.T) {
 	uniqueID := seed(jobqueue.QueueTypeStorageWriter, "owner-race", []byte{7}, time.Hour)
 	var wg sync.WaitGroup
 	errors := make(chan error, 2)
-	for i := 0; i < 2; i++ {
-		wg.Go(func() { _, err := store.Reschedule(ctx, jobqueue.QueueTypeStorageWriter, "", uniqueID, nil, time.Hour); errors <- err })
+	for range 2 {
+		wg.Go(func() {
+			_, err := store.Reschedule(ctx, jobqueue.QueueTypeStorageWriter, "", uniqueID, nil, time.Hour)
+			errors <- err
+		})
 	}
 	wg.Wait()
 	close(errors)

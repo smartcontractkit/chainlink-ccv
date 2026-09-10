@@ -12,29 +12,37 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/urfave/cli"
+
 	"github.com/smartcontractkit/chainlink-ccv/cli/jobqueue"
 	store "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/recovery"
-	"github.com/urfave/cli"
 )
 
+// Store is the subset of the recovery store the CLI drives. It is an interface here so the
+// commands can be tested without a database.
 type Store interface {
+	// Submit accepts a new recovery operation and returns it with its assigned ID.
 	Submit(context.Context, store.SubmitRequest) (store.Operation, error)
+	// Get returns one operation by ID.
 	Get(context.Context, string) (store.Operation, error)
+	// List returns operations for a verifier and source chain, newest first, up to limit.
 	List(context.Context, string, string, int) ([]store.Operation, error)
+	// ChangeState applies an operator action (cancel, resume) and returns the updated operation.
 	ChangeState(context.Context, string, string) (store.Operation, error)
+	// ListEvents returns a page of audit events matching the filter.
 	ListEvents(context.Context, store.EventFilter) (store.EventPage, error)
 }
 
 func InitCommandsWithFactory(getStore func() Store) []cli.Command {
 	commands := make([]cli.Command, 0)
 	for _, mode := range []string{"replay", "reset-reader"} {
-		mode := mode
 		usage := "Submit bounded live source re-verification; returns a durable operation as JSON"
 		if mode == "reset-reader" {
 			usage = "Re-enable an investigated disabled reader and recover a bounded range without restarting"
 		}
 		commands = append(commands, cli.Command{Name: mode, Usage: usage, Flags: []cli.Flag{
-			cli.StringFlag{Name: "verifier-id", Required: true}, cli.StringFlag{Name: "chain-selector", Required: true},
+			cli.StringFlag{Name: "verifier-id", Required: true},
+			cli.StringFlag{Name: "chain-selector", Required: true},
 			cli.StringFlag{Name: "from-block", Required: true, Usage: "Inclusive first source block"},
 			cli.StringFlag{Name: "to-block", Usage: "Inclusive last block; omitted captures the reader's recently reported head now"},
 			cli.StringFlag{Name: "actor", Required: true, Usage: "Operator identity recorded with this request"},
@@ -57,8 +65,10 @@ func InitCommandsWithFactory(getStore func() Store) []cli.Command {
 				}
 				to = &value
 			}
-			o, err := getStore().Submit(context.Background(), store.SubmitRequest{ID: c.String("request-id"), OwnerID: c.String("verifier-id"),
-				SourceChain: strconv.FormatUint(chain, 10), FromBlock: from, ToBlock: to, Mode: mode, Actor: c.String("actor"), Note: c.String("note")})
+			o, err := getStore().Submit(context.Background(), store.SubmitRequest{
+				ID: c.String("request-id"), OwnerID: c.String("verifier-id"),
+				SourceChain: strconv.FormatUint(chain, 10), FromBlock: from, ToBlock: to, Mode: mode, Actor: c.String("actor"), Note: c.String("note"),
+			})
 			if err != nil {
 				return err
 			}
@@ -78,7 +88,6 @@ func InitCommandsWithFactory(getStore func() Store) []cli.Command {
 		return writeJSON(operations)
 	}})
 	for _, action := range []string{"status", "cancel", "resume"} {
-		action := action
 		commands = append(commands, cli.Command{Name: action, Usage: action + " a durable recovery operation; returns JSON", Flags: []cli.Flag{
 			cli.StringFlag{Name: "operation-id", Required: true},
 		}, Action: func(c *cli.Context) error {
@@ -101,18 +110,25 @@ func InitCommandsWithFactory(getStore func() Store) []cli.Command {
 		}})
 	}
 	commands = append(commands, cli.Command{Name: "events", Usage: "Query retained drops and finality incidents as paginated JSON, with coverage metadata", Flags: []cli.Flag{
-		cli.StringFlag{Name: "verifier-id"}, cli.StringFlag{Name: "chain-selector"}, cli.StringFlag{Name: "dest-chain-selector"},
+		cli.StringFlag{Name: "verifier-id"},
+		cli.StringFlag{Name: "chain-selector"},
+		cli.StringFlag{Name: "dest-chain-selector"},
 		cli.StringSliceFlag{Name: "message-id", Usage: "Full message IDs, comma-separated or repeated"},
 		cli.StringFlag{Name: "reason", Usage: "remote_chain_cursed, message_disablement_rule, finality_violation or operator_reset"},
-		cli.StringFlag{Name: "since", Usage: "RFC3339 observation window start"}, cli.StringFlag{Name: "until", Usage: "RFC3339 observation window end"},
-		cli.StringFlag{Name: "from-block"}, cli.StringFlag{Name: "to-block"}, cli.StringFlag{Name: "before-id", Usage: "next_cursor from a previous page"},
+		cli.StringFlag{Name: "since", Usage: "RFC3339 observation window start"},
+		cli.StringFlag{Name: "until", Usage: "RFC3339 observation window end"},
+		cli.StringFlag{Name: "from-block"},
+		cli.StringFlag{Name: "to-block"},
+		cli.StringFlag{Name: "before-id", Usage: "next_cursor from a previous page"},
 		cli.IntFlag{Name: "limit", Value: 50, Usage: "Page size (1-500)"},
 	}, Action: func(c *cli.Context) error {
 		if err := validateOptionalNumbers(c, "chain-selector", "dest-chain-selector", "from-block", "to-block", "before-id"); err != nil {
 			return err
 		}
-		f := store.EventFilter{OwnerID: c.String("verifier-id"), SourceChain: c.String("chain-selector"), DestChain: c.String("dest-chain-selector"),
-			Reason: c.String("reason"), FromBlock: c.String("from-block"), ToBlock: c.String("to-block"), BeforeID: c.String("before-id"), Limit: c.Int("limit")}
+		f := store.EventFilter{
+			OwnerID: c.String("verifier-id"), SourceChain: c.String("chain-selector"), DestChain: c.String("dest-chain-selector"),
+			Reason: c.String("reason"), FromBlock: c.String("from-block"), ToBlock: c.String("to-block"), BeforeID: c.String("before-id"), Limit: c.Int("limit"),
+		}
 		if f.FromBlock != "" && f.ToBlock != "" {
 			from, _ := parseNumber(f.FromBlock, "from-block")
 			to, _ := parseNumber(f.ToBlock, "to-block")
@@ -129,7 +145,7 @@ func InitCommandsWithFactory(getStore func() Store) []cli.Command {
 			return fmt.Errorf("unknown recovery reason %q", f.Reason)
 		}
 		for _, entry := range []struct {
-			name string
+			name  string
 			value **time.Time
 		}{{"since", &f.Since}, {"until", &f.Until}} {
 			if c.IsSet(entry.name) {

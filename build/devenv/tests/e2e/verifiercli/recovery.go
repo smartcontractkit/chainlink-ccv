@@ -13,7 +13,8 @@ import (
 
 var RecoverySubcommand = []string{"ccv", "recovery"}
 
-type RecoveryClient struct { client *Client }
+type RecoveryClient struct{ client *Client }
+
 func (c *Client) Recovery() RecoveryClient { return RecoveryClient{client: c} }
 
 func (r RecoveryClient) Submit(ctx context.Context, mode, owner, chain string, from uint64, to *uint64, id string) (recovery.Operation, error) {
@@ -52,8 +53,10 @@ func (r RecoveryClient) Wait(ctx context.Context, id string) (recovery.Operation
 			return o, err
 		}
 		switch o.State {
-		case "completed": return o, nil
-		case "failed", "blocked", "cancelled": return o, fmt.Errorf("recovery %s: %s", o.State, o.LastError)
+		case "completed":
+			return o, nil
+		case "failed", "blocked", "cancelled":
+			return o, fmt.Errorf("recovery %s: %s", o.State, o.LastError)
 		}
 		select {
 		case <-ctx.Done():

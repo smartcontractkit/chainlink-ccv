@@ -74,7 +74,7 @@ func buildJobQueueCommands(getDeps func() Deps) []cli.Command {
 					Required: true,
 				},
 				cli.StringFlag{
-					Name:     "verifier-id",
+					Name:  "verifier-id",
 					Usage: "Verifier owner; inferred only when one owner matches",
 				},
 				cli.StringFlag{
@@ -241,7 +241,7 @@ func ParseMessageIDs(values []string) ([][]byte, error) {
 	ids := make([][]byte, 0)
 	seen := make(map[string]bool)
 	for _, value := range values {
-		for _, part := range strings.Split(value, ",") {
+		for part := range strings.SplitSeq(value, ",") {
 			id, err := ParseMessageID(strings.TrimSpace(part))
 			if err != nil || len(id) != 32 {
 				return nil, fmt.Errorf("invalid message-id %q: expected a full 32-byte hex ID", part)

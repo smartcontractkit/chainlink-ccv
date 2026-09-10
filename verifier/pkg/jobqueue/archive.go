@@ -44,7 +44,7 @@ func FailureCategory(queue string, err error) string {
 	}
 }
 
-type archiveKey struct { chain, category string }
+type archiveKey struct{ chain, category string }
 
 type archiveSnapshot struct {
 	Count     int64
@@ -90,7 +90,7 @@ func (q *PostgresJobQueue[T]) archiveSnapshot(ctx context.Context) (map[archiveK
 		GREATEST(0, EXTRACT(EPOCH FROM NOW() - MIN(completed_at)))::double precision
 		FROM %s WHERE owner_id = $1 AND status = 'failed'
 		GROUP BY chain_selector, failure_category`, q.archiveName)
-	warningAge := fmt.Sprintf("%f seconds", (ArchiveRetention-ArchiveWarningLead).Seconds())
+	warningAge := fmt.Sprintf("%f seconds", (ArchiveRetention - ArchiveWarningLead).Seconds())
 	rows, err := q.ds.QueryContext(ctx, query, q.ownerID, warningAge)
 	if err != nil {
 		return nil, err

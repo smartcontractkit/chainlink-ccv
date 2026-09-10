@@ -7,15 +7,18 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/recovery"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 )
 
 func (r *Service) dropEvent(task verifier.VerificationTask, reason, incident string) recovery.Event {
 	block, destination := strconv.FormatUint(task.BlockNumber, 10), task.Message.DestChainSelector.String()
-	e := recovery.Event{OwnerID: r.verifierID, NodeID: r.recovery.nodeID, SourceChain: r.chainSelector.String(),
+	e := recovery.Event{
+		OwnerID: r.verifierID, NodeID: r.recovery.nodeID, SourceChain: r.chainSelector.String(),
 		DestChain: &destination, MessageID: &task.MessageID, SourceBlock: &block,
-		Kind: "drop", Stage: "admission", Reason: reason}
+		Kind: "drop", Stage: "admission", Reason: reason,
+	}
 	if len(task.TxHash) > 0 {
 		hash := task.TxHash.String()
 		e.TxHash = &hash
@@ -45,18 +48,20 @@ func (r *Service) recordFinalityIncident(ctx context.Context) {
 	}
 	id := uuid.NewString()
 	var evidence *FinalityEvidence
-	if checker, ok := r.finalityChecker.(interface { Evidence() *FinalityEvidence }); ok {
+	if checker, ok := r.finalityChecker.(interface{ Evidence() *FinalityEvidence }); ok {
 		evidence = checker.Evidence()
 	}
 	details, _ := json.Marshal(struct {
-		Evidence *FinalityEvidence `json:"evidence"`
-		PendingFlushed int `json:"pending_flushed"`
-		SentTrackingFlushed int `json:"sent_tracking_flushed"`
-		PublishedJobsDeleted bool `json:"published_jobs_deleted"`
+		Evidence             *FinalityEvidence `json:"evidence"`
+		PendingFlushed       int               `json:"pending_flushed"`
+		SentTrackingFlushed  int               `json:"sent_tracking_flushed"`
+		PublishedJobsDeleted bool              `json:"published_jobs_deleted"`
 	}{evidence, len(r.pendingTasks), len(r.sentTasks), false})
-	e := recovery.Event{EventID: id, OwnerID: r.verifierID, NodeID: r.recovery.nodeID,
+	e := recovery.Event{
+		EventID: id, OwnerID: r.verifierID, NodeID: r.recovery.nodeID,
 		SourceChain: r.chainSelector.String(), Kind: "finality_incident", Stage: "pending_finality",
-		Reason: "finality_violation", IncidentID: &id, Details: details}
+		Reason: "finality_violation", IncidentID: &id, Details: details,
+	}
 	if evidence != nil {
 		block := strconv.FormatUint(evidence.BlockNumber, 10)
 		e.SourceBlock = &block

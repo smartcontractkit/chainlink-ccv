@@ -323,6 +323,6 @@ func (f *FinalityViolationCheckerService) Evidence() *FinalityEvidence {
 	if f.evidence == nil {
 		return nil
 	}
-	copy := *f.evidence
-	return &copy
+	snapshot := *f.evidence
+	return &snapshot
 }

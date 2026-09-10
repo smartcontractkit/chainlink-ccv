@@ -10,10 +10,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 )
 
-type Store struct { ds sqlutil.DataSource }
+type Store struct{ ds sqlutil.DataSource }
 
 func NewStore(ds sqlutil.DataSource) *Store { return &Store{ds: ds} }
 
@@ -79,8 +80,10 @@ func (s *Store) RecordEvents(ctx context.Context, events ...Event) error {
 }
 
 func (s *Store) ListEvents(ctx context.Context, f EventFilter) (EventPage, error) {
-	page := EventPage{Events: make([]Event, 0), RetainedSince: time.Now().UTC().Add(-HistoryRetention),
-		Coverage: "Observed events only. Empty results do not prove no affected traffic. Unobserved disabled intervals, downtime, audit failures and expired history require canonical source-chain investigation."}
+	page := EventPage{
+		Events: make([]Event, 0), RetainedSince: time.Now().UTC().Add(-HistoryRetention),
+		Coverage: "Observed events only. Empty results do not prove no affected traffic. Unobserved disabled intervals, downtime, audit failures and expired history require canonical source-chain investigation.",
+	}
 	if f.Limit < 1 || f.Limit > MaxPageSize {
 		return page, fmt.Errorf("limit must be between 1 and %d", MaxPageSize)
 	}
@@ -97,7 +100,11 @@ func (s *Store) ListEvents(ctx context.Context, f EventFilter) (EventPage, error
 		column, value string
 	}{
 		{"owner_id", f.OwnerID}, {"chain_selector", f.SourceChain}, {"dest_chain_selector", f.DestChain}, {"reason", f.Reason},
-	} { if filter.value != "" { add(filter.column, "=", filter.value) } }
+	} {
+		if filter.value != "" {
+			add(filter.column, "=", filter.value)
+		}
+	}
 	if f.Since != nil {
 		add("last_observed_at", ">=", *f.Since)
 	}
@@ -132,7 +139,9 @@ func (s *Store) ListEvents(ctx context.Context, f EventFilter) (EventPage, error
 		var e Event
 		if err := rows.Scan(&e.ID, &e.EventID, &e.OwnerID, &e.NodeID, &e.SourceChain, &e.DestChain,
 			&e.MessageID, &e.SourceBlock, &e.Kind, &e.Stage, &e.Reason, &e.TxHash, &e.BlockHash, &e.IncidentID,
-			&e.Details, &e.FirstObservedAt, &e.LastObservedAt, &e.Observations, &e.ExpiresAt); err != nil { return page, err }
+			&e.Details, &e.FirstObservedAt, &e.LastObservedAt, &e.Observations, &e.ExpiresAt); err != nil {
+			return page, err
+		}
 		page.Events = append(page.Events, e)
 	}
 	if err := rows.Err(); err != nil {

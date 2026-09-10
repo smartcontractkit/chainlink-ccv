@@ -11,13 +11,14 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 )
 
 const operationColumns = `id, owner_id, chain_selector::text, from_block::text, to_block::text, next_block::text,
 	mode, state, reset_applied, actor, note, admitted, dropped, conflicts, filtered, errors, last_error, created_at, updated_at`
 
-func scanOperation(row interface { Scan(...any) error }) (Operation, error) {
+func scanOperation(row interface{ Scan(...any) error }) (Operation, error) {
 	var o Operation
 	err := row.Scan(&o.ID, &o.OwnerID, &o.SourceChain, &o.FromBlock, &o.ToBlock, &o.NextBlock,
 		&o.Mode, &o.State, &o.ResetApplied, &o.Actor, &o.Note, &o.Admitted, &o.Dropped, &o.Conflicts, &o.Filtered, &o.Errors,
@@ -26,7 +27,7 @@ func scanOperation(row interface { Scan(...any) error }) (Operation, error) {
 }
 
 func (s *Store) Get(ctx context.Context, id string) (Operation, error) {
-	return scanOperation(s.ds.QueryRowxContext(ctx, "SELECT " + operationColumns + " FROM ccv_recovery_operations WHERE id = $1", id))
+	return scanOperation(s.ds.QueryRowxContext(ctx, "SELECT "+operationColumns+" FROM ccv_recovery_operations WHERE id = $1", id))
 }
 
 // Submit captures an omitted upper bound from the reader's recent advertised head
@@ -104,7 +105,7 @@ func (s *Store) Submit(ctx context.Context, r SubmitRequest) (Operation, error) 
 		}
 		result, err = scanOperation(tx.QueryRowxContext(ctx, `INSERT INTO ccv_recovery_operations
 			(id,owner_id,chain_selector,from_block,to_block,next_block,mode,actor,note)
-			VALUES ($1,$2,$3,$4,$5,$4,$6,$7,$8) RETURNING ` + operationColumns,
+			VALUES ($1,$2,$3,$4,$5,$4,$6,$7,$8) RETURNING `+operationColumns,
 			r.ID, r.OwnerID, r.SourceChain, fmt.Sprint(r.FromBlock), fmt.Sprint(to), r.Mode, r.Actor, r.Note))
 		return err
 	})
@@ -115,7 +116,7 @@ func (s *Store) List(ctx context.Context, owner, chain string, limit int) ([]Ope
 	if limit < 1 || limit > MaxPageSize {
 		return nil, fmt.Errorf("limit must be between 1 and %d", MaxPageSize)
 	}
-	rows, err := s.ds.QueryContext(ctx, "SELECT " + operationColumns + ` FROM ccv_recovery_operations
+	rows, err := s.ds.QueryContext(ctx, "SELECT "+operationColumns+` FROM ccv_recovery_operations
 		WHERE ($1 = '' OR owner_id = $1) AND ($2 = '' OR chain_selector = NULLIF($2, '')::numeric)
 		ORDER BY created_at DESC, id DESC LIMIT $3`, owner, chain, limit)
 	if err != nil {
@@ -140,15 +141,17 @@ func (s *Store) ChangeState(ctx context.Context, id, action string) (Operation, 
 	guard := ""
 	stateExpression := "$2"
 	switch action {
-	case "cancel": state, allowed = "cancelled", "'accepted','running','blocked','failed','cancelled'"
+	case "cancel":
+		state, allowed = "cancelled", "'accepted','running','blocked','failed','cancelled'"
 	case "resume":
 		state, allowed = "accepted", "'cancelled','failed','blocked','accepted','running'"
 		stateExpression = "CASE WHEN state IN ('accepted','running') THEN state ELSE $2 END"
 		guard = " AND (mode <> 'reset-reader' OR NOT reset_applied OR id IN (SELECT active_reset_id FROM ccv_recovery_readers WHERE active_reset_id IS NOT NULL))"
-	default: return Operation{}, fmt.Errorf("unknown recovery action %q", action)
+	default:
+		return Operation{}, fmt.Errorf("unknown recovery action %q", action)
 	}
-	o, err := scanOperation(s.ds.QueryRowxContext(ctx, `UPDATE ccv_recovery_operations SET state = ` + stateExpression + `,
-		last_error = '', updated_at = NOW() WHERE id = $1 AND state IN (` + allowed + `)` + guard + ` RETURNING ` + operationColumns, id, state))
+	o, err := scanOperation(s.ds.QueryRowxContext(ctx, `UPDATE ccv_recovery_operations SET state = `+stateExpression+`,
+		last_error = '', updated_at = NOW() WHERE id = $1 AND state IN (`+allowed+`)`+guard+` RETURNING `+operationColumns, id, state))
 	if errors.Is(err, sql.ErrNoRows) {
 		return o, fmt.Errorf("operation does not exist or cannot %s in its current state", action)
 	}
@@ -156,7 +159,7 @@ func (s *Store) ChangeState(ctx context.Context, id, action string) (Operation, 
 }
 
 func (s *Store) Next(ctx context.Context, owner, chain string) (Operation, error) {
-	return scanOperation(s.ds.QueryRowxContext(ctx, "SELECT " + operationColumns + ` FROM ccv_recovery_operations
+	return scanOperation(s.ds.QueryRowxContext(ctx, "SELECT "+operationColumns+` FROM ccv_recovery_operations
 		WHERE owner_id = $1 AND chain_selector = $2 AND state IN ('accepted','running')
 		ORDER BY (mode = 'reset-reader' AND NOT reset_applied) DESC,
 		(id = COALESCE((SELECT active_reset_id FROM ccv_recovery_readers WHERE owner_id=$1 AND chain_selector=$2), '00000000-0000-0000-0000-000000000000'::uuid)) DESC, created_at, id LIMIT 1`, owner, chain))
@@ -183,7 +186,7 @@ func (s *Store) Step(ctx context.Context, id string, work func(*Store, *Operatio
 		if err != nil {
 			return err
 		}
-		o, err = scanOperation(tx.QueryRowxContext(ctx, "SELECT " + operationColumns + " FROM ccv_recovery_operations WHERE id = $1 FOR UPDATE", id))
+		o, err = scanOperation(tx.QueryRowxContext(ctx, "SELECT "+operationColumns+" FROM ccv_recovery_operations WHERE id = $1 FOR UPDATE", id))
 		if err != nil {
 			return err
 		}
@@ -210,7 +213,7 @@ func (s *Store) Fail(ctx context.Context, id string, attemptedVersion time.Time,
 }
 
 // ActiveReset keeps normal polling behind an unfinished investigated reset,
-// including cancelled/failed operations and across process restarts.
+// including canceled/failed operations and across process restarts.
 func (s *Store) ActiveReset(ctx context.Context, owner, chain string) (string, error) {
 	var id string
 	err := s.ds.QueryRowxContext(ctx, "SELECT COALESCE(active_reset_id::text,'') FROM ccv_recovery_readers WHERE owner_id=$1 AND chain_selector=$2", owner, chain).Scan(&id)

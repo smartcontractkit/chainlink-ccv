@@ -705,8 +705,8 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 				r.messageMetrics(task.Message).IncrementMessageTransition(ctx, monitoring.MessageTransitionStageAdmission, reason, reason)
 				hasBlockingUnknown = true
 				sendSpan.End()
-					// In this particular case we can't make a decision, so we'll just skip the task
-					// Curse err should be transient so the next poll is likely to have the information
+				// In this particular case we can't make a decision, so we'll just skip the task
+				// Curse err should be transient so the next poll is likely to have the information
 				continue
 			}
 			if decision == admissionDrop {

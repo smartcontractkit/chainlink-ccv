@@ -123,7 +123,7 @@ func (c *Client) ProcessIdentity(ctx context.Context) (string, error) {
 	if len(fields) < 22 {
 		return "", fmt.Errorf("invalid process stat: %q", out)
 	}
-	return fields[0]+":"+fields[21], nil
+	return fields[0] + ":" + fields[21], nil
 }
 
 // Pause sends pkill -STOP to the committee process. Tests use this

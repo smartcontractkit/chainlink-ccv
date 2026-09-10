@@ -142,7 +142,9 @@ func (r *Service) recoveryControl(ctx context.Context) {
 		if err := p.store.Step(ctx, o.ID, func(_ *recovery.Store, current *recovery.Operation) error {
 			current.State, current.LastError = "blocked", "reader disabled; an investigated reset-reader operation is required"
 			return nil
-		}); err != nil { r.logger.Errorw("Failed to record blocked recovery", "error", err) }
+		}); err != nil {
+			r.logger.Errorw("Failed to record blocked recovery", "error", err)
+		}
 	}
 }
 
@@ -187,8 +189,12 @@ func (r *Service) resetReader(ctx context.Context, requested recovery.Operation)
 			}
 			details, _ := json.Marshal(map[string]string{"operation_id": o.ID, "actor": o.Actor, "note": o.Note, "boundary": fmt.Sprint(resetBoundary(o.FromBlock))})
 			block := fmt.Sprint(resetBoundary(o.FromBlock))
-			if err := tx.RecordEvents(ctx, recovery.Event{OwnerID: o.OwnerID, NodeID: p.nodeID, SourceChain: o.SourceChain,
-				SourceBlock: &block, Kind: "reader_reset", Stage: "operator", Reason: "operator_reset", Details: details}); err != nil { return err }
+			if err := tx.RecordEvents(ctx, recovery.Event{
+				OwnerID: o.OwnerID, NodeID: p.nodeID, SourceChain: o.SourceChain,
+				SourceBlock: &block, Kind: "reader_reset", Stage: "operator", Reason: "operator_reset", Details: details,
+			}); err != nil {
+				return err
+			}
 			o.ResetApplied, applied = true, true
 			return nil
 		})
@@ -298,7 +304,13 @@ func (r *Service) recoverRange(ctx context.Context, latest, safe, finalized *pro
 	r.mu.Unlock()
 	if completedReset {
 		p.rebuildingID = ""
-		r.lastProcessedFinalizedBlock.Store(new(big.Int).SetUint64(o.ToBlock+1))
+		// Clamped to finality, the same way the durable checkpoint in recoverChunk is. A range
+		// that ends above the finalized head leaves an unfinalized suffix that can still reorg;
+		// resuming past it would mean the canonical replacement events are never discovered,
+		// and the in-memory cursor is what the next poll reads. A fully finalized range still
+		// resumes at ToBlock+1.
+		next := min(o.ToBlock, finalized.Number) + 1
+		r.lastProcessedFinalizedBlock.Store(new(big.Int).SetUint64(next))
 	}
 	if published {
 		p.queue.NotifyPublished()
@@ -337,7 +349,11 @@ func (r *Service) recoverChunk(ctx context.Context, tx *recovery.Store, o *recov
 		return nil, fmt.Errorf("chunk has more than %d messages; submit a smaller source range", recovery.MaxChunkMessages)
 	}
 	tasks := r.tasksFromEvents(ctx, events, latest, finalized)
-	defer func() { for _, task := range tasks { tracing.SpanFromContext(task.TraceContext).End() } }()
+	defer func() {
+		for _, task := range tasks {
+			tracing.SpanFromContext(task.TraceContext).End()
+		}
+	}()
 	var safeBlock *big.Int
 	if safe != nil {
 		safeBlock = new(big.Int).SetUint64(safe.Number)
@@ -382,24 +398,12 @@ func (r *Service) recoverChunk(ctx context.Context, tx *recovery.Store, o *recov
 	o.Admitted += inserted
 	o.Conflicts += int64(len(ready)) - inserted
 	o.Dropped += int64(len(drops))
-	o.Filtered += int64(len(events)-len(tasks))
-	o.NextBlock = end+1
+	o.Filtered += int64(len(events) - len(tasks))
+	o.NextBlock = end + 1
 	if end == o.ToBlock {
 		o.State = "completed"
 		if o.Mode == "reset-reader" {
-			result, err := tx.DataSource().ExecContext(ctx, "UPDATE ccv_chain_statuses SET finalized_block_height=$3,updated_at=NOW() WHERE verifier_id=$1 AND chain_selector=$2 AND NOT disabled", o.OwnerID, o.SourceChain, fmt.Sprint(min(end, finalized.Number)))
-			if err != nil {
-				return nil, err
-			}
-			updated, err := result.RowsAffected()
-			if err != nil {
-				return nil, err
-			}
-			if updated != 1 {
-				return nil, fmt.Errorf("reader was disabled during recovery; checkpoint was not advanced")
-			}
-			_, err = tx.DataSource().ExecContext(ctx, "UPDATE ccv_recovery_readers SET active_reset_id=NULL WHERE owner_id=$1 AND chain_selector=$2 AND active_reset_id=$3", o.OwnerID, o.SourceChain, o.ID)
-			if err != nil {
+			if err := r.completeReset(ctx, tx, o, min(end, finalized.Number)); err != nil {
 				return nil, err
 			}
 		}
@@ -407,9 +411,39 @@ func (r *Service) recoverChunk(ctx context.Context, tx *recovery.Store, o *recov
 	return &recoveryChunkResult{ready: ready, droppedIDs: droppedIDs}, nil
 }
 
+// completeReset lands an investigated reset: it advances the durable checkpoint and releases the
+// reservation that has been holding normal polling back.
+//
+// checkpoint is already clamped to the finalized head by the caller. Anything above it can still
+// reorg, so persisting it would let a restart resume past blocks whose canonical events were
+// never read.
+//
+// The update requires the row to still be enabled. A reader an operator disabled again while the
+// reset was running is left alone rather than advanced, which is why a raced reset is safe to
+// investigate and retry rather than something that has already moved the checkpoint.
+func (r *Service) completeReset(ctx context.Context, tx *recovery.Store, o *recovery.Operation, checkpoint uint64) error {
+	result, err := tx.DataSource().ExecContext(ctx,
+		"UPDATE ccv_chain_statuses SET finalized_block_height=$3,updated_at=NOW() WHERE verifier_id=$1 AND chain_selector=$2 AND NOT disabled",
+		o.OwnerID, o.SourceChain, fmt.Sprint(checkpoint))
+	if err != nil {
+		return err
+	}
+	updated, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if updated != 1 {
+		return errors.New("reader was disabled during recovery; checkpoint was not advanced")
+	}
+	_, err = tx.DataSource().ExecContext(ctx,
+		"UPDATE ccv_recovery_readers SET active_reset_id=NULL WHERE owner_id=$1 AND chain_selector=$2 AND active_reset_id=$3",
+		o.OwnerID, o.SourceChain, o.ID)
+	return err
+}
+
 func resetBoundary(from uint64) uint64 {
 	if from == 0 {
 		return 0
 	}
-	return from-1
+	return from - 1
 }

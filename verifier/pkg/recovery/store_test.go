@@ -8,14 +8,16 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
+
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/jobqueue"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/recovery"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-	"github.com/stretchr/testify/require"
 )
 
-type recoveryJob struct { ID []byte }
+type recoveryJob struct{ ID []byte }
+
 func (j recoveryJob) JobKey() (uint64, []byte) { return 42, j.ID }
 
 func TestDurableRequestAndChunkTransactions(t *testing.T) {
@@ -70,13 +72,16 @@ func TestDurableRequestAndChunkTransactions(t *testing.T) {
 	cancelled, err := s.ChangeState(ctx, o.ID, "cancel")
 	require.NoError(t, err)
 	require.Equal(t, "cancelled", cancelled.State)
-	require.NoError(t, s.Step(ctx, o.ID, func(*recovery.Store, *recovery.Operation) error { t.Error("cancelled operation must not scan"); return nil }))
+	require.NoError(t, s.Step(ctx, o.ID, func(*recovery.Store, *recovery.Operation) error {
+		t.Error("cancelled operation must not scan")
+		return nil
+	}))
 	resumed, err := s.ChangeState(ctx, o.ID, "resume")
 	require.NoError(t, err)
 	require.Equal(t, uint64(150), resumed.NextBlock)
 	require.NoError(t, s.Step(ctx, o.ID, func(tx *recovery.Store, current *recovery.Operation) error {
 		count, err := q.PublishInTransaction(ctx, tx.DataSource(), recoveryJob{ID: []byte{1}})
-		current.Conflicts += 1-count
+		current.Conflicts += 1 - count
 		current.NextBlock, current.State = 201, "completed"
 		return err
 	}))
@@ -93,8 +98,10 @@ func TestEventHistoryDeduplicationPaginationAndCoverage(t *testing.T) {
 	s := recovery.NewStore(db)
 	require.NoError(t, s.RegisterReader(ctx, "owner", "42", "node", false))
 	id, block, dest := "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "100", "18446744073709551615"
-	event := recovery.Event{OwnerID: "owner", NodeID: "node", SourceChain: "42", DestChain: &dest, MessageID: &id,
-		SourceBlock: &block, Kind: "drop", Stage: "admission", Reason: "remote_chain_cursed"}
+	event := recovery.Event{
+		OwnerID: "owner", NodeID: "node", SourceChain: "42", DestChain: &dest, MessageID: &id,
+		SourceBlock: &block, Kind: "drop", Stage: "admission", Reason: "remote_chain_cursed",
+	}
 	require.NoError(t, s.RecordEvents(ctx, event, event))
 	filter := recovery.EventFilter{OwnerID: "owner", SourceChain: "42", DestChain: dest, MessageIDs: []string{id}, Limit: 1}
 	page, err := s.ListEvents(ctx, filter)
@@ -131,8 +138,10 @@ func TestCancellationWaitsForCommittedChunkAndStaleFailureCannotUndoResume(t *te
 	s := recovery.NewStore(db)
 	require.NoError(t, s.RegisterReader(ctx, "owner", "42", "node", false))
 	end := uint64(200)
-	o, err := s.Submit(ctx, recovery.SubmitRequest{OwnerID: "owner", SourceChain: "42", FromBlock: 100,
-		ToBlock: &end, Mode: "replay", Actor: "operator", Note: "cancellation test"})
+	o, err := s.Submit(ctx, recovery.SubmitRequest{
+		OwnerID: "owner", SourceChain: "42", FromBlock: 100,
+		ToBlock: &end, Mode: "replay", Actor: "operator", Note: "cancellation test",
+	})
 	require.NoError(t, err)
 	entered, release := make(chan struct{}), make(chan struct{})
 	stepDone, cancelDone := make(chan error, 1), make(chan error, 1)
@@ -161,7 +170,7 @@ func TestCancellationWaitsForCommittedChunkAndStaleFailureCannotUndoResume(t *te
 	case err := <-cancelDone:
 		t.Errorf("cancel returned before the in-flight chunk committed: %v", err)
 		cancelDone <- err
-	case <-time.After(50*time.Millisecond):
+	case <-time.After(50 * time.Millisecond):
 	}
 	close(release)
 	require.NoError(t, <-stepDone)

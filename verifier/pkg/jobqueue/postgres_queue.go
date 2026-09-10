@@ -60,14 +60,14 @@ func NewPostgresJobQueue[T Jobable](
 		return nil, err
 	}
 	return &PostgresJobQueue[T]{
-		ds:          ds,
+		ds:             ds,
 		archiveMetrics: archiveMetrics,
-		config:      config,
-		logger:      lggr,
-		tableName:   config.Name,
-		archiveName: config.Name + "_archive",
-		ownerID:     config.OwnerID,
-		signal:      newWorkSignal(),
+		config:         config,
+		logger:         lggr,
+		tableName:      config.Name,
+		archiveName:    config.Name + "_archive",
+		ownerID:        config.OwnerID,
+		signal:         newWorkSignal(),
 	}, nil
 }
 

@@ -7,13 +7,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/verifiercli"
 	"github.com/stretchr/testify/require"
+
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/verifiercli"
 )
 
 // requireLiveRangeRecovery covers only live operations. No pause/restart helper
 // is used, and process start ticks must remain identical on every member.
-func requireLiveRangeRecovery(t *testing.T, ctx context.Context, committee *verifiercli.CommitteeClient, chain uint64, from uint64, to *uint64, mode string) {
+func requireLiveRangeRecovery(t *testing.T, ctx context.Context, committee *verifiercli.CommitteeClient, chain, from uint64, to *uint64, mode string) {
 	t.Helper()
 	for _, member := range committee.Members() {
 		if to == nil {
@@ -25,7 +26,9 @@ func requireLiveRangeRecovery(t *testing.T, ctx context.Context, committee *veri
 				if err != nil {
 					return false
 				}
-				var readers []struct { HeadObservedAt *time.Time `json:"head_observed_at"` }
+				var readers []struct {
+					HeadObservedAt *time.Time `json:"head_observed_at"`
+				}
 				if json.Unmarshal(page.Readers, &readers) != nil || len(readers) != 1 {
 					return false
 				}

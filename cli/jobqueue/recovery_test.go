@@ -7,11 +7,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
+
 	"github.com/smartcontractkit/chainlink-ccv/cli/jobqueue"
 	"github.com/smartcontractkit/chainlink-ccv/cli/jobqueue/mocks"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-	"github.com/stretchr/testify/mock"
-	"github.com/stretchr/testify/require"
 )
 
 func TestListFilteredJSON(t *testing.T) {
@@ -22,11 +23,13 @@ func TestListFilteredJSON(t *testing.T) {
 	fullError := strings.Repeat("diagnostic detail ", 20)
 	now := time.Now().UTC()
 	store.EXPECT().ListFailedFiltered(mock.Anything, []jobqueue.QueueType(nil), "", [][]byte{decoded}, 50).
-		Return([]jobqueue.ArchivedJob{{Queue: jobqueue.QueueTypeTaskVerifier, JobID: "job", OwnerID: "owner", MessageID: decoded,
-			ChainSelector: ^uint64(0), LastError: fullError, ArchivedAt: &now, RetryDeadline: now}}, nil).Once()
+		Return([]jobqueue.ArchivedJob{{
+			Queue: jobqueue.QueueTypeTaskVerifier, JobID: "job", OwnerID: "owner", MessageID: decoded,
+			ChainSelector: ^uint64(0), LastError: fullError, ArchivedAt: &now, RetryDeadline: now,
+		}}, nil).Once()
 	app := newApp(jobqueue.InitJobQueueCommands(jobqueue.Deps{Store: store, Logger: logger.Test(t)}))
 	out := captureStdout(t, func() {
-		require.NoError(t, app.Run([]string{"ccv", "list", "--message-id", "0X"+strings.ToUpper(id)+",0x"+id, "--message-id", id, "--output", "json"}))
+		require.NoError(t, app.Run([]string{"ccv", "list", "--message-id", "0X" + strings.ToUpper(id) + ",0x" + id, "--message-id", id, "--output", "json"}))
 	})
 	var rows []map[string]any
 	require.NoError(t, json.Unmarshal([]byte(out), &rows), "stdout must contain only JSON")
@@ -47,7 +50,7 @@ func TestListJSONEmptyArray(t *testing.T) {
 }
 
 func TestListRejectsInvalidFilters(t *testing.T) {
-	for _, input := range []string{"", "0x", "abcd", strings.Repeat("zz", 32), strings.Repeat("aa", 32)+","} {
+	for _, input := range []string{"", "0x", "abcd", strings.Repeat("zz", 32), strings.Repeat("aa", 32) + ","} {
 		t.Run(input, func(t *testing.T) {
 			store := mocks.NewMockStore(t)
 			app := newApp(jobqueue.InitJobQueueCommands(jobqueue.Deps{Store: store, Logger: logger.Test(t)}))
@@ -61,6 +64,8 @@ func TestRescheduleInfersAndReportsOwner(t *testing.T) {
 	store.EXPECT().Reschedule(mock.Anything, jobqueue.QueueTypeTaskVerifier, "", "job", []byte(nil), time.Hour).
 		Return(jobqueue.ArchivedJob{JobID: "job", OwnerID: "resolved-owner"}, nil).Once()
 	app := newApp(jobqueue.InitJobQueueCommands(jobqueue.Deps{Store: store, Logger: logger.Test(t)}))
-	out := captureStdout(t, func() { require.NoError(t, app.Run([]string{"ccv", "reschedule", "--queue", "task-verifier", "--job-id", "job"})) })
+	out := captureStdout(t, func() {
+		require.NoError(t, app.Run([]string{"ccv", "reschedule", "--queue", "task-verifier", "--job-id", "job"}))
+	})
 	require.Contains(t, out, "owner: resolved-owner")
 }

@@ -4,9 +4,10 @@ import (
 	"context"
 	"time"
 
-	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
+
+	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 )
 
 type Metrics struct {
@@ -40,7 +41,9 @@ func NewMetrics(owner, chain string) (*Metrics, error) {
 	return m, nil
 }
 
-func (m *Metrics) AuditFailure(ctx context.Context) { m.auditFailures.Add(ctx, 1, metric.WithAttributes(m.attrs...)) }
+func (m *Metrics) AuditFailure(ctx context.Context) {
+	m.auditFailures.Add(ctx, 1, metric.WithAttributes(m.attrs...))
+}
 
 func (s *Store) CollectMetrics(ctx context.Context, owner, chain string, m *Metrics) error {
 	rows, err := s.ds.QueryContext(ctx, `SELECT state, COUNT(*), LEAST(9223372036854775807,

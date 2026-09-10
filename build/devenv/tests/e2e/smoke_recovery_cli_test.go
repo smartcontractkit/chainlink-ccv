@@ -13,9 +13,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
+
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/verifiercli"
-	"github.com/stretchr/testify/require"
 )
 
 func recoveryCLIEnvironment(t *testing.T) (*verifiercli.Client, *sql.DB, string, string, uint64) {
@@ -78,7 +79,7 @@ func TestE2ESmoke_RecoveryCLI(t *testing.T) {
 func TestE2ESmoke_RecoverySurvivesProcessFailure(t *testing.T) {
 	vc, _, owner, chain, head := recoveryCLIEnvironment(t)
 	ctx := t.Context()
-	to := head+1000000
+	to := head + 1000000
 	o, err := vc.Recovery().Submit(ctx, "replay", owner, chain, 0, &to, "")
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = vc.Recovery().Action(context.Background(), "cancel", o.ID) })
@@ -112,7 +113,7 @@ func TestE2ESmoke_RecoveryArchiveInventory(t *testing.T) {
 	ctx := t.Context()
 	const chain = "18446744073709551614"
 	message := strings.ReplaceAll(uuid.NewString(), "-", "") + strings.ReplaceAll(uuid.NewString(), "-", "")
-	messageID := "0x"+message
+	messageID := "0x" + message
 	fullError := strings.Repeat("retained diagnostic ", 20)
 	jobIDs := []string{uuid.NewString(), uuid.NewString()}
 	t.Cleanup(func() {
@@ -150,7 +151,7 @@ func TestE2ESmoke_RecoveryArchiveInventory(t *testing.T) {
 
 func requireRecoveryMetric(t *testing.T, ctx context.Context, query string, expected float64) {
 	t.Helper()
-	client := &http.Client{Timeout: 5*time.Second}
+	client := &http.Client{Timeout: 5 * time.Second}
 	require.Eventually(t, func() bool {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://localhost:8428/api/v1/query?query="+url.QueryEscape(query), nil)
 		if err != nil {
@@ -161,7 +162,14 @@ func requireRecoveryMetric(t *testing.T, ctx context.Context, query string, expe
 			return false
 		}
 		defer func() { _ = response.Body.Close() }()
-		var result struct { Status string `json:"status"`; Data struct { Result []struct { Value []json.RawMessage `json:"value"` } `json:"result"` } `json:"data"` }
+		var result struct {
+			Status string `json:"status"`
+			Data   struct {
+				Result []struct {
+					Value []json.RawMessage `json:"value"`
+				} `json:"result"`
+			} `json:"data"`
+		}
 		if json.NewDecoder(response.Body).Decode(&result) != nil || result.Status != "success" || len(result.Data.Result) != 1 || len(result.Data.Result[0].Value) != 2 {
 			return false
 		}

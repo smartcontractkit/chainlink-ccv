@@ -32,7 +32,12 @@ import (
 // itself (it runs before the service factory) so an operator who has cut over to the file need not
 // re-export CL_DATABASE_URL to run the CLI.
 func RunCCVCLI(args []string, secretsEnvVar, defaultSecretsPath string) {
-	lggr, err := logger.NewWith(logging.GetLogProfile(zapcore.InfoLevel), func(config *zap.Config) {
+	// The profile and the stderr override are one function because NewWith takes a single
+	// customizer. Logs go to stderr so a caller can pipe the CLI's own output on stdout
+	// without them.
+	profile := logging.GetLogProfile(zapcore.InfoLevel)
+	lggr, err := logger.NewWith(func(config *zap.Config) {
+		profile(config)
 		config.OutputPaths = []string{"stderr"}
 		config.ErrorOutputPaths = []string{"stderr"}
 	})

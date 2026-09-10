@@ -209,7 +209,7 @@ func (d *ObservabilityDecorator[T]) Size(ctx context.Context) (int, error) {
 }
 
 func (d *ObservabilityDecorator[T]) collectArchive(ctx context.Context) {
-	collector, ok := d.queue.(interface { CollectArchiveMetrics(context.Context) error })
+	collector, ok := d.queue.(interface{ CollectArchiveMetrics(context.Context) error })
 	if !ok {
 		return
 	}

@@ -8,6 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
+
 	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -19,18 +22,22 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
-	"github.com/stretchr/testify/mock"
-	"github.com/stretchr/testify/require"
 )
 
 type recoveryRules struct {
 	disabled bool
 	err      error
 }
-func (r *recoveryRules) IsMessageDisabled(context.Context, protocol.Message) (bool, error) { return r.disabled, r.err }
 
-type auditUnavailable struct { sqlutil.DataSource }
-func (auditUnavailable) ExecContext(context.Context, string, ...any) (sql.Result, error) { return nil, errors.New("audit unavailable") }
+func (r *recoveryRules) IsMessageDisabled(context.Context, protocol.Message) (bool, error) {
+	return r.disabled, r.err
+}
+
+type auditUnavailable struct{ sqlutil.DataSource }
+
+func (auditUnavailable) ExecContext(context.Context, string, ...any) (sql.Result, error) {
+	return nil, errors.New("audit unavailable")
+}
 
 func recoveryTestService(t *testing.T, cursed bool, rules common.MessageRulesChecker) (*Service, *mocks.MockSourceReader, sqlutil.DataSource) {
 	t.Helper()
@@ -56,9 +63,9 @@ func recoveryTestService(t *testing.T, cursed bool, rules common.MessageRulesChe
 
 func TestRecoveryRereadsAdmissionWithoutChangingNormalProgress(t *testing.T) {
 	for _, tc := range []struct {
-		name string
+		name             string
 		cursed, disabled bool
-		wantReason string
+		wantReason       string
 	}{
 		{"admitted", false, false, ""}, {"curse", true, false, "remote_chain_cursed"}, {"disablement", false, true, "message_disablement_rule"},
 	} {
@@ -146,7 +153,7 @@ func TestLiveFinalityRecoveryIncludesDisabledStartupReaders(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, reset.ID, active, "restart and cancellation must not let normal polling skip this range")
 	head := &protocol.BlockHeader{Number: 1000, Timestamp: time.Now()}
-	r.recoverRange(ctx, head, head, head) // No RPC while cancelled.
+	r.recoverRange(ctx, head, head, head) // No RPC while canceled.
 	_, err = r.recovery.store.ChangeState(ctx, reset.ID, "resume")
 	require.NoError(t, err)
 	events := createTestMessageSentEvents(t, 1, 42, defaultDestChain, []uint64{100})
@@ -211,9 +218,11 @@ func TestOverlappingRecoveryCountsActiveConflictsAndReconcilesPending(t *testing
 	require.NoError(t, r.recovery.queue.Publish(t.Context(), tasks...))
 	reader.EXPECT().FetchMessageSentEvents(mock.Anything, big.NewInt(100), big.NewInt(100)).Return(events, nil).Twice()
 	end := uint64(100)
-	for i := 0; i < 2; i++ {
-		o, err := r.recovery.store.Submit(t.Context(), recovery.SubmitRequest{OwnerID: "owner", SourceChain: "42", FromBlock: 100,
-			ToBlock: &end, Mode: "replay", Actor: "operator", Note: "overlapping range"})
+	for range 2 {
+		o, err := r.recovery.store.Submit(t.Context(), recovery.SubmitRequest{
+			OwnerID: "owner", SourceChain: "42", FromBlock: 100,
+			ToBlock: &end, Mode: "replay", Actor: "operator", Note: "overlapping range",
+		})
 		require.NoError(t, err)
 		r.recoverRange(t.Context(), head, head, head)
 		o, err = r.recovery.store.Get(t.Context(), o.ID)
@@ -235,8 +244,10 @@ func TestOverlappingRecoveryCountsActiveConflictsAndReconcilesPending(t *testing
 func TestRecoveryReportsRPCFailureAndBoundsChunks(t *testing.T) {
 	r, reader, _ := recoveryTestService(t, false, common.AllowAllMessagesChecker{})
 	end := uint64(100)
-	request := recovery.SubmitRequest{OwnerID: "owner", SourceChain: "42", FromBlock: 100,
-		ToBlock: &end, Mode: "replay", Actor: "operator", Note: "bounded range"}
+	request := recovery.SubmitRequest{
+		OwnerID: "owner", SourceChain: "42", FromBlock: 100,
+		ToBlock: &end, Mode: "replay", Actor: "operator", Note: "bounded range",
+	}
 	o, err := r.recovery.store.Submit(t.Context(), request)
 	require.NoError(t, err)
 	reader.EXPECT().FetchMessageSentEvents(mock.Anything, big.NewInt(100), big.NewInt(100)).Return(nil, errors.New("RPC unavailable")).Once()
@@ -261,4 +272,43 @@ func TestRecoveryReportsRPCFailureAndBoundsChunks(t *testing.T) {
 	require.Equal(t, uint64(200), o.NextBlock, "one poll must scan no more than 100 blocks")
 	require.Equal(t, uint64(500), o.ToBlock)
 	require.Equal(t, uint64(500), r.lastProcessedFinalizedBlock.Load().Uint64())
+}
+
+// A reset whose range ends above the finalized head must not move the in-memory cursor past
+// finality. The durable checkpoint is already clamped, so without this the two disagree: a
+// process that never restarts resumes above blocks that can still reorg and never sees their
+// canonical replacements, while one that does restart re-reads them from the database row.
+func TestResetDoesNotAdvanceCursorPastFinality(t *testing.T) {
+	r, reader, _ := recoveryTestService(t, false, common.AllowAllMessagesChecker{})
+	ctx := t.Context()
+	require.NoError(t, r.chainStatusManager.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{{ChainSelector: 42, FinalizedBlockHeight: big.NewInt(0), Disabled: true}}))
+	_, err := r.initializeStartBlock(ctx)
+	require.NoError(t, err)
+	require.True(t, r.disabled.Load())
+
+	end := uint64(105)
+	reset, err := r.recovery.store.Submit(ctx, recovery.SubmitRequest{
+		OwnerID: "owner", SourceChain: "42", FromBlock: 100, ToBlock: &end,
+		Mode: "reset-reader", Actor: "operator", Note: "investigated boundary 99",
+	})
+	require.NoError(t, err)
+	r.recoveryControl(ctx)
+	require.False(t, r.disabled.Load())
+
+	// The range runs to 105 but only 102 is finalized, so 103-105 are still reorg-able.
+	latest := &protocol.BlockHeader{Number: 110, Timestamp: time.Now()}
+	finalized := &protocol.BlockHeader{Number: 102, Timestamp: time.Now()}
+	reader.EXPECT().FetchMessageSentEvents(mock.Anything, big.NewInt(100), big.NewInt(105)).Return(nil, nil).Once()
+	r.recoverRange(ctx, latest, latest, finalized)
+
+	reset, err = r.recovery.store.Get(ctx, reset.ID)
+	require.NoError(t, err)
+	require.Equal(t, "completed", reset.State)
+
+	require.Equal(t, uint64(103), r.lastProcessedFinalizedBlock.Load().Uint64(),
+		"the next poll must resume just above the finalized head, not above the recovered range")
+	statuses, err := r.chainStatusManager.ReadChainStatuses(ctx, []protocol.ChainSelector{42})
+	require.NoError(t, err)
+	require.Equal(t, uint64(102), statuses[42].FinalizedBlockHeight.Uint64(),
+		"the durable checkpoint is clamped the same way, so the two cursors agree")
 }

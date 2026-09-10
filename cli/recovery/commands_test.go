@@ -22,8 +22,10 @@ type capturedStore struct {
 
 func (s *capturedStore) Submit(_ context.Context, request store.SubmitRequest) (store.Operation, error) {
 	s.request = request
-	return store.Operation{ID: request.ID, OwnerID: request.OwnerID, SourceChain: request.SourceChain,
-		FromBlock: request.FromBlock, ToBlock: 100, NextBlock: request.FromBlock, State: "accepted"}, nil
+	return store.Operation{
+		ID: request.ID, OwnerID: request.OwnerID, SourceChain: request.SourceChain,
+		FromBlock: request.FromBlock, ToBlock: 100, NextBlock: request.FromBlock, State: "accepted",
+	}, nil
 }
 
 func (s *capturedStore) ListEvents(_ context.Context, filter store.EventFilter) (store.EventPage, error) {

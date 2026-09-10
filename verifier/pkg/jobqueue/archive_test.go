@@ -8,26 +8,37 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/metric"
+
 	cliqueue "github.com/smartcontractkit/chainlink-ccv/cli/jobqueue"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
-	"github.com/stretchr/testify/require"
-	"go.opentelemetry.io/otel/metric"
 )
 
-type archiveTestJob struct { Message []byte }
+type archiveTestJob struct{ Message []byte }
+
 func (j archiveTestJob) JobKey() (uint64, []byte) { return 42, j.Message }
 
 type recordedIntGauge struct {
 	metric.Int64Gauge
 	values []int64
 }
-func (g *recordedIntGauge) Record(_ context.Context, value int64, _ ...metric.RecordOption) { g.values = append(g.values, value) }
-type ignoredFloatGauge struct { metric.Float64Gauge }
+
+func (g *recordedIntGauge) Record(_ context.Context, value int64, _ ...metric.RecordOption) {
+	g.values = append(g.values, value)
+}
+
+type ignoredFloatGauge struct{ metric.Float64Gauge }
+
 func (*ignoredFloatGauge) Record(context.Context, float64, ...metric.RecordOption) {}
-type unavailableArchive struct { sqlutil.DataSource }
-func (unavailableArchive) QueryContext(context.Context, string, ...any) (*sql.Rows, error) { return nil, errors.New("archive unavailable") }
+
+type unavailableArchive struct{ sqlutil.DataSource }
+
+func (unavailableArchive) QueryContext(context.Context, string, ...any) (*sql.Rows, error) {
+	return nil, errors.New("archive unavailable")
+}
 
 func TestArchiveInventoryLifecycle(t *testing.T) {
 	ctx := context.Background()
@@ -35,8 +46,10 @@ func TestArchiveInventoryLifecycle(t *testing.T) {
 	q, err := NewPostgresJobQueue[archiveTestJob](db, QueueConfig{Name: "ccv_task_verifier_jobs", OwnerID: "owner", RetryDuration: time.Hour}, logger.Test(t))
 	require.NoError(t, err)
 	count, health := &recordedIntGauge{}, &recordedIntGauge{}
-	q.archiveMetrics = &archiveMetrics{previous: make(map[archiveKey]archiveSnapshot), count: count, expiring: &recordedIntGauge{},
-		age: &ignoredFloatGauge{}, success: health, lastSuccess: &ignoredFloatGauge{}}
+	q.archiveMetrics = &archiveMetrics{
+		previous: make(map[archiveKey]archiveSnapshot), count: count, expiring: &recordedIntGauge{},
+		age: &ignoredFloatGauge{}, success: health, lastSuccess: &ignoredFloatGauge{},
+	}
 	require.NoError(t, q.Publish(ctx, archiveTestJob{Message: []byte{1}}, archiveTestJob{Message: []byte{2}}))
 	jobs, err := q.ConsumePending(ctx, 2)
 	require.NoError(t, err)
@@ -49,7 +62,7 @@ func TestArchiveInventoryLifecycle(t *testing.T) {
 	key := archiveKey{chain: "42", category: "policy_rejected"}
 	require.Equal(t, int64(1), q.archiveMetrics.previous[key].Count)
 	require.Equal(t, int64(1), q.archiveMetrics.previous[key].Expiring)
-	require.GreaterOrEqual(t, q.archiveMetrics.previous[key].OldestAge, (24*24*time.Hour).Seconds())
+	require.GreaterOrEqual(t, q.archiveMetrics.previous[key].OldestAge, (24 * 24 * time.Hour).Seconds())
 	q.ds = unavailableArchive{db}
 	require.Error(t, q.CollectArchiveMetrics(ctx))
 	require.Equal(t, int64(0), health.values[len(health.values)-1])
@@ -86,7 +99,9 @@ func TestFailureCategoryPrecedence(t *testing.T) {
 		{"ccv_storage_writer_jobs", "connection refused", "storage_failure"},
 		{"ccv_task_verifier_jobs", "unsupported message version", "validation_error"},
 		{"ccv_task_verifier_jobs", "legacy error", "unknown"},
-	} { require.Equal(t, tc.want, FailureCategory(tc.queue, errors.New(tc.message))) }
+	} {
+		require.Equal(t, tc.want, FailureCategory(tc.queue, errors.New(tc.message)))
+	}
 }
 
 // Cost fixture: 100k retained rows, 100 owners, JSON payloads deliberately omitted
@@ -110,7 +125,7 @@ func TestArchiveInventoryRepresentativePlan(t *testing.T) {
 	for rows.Next() {
 		var line string
 		require.NoError(t, rows.Scan(&line))
-		plan.WriteString(line+"\n")
+		plan.WriteString(line + "\n")
 	}
 	require.NoError(t, rows.Err())
 	t.Log(plan.String())
