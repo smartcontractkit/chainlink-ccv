@@ -528,7 +528,7 @@ func (s *Processor) scheduleStorageRetries(ctx context.Context, jobs []jobqueue.
 		if _, ok := errorMap[job.ID]; !ok {
 			continue
 		}
-		delay := backoffDelay(job.AttemptCount, s.retryDelay, s.retryBackoffFactor, s.retryBackoffMax)
+		delay := common.BackoffDelay(job.AttemptCount, s.retryDelay, s.retryBackoffFactor, s.retryBackoffMax)
 		if jobIDsByDelay[delay] == nil {
 			jobIDsByDelay[delay] = make([]string, 0)
 			errorsByDelay[delay] = make(map[string]error)

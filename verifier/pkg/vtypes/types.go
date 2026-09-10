@@ -21,8 +21,14 @@ type VerificationTask struct {
 	FinalizedBlockAtReady       uint64                     `json:"finalized_block_at_ready"`        // Finalized block number when the message met its finality requirement (0 until it does)
 	ReadyForVerificationAt      time.Time                  `json:"ready_for_verification_at"`       // Block timestamp when message became ready for verification (for E2E latency)
 	PushedToVerificationQueueAt time.Time                  `json:"pushed_to_verification_queue_at"` // When pushed to task verifier queue (for verification queue latency)
-	TraceParent                 string                     `json:"traceparent,omitempty"`
-	TraceContext                context.Context            `json:"-"`
+	// AttemptCount is the queue's attempt_count for the job carrying this task, stamped at
+	// consume time so a verifier can grow its retry delay with each attempt. The value persisted
+	// in the queue's task_data is stale; only the copy set from the job row is meaningful.
+	// omitempty keeps it out of the enqueued payload entirely, so a stored task never carries a
+	// zero that reads as a real attempt count.
+	AttemptCount int             `json:"attempt_count,omitempty"`
+	TraceParent  string          `json:"traceparent,omitempty"`
+	TraceContext context.Context `json:"-"`
 }
 
 // JobKey implements jobqueue.Jobable interface.
