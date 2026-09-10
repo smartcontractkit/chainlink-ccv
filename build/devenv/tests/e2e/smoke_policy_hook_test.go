@@ -139,7 +139,11 @@ func TestE2ESmoke_PolicyHook(t *testing.T) {
 			"with two gated committee nodes, more than two calls means the message was retried rather than abandoned")
 
 		policy.endOutage(t, ctx)
-		requireAggregatorResult(t, ctx, aggregatorClient, held.MessageID,
+		// The endpoint recovering does not wake the message: it is parked on the retry delay the
+		// gate set when the last call failed, and that delay doubles per attempt. By the time the
+		// outage ends the message is several attempts in, so the wait here has to cover a backoff
+		// interval rather than just the trip to the aggregator.
+		requireAggregatorResultWithin(t, ctx, aggregatorClient, held.MessageID, 120*time.Second,
 			"a held message must be attested once the endpoint recovers, with no checkpoint rewind")
 	})
 
