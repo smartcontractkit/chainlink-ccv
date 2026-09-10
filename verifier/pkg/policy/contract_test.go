@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"math/big"
@@ -256,6 +257,86 @@ func TestNewEvaluateRequest_DerivesPublishedView(t *testing.T) {
 	after, err := json.Marshal(task)
 	require.NoError(t, err)
 	assert.Equal(t, before, after, "deriving the view must not mutate the task")
+}
+
+// The padding rule is the contract's, so it is pinned here rather than inferred from a request.
+// A 20-byte EVM address and its 32-byte form have to render identically, or an endpoint doing
+// string comparison sees two different senders for one message.
+func TestHexPadded(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		raw  []byte
+		want string
+	}{
+		{name: "nil", want: "0x"},
+		{name: "empty", raw: []byte{}, want: "0x"},
+		{name: "20 bytes", raw: bytes.Repeat([]byte{0xab}, 20), want: "0x" + strings.Repeat("00", 12) + strings.Repeat("ab", 20)},
+		{name: "already padded", raw: append(make([]byte, 12), bytes.Repeat([]byte{0xab}, 20)...), want: "0x" + strings.Repeat("00", 12) + strings.Repeat("ab", 20)},
+		{name: "32 significant bytes", raw: bytes.Repeat([]byte{0xab}, 32), want: "0x" + strings.Repeat("ab", 32)},
+		{name: "32 bytes with leading zeros", raw: append([]byte{0, 0}, bytes.Repeat([]byte{0xab}, 30)...), want: "0x0000" + strings.Repeat("ab", 30)},
+		{name: "long address", raw: append([]byte{0}, bytes.Repeat([]byte{0xab}, 63)...), want: "0x00" + strings.Repeat("ab", 63)},
+		{name: "maximum address", raw: bytes.Repeat([]byte{0xab}, protocol.MaxUnknownAddressBytes), want: "0x" + strings.Repeat("ab", protocol.MaxUnknownAddressBytes)},
+		{name: "zero address", raw: make([]byte, 20), want: "0x" + strings.Repeat("00", 32)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, hexPadded(tc.raw))
+		})
+	}
+}
+
+func TestTotalFeeTokenAmount(t *testing.T) {
+	largeFee, ok := new(big.Int).SetString("123456789012345678901234567890", 10)
+	require.True(t, ok)
+	priced := []protocol.ReceiptWithBlob{
+		{FeeTokenAmount: largeFee},
+		{FeeTokenAmount: big.NewInt(2)},
+		{FeeTokenAmount: big.NewInt(3)},
+		{FeeTokenAmount: big.NewInt(4)},
+	}
+
+	total := totalFeeTokenAmount(priced)
+	require.NotNil(t, total)
+	assert.Equal(t, "123456789012345678901234567899", total.String())
+	assert.Equal(t, "123456789012345678901234567890", largeFee.String(), "summing must not mutate a receipt")
+
+	assert.Nil(t, totalFeeTokenAmount(nil), "no receipts means the total is unknown")
+
+	withUnpriced := []protocol.ReceiptWithBlob{
+		{FeeTokenAmount: largeFee},
+		{FeeTokenAmount: big.NewInt(2)},
+		{FeeTokenAmount: big.NewInt(3)},
+		{FeeTokenAmount: big.NewInt(4)},
+		{},
+	}
+	assert.Nil(t, totalFeeTokenAmount(withUnpriced),
+		"one unpriced receipt makes the whole total unknown rather than short")
+
+	zero := totalFeeTokenAmount([]protocol.ReceiptWithBlob{{FeeTokenAmount: big.NewInt(0)}})
+	require.NotNil(t, zero, "a known zero fee is not the same as an unknown one")
+	assert.Zero(t, zero.Sign())
+}
+
+// Building the published view must leave the message byte-identical: its encoding and ID are what
+// the signature covers, and padding an address for the wire must never reach them.
+func TestNewMessageV1_PreservesEncodedMessage(t *testing.T) {
+	message, err := protocol.NewMessage(1, 2, 3,
+		protocol.UnknownAddress{0x01}, protocol.UnknownAddress{0x02},
+		protocol.NewFinality().WithSafe(), 300000, 200000, protocol.Bytes32{0x03},
+		protocol.UnknownAddress{0x04}, protocol.UnknownAddress{0x05}, []byte{0, 6}, []byte{0, 7}, nil)
+	require.NoError(t, err)
+	before, err := message.Encode()
+	require.NoError(t, err)
+	messageID, err := message.MessageID()
+	require.NoError(t, err)
+
+	out := newMessageV1(*message)
+	assert.Len(t, out.Sender, len("0x")+64, "the wire form is padded")
+	assert.Equal(t, FinalityV1{Mode: "finalized", Safe: true}, out.Finality)
+
+	after, err := message.Encode()
+	require.NoError(t, err)
+	assert.Equal(t, before, after)
+	assert.Equal(t, messageID, message.MustMessageID())
 }
 
 func TestParseDecision(t *testing.T) {

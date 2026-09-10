@@ -16,8 +16,7 @@
 | `policy.NewEvaluateRequest` | signature-changed | `NewEvaluateRequest\(` | `verifier/pkg/policy/contract.go:70` | [Deriving the view](#deriving-the-published-view) |
 | `policy.MessageV1.Finality` | behavior-changed | `\.Finality\b\|["']finality["']` | `verifier/pkg/policy/contract.go:127` | [Decoded finality](#decoded-finality) |
 | Policy request address encoding | behavior-changed | `sender\|receiver\|ramp_address\|token_address\|pool_address\|fee_token` | `pkg/chainaccess/message_details.go:34` | [Address encoding](#address-encoding) |
-| `protocol.MessageDetails` | added | `type MessageDetails struct` | `protocol/message_details.go:8` | [Deriving the view](#deriving-the-published-view) |
-| `chainaccess.NewMessageDetails` | added | `FetchMessageSentEvents\(` | `pkg/chainaccess/message_details.go:12` | [Deriving the view](#deriving-the-published-view) |
+| `policy.hexPadded` / `policy.totalFeeTokenAmount` | added | `func hexPadded\(` | `verifier/pkg/policy/contract.go` | [Deriving the view](#deriving-the-published-view) |
 | `protocol.Finality.Requirement`, `FinalityRequirement`, `FinalityMode` | added | `\.Finality\b` | `protocol/finality.go:65` | [Decoded finality](#decoded-finality) |
 | `protocol.MessageSentEvent.FeeToken`, `.BlockTimestamp` | added | `MessageSentEvent\{` | `protocol/common_types.go:365` | [Source metadata](#source-metadata) |
 | `vtypes.VerificationTask.FeeToken`, `.SourceBlockTimestamp` | added | `VerificationTask\{` | `verifier/pkg/vtypes/types.go:18` | [Source metadata](#source-metadata) |
@@ -32,8 +31,9 @@ updated models and address comparisons. The internal `protocol.Message` format i
 
 `policy.NewEvaluateRequest` keeps its single return value and now derives the published view
 itself, so callers pass the task and nothing else. `protocol.MessageSentEvent` and
-`vtypes.VerificationTask` have no `MessageDetails` field: it was always a pure function of data
-those types already carry, and a stored copy could only drift from the message it describes.
+`vtypes.VerificationTask` carry no normalized copy of the message: it was always a pure function
+of data those types already hold, and a stored copy could only drift from the message it
+describes.
 
 ### Decoded finality
 
@@ -67,8 +67,8 @@ payloads, transaction identifiers and the original message used for signing keep
 4. Source reader implementations can fill `protocol.MessageSentEvent.FeeToken` and `.BlockTimestamp`
    using their existing decoded event/block data. No reader interface signature changes are
    required, and readers do not build the normalized view.
-5. Direct callers of `policy.NewEvaluateRequest` pass the task as before; it derives the view.
-   A consumer that wants the same view outside policy calls `chainaccess.NewMessageDetails`.
+5. Direct callers of `policy.NewEvaluateRequest` pass the task as before; it produces the
+   published shape itself.
 
 ## New Features / Additions
 
@@ -92,17 +92,20 @@ not infer an end-user identity or make transaction RPCs.
 
 ### Deriving the published view
 
-`protocol.MessageDetails` is the normalized view an endpoint is shown: addresses padded to one
-width, the fee asset and total, and decoded finality. `chainaccess.NewMessageDetails` builds it;
-it owns padding and receipt aggregation and delegates finality decoding to
-`protocol.Finality.Requirement`. Address arrays are copied so consumers of the view cannot mutate
-the signed message. The type and helper have no dependency on policy or its generated API.
+The normalized view an endpoint sees — addresses padded to one width, the fee asset and total,
+decoded finality — is written directly into the generated request model. `MessageV1` already is
+that view, in the exact shape the endpoint receives, so there is no intermediate struct between
+the message and the wire. `policy.hexPadded` owns the padding, `policy.totalFeeTokenAmount` the
+receipt aggregation, and finality decoding stays on `protocol.Finality.Requirement`.
 
-It is derived where it is used rather than carried. `policy.NewEvaluateRequest` calls the helper
-over the task's `Message`, `ReceiptBlobs` and `FeeToken`, all of which the task already holds, so
-nothing new is persisted and there is no second copy of the view to keep in step with the message
-it describes. The derivation is pure and RPC-free, so a task read back from the queue after a
-restart produces the same request as the one that was queued.
+The padding rule belongs to the hook's published contract rather than to the protocol, so it
+lives in the package that owns the OpenAPI spec that mandates it. It is applied on the way out,
+producing a string, so nothing ever holds a slice that aliases the signed message.
+
+`policy.NewEvaluateRequest` reads the task's `Message`, `ReceiptBlobs` and `FeeToken`, all of
+which the task already holds, so nothing new is persisted and there is no second copy to keep in
+step with the message it describes. The derivation is pure and RPC-free, so a task read back from
+the queue after a restart produces the same request as the one that was queued.
 
 Readers therefore keep returning raw decoded event data and nothing else. Metadata that genuinely
 cannot be derived from the message — the fee asset, the source block timestamp — stays a field of

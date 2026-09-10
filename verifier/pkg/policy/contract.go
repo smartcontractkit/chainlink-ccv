@@ -5,7 +5,6 @@ import (
 	"math/big"
 	"strings"
 
-	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/policy/internal/policyapi"
 	vtypes "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
@@ -64,13 +63,12 @@ const (
 	DecisionHold Decision = policyapi.HOLD
 )
 
-// NewEvaluateRequest serializes the message into the v1 request.
+// NewEvaluateRequest serializes the task into the v1 request.
 //
-// The published view — addresses padded to a single width, the fee total, decoded finality — is
-// derived here from the task rather than carried on it. Every input is already on the task, so
-// there is one place that decides what an endpoint sees and no second copy to keep in step.
+// The published shape — addresses padded to a single width, the fee total, decoded finality — is
+// produced here and nowhere else. Every input is already on the task, so there is one place that
+// decides what an endpoint sees and no second copy of the message to keep in step with it.
 func NewEvaluateRequest(verifierID string, task *vtypes.VerificationTask) EvaluateRequest {
-	details := chainaccess.NewMessageDetails(task.Message, task.ReceiptBlobs, task.FeeToken)
 	req := EvaluateRequest{
 		SchemaVersion:        SchemaVersion,
 		VerifierId:           verifierID,
@@ -79,14 +77,14 @@ func NewEvaluateRequest(verifierID string, task *vtypes.VerificationTask) Evalua
 		SourceBlockNumber:    task.BlockNumber,
 		FinalizedBlockNumber: task.FinalizedBlockAtReady,
 		BlockDepth:           blockDepth(task.BlockNumber, task.FinalizedBlockAtReady),
-		Message:              newMessageV1(task.Message, details),
+		Message:              newMessageV1(task.Message),
 	}
-	if len(details.FeeToken) > 0 {
-		feeToken := hexBytes(details.FeeToken)
+	if len(task.FeeToken) > 0 {
+		feeToken := hexPadded(task.FeeToken)
 		req.FeeToken = &feeToken
 	}
-	if details.FeeTokenAmount != nil {
-		amount := details.FeeTokenAmount.String()
+	if total := totalFeeTokenAmount(task.ReceiptBlobs); total != nil {
+		amount := total.String()
 		req.FeeTokenAmount = &amount
 	}
 	if !task.SourceBlockTimestamp.IsZero() {
@@ -107,24 +105,25 @@ func blockDepth(blockNumber, finalizedBlock uint64) uint64 {
 	return finalizedBlock - blockNumber
 }
 
-func newMessageV1(message protocol.Message, details *protocol.MessageDetails) MessageV1 {
+func newMessageV1(message protocol.Message) MessageV1 {
+	finality := message.Finality.Requirement()
 	out := MessageV1{
 		Version:             message.Version,
 		SourceChainSelector: message.SourceChainSelector.String(),
 		DestChainSelector:   message.DestChainSelector.String(),
 		SequenceNumber:      uint64(message.SequenceNumber),
-		OnRampAddress:       hexBytes(details.OnRampAddress),
-		OffRampAddress:      hexBytes(details.OffRampAddress),
-		Sender:              hexBytes(details.Sender),
-		Receiver:            hexBytes(details.Receiver),
+		OnRampAddress:       hexPadded(message.OnRampAddress),
+		OffRampAddress:      hexPadded(message.OffRampAddress),
+		Sender:              hexPadded(message.Sender),
+		Receiver:            hexPadded(message.Receiver),
 		Data:                hexBytes(message.Data),
 		DestBlob:            hexBytes(message.DestBlob),
 		ExecutionGasLimit:   message.ExecutionGasLimit,
 		CcipReceiveGasLimit: message.CcipReceiveGasLimit,
 		Finality: FinalityV1{
-			Mode:       policyapi.FinalityMode(details.Finality.Mode),
-			BlockDepth: details.Finality.BlockDepth,
-			Safe:       details.Finality.Safe,
+			Mode:       policyapi.FinalityMode(finality.Mode),
+			BlockDepth: finality.BlockDepth,
+			Safe:       finality.Safe,
 		},
 		CcvAndExecutorHash: message.CcvAndExecutorHash.String(),
 	}
@@ -133,14 +132,46 @@ func newMessageV1(message protocol.Message, details *protocol.MessageDetails) Me
 		out.TokenTransfer = &TokenTransferV1{
 			Version:            tt.Version,
 			Amount:             decimalAmount(tt.Amount),
-			SourcePoolAddress:  hexBytes(details.SourcePoolAddress),
-			SourceTokenAddress: hexBytes(details.SourceTokenAddress),
-			DestTokenAddress:   hexBytes(details.DestTokenAddress),
-			TokenReceiver:      hexBytes(details.TokenReceiver),
+			SourcePoolAddress:  hexPadded(tt.SourcePoolAddress),
+			SourceTokenAddress: hexPadded(tt.SourceTokenAddress),
+			DestTokenAddress:   hexPadded(tt.DestTokenAddress),
+			TokenReceiver:      hexPadded(tt.TokenReceiver),
 			ExtraData:          hexBytes(tt.ExtraData),
 		}
 	}
 	return out
+}
+
+// hexPadded renders an address left-padded to at least 32 bytes, the single width the contract
+// publishes so that a 20-byte EVM address and its 32-byte form are one string at an endpoint.
+// The rule is chain-independent: no registry lookup, no native-address conversion. An address
+// longer than 32 bytes keeps every byte, leading zeros included, and an absent one is "0x".
+//
+// Padding happens on the way out, so nothing hands a caller a slice that aliases the message.
+func hexPadded(address []byte) string {
+	if len(address) == 0 {
+		return "0x"
+	}
+	padded := make([]byte, max(32, len(address)))
+	copy(padded[len(padded)-len(address):], address)
+	return hexBytes(padded)
+}
+
+// totalFeeTokenAmount sums every receipt, token, executor and network fee alike. No receipts or
+// a receipt without an amount means the total is unknown, which the contract publishes by
+// omitting the field; a known zero stays a zero.
+func totalFeeTokenAmount(receipts []protocol.ReceiptWithBlob) *big.Int {
+	if len(receipts) == 0 {
+		return nil
+	}
+	total := new(big.Int)
+	for _, receipt := range receipts {
+		if receipt.FeeTokenAmount == nil {
+			return nil
+		}
+		total.Add(total, receipt.FeeTokenAmount)
+	}
+	return total
 }
 
 // hexBytes renders a byte slice as 0x-prefixed hex. An absent value renders as "0x" rather than

@@ -228,7 +228,7 @@ func TestFetchMessageSentEvents_SourceMetadata(t *testing.T) {
 			require.Equal(t, messageID, events[0].MessageID)
 			require.Equal(t, *message, events[0].Message)
 			// The reader surfaces the raw event. Normalizing it into the published policy view
-			// is chainaccess.NewMessageDetails' job and is covered by its own tests.
+			// happens in verifier/pkg/policy and is covered there.
 			for i, receipt := range receipts {
 				require.Equal(t, receipt.FeeTokenAmount, events[0].Receipts[i].FeeTokenAmount)
 			}

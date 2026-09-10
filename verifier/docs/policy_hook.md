@@ -206,12 +206,13 @@ The verifier POSTs JSON to `<base_url>/v1/evaluate` with `Content-Type: applicat
 request carries the decoded CCIP message and its source-chain provenance so the endpoint does not
 have to fetch or decode anything.
 
-Normalized addresses, the total fee and the decoded finality requirement are derived when the
-request is built, by `chainaccess.NewMessageDetails` over the message, its receipts and the fee
-asset the task already carries. Nothing is stored: the derivation is a pure function of the task,
-so a task read back from the queue after a restart produces the same request as the one that was
-queued, and there is one place that decides what an endpoint sees. It performs no RPCs. The
-original message is untouched and remains what message IDs and signatures are computed over.
+Normalized addresses, the total fee and the decoded finality requirement are produced while the
+request is built, from the message, its receipts and the fee asset the task already carries.
+Nothing is stored and no intermediate object is passed around: `policy.NewEvaluateRequest` writes
+the padded, decoded values straight into the request. The derivation is a pure function of the
+task and performs no RPCs, so a task read back from the queue after a restart produces the same
+request as the one that was queued. The original message is untouched and remains what message
+IDs and signatures are computed over.
 
 An example request:
 
