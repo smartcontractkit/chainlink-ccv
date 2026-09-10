@@ -150,8 +150,17 @@ func TestPolicyHook_PassCannotBypassVerification(t *testing.T) {
 		// The endpoint must have been asked exactly once and answered PASS, or this test proves
 		// nothing about what a PASS can do: .Once() plus the mock's cleanup assertion pins both
 		// halves of that.
+		task := newVerifiableTask(t, configuredSourceChain, destChain, addr, verifierBlob, executorAddr)
+
 		checker := mocks.NewMockChecker(t)
 		checker.EXPECT().Evaluate(mock.Anything, mock.Anything).
+			// Typed rather than untyped mock.Arguments. The generated signature names
+			// policy/internal/policyapi, which this package cannot import, but
+			// policy.EvaluateRequest is a true alias for that type, so naming it here
+			// type-checks. It also pins that the gate asked about the task in hand.
+			Run(func(_ context.Context, req policy.EvaluateRequest) {
+				assert.Equal(t, task.MessageID, req.MessageId)
+			}).
 			Return(policy.Verdict{Decision: policy.DecisionPass}, nil).Once()
 		gated, err := policy.NewGatedVerifier(
 			logger.Test(t), "committee-verifier-1", cv, checker,
@@ -159,7 +168,6 @@ func TestPolicyHook_PassCannotBypassVerification(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		task := newVerifiableTask(t, configuredSourceChain, destChain, addr, verifierBlob, executorAddr)
 		results := gated.VerifyMessages(t.Context(), []verifier.VerificationTask{task})
 
 		require.Len(t, results, 1)

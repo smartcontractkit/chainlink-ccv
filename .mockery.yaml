@@ -122,11 +122,21 @@ packages:
           - dir: ./verifier/internal/mocks
             outpkg: mocks
 
-  # The Checker mock gets its own package rather than the flat verifier/internal/mocks, because
-  # both packages that would import it are in-package tests that the flat one cannot serve:
-  # gate_test.go is package policy, and a mocks package importing policy is a cycle for it; and
-  # verifier/pkg/commit reaches commit again through the flat package's cctp mock. Its own
-  # directory imports only policy, so neither cycle exists.
+  # The Checker mock gets its own package rather than the flat verifier/internal/mocks because
+  # its consumer, verifier/pkg/commit, cannot import the flat one: that package holds the cctp
+  # attestation mock, so it depends on verifier/pkg/token/cctp, which depends on commit. A
+  # commit test importing it closes that loop. This directory imports only policy, so it does
+  # not.
+  #
+  # It cannot serve verifier/pkg/policy's own tests either: gate_test.go is package policy, and
+  # any mocks package importing policy is a cycle for an in-package test. Those tests use the
+  # hand-written stubChecker in gate_test.go and should keep doing so.
+  #
+  # The generated signature names policy/internal/policyapi, which is where the request type is
+  # defined. That is not a barrier for callers: policy.EvaluateRequest is a true alias for it,
+  # so a commit test writes Run(func(_ context.Context, req policy.EvaluateRequest){...}) and it
+  # type-checks. Rewriting it with mockery's replace-type does not work, because the target is
+  # an alias and mockery emits an empty type name for it.
   github.com/smartcontractkit/chainlink-ccv/verifier/pkg/policy:
     interfaces:
       Checker:
