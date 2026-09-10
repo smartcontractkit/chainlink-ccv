@@ -87,6 +87,45 @@ linters:
             - pkg: github.com/smartcontractkit/chainlink
               desc: No chainlink dependencies in verifier or executor packages
 
+        # CCV EVM split (CCIP-13534/13535). The principle: crypto primitives are
+        # protocol code, chain interaction is EVM code.
+        #
+        # go-ethereum/{crypto,common,accounts/keystore} are allowed everywhere on
+        # purpose, not by oversight. CCV committee signatures are ECDSA on secp256k1
+        # for every chain family -- chainlink-ccip-solana provisions an ECDSA_S256
+        # key and signs through this same shared path. That dependency is protocol
+        # work, not chain work.
+        #
+        # Everything else in go-ethereum, and all of chainlink-evm, is chain
+        # interaction and belongs in an EVM-specific package.
+        evm_chain_access:
+          list-mode: lax
+          files:
+            - $all
+            # EVM-specific by design.
+            - "!${config-path}/integration/evm/**"
+            - "!${config-path}/build/devenv/**"
+            - "!${config-path}/deployment/**"
+            # EVM code that has not moved to integration/evm yet. Delete each entry
+            # as its package is split out (CCIP-13534); do not add new ones.
+            - "!${config-path}/integration/pkg/accessors/**"
+            - "!${config-path}/integration/pkg/constructors/**"
+            - "!${config-path}/integration/pkg/contracttransmitter/**"
+            - "!${config-path}/integration/pkg/destinationreader/**"
+            - "!${config-path}/integration/pkg/rmnremotereader/**"
+            - "!${config-path}/pricer/**"
+            - "!${config-path}/verifier/pkg/token/lombard/**"
+          allow:
+            # Crypto primitives for the shared, chain-family-agnostic signing path.
+            - github.com/ethereum/go-ethereum/crypto
+            - github.com/ethereum/go-ethereum/common
+            - github.com/ethereum/go-ethereum/accounts/keystore
+          deny:
+            - pkg: github.com/ethereum/go-ethereum
+              desc: Chain interaction belongs in an EVM package (integration/evm). Only go-ethereum crypto/common/accounts-keystore are protocol code.
+            - pkg: github.com/smartcontractkit/chainlink-evm
+              desc: Chain interaction belongs in an EVM package (integration/evm), not in shared or protocol code.
+
         test:
           list-mode: lax
           files:
