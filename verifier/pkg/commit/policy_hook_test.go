@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/policy"
@@ -49,7 +48,6 @@ func TestPolicyHook_SignedPayloadUnchanged(t *testing.T) {
 	runOnce := func(t *testing.T, v verifier.Verifier) *protocol.VerifierNodeResult {
 		t.Helper()
 		task := newVerifiableTask(t, sourceChain, destChain, addr, blob, executorAddr)
-		task.MessageDetails = chainaccess.NewMessageDetails(task.Message, task.ReceiptBlobs, task.FeeToken)
 		results := v.VerifyMessages(t.Context(), []verifier.VerificationTask{task})
 		require.Len(t, results, 1)
 		require.Nil(t, results[0].Error)
@@ -98,7 +96,6 @@ func TestPolicyHook_FailNeverSigns(t *testing.T) {
 	require.NoError(t, err)
 
 	task := newVerifiableTask(t, sourceChain, destChain, addr, []byte{0xAA, 0xBB, 0xCC, 0xDD}, executorAddr)
-	task.MessageDetails = chainaccess.NewMessageDetails(task.Message, task.ReceiptBlobs, task.FeeToken)
 	results := gated.VerifyMessages(t.Context(), []verifier.VerificationTask{task})
 
 	require.Len(t, results, 1)
@@ -169,7 +166,6 @@ func TestPolicyHook_PassCannotBypassVerification(t *testing.T) {
 		require.NoError(t, err)
 
 		task := newVerifiableTask(t, configuredSourceChain, destChain, addr, verifierBlob, executorAddr)
-		task.MessageDetails = chainaccess.NewMessageDetails(task.Message, task.ReceiptBlobs, task.FeeToken)
 		results := gated.VerifyMessages(t.Context(), []verifier.VerificationTask{task})
 
 		require.Equal(t, 1, checker.calls,
@@ -203,7 +199,6 @@ func TestPolicyHook_PassCannotBypassVerification(t *testing.T) {
 		require.NoError(t, err)
 
 		task := newVerifiableTask(t, unconfiguredSourceChain, destChain, addr, verifierBlob, executorAddr)
-		task.MessageDetails = chainaccess.NewMessageDetails(task.Message, task.ReceiptBlobs, task.FeeToken)
 		results := gated.VerifyMessages(t.Context(), []verifier.VerificationTask{task})
 
 		assert.Zero(t, checker.calls,

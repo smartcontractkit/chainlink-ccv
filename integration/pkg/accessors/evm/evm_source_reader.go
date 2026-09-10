@@ -411,7 +411,6 @@ func (r *SourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, to
 			TxHash:         log.TxHash.Bytes(),
 			FeeToken:       event.FeeToken.Bytes(),
 			BlockTimestamp: blockTimestamp,
-			MessageDetails: chainaccess.NewMessageDetails(*decodedMsg, allReceipts, event.FeeToken.Bytes()),
 		})
 	}
 	return results, nil

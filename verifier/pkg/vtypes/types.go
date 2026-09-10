@@ -13,7 +13,6 @@ type VerificationTask struct {
 	ReceiptBlobs                []protocol.ReceiptWithBlob `json:"receipt_blobs"`
 	MessageID                   string                     `json:"message_id"`
 	Message                     protocol.Message           `json:"message"`
-	MessageDetails              *protocol.MessageDetails   `json:"message_details,omitempty"`
 	TxHash                      protocol.ByteSlice         `json:"tx_hash"`
 	FeeToken                    protocol.UnknownAddress    `json:"fee_token,omitempty"`
 	SourceBlockTimestamp        time.Time                  `json:"source_block_timestamp,omitzero"` // Source-block time; zero when unavailable

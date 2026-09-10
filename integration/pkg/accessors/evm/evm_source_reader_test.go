@@ -227,13 +227,8 @@ func TestFetchMessageSentEvents_SourceMetadata(t *testing.T) {
 			require.Equal(t, protocol.UnknownAddress(tc.feeToken.Bytes()), events[0].FeeToken)
 			require.Equal(t, messageID, events[0].MessageID)
 			require.Equal(t, *message, events[0].Message)
-			details := events[0].MessageDetails
-			require.NotNil(t, details)
-			require.Equal(t, protocol.UnknownAddress(expectedSourceAddressBytes(tc.feeToken)), details.FeeToken)
-			require.Equal(t, big.NewInt(9), details.FeeTokenAmount)
-			require.Len(t, details.Receiver, 32)
-			require.Equal(t, byte(2), details.Receiver[31])
-			require.Equal(t, protocol.FinalityRequirement{Mode: protocol.FinalityModeFinalized}, details.Finality)
+			// The reader surfaces the raw event. Normalizing it into the published policy view
+			// is chainaccess.NewMessageDetails' job and is covered by its own tests.
 			for i, receipt := range receipts {
 				require.Equal(t, receipt.FeeTokenAmount, events[0].Receipts[i].FeeTokenAmount)
 			}

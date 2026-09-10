@@ -5,21 +5,19 @@
 - Hook requests expose `fee_token`, `fee_token_amount` and `source_block_timestamp` when available.
 - All hook address fields share a chain-independent hex encoding with a minimum width of 32 bytes.
 - `message.finality` becomes an object with `mode`, `block_depth` and `safe` instead of a packed integer.
-- Readers supply normalization, fee totals and decoded finality through `protocol.MessageDetails`;
-  policy serializes those values. No additional RPCs or changes to signed message bytes.
+- Normalization, fee totals and decoded finality are derived from the task when the request is
+  built, not stored on it. No additional RPCs or changes to signed message bytes.
 - The OpenAPI contract, binding models and rendered documentation describe the updated v1 payload.
 
 ## AI Adapter Index
 
 | Symbol | Kind | Search | Location | Section |
 |---|---|---|---|---|
-| `policy.NewEvaluateRequest` | signature-changed | `NewEvaluateRequest\(` | `verifier/pkg/policy/contract.go:70` | [Reader ownership](#reader-ownership) |
+| `policy.NewEvaluateRequest` | signature-changed | `NewEvaluateRequest\(` | `verifier/pkg/policy/contract.go:70` | [Deriving the view](#deriving-the-published-view) |
 | `policy.MessageV1.Finality` | behavior-changed | `\.Finality\b\|["']finality["']` | `verifier/pkg/policy/contract.go:127` | [Decoded finality](#decoded-finality) |
 | Policy request address encoding | behavior-changed | `sender\|receiver\|ramp_address\|token_address\|pool_address\|fee_token` | `pkg/chainaccess/message_details.go:34` | [Address encoding](#address-encoding) |
-| `taskverifier.Processor.processJobs` | behavior-changed | `MessageDetails` | `verifier/pkg/taskverifier/processor.go:317` | [Reader ownership](#reader-ownership) |
-| `protocol.MessageDetails` / `MessageSentEvent.MessageDetails` / `vtypes.VerificationTask.MessageDetails` | added | `MessageSentEvent\{\|VerificationTask\{` | `protocol/message_details.go:8` | [Reader ownership](#reader-ownership) |
-| `chainaccess.NewMessageDetails` | added | `FetchMessageSentEvents\(` | `pkg/chainaccess/message_details.go:12` | [Reader ownership](#reader-ownership) |
-| `monitoring.MessageTransitionReasonPolicyRequestInvalid` / `policy.GatedVerifier.requestErrorResult` | added | `policy_request_invalid` | `verifier/pkg/monitoring/metrics.go:58` | [Reader ownership](#reader-ownership) |
+| `protocol.MessageDetails` | added | `type MessageDetails struct` | `protocol/message_details.go:8` | [Deriving the view](#deriving-the-published-view) |
+| `chainaccess.NewMessageDetails` | added | `FetchMessageSentEvents\(` | `pkg/chainaccess/message_details.go:12` | [Deriving the view](#deriving-the-published-view) |
 | `protocol.Finality.Requirement`, `FinalityRequirement`, `FinalityMode` | added | `\.Finality\b` | `protocol/finality.go:65` | [Decoded finality](#decoded-finality) |
 | `protocol.MessageSentEvent.FeeToken`, `.BlockTimestamp` | added | `MessageSentEvent\{` | `protocol/common_types.go:365` | [Source metadata](#source-metadata) |
 | `vtypes.VerificationTask.FeeToken`, `.SourceBlockTimestamp` | added | `VerificationTask\{` | `verifier/pkg/vtypes/types.go:18` | [Source metadata](#source-metadata) |
@@ -32,9 +30,10 @@ The v1 request changes `message.finality` from an integer to an object. Address 
 than 32 bytes now receive left-zero padding. Hook endpoints consuming the earlier v1 shape need
 updated models and address comparisons. The internal `protocol.Message` format is unchanged.
 
-`policy.NewEvaluateRequest` now returns `(EvaluateRequest, error)` and requires
-`VerificationTask.MessageDetails`. The source/queue readers populate it before policy evaluation.
-Direct callers must supply reader details and handle the error.
+`policy.NewEvaluateRequest` keeps its single return value and now derives the published view
+itself, so callers pass the task and nothing else. `protocol.MessageSentEvent` and
+`vtypes.VerificationTask` have no `MessageDetails` field: it was always a pure function of data
+those types already carry, and a stored copy could only drift from the message it describes.
 
 ### Decoded finality
 
@@ -66,10 +65,10 @@ payloads, transaction identifiers and the original message used for signing keep
    as part of their identity.
 3. Treat missing fee metadata or source time as unavailable. Do not substitute zero or current time.
 4. Source reader implementations can fill `protocol.MessageSentEvent.FeeToken` and `.BlockTimestamp`
-   using their existing decoded event/block data, and populate `.MessageDetails` through
-   `chainaccess.NewMessageDetails`. No reader interface signature changes are required.
-5. Direct callers of `policy.NewEvaluateRequest` must provide `task.MessageDetails` and handle its
-   error return. Normal source/queue processing supplies the details automatically.
+   using their existing decoded event/block data. No reader interface signature changes are
+   required, and readers do not build the normalized view.
+5. Direct callers of `policy.NewEvaluateRequest` pass the task as before; it derives the view.
+   A consumer that wants the same view outside policy calls `chainaccess.NewMessageDetails`.
 
 ## New Features / Additions
 
@@ -91,25 +90,21 @@ amount omit the total, while a known zero is `"0"`.
 Transaction-origin lookup remains deferred. `sender` can be an application contract; the hook does
 not infer an end-user identity or make transaction RPCs.
 
-### Reader ownership
+### Deriving the published view
 
-`protocol.MessageDetails` carries normalized addresses, the fee asset and total, and decoded
-finality independently of the original `protocol.Message`. `chainaccess.NewMessageDetails` is the
-shared reader helper; it owns padding and receipt aggregation and delegates finality decoding to
+`protocol.MessageDetails` is the normalized view an endpoint is shown: addresses padded to one
+width, the fee asset and total, and decoded finality. `chainaccess.NewMessageDetails` builds it;
+it owns padding and receipt aggregation and delegates finality decoding to
 `protocol.Finality.Requirement`. Address arrays are copied so consumers of the view cannot mutate
-the signed message. The types and helper have no dependency on policy or its generated API.
+the signed message. The type and helper have no dependency on policy or its generated API.
 
-The concrete reader attaches details to each event. The source-reader service preserves them when
-forming a `VerificationTask`; it uses the same helper if an older reader supplies none. The task
-queue consumer also fills absent details on legacy jobs before invoking any verifier, without
-additional RPCs. Already-persisted details are preserved, including unavailable fee fields.
+It is derived where it is used rather than carried. `policy.NewEvaluateRequest` calls the helper
+over the task's `Message`, `ReceiptBlobs` and `FeeToken`, all of which the task already holds, so
+nothing new is persisted and there is no second copy of the view to keep in step with the message
+it describes. The derivation is pure and RPC-free, so a task read back from the queue after a
+restart produces the same request as the one that was queued.
 
-Policy serializes these supplied values without normalization, receipt aggregation or bit decoding.
-Missing details are a construction error; the gate retries without contacting the endpoint or
-signing. It is counted apart from an endpoint failure: outcome `policy_unavailable` (the message
-got no verdict, so the stage's four outcomes still add up) with the new
-`monitoring.MessageTransitionReasonPolicyRequestInvalid` (`policy_request_invalid`) reason, and its
-own log line naming the endpoint as uncalled. An operator alerting on `policy_endpoint_error` is
-not paged for a verifier-side gap. This catches callers that bypass the reader boundary without
-silently screening a different set of addresses. Future transaction-origin metadata must also be supplied by readers;
-no such lookup is added here.
+Readers therefore keep returning raw decoded event data and nothing else. Metadata that genuinely
+cannot be derived from the message — the fee asset, the source block timestamp — stays a field of
+its own on the event and the task. Future transaction-origin metadata belongs there too; no such
+lookup is added here.

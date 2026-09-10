@@ -1,11 +1,11 @@
 package policy
 
 import (
-	"errors"
 	"fmt"
 	"math/big"
 	"strings"
 
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/policy/internal/policyapi"
 	vtypes "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
@@ -64,14 +64,13 @@ const (
 	DecisionHold Decision = policyapi.HOLD
 )
 
-// NewEvaluateRequest serializes the message and reader-supplied details into the v1 request.
-// Missing details are an error: interpreting raw chain data belongs to the readers, and a
-// request with guessed or empty addresses could cause an endpoint to approve the wrong data.
-func NewEvaluateRequest(verifierID string, task *vtypes.VerificationTask) (EvaluateRequest, error) {
-	if task == nil || task.MessageDetails == nil {
-		return EvaluateRequest{}, errors.New("verification task is missing reader-supplied message details")
-	}
-	details := task.MessageDetails
+// NewEvaluateRequest serializes the message into the v1 request.
+//
+// The published view — addresses padded to a single width, the fee total, decoded finality — is
+// derived here from the task rather than carried on it. Every input is already on the task, so
+// there is one place that decides what an endpoint sees and no second copy to keep in step.
+func NewEvaluateRequest(verifierID string, task *vtypes.VerificationTask) EvaluateRequest {
+	details := chainaccess.NewMessageDetails(task.Message, task.ReceiptBlobs, task.FeeToken)
 	req := EvaluateRequest{
 		SchemaVersion:        SchemaVersion,
 		VerifierId:           verifierID,
@@ -94,7 +93,7 @@ func NewEvaluateRequest(verifierID string, task *vtypes.VerificationTask) (Evalu
 		timestamp := task.SourceBlockTimestamp.UTC()
 		req.SourceBlockTimestamp = &timestamp
 	}
-	return req, nil
+	return req
 }
 
 // blockDepth reports how far below the finalized head the message's block sits, measured against

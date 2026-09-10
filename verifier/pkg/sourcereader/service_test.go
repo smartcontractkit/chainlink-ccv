@@ -13,7 +13,6 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
-	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/jobqueue"
 	verifiermonitoring "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
@@ -131,13 +130,6 @@ func TestSRS_FetchesAndQueuesMessages(t *testing.T) {
 		events[i].FeeToken = protocol.UnknownAddress{0x00, 0x01}
 		events[i].BlockTimestamp = time.Unix(1700000000+int64(i), 0).UTC()
 	}
-	// A reader's supplied view must be propagated without being reinterpreted. Other
-	// events exercise compatibility with readers that only supply the raw message.
-	events[0].MessageDetails = &protocol.MessageDetails{
-		Sender:   protocol.UnknownAddress{0x02},
-		Finality: protocol.FinalityRequirement{Mode: protocol.FinalityModeFinalized},
-	}
-
 	reader.EXPECT().
 		FetchMessageSentEvents(mock.Anything, big.NewInt(95), mock.Anything).
 		Return(events, nil)
@@ -168,12 +160,10 @@ func TestSRS_FetchesAndQueuesMessages(t *testing.T) {
 		require.Equal(t, ev.BlockNumber, task.BlockNumber)
 		require.Equal(t, ev.FeeToken, task.FeeToken)
 		require.Equal(t, ev.BlockTimestamp, task.SourceBlockTimestamp)
-		require.NotNil(t, task.MessageDetails)
-		if ev.MessageDetails != nil {
-			require.Same(t, ev.MessageDetails, task.MessageDetails)
-		} else {
-			require.Equal(t, chainaccess.NewMessageDetails(ev.Message, ev.Receipts, ev.FeeToken), task.MessageDetails)
-		}
+		// The task carries the raw event data policy derives its published view from; the
+		// derivation itself is covered in verifier/pkg/policy and pkg/chainaccess.
+		require.Equal(t, ev.Receipts, task.ReceiptBlobs)
+		require.Equal(t, ev.Message, task.Message)
 	}
 }
 

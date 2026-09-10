@@ -13,7 +13,6 @@ import (
 	oteltrace "go.opentelemetry.io/otel/trace"
 
 	"github.com/smartcontractkit/chainlink-ccv/common/monitoring/tracing"
-	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/jobqueue"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
@@ -314,11 +313,6 @@ func (p *Processor) processJobs(ctx context.Context, jobs []jobqueue.Job[verifie
 		parentCtx := otel.GetTextMapPropagator().Extract(context.WithoutCancel(ctx), carrier)
 
 		payload := job.Payload
-		if payload.MessageDetails == nil {
-			// Older queued tasks have only raw event data. Reuse the reader's decoder on
-			// queue read so all verifiers receive the same view, including after a restart.
-			payload.MessageDetails = chainaccess.NewMessageDetails(payload.Message, payload.ReceiptBlobs, payload.FeeToken)
-		}
 		messageID, err := protocol.NewBytes32FromString(payload.MessageID)
 		if err != nil {
 			p.lggr.Errorw("Failed to convert messageID to Bytes32", "error", err, "messageID", payload.MessageID)

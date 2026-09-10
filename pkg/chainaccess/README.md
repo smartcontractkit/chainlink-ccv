@@ -37,15 +37,16 @@ RPC endpoints and other operator-owned connection settings must not be placed in
 
 # Message details
 
-Source readers supply `protocol.MessageSentEvent.MessageDetails` alongside the original decoded
-`Message`. Build it from the existing event data with
-`chainaccess.NewMessageDetails(message, receipts, feeToken)`. The helper normalizes addresses to
+`chainaccess.NewMessageDetails(message, receipts, feeToken)` builds the normalized view a
+consumer publishes, from data the consumer already holds. It is not stored on the event or the
+verification task: the caller derives it at the boundary where it is needed, which keeps one
+definition of the view and no second copy to keep in step. The helper normalizes addresses to
 at least 32 bytes, preserves longer addresses and leading zeros, sums all receipt fees, and uses
 `protocol.Finality.Requirement()` to decode finality. It performs no RPCs and uses no API types or
 chain-family lookups. Missing fee data remains unavailable.
 
 The details own their address bytes. Keep `Message` unchanged: it is the message whose ID and
-signature are verified. Consumers such as policy hooks serialize the supplied details instead of
+signature are verified. Consumers such as policy hooks serialize the derived details instead of
 interpreting raw addresses or receipt/finality encodings. The source-reader service and task queue
 consumer fill absent details for older readers and queued tasks with the same helper, while
 preserving details that were already supplied.

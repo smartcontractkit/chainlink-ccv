@@ -2,6 +2,7 @@ package policy
 
 import (
 	"encoding/json"
+	"fmt"
 	"math/big"
 	"slices"
 	"strings"
@@ -11,21 +12,16 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	vtypes "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 )
 
-// evaluateRequestFromEvent reproduces the reader-to-policy path for wire-format tests.
+// evaluateRequestFromEvent reproduces the reader-to-policy path for wire-format tests. The
+// derivation NewEvaluateRequest used to require of its caller now lives inside it, so this is a
+// thin alias kept so the tests below still read as "what an endpoint receives".
 func evaluateRequestFromEvent(t *testing.T, verifierID string, task *vtypes.VerificationTask) EvaluateRequest {
 	t.Helper()
-	prepared := *task
-	if prepared.MessageDetails == nil {
-		prepared.MessageDetails = chainaccess.NewMessageDetails(prepared.Message, prepared.ReceiptBlobs, prepared.FeeToken)
-	}
-	req, err := NewEvaluateRequest(verifierID, &prepared)
-	require.NoError(t, err)
-	return req
+	return NewEvaluateRequest(verifierID, task)
 }
 
 func TestNewEvaluateRequest(t *testing.T) {
@@ -163,7 +159,6 @@ func TestNewEvaluateRequest_SourceMetadataSurvivesQueue(t *testing.T) {
 			{FeeTokenAmount: big.NewInt(4)},
 		},
 	}
-	task.MessageDetails = chainaccess.NewMessageDetails(task.Message, task.ReceiptBlobs, task.FeeToken)
 	// Queues persist tasks as JSON. The retry must carry the same metadata after a restart.
 	stored, err := json.Marshal(task)
 	require.NoError(t, err)
@@ -207,72 +202,60 @@ func TestNewEvaluateRequest_UnavailableAndZeroMetadata(t *testing.T) {
 	assert.Nil(t, evaluateRequestFromEvent(t, "v", &task).FeeTokenAmount, "an incomplete fee total is unknown")
 }
 
-func TestNewEvaluateRequest_UsesReaderDetails(t *testing.T) {
-	// Distinct values make any attempt to normalize raw addresses, sum receipts or decode
-	// finality again observable. The policy layer must serialize the supplied view verbatim.
+// The published view is derived here, not carried on the task, so this pins what that derivation
+// produces: addresses padded to one width, receipts summed, finality decoded. It also pins that
+// deriving does not touch the task, whose Message bytes are what the signature is over.
+func TestNewEvaluateRequest_DerivesPublishedView(t *testing.T) {
 	task := vtypes.VerificationTask{
 		Message: protocol.Message{
-			Sender:        protocol.UnknownAddress{0xff},
-			Finality:      protocol.FinalityWaitForSafe,
-			Data:          protocol.ByteSlice{0x00, 0xab},
-			DestBlob:      protocol.ByteSlice{0x00, 0xcd},
-			TokenTransfer: &protocol.TokenTransfer{Amount: big.NewInt(3), ExtraData: protocol.ByteSlice{0x00, 0xef}},
-		},
-		FeeToken:     protocol.UnknownAddress{0xff},
-		ReceiptBlobs: []protocol.ReceiptWithBlob{{FeeTokenAmount: big.NewInt(999)}},
-		MessageDetails: &protocol.MessageDetails{
-			OnRampAddress:      protocol.UnknownAddress{0x01},
-			OffRampAddress:     protocol.UnknownAddress{0x02},
-			Sender:             protocol.UnknownAddress{0x03},
-			Receiver:           protocol.UnknownAddress{0x04},
-			SourcePoolAddress:  protocol.UnknownAddress{0x05},
-			SourceTokenAddress: protocol.UnknownAddress{0x06},
-			DestTokenAddress:   protocol.UnknownAddress{0x07},
-			TokenReceiver:      protocol.UnknownAddress{0x08},
-			FeeToken:           protocol.UnknownAddress{0x09},
-			FeeTokenAmount:     big.NewInt(10),
-			Finality: protocol.FinalityRequirement{
-				Mode: protocol.FinalityModeBlockDepth, BlockDepth: 12,
+			OnRampAddress:  protocol.UnknownAddress{0x01},
+			OffRampAddress: protocol.UnknownAddress{0x02},
+			Sender:         protocol.UnknownAddress{0x03},
+			Receiver:       protocol.UnknownAddress{0x04},
+			Finality:       protocol.NewFinality().WithBlockDepth(12),
+			Data:           protocol.ByteSlice{0x00, 0xab},
+			DestBlob:       protocol.ByteSlice{0x00, 0xcd},
+			TokenTransfer: &protocol.TokenTransfer{
+				Amount:             big.NewInt(3),
+				ExtraData:          protocol.ByteSlice{0x00, 0xef},
+				SourcePoolAddress:  protocol.ByteSlice{0x05},
+				SourceTokenAddress: protocol.ByteSlice{0x06},
+				DestTokenAddress:   protocol.ByteSlice{0x07},
+				TokenReceiver:      protocol.ByteSlice{0x08},
 			},
+		},
+		FeeToken: protocol.UnknownAddress{0x09},
+		ReceiptBlobs: []protocol.ReceiptWithBlob{
+			{FeeTokenAmount: big.NewInt(4)},
+			{FeeTokenAmount: big.NewInt(6)},
 		},
 	}
 	before, err := json.Marshal(task)
 	require.NoError(t, err)
-	req, err := NewEvaluateRequest("v", &task)
-	require.NoError(t, err)
-	assert.Equal(t, "0x01", req.Message.OnRampAddress)
-	assert.Equal(t, "0x02", req.Message.OffRampAddress)
-	assert.Equal(t, "0x03", req.Message.Sender)
-	assert.Equal(t, "0x04", req.Message.Receiver)
-	assert.Equal(t, "0x05", req.Message.TokenTransfer.SourcePoolAddress)
-	assert.Equal(t, "0x06", req.Message.TokenTransfer.SourceTokenAddress)
-	assert.Equal(t, "0x07", req.Message.TokenTransfer.DestTokenAddress)
-	assert.Equal(t, "0x08", req.Message.TokenTransfer.TokenReceiver)
+
+	req := NewEvaluateRequest("v", &task)
+
+	pad := func(last byte) string { return "0x" + strings.Repeat("00", 31) + fmt.Sprintf("%02x", last) }
+	assert.Equal(t, pad(0x01), req.Message.OnRampAddress)
+	assert.Equal(t, pad(0x02), req.Message.OffRampAddress)
+	assert.Equal(t, pad(0x03), req.Message.Sender)
+	assert.Equal(t, pad(0x04), req.Message.Receiver)
+	assert.Equal(t, pad(0x05), req.Message.TokenTransfer.SourcePoolAddress)
+	assert.Equal(t, pad(0x06), req.Message.TokenTransfer.SourceTokenAddress)
+	assert.Equal(t, pad(0x07), req.Message.TokenTransfer.DestTokenAddress)
+	assert.Equal(t, pad(0x08), req.Message.TokenTransfer.TokenReceiver)
 	require.NotNil(t, req.FeeToken)
 	require.NotNil(t, req.FeeTokenAmount)
-	assert.Equal(t, "0x09", *req.FeeToken)
-	assert.Equal(t, "10", *req.FeeTokenAmount)
+	assert.Equal(t, pad(0x09), *req.FeeToken)
+	assert.Equal(t, "10", *req.FeeTokenAmount, "every receipt's fee counts toward the total")
 	assert.Equal(t, FinalityV1{Mode: "blockDepth", BlockDepth: 12}, req.Message.Finality)
 	assert.Equal(t, "0x00ab", req.Message.Data)
 	assert.Equal(t, "0x00cd", req.Message.DestBlob)
 	assert.Equal(t, "0x00ef", req.Message.TokenTransfer.ExtraData)
+
 	after, err := json.Marshal(task)
 	require.NoError(t, err)
-	assert.Equal(t, before, after)
-
-	task.MessageDetails.FeeToken = nil
-	task.MessageDetails.FeeTokenAmount = nil
-	req, err = NewEvaluateRequest("v", &task)
-	require.NoError(t, err)
-	assert.Nil(t, req.FeeToken, "do not substitute the raw fee asset")
-	assert.Nil(t, req.FeeTokenAmount, "do not recompute an unavailable total")
-}
-
-func TestNewEvaluateRequest_RequiresReaderDetails(t *testing.T) {
-	for _, task := range []*vtypes.VerificationTask{nil, {}} {
-		_, err := NewEvaluateRequest("v", task)
-		require.ErrorContains(t, err, "reader-supplied message details")
-	}
+	assert.Equal(t, before, after, "deriving the view must not mutate the task")
 }
 
 func TestParseDecision(t *testing.T) {

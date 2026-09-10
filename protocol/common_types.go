@@ -367,9 +367,6 @@ type MessageSentEvent struct {
 	// BlockTimestamp is the event's source-block time, if supplied by the source reader.
 	// A zero time means unavailable, not the time the event was discovered or finalized.
 	BlockTimestamp time.Time
-
-	// MessageDetails is the reader's normalized view, independent of the signed Message.
-	MessageDetails *MessageDetails
 }
 
 // CCVAddressInfo represents the ccv verifier addresses needed to submit a message.

@@ -405,14 +405,8 @@ func (r *Service) processEventCycle(ctx context.Context, latest, finalized *prot
 
 		carrier := propagation.MapCarrier{}
 		otel.GetTextMapPropagator().Inject(sCtx, carrier)
-		details := event.MessageDetails
-		if details == nil {
-			// Support readers that predate the shared view at the source-read boundary.
-			details = chainaccess.NewMessageDetails(event.Message, event.Receipts, event.FeeToken)
-		}
 		task := verifier.VerificationTask{
 			Message:              event.Message,
-			MessageDetails:       details,
 			ReceiptBlobs:         event.Receipts,
 			BlockNumber:          event.BlockNumber,
 			MessageID:            onchainMessageID,

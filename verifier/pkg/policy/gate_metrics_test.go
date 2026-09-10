@@ -159,26 +159,6 @@ func TestGatedVerifier_SkippedTaskRecordsNoEndpointLatency(t *testing.T) {
 	assert.Equal(t, []string{msgID(2)}, checker.callsMade(), "a skipped task must not be called")
 }
 
-// A task the gate cannot build a request for made no call. It has to be counted as a verifier-side
-// gap rather than an endpoint failure, so an operator paging on policy_endpoint_error is not woken
-// by it, and it has to stay out of the endpoint's latency histogram, which would otherwise report
-// a call against an endpoint that was never contacted.
-func TestGatedVerifier_MissingReaderDetailsIsNotAnEndpointFailure(t *testing.T) {
-	mon := newSpyMonitoring()
-	task := newTask(msgID(1))
-	task.MessageDetails = nil
-
-	results := newGateWithMonitoring(t, &stubChecker{}, &stubVerifier{}, mon).VerifyMessages(
-		t.Context(), []vtypes.VerificationTask{task})
-	require.Len(t, results, 1)
-
-	assert.Equal(t, policyTransition(
-		monitoring.MessageTransitionOutcomePolicyUnavailable,
-		monitoring.MessageTransitionReasonPolicyRequestInvalid,
-	), mon.spy.transitions())
-	assert.Empty(t, mon.spy.timedCalls(), "an unbuilt request must not be timed as an endpoint call")
-}
-
 // An endpoint that actually failed keeps the endpoint reason, so the two stay distinguishable, and
 // it is timed because the call did go out.
 func TestGatedVerifier_EndpointFailureKeepsEndpointReason(t *testing.T) {

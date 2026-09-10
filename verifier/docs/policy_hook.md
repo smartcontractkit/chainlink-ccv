@@ -205,13 +205,12 @@ The verifier POSTs JSON to `<base_url>/v1/evaluate` with `Content-Type: applicat
 request carries the decoded CCIP message and its source-chain provenance so the endpoint does not
 have to fetch or decode anything.
 
-Readers supply normalized addresses, the total fee and the decoded finality requirement through
-`protocol.MessageDetails`. These details travel alongside the original message in the durable
-verification task. The policy client serializes the supplied values; it does not pad addresses,
-aggregate receipts, decode finality flags or look up transaction origin. The original message is
-retained for message IDs and signing. For older readers and queued tasks without details, the
-source-read and queue-read paths use the same shared reader helper to populate them before policy
-evaluation, using existing data and no additional RPCs. Persisted details are preserved on retries.
+Normalized addresses, the total fee and the decoded finality requirement are derived when the
+request is built, by `chainaccess.NewMessageDetails` over the message, its receipts and the fee
+asset the task already carries. Nothing is stored: the derivation is a pure function of the task,
+so a task read back from the queue after a restart produces the same request as the one that was
+queued, and there is one place that decides what an endpoint sees. It performs no RPCs. The
+original message is untouched and remains what message IDs and signatures are computed over.
 
 An example request:
 
@@ -273,8 +272,8 @@ Things worth knowing when building the endpoint:
   a 20-byte address and its 32-byte padded form identical in the hook request. The same rule
   applies to every chain, without registry lookups or native-address conversion. Addresses longer
   than 32 bytes retain all bytes and leading zeros; an empty address is `"0x"`. Payloads, hashes
-  and other non-address byte fields retain their original lengths. Readers apply this normalization
-  to the separate details object; the original message bytes and signatures are unaffected.
+  and other non-address byte fields retain their original lengths. The normalization applies to
+  the request only; the original message bytes and signatures are unaffected.
 * `message.finality` describes the requirement the verifier applied, using the objects below.
   Its `block_depth` is the requested confirmation count; the request's top-level `block_depth`
   remains the observed distance below the finalized head when the message became ready.
@@ -395,17 +394,9 @@ the node's own error, so it lands on the message-failure counter under whatever 
 maps to, not under a policy class. Failures from the endpoint itself are classified as
 `policy_rejected` or `policy_endpoint_error`.
 
-`policy_unavailable` splits on its `reason`. `policy_endpoint_error` is the endpoint: it answered
-badly, timed out, or could not be reached. `policy_request_invalid` is the verifier: the call never
-went out because the task reached this stage without the reader-supplied message details, and the
-log line says so (`Policy hook request could not be built, scheduling retry - the endpoint was not
-called`). Both retry, but only the first is an incident on the operator's side, so alert on
-`policy_endpoint_error` rather than on the outcome.
-
 Endpoint latency is a separate histogram, `verifier_policy_http_request_duration_seconds`, labeled
 with the same `policy_passed` / `policy_rejected` / `policy_unavailable` outcome vocabulary. It
-counts calls, not messages: a skipped task and a `policy_request_invalid` task both make no call,
-so neither appears here. The outcome counters only count; an endpoint that is slow but not yet
+counts calls, not messages: a skipped task makes no call, so it never appears here. The outcome counters only count; an endpoint that is slow but not yet
 timing out shows up here first. Buckets run from 1ms to 15s, the largest `request_timeout` an
 operator may configure, so a call that runs to the ceiling still lands in a bucket.
 

@@ -105,8 +105,6 @@ func (g *GatedVerifier) VerifyMessages(ctx context.Context, tasks []vtypes.Verif
 	for i, task := range evaluate {
 		v := verdicts[i]
 		switch {
-		case v.requestErr:
-			results = append(results, vtypes.VerificationResult{Error: g.requestErrorResult(ctx, task, v.err)})
 		case v.err != nil:
 			results = append(results, vtypes.VerificationResult{Error: g.endpointErrorResult(ctx, task, v.err)})
 		case v.verdict.Decision == DecisionFail:
@@ -180,13 +178,10 @@ func (g *GatedVerifier) recordSkipped(ctx context.Context, task vtypes.Verificat
 	)
 }
 
-// evaluation is one endpoint call's outcome, index-aligned with the batch. requestErr is set
-// instead of err when the call never went out because the request could not be built, which is a
-// verifier-side gap rather than anything the operator's endpoint did.
+// evaluation is one endpoint call's outcome, index-aligned with the batch.
 type evaluation struct {
-	verdict    Verdict
-	err        error
-	requestErr bool
+	verdict Verdict
+	err     error
 }
 
 func (g *GatedVerifier) evaluateAll(ctx context.Context, tasks []vtypes.VerificationTask) []evaluation {
@@ -201,14 +196,7 @@ func (g *GatedVerifier) evaluateAll(ctx context.Context, tasks []vtypes.Verifica
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			req, err := NewEvaluateRequest(g.verifierID, &tasks[index])
-			if err != nil {
-				// No call goes out, so nothing is timed: a request the gate could not build
-				// would otherwise land in the endpoint's latency histogram as a call that
-				// never happened.
-				out[index] = evaluation{err: err, requestErr: true}
-				return
-			}
+			req := NewEvaluateRequest(g.verifierID, &tasks[index])
 			// Started after the request is built, so the histogram measures the endpoint and
 			// not the marshaling in front of it.
 			start := time.Now()
@@ -266,38 +254,6 @@ func (g *GatedVerifier) rejectedResult(ctx context.Context, task vtypes.Verifica
 		err = fmt.Errorf("policy hook rejected message %s: %s", task.MessageID, reason)
 	}
 	verificationErr := vtypes.NewVerificationError(err, task)
-	return &verificationErr
-}
-
-// requestErrorResult handles a task the gate could not even build a request for, which today
-// means a task that reached the policy stage without the reader-supplied message details. No call
-// went out, so it is counted and logged apart from an endpoint failure: the endpoint is healthy
-// and the fix is on the verifier side, and an operator paging on policy_endpoint_error should not
-// be woken by it. The outcome stays policy_unavailable, because the message did not get a verdict
-// and the stage's four outcomes have to keep adding up to the messages that entered it.
-//
-// It is retryable for the same reason an outage is. taskverifier backfills the details on queue
-// read, so a task that arrives without them is one the process has not repaired yet rather than
-// one that can never be evaluated.
-func (g *GatedVerifier) requestErrorResult(ctx context.Context, task vtypes.VerificationTask, cause error) *vtypes.VerificationError {
-	g.messageMetrics(task.Message).IncrementMessageTransition(
-		ctx,
-		monitoring.MessageTransitionStagePolicy,
-		monitoring.MessageTransitionOutcomePolicyUnavailable,
-		monitoring.MessageTransitionReasonPolicyRequestInvalid)
-
-	delay := g.retryDelayWithJitter()
-
-	g.lggr.Errorw("Policy hook request could not be built, scheduling retry - the endpoint was not called",
-		protocol.LogTypeKey, protocol.LogTypeRetryableMessageFailure,
-		protocol.LogKeyMessageID, task.MessageID,
-		protocol.LogKeySourceChain, task.Message.SourceChainSelector,
-		protocol.LogKeyDestChain, task.Message.DestChainSelector,
-		"retryDelay", delay,
-		"error", cause,
-	)
-
-	verificationErr := vtypes.NewRetriableVerificationError(cause, task, delay)
 	return &verificationErr
 }
 
