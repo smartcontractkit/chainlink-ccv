@@ -11,7 +11,7 @@ type (
 	MessageSigner          = vtypes.MessageSigner
 	VerificationResult     = vtypes.VerificationResult
 	Verifier               = vtypes.Verifier
-	VerifierDecorator      = vtypes.VerifierDecorator
+	Decorator              = vtypes.Decorator
 	MessageLatencyTracker  = vtypes.MessageLatencyTracker
 	Monitoring             = vtypes.Monitoring
 	Tracing                = tracing.Tracing

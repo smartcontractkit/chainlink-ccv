@@ -18,7 +18,7 @@ func (n namedVerifier) VerifyMessages(context.Context, []VerificationTask) []Ver
 	return nil
 }
 
-func namedDecorator(name string) VerifierDecorator {
+func namedDecorator(name string) Decorator {
 	return func(inner Verifier) (Verifier, error) {
 		return namedVerifier{Verifier: inner, name: name}, nil
 	}

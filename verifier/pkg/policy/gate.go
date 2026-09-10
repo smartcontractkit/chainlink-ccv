@@ -330,7 +330,7 @@ func Gate(
 	cfg *Config,
 	verifierMonitoring vtypes.Monitoring,
 	cred *hmac.ClientConfig,
-) vtypes.VerifierDecorator {
+) vtypes.Decorator {
 	return func(inner vtypes.Verifier) (vtypes.Verifier, error) {
 		if cfg == nil {
 			return inner, nil
