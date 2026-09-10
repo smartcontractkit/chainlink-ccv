@@ -7,13 +7,16 @@ import (
 	"sync"
 
 	"github.com/urfave/cli"
+	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
 	"github.com/smartcontractkit/chainlink-ccv/cli/chainstatuses"
 	"github.com/smartcontractkit/chainlink-ccv/cli/jobqueue"
 	"github.com/smartcontractkit/chainlink-ccv/cli/migrate"
+	recoverycli "github.com/smartcontractkit/chainlink-ccv/cli/recovery"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/recovery"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vsecrets"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -29,7 +32,10 @@ import (
 // itself (it runs before the service factory) so an operator who has cut over to the file need not
 // re-export CL_DATABASE_URL to run the CLI.
 func RunCCVCLI(args []string, secretsEnvVar, defaultSecretsPath string) {
-	lggr, err := logger.NewWith(logging.GetLogProfile(zapcore.InfoLevel))
+	lggr, err := logger.NewWith(logging.GetLogProfile(zapcore.InfoLevel), func(config *zap.Config) {
+		config.OutputPaths = []string{"stderr"}
+		config.ErrorOutputPaths = []string{"stderr"}
+	})
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "failed to create logger: %v\n", err)
 		os.Exit(1)
@@ -80,6 +86,20 @@ func RunCCVCLI(args []string, secretsEnvVar, defaultSecretsPath string) {
 		return jobQueueDeps
 	}
 
+	var recoveryOnce sync.Once
+	var recoveryStore recoverycli.Store
+	getRecoveryStore := func() recoverycli.Store {
+		recoveryOnce.Do(func() {
+			ds, err := ConnectToPostgresDB(lggr, secrets)
+			if err != nil || ds == nil {
+				_, _ = fmt.Fprintf(os.Stderr, "recovery requires a database connection: %v\n", err)
+				os.Exit(1)
+			}
+			recoveryStore = recovery.NewStore(ds)
+		})
+		return recoveryStore
+	}
+
 	app := cli.NewApp()
 	app.Name = filepath.Base(os.Args[0])
 	app.Usage = "CCV verifier service and CLI"
@@ -88,6 +108,7 @@ func RunCCVCLI(args []string, secretsEnvVar, defaultSecretsPath string) {
 			Name:  "ccv",
 			Usage: "CCV-related commands",
 			Subcommands: []cli.Command{
+				{Name: "recovery", Usage: "Live source-range recovery and durable admission evidence", Subcommands: recoverycli.InitCommandsWithFactory(getRecoveryStore)},
 				{
 					Name:        "chain-statuses",
 					Usage:       "List, enable, disable, or set finalized block height for chain statuses",

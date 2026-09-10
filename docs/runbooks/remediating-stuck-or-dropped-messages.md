@@ -1,296 +1,136 @@
 # Runbook: Remediating a Stuck or Dropped Message
 
-_Last reviewed: 2026-09-04._
+_Last reviewed: 2026-09-10._
 
-## Scenario
-
-A triage runbook ([Message Unverified After 15 Minutes](./unverified-message-after-15-minutes.md)
-or [Message Unexecuted After 15 Minutes](./unexecuted-message-after-15-minutes.md)) has
-identified a stuck or dropped message and its scope. This runbook picks the recovery lever.
+Use after [unverified-message triage](./unverified-message-after-15-minutes.md) or [unexecuted-message triage](./unexecuted-message-after-15-minutes.md) identifies the affected owner, source and messages. Recovery is per affected committee member and database. Cross-node discovery/fan-out remains an operator or deployment-layer responsibility.
 
 ## 1. Pick the Lever
 
-| Problem | Lever | Go to |
-| --- | --- | --- |
-| One message (or a few known message IDs) has a failed archive row, standalone verifier | `ccv job-queue reschedule` | Step 3 |
-| A message was dropped before queue admission (curse, disablement rule, or pending work flushed by a finality violation), or needs fresh source-chain checks | Checkpoint rewind after resolving the cause | Step 4 |
-| A range of messages must be reprocessed, or the node runs in CL mode | `ccv chain-statuses set-finalized-height` (checkpoint rewind) | Step 4 |
-| A class of traffic (chain, lane, token) must be blocked or unblocked | `aggregator message-disablement-rules` | Step 5 |
+| Problem | Recovery |
+| --- | --- |
+| Failed archived verification, valid saved source payload | `ccv job-queue reschedule --queue task-verifier`; verification and policy run again. |
+| Failed persistence of a valid completed result | `ccv job-queue reschedule --queue storage-writer`; only persistence runs again. |
+| Curse/rule drop before admission, expired archive, missed source interval, or canonicality needs checking | `ccv recovery replay`; bounded canonical source re-read and current admission checks while the reader stays live. |
+| Reader disabled by a finality violation or at startup | Investigate canonical boundary, then `ccv recovery reset-reader`; explicit recorded reset and bounded source recovery. |
+| Deployment/binary lacks the recovery CLI or upgraded reader | Stop, set checkpoint, optionally enable, start; legacy fallback in step 4. |
+| Block/unblock a class of traffic | Aggregator disablement rules (step 5), followed by source recovery for already dropped traffic. |
 
-**Reschedule does not re-run finality.** It restores the saved payload directly to its
-queue, skipping source-event discovery and the source reader's finality, curse, and
-disablement admission checks. A `task-verifier` reschedule re-runs verification, including
-the policy hook; a `storage-writer` reschedule retries persistence of the existing result.
-
-Two cases need the checks run again, and so need a checkpoint rewind and restart. The first
-is a source event that may no longer be canonical, after a reorg or a finality violation on
-that chain: reschedule replays the payload saved at discovery, so it would re-verify an event
-the canonical chain no longer carries, while a rewind only rediscovers events that are still
-there. The second is a curse or disablement rule that has since been lifted, where the
-messages were dropped before admission and have no archive row to reschedule at all. A policy
-FAIL, a failed write, or an endpoint outage leaves the saved payload valid, so reschedule is
-the right lever for those.
+**Reschedule uses the saved payload and skips source-reader finality, curse and disablement admission checks.** It is unsuitable for deciding whether an event remains canonical after a reorg. Source recovery re-reads events that still exist on the chain and enters ordinary verification/policy processing after admission. Neither path bypasses policy. Indexer backfill refreshes the indexer's view of results; it does not re-admit verifier source events or retry policy decisions.
 
 ## 2. Check the Time Windows
 
-Queued jobs have two time windows:
+Automatic retry remains **7 days**, with non-retryable failures (including policy FAIL) archived immediately. Archive retention remains **30 days after archiving**, swept every 4 hours. The message's creation time does not start that retention window.
 
-- **Automatic retry: 7 days.** A job that keeps failing retryably is archived when this
-  expires. Non-retryable failures, including a policy-hook FAIL, skip the window and are
-  archived immediately.
-- **Archive retention: 30 days after archiving**, swept every 4 hours. Use `Archived At`,
-  not the message's age or `Created At`, to judge proximity to deletion. Once the row is
-  deleted, reschedule is no longer possible and a checkpoint rewind is the only remaining
-  option.
+The Verifier Recovery dashboard reports current retained failed jobs by queue, owner, source and bounded failure category. A warning starts at 23 days of archive age, giving seven days before eligibility for deletion. Collection runs once per minute. Check collection success and freshness before interpreting inventory. [Monitoring reference and provisionable alerts](../monitoring/verifier-recovery.md) include the retention warning and collector-health alert.
 
-There is currently no gauge of retained failed jobs by reason, or metric/alert for a job
-approaching the retention cutoff. Existing message transition and failure counters describe
-events, not the current archive inventory: retries, reschedules, later recovery, and retention
-deletions prevent using those counters as a count of messages available to replay.
+Inventory is a count of failed **jobs**, including repeated or already recovered messages, not a distinct affected-message count or proof that reschedule is safe. Successful collection clears disappeared groups after reschedule/cleanup. Failed collection keeps the last good inventory and exposes failure/staleness; do not interpret a database outage as zero jobs.
 
-Check `job-queue list` (step 3) for the retained rows, their `Last Error`, and `Archived At`
-before planning around reschedule. Even an archive row is only a recovery candidate: it can
-refer to a message already attested by another path, or collide with an active job. Archive
-monitoring is follow-up work.
+Drop evidence is separate from archives. It is retained for 30 days since its last observation and includes coverage limitations. Expired archive rows can no longer be rescheduled; source recovery remains possible when canonical source data is available.
 
 ## 3. Reschedule a Single Dropped Message
 
-Use when a small number of known message IDs have failed archive rows, for example after a
-policy-hook FAIL, and the verifier runs as the standalone binary. Drops before admission
-have no archived job to reschedule; use step 4.
-
-1. Resolve which verifiers dropped the message. Metrics deliberately have no `message_id`
-   label; use Atlas, the indexer, or the message trace viewer to map the message ID to
-   verifier IDs. For a policy-hook FAIL it is every member whose endpoint answered FAIL,
-   which on a single-operator committee is every member, since each one asked the endpoint
-   and dropped the message on its own verdict. Expect to repeat the remaining steps once per
-   member, against that member's database.
-2. On each affected verifier, confirm the archived job exists. `CL_DATABASE_URL` (or
-   `[db].url` in the verifier secrets file) must point at that verifier's database. In a
-   Docker deployment the command runs as
-   `docker exec <verifier-container> /bin/verifier ccv ...`.
+1. Resolve the cause first. A policy endpoint must return PASS for the message before replay can succeed. Confirm that the source event remains valid and the message has not already been attested through another path.
+2. Point the CLI at the affected member's database and find the full message IDs:
 
    ```bash
-   verifier ccv job-queue list --queue task-verifier --limit 0
+   verifier ccv job-queue list --queue task-verifier \
+     --message-id 0x<FULL_ID_1>,0x<FULL_ID_2> --output json --limit 0
    ```
 
-   Match the message in the `Message ID` column (full hex, `0x` prefixed), and take the
-   verifier ID from that row's `Owner ID`. Omitting `--verifier-id` lists all owners in
-   this database; it does not infer one owner. Multiple verifier IDs can share a node's
-   database, so reschedule requires the explicit owner. If it is already known, add
-   `--verifier-id <verifier-id>` to narrow the list.
-
-   `list` defaults to the 50 newest failed rows per queue, ordered by `Created At`;
-   `--limit 0` avoids missing older rows. There is no `--message-id` filter, including no
-   comma-separated form. To look up several full IDs in the output:
+   Filters run before the per-queue limit. Omit the queue to search both queues and omit the owner to search every owner in this database. Repeated `--message-id` flags are also supported. JSON preserves complete diagnostic text, IDs, archive/retry times and decimal-string selectors.
+3. Restore the selected job:
 
    ```bash
-   verifier ccv job-queue list --queue task-verifier --limit 0 |
-     grep -Fi -e '0x<full-message-id-1>' -e '0x<full-message-id-2>'
+   verifier ccv job-queue reschedule --queue task-verifier --message-id 0x<FULL_ID>
    ```
 
-   A policy-hook drop lands in the `task-verifier` queue; a job that failed while
-   persisting a completed verification lands in `storage-writer`.
+   With one matching owner/job the CLI infers and prints the owner. Multiple owners require an explicit `--verifier-id` from the reported list. Multiple failed jobs for that owner/message require `--job-id <UUID>`. An explicit wrong owner fails; it never falls back. `--retry-duration` defaults to 1h and must be positive.
+4. The running queue normally picks up the restored pending job within about 30 seconds. A matching active job or concurrent restore causes a safe error with the archive intact. A repeat after a successful restore reports that no matching failed archive row remains. Selection, removal and insertion share a transaction.
+5. Confirm that the specific message ID reaches the aggregator/indexer. Queue admission or `storage_write/succeeded` metrics alone cannot identify the message. Failed archive rows left by earlier attempts are not reconciled against later attestations.
 
-   If the message has since been attested by another path (a checkpoint rewind, for
-   instance), its failed row is still in the archive: nothing reconciles the archive against
-   later recovery. Check the aggregator or indexer for a result before rescheduling, and
-   leave an attested message's row alone. It ages out with the retention sweep.
-3. Reschedule it:
+See the [job-queue command reference](../../cli/jobqueue/README.md) and [policy hook guidance](../../verifier/docs/policy_hook.md).
 
-   ```bash
-   verifier ccv job-queue reschedule \
-     --queue task-verifier --verifier-id <verifier-id> --message-id 0x...
-   ```
+<a id="4-rewind-the-checkpoint-for-a-range"></a>
 
-   `--retry-duration` (default 1h) sets how long the node keeps retrying before the job is
-   archived again.
-4. What to expect: the job returns to the active queue as `pending` with its attempt count
-   reset, and the running node picks it up within about 30 seconds. That is the queue's
-   fallback poll, `DefaultPendingFallbackInterval` in `verifier/pkg/jobqueue/signal.go`; the
-   CLI cannot signal the in-process consumer, so the row waits for that poll. No restart is
-   needed. For `task-verifier`, verification starts over and the policy endpoint is asked
-   again. Source-reader finality and admission checks do not run again. For `storage-writer`,
-   only the write of the saved result is retried; neither verification nor the policy hook
-   is re-run. If the cause remains, processing can fail again. For a policy FAIL, clear the
-   cause at the endpoint first (see [policy_hook.md](../../verifier/docs/policy_hook.md),
-   "Holding a message for review").
-5. Re-running the command is safe. If the job is no longer in the archive (already
-   rescheduled, wrong owner, wrong ID) the command errors instead of silently succeeding.
-   The move is one SQL statement, so the archive row is only deleted when the active row is
-   inserted; a failure leaves the archive as it was.
-6. Two ways `--message-id` can refuse, both on the active table's unique key
-   `(owner_id, chain_selector, message_id)`. If an active job for the same message already
-   exists (a rewind re-read it and it is pending or processing), the command errors and the
-   message is already on its way, so stop. If two archived failed rows match the message
-   (dropped, re-read by a rewind, dropped again), the command tries to restore both, the
-   second insert hits the same key, and nothing changes; pick one row with `--job-id`.
-7. Confirm recovery for the message ID in its trace or at the aggregator/indexer.
-   `storage_write/succeeded` in the transitions metric corroborates lane progress but
-   cannot identify this message. From there the executor picks it up as it would a fresh
-   message.
+## 4. Recover a Source Range
 
-Full command reference: [`cli/jobqueue/README.md`](../../cli/jobqueue/README.md).
+### Establish the scope
 
-## 4. Rewind the Checkpoint for a Range
+Identify each affected owner/node and source chain, then query retained evidence:
 
-Use when messages were dropped before admission (a curse, disablement rule, or pending work
-flushed by a finality violation), when a range needs fresh source-reader checks, when an
-archive row is gone, or when the node runs in CL mode and has no `job-queue` command.
-
-### Detect and scope the range
-
-Identify the affected nodes and source chain before changing their checkpoints. A finality
-violation disables the reader; it is different from ordinary waiting for confirmations:
-
-```promql
-verifier_source_reader_state{
-  verifier_id=~"$verifier_id",
-  source_chain_name=~"$source_chain_name",
-  state="finality_blocked"
-} == 1
+```bash
+verifier ccv recovery events --verifier-id <OWNER> --chain-selector <SOURCE> \
+  --since 2026-09-01T00:00:00Z --until 2026-09-10T00:00:00Z --limit 100
 ```
 
-`verifier_source_chain_finality_violated == 1` is another signal of a detected violation.
-After a restart, a disabled chain's reader is not started, so current metrics may be absent.
-Use metric history and the logs below; inspect `chain-statuses list` once the node is stopped
-(the CL command needs the database lock). A disabled row alone does not identify the cause.
+Filter by full message IDs, destination selector, source block range or reason as needed. Follow `next_cursor` with `--before-id` using the same filters. Reasons are `remote_chain_cursed`, `message_disablement_rule`, `finality_violation`, and `operator_reset`.
 
-For drops before admission, this query shows observed events by node, lane, and reason;
-expand the time window to cover the incident:
+Known drops carry message IDs, block numbers and optional reader-provided transaction/block hashes. A finality incident separately records detection-height/hash evidence and pending/sent tracking counts, and links known pending messages by incident ID. A flush never deletes previously published jobs or undoes attestations. The rules checker does not currently expose a rule ID.
 
-```promql
-sum by (node_id, verifier_id, source_chain_name, dest_chain_name, stage, reason) (
-  increase(verifier_message_transitions_total{
-    verifier_id=~"$verifier_id",
-    source_chain_name=~"$source_chain_name",
-    stage=~"admission|pending_finality",
-    reason=~"remote_chain_cursed|message_disablement_rule|finality_violation"
-  }[1h])
-)
+Read coverage metadata on every query. History starts at upgrade; disabled intervals, downtime, failed audit writes and expired data leave gaps. Unknown curse/rule state and ordinary confirmation waiting are not recorded as confirmed drops. Empty history cannot establish that no messages were affected. Use canonical source events, logs and traces to cover missing intervals.
+
+Corroborate a finality block with `verifier_source_reader_state{state="finality_blocked"}` or `verifier_source_chain_finality_violated`, and logs `FINALITY VIOLATION DETECTED - block hash changed` / `parent hash mismatch`. Disabled readers now remain present for recovery control, including after startup; their registry state and history distinguish current health from past evidence.
+
+For a finality incident, compare stored/observed hashes with canonical RPC headers to establish a known-good common boundary. The first detected mismatch may be later than the earliest affected block. Include pending messages and messages emitted while the reader was disabled. A disabled checkpoint of zero is not evidence of the fork boundary.
+
+### Submit live recovery
+
+Clear the curse/rule or other root cause and allow refreshed state to reach the verifier. Choose the inclusive first and last affected blocks. Source recovery covers all applicable lanes in that source range.
+
+```bash
+verifier ccv recovery replay --verifier-id <OWNER> --chain-selector <SOURCE> \
+  --from-block <FIRST> --to-block <LAST> --actor <OPERATOR> --note '<INCIDENT_AND_REASON>'
 ```
 
-These are event counts, not a complete list or a count of distinct recoverable messages.
-Finality violation transitions count only the pending tasks flushed at detection; messages
-arriving while the chain is disabled are not observed. There is no durable list of drops
-before admission. Use logs/traces for message IDs; adding IDs as metric labels would create
-an unbounded number of time series.
+Omit `--to-block` only when a fixed copy of the reader's recently advertised head is appropriate. The returned `to_block` is captured at submission and never follows later heads. Missing/stale head observations require an explicit upper bound. Keep the returned operation ID; supplying your own `--request-id <UUID>` lets a disconnected caller safely repeat submission.
 
-| Cause | Evidence to locate in the affected node's logs | How to scope the source blocks |
-| --- | --- | --- |
-| Curse | `Dropping task - lane is cursed`, with `messageID`, `sourceChain`, `destChain` | Resolve the IDs to source blocks and include the whole interval during which the verifier observed the curse. |
-| Disablement rule | `Dropping task - message matched a disablement rule`, with the same fields | Resolve the IDs to source blocks and cover the rule's effective interval on the verifier, including refresh delay. |
-| Finality violation | `FINALITY VIOLATION DETECTED - block hash changed` (`blockNumber`, `storedHash`, `newHash`) or `FINALITY VIOLATION DETECTED - parent hash mismatch` (`blockNumber`, `expectedParent`, `actualParent`), followed by `FINALITY VIOLATION - disabling chain` | Investigate the canonical fork boundary and pending messages; the first detected mismatch is not necessarily the earliest affected block. |
+A disabled reader requires an explicit investigated reset instead:
 
-For each known message, get its source block from its canonical transaction receipt, the
-discovery trace's `block_number`, or the debug log `Added message to pending queue`
-(`messageID`, `blockNumber`). If traces/debug logs are unavailable, query canonical source
-message events over the incident interval. Include earlier pending messages, not just
-messages emitted after the first drop log. For finality incidents, compare the logged hashes
-with canonical RPC headers to establish a last known-good common block and determine which
-messages remain valid. Reschedule would reuse the old payload even if its source event was
-reorged out; a rewind only rediscovers events present on the canonical chain.
+```bash
+verifier ccv recovery reset-reader --verifier-id <OWNER> --chain-selector <SOURCE> \
+  --from-block <FIRST> --to-block <LAST> --actor <OPERATOR> \
+  --note '<INCIDENT; EVIDENCE_FOR_KNOWN_GOOD_BOUNDARY>'
+```
 
-Choose `N` below the earliest affected source block; after a finality violation it must also
-be no later than the confirmed common block. The next start reads from **`N + 1`**: to
-include block 1200, set `N` to 1199 or earlier. If the boundary cannot be established,
-continue the chain/RPC investigation before choosing a height. Record the affected IDs,
-nodes/verifier IDs, source selector, evidence for `N`, and a recovery head to check catch-up
-against. There is no end-height option: the reader scans all applicable traffic from
-`N + 1` toward the head, including other lanes on that source chain.
+The reset boundary is `FIRST - 1` (zero for a range beginning at zero). This is an operator decision about canonical history. The live reset coordinates the database, buffered checkpoints and in-memory checker, records the action, and works for readers disabled at startup. An ordinary replay never clears disablement. A new finality violation remains sticky and requires a new investigated reset; resuming an old applied reset cannot clear it.
 
-`Flushed all tasks due to finality violation` reports `pendingFlushed` and `sentFlushed`,
-not message IDs. It clears the reader's in-memory tracking; it does **not** remove already
-published database jobs or undo attestations. Inspect those jobs/results separately. A
-disablement rejection at the aggregator write stage likewise concerns work already admitted
-to the queues, rather than a source-reader drop.
+### Observe completion and control work
 
-### Apply the rewind
+```bash
+verifier ccv recovery status --operation-id <UUID>
+verifier ccv recovery list --verifier-id <OWNER> --chain-selector <SOURCE>
+verifier ccv recovery cancel --operation-id <UUID>
+verifier ccv recovery resume --operation-id <UUID>
+```
 
-Resolve the cause first: confirm the canonical chain/RPC view after a finality violation,
-or clear the curse/rule and allow the verifier to observe that change. Rewind re-enters
-source-reader admission using current chain data. Restart creates a fresh finality checker;
-it does not reconstruct the checker's pre-restart block-hash history or undo prior results.
+Inspect state, fixed target, next block, admission/drop/conflict/filter/error counts and `last_error`. Waiting for finality, known admission state, a future head or queue capacity leaves the cursor unchanged. RPC/storage failures roll back a chunk and report `failed`; resolve the cause before resume. Requests survive restart at their last committed block. Cancellation waits for an in-flight transaction and leaves committed work intact.
 
-1. Stop the node first. The change takes effect on the next start. In CL mode there is a
-   second reason: every `chainlink node ccv` command opens the node database with the node's
-   own lock, so it cannot run while the node holds the lease. The chainlink-cluster chart's
-   `jobs` list with `pauseNode: true` does the stop, run, restart sequence for a CLL
-   deployment (see the chart README in `chainlink-ccv-deploy`).
-2. Rewind the checkpoint:
+Ordinary replay leaves the normal checkpoint alone and normal traffic continues. An applied reset holds normal polling until its range completes; cancelling/failing that reset intentionally keeps the durable pause. Resume that operation to finish. A superseding investigated reset is needed after another finality violation. Do not try to release the pause by editing checkpoint rows.
+
+Each recovery poll is bounded to at most 100 source blocks, 1,000 returned events and the configured source RPC timeout, with one chunk per owner at a time in the process and an active verification-queue capacity guard. Overlapping ranges cannot duplicate active jobs. Messages already attested can be reverified and old failed archives remain. `completed` means the range's queue work and evidence committed; confirm the affected IDs' final results separately.
+
+### Legacy offline checkpoint fallback
+
+Use for a deployment without this recovery capability, including a Chainlink core binary that has not wired in the commands. It is not a substitute for controlling an unfinished applied live reset.
+
+1. Stop the node. Existing CL commands require the node database lease; neither offline checkpoint editing nor `enable` coordinates an already running reader.
+2. Set `N` to one block before the first block to recover, and no later than the investigated common boundary after a finality violation:
 
    ```bash
-   # CL mode
-   chainlink node ccv chain-statuses set-finalized-height \
-     --chain-selector <selector> --verifier-id <verifier-id> --block-height <N>
-   # standalone verifier
    verifier ccv chain-statuses set-finalized-height \
-     --chain-selector <selector> --verifier-id <verifier-id> --block-height <N>
+     --chain-selector <SOURCE> --verifier-id <OWNER> --block-height <N>
    ```
 
-   Use the `N` established above. If the chain was disabled, also enable the same
-   chain/verifier pair while the node is stopped:
+   In CL mode use `chainlink node ccv chain-statuses set-finalized-height` with the same flags. The next start reads `N + 1`; this legacy path has no fixed end height.
+3. If disabled, also run `ccv chain-statuses enable` for the same owner/source while stopped, then verify both fields with `ccv chain-statuses list`. Enabling a zero checkpoint alone unintentionally starts at block 1.
+4. Start the node. Confirm its logged start block, reader progress and the affected message IDs' results. Restart initializes a fresh checker and cannot recover its prior hash history or undo results.
 
-   ```bash
-   # CL mode
-   chainlink node ccv chain-statuses enable \
-     --chain-selector <selector> --verifier-id <verifier-id>
-   # standalone verifier
-   verifier ccv chain-statuses enable \
-     --chain-selector <selector> --verifier-id <verifier-id>
-   ```
-
-   The finality-violation handler writes `disabled = true` and a checkpoint of `0`; that
-   value is not the incident's fork boundary. Set the investigated height as well as enabling
-   the chain, rather than only enabling and unintentionally reading from block 1. Verify
-   both fields with `chain-statuses list` before starting.
-3. Start the node. The source reader re-reads from `N + 1` and applies admission checks
-   again. Messages in the range that were already attested can be verified again. An
-   admitted message gets a job unless a matching active job already exists; any old failed
-   archive row remains (step 3.2). Confirm `Resuming from chainStatus` reports the intended
-   `startBlock`, the reader returns to `running` and catches up, and the affected message
-   IDs reach the aggregator/indexer.
-
-Command reference: [`cli/chainstatuses/README.md`](../../cli/chainstatuses/README.md).
+See the [live recovery reference](../../cli/recovery/README.md) and [chain-status command reference](../../cli/chainstatuses/README.md).
 
 ## 5. Block or Unblock a Class of Traffic
 
-Use aggregator message-disablement rules when the unit of work is a chain, lane, or token
-rather than an individual message. Reference:
-[`aggregator/cli/messagedisablement/README.md`](../../aggregator/cli/messagedisablement/README.md).
+Use [aggregator message-disablement rules](../../aggregator/cli/messagedisablement/README.md) for a chain, lane or token. Allow both aggregator and verifier refresh intervals after deleting a rule. Removing a rule does not re-admit messages already dropped: recover the affected source range with step 4.
 
-- Rules take effect on the aggregator's `messageDisablementRules.refreshInterval`, not
-  immediately.
-- Deleting the rule is the un-block; allow both the aggregator and verifier to refresh.
-  This does not recover messages already dropped by source-reader admission. Rewind the
-  affected source range as described in step 4 after the rule clears.
+## 6. Deployment and Coverage Limits
 
-## 6. Known Limitations
-
-Current limitations:
-
-- The Chainlink node binary has no `job-queue` command. In CL mode the only recovery for a
-  dropped message is the checkpoint rewind, node stopped. Wiring it into the node binary is a
-  chainlink core change and is follow-up work.
-- No command maps a message ID to the verifier IDs that dropped it across nodes. Per
-  database, `job-queue list` without `--verifier-id` shows every owner's failed rows; the
-  cross-node step is an Atlas/indexer lookup by hand. `list` has no `--message-id` filter
-  and shows 50 rows per queue by default.
-- `--verifier-id` takes a single value. Where several verifier IDs share one database
-  (prod-testnet nodes host two), recovery is one command per verifier ID per database. The
-  cross-node fan-out belongs to the deploy layer: the chainlink-cluster chart runs one
-  `commands` list across `targetNodes`.
-- `task-verifier` reschedule re-runs the policy hook, but skips source-reader admission
-  (including finality). `storage-writer` reschedule retries only persistence. There is no
-  verifier-side per-message bypass for a persistently failing endpoint short of removing
-  `[policy_hook]` from config and
-  restarting, which disables screening for all traffic on that node. The supported pattern
-  is for the operator's endpoint to answer PASS for the message, then reschedule
-  ([policy_hook.md](../../verifier/docs/policy_hook.md), "Holding a message for review").
-- Nothing reconciles the archive against later recovery, so a message recovered by a rewind
-  keeps its failed row until the retention sweep.
-- No gauge counts retained failed jobs by reason, and no metric or alert warns before the
-  30-day archive retention deletes a dropped message. These need archive-aware monitoring.
-- No durable command lists messages dropped before queue admission with their reasons and
-  block numbers. Step 4 uses existing metrics, logs, traces, and source-chain evidence;
-  a queryable drop history would require additional persistence.
+The new recovery/job-queue commands are exposed by the standalone verifier. Wiring them into Chainlink core, cross-node fan-out, indexer engine changes and an admin UI are outside this change. Owner inference is local to one selected archive queue/database; source recovery always requires an explicit owner. There is no per-message policy bypass. Keep canonical-chain investigation and final-result verification in the operator workflow.

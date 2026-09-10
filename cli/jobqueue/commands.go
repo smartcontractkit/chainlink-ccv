@@ -3,6 +3,7 @@ package jobqueue
 import (
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -53,6 +54,8 @@ func buildJobQueueCommands(getDeps func() Deps) []cli.Command {
 					Name:  "verifier-id",
 					Usage: "Filter by verifier ID (owner). Omit to list all verifiers.",
 				},
+				cli.StringSliceFlag{Name: "message-id", Usage: "Full message IDs, comma-separated or repeated"},
+				cli.StringFlag{Name: "output", Value: "table", Usage: "Output format: table or json"},
 				cli.IntFlag{
 					Name:  "limit",
 					Usage: "Maximum number of jobs to show per queue (0 = unlimited)",
@@ -72,8 +75,7 @@ func buildJobQueueCommands(getDeps func() Deps) []cli.Command {
 				},
 				cli.StringFlag{
 					Name:     "verifier-id",
-					Usage:    "Verifier ID (owner) that owns the job",
-					Required: true,
+					Usage: "Verifier owner; inferred only when one owner matches",
 				},
 				cli.StringFlag{
 					Name:  "job-id",
@@ -106,10 +108,29 @@ func listActionWithFactory(getDeps func() Deps) func(c *cli.Context) error {
 		ownerID := c.String("verifier-id")
 		limit := c.Int("limit")
 
-		jobs, err := deps.Store.ListFailed(ctx, queues, ownerID, limit)
+		if limit < 0 {
+			return fmt.Errorf("--limit must be non-negative")
+		}
+		if c.String("output") != "table" && c.String("output") != "json" {
+			return fmt.Errorf("--output must be table or json")
+		}
+		var jobs []ArchivedJob
+		if c.IsSet("message-id") {
+			ids, parseErr := ParseMessageIDs(c.StringSlice("message-id"))
+			if parseErr != nil {
+				return parseErr
+			}
+			jobs, err = deps.Store.ListFailedFiltered(ctx, queues, ownerID, ids, limit)
+		} else {
+			jobs, err = deps.Store.ListFailed(ctx, queues, ownerID, limit)
+		}
 		if err != nil {
 			deps.Logger.Errorw("list failed jobs failed", "error", err)
 			return err
+		}
+
+		if c.String("output") == "json" {
+			return renderJobsJSON(jobs)
 		}
 
 		return renderJobs(jobs)
@@ -136,6 +157,25 @@ func rescheduleActionWithFactory(getDeps func() Deps) func(c *cli.Context) error
 		}
 		if jobID != "" && messageIDHex != "" {
 			return fmt.Errorf("--job-id and --message-id are mutually exclusive")
+		}
+
+		if retryDuration <= 0 {
+			return fmt.Errorf("--retry-duration must be positive")
+		}
+		if ownerID == "" {
+			var messageID []byte
+			if messageIDHex != "" {
+				messageID, err = ParseMessageID(messageIDHex)
+				if err != nil {
+					return err
+				}
+			}
+			job, err := deps.Store.Reschedule(ctx, queue, "", jobID, messageID, retryDuration)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("Job %s rescheduled in queue %s (owner: %s). Retry window: %s.\n", job.JobID, queue, job.OwnerID, retryDuration) //nolint:forbidigo // CLI output
+			return nil
 		}
 
 		if jobID != "" {
@@ -194,6 +234,54 @@ func ParseMessageID(s string) ([]byte, error) {
 		return nil, fmt.Errorf("invalid message-id %q: must be a hex string: %w", s, err)
 	}
 	return b, nil
+}
+
+// ParseMessageIDs validates full protocol IDs and normalizes repeated/comma flags.
+func ParseMessageIDs(values []string) ([][]byte, error) {
+	ids := make([][]byte, 0)
+	seen := make(map[string]bool)
+	for _, value := range values {
+		for _, part := range strings.Split(value, ",") {
+			id, err := ParseMessageID(strings.TrimSpace(part))
+			if err != nil || len(id) != 32 {
+				return nil, fmt.Errorf("invalid message-id %q: expected a full 32-byte hex ID", part)
+			}
+			if !seen[string(id)] {
+				ids = append(ids, id)
+				seen[string(id)] = true
+			}
+		}
+	}
+	if len(ids) == 0 {
+		return nil, fmt.Errorf("--message-id requires at least one full ID")
+	}
+	return ids, nil
+}
+
+func renderJobsJSON(jobs []ArchivedJob) error {
+	type row struct {
+		Queue           QueueType  `json:"queue"`
+		JobID           string     `json:"job_id"`
+		MessageID       string     `json:"message_id"`
+		OwnerID         string     `json:"owner_id"`
+		ChainSelector   string     `json:"source_chain_selector"`
+		Attempts        int        `json:"attempts"`
+		LastError       string     `json:"last_error"`
+		FailureCategory string     `json:"failure_category"`
+		CreatedAt       time.Time  `json:"created_at"`
+		ArchivedAt      *time.Time `json:"archived_at"`
+		RetryDeadline   time.Time  `json:"retry_deadline"`
+	}
+	result := make([]row, 0, len(jobs))
+	for _, j := range jobs {
+		result = append(result, row{
+			Queue: j.Queue, JobID: j.JobID, MessageID: "0x" + hex.EncodeToString(j.MessageID),
+			OwnerID: j.OwnerID, ChainSelector: fmt.Sprintf("%d", j.ChainSelector),
+			Attempts: j.AttemptCount, LastError: j.LastError, FailureCategory: j.FailureCategory,
+			CreatedAt: j.CreatedAt, ArchivedAt: j.ArchivedAt, RetryDeadline: j.RetryDeadline,
+		})
+	}
+	return json.NewEncoder(os.Stdout).Encode(result)
 }
 
 func renderJobs(jobs []ArchivedJob) error {

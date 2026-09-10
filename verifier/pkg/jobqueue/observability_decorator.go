@@ -112,6 +112,9 @@ func (d *ObservabilityDecorator[T]) monitorLoop() {
 	ctx, cancel := d.stopCh.NewCtx()
 	defer cancel()
 
+	archiveTicker := time.NewTicker(ArchiveCollectionInterval)
+	defer archiveTicker.Stop()
+	d.collectArchive(ctx)
 	ticker := time.NewTicker(d.interval)
 	defer ticker.Stop()
 
@@ -122,6 +125,8 @@ func (d *ObservabilityDecorator[T]) monitorLoop() {
 				"queue", d.queue.Name(),
 			)
 			return
+		case <-archiveTicker.C:
+			d.collectArchive(ctx)
 		case <-ticker.C:
 			d.logQueueSize(ctx)
 		}
@@ -201,4 +206,16 @@ func (d *ObservabilityDecorator[T]) Cleanup(ctx context.Context, retentionPeriod
 // Size returns the count of jobs that are pending or processing.
 func (d *ObservabilityDecorator[T]) Size(ctx context.Context) (int, error) {
 	return d.queue.Size(ctx)
+}
+
+func (d *ObservabilityDecorator[T]) collectArchive(ctx context.Context) {
+	collector, ok := d.queue.(interface { CollectArchiveMetrics(context.Context) error })
+	if !ok {
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, queueSizeQueryTimeout)
+	defer cancel()
+	if err := collector.CollectArchiveMetrics(ctx); err != nil {
+		d.lggr.Errorw("Archive inventory collection failed; previous inventory is stale", "queue", d.queue.Name(), "error", err)
+	}
 }

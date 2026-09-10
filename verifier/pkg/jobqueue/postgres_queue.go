@@ -32,6 +32,7 @@ type PostgresJobQueue[T Jobable] struct {
 	// moment work is signaled, so a test can read the database from another connection
 	// and prove the transaction has already committed by then.
 	testOnlyOnSignal func()
+	archiveMetrics   *archiveMetrics
 }
 
 // signalWork announces that this process has made work available, once the transaction
@@ -54,8 +55,13 @@ func NewPostgresJobQueue[T Jobable](
 		return nil, fmt.Errorf("database connection cannot be nil")
 	}
 
+	archiveMetrics, err := newArchiveMetrics()
+	if err != nil {
+		return nil, err
+	}
 	return &PostgresJobQueue[T]{
 		ds:          ds,
+		archiveMetrics: archiveMetrics,
 		config:      config,
 		logger:      lggr,
 		tableName:   config.Name,
@@ -79,63 +85,9 @@ func (q *PostgresJobQueue[T]) PublishWithDelay(ctx context.Context, delay time.D
 	if len(jobs) == 0 {
 		return nil
 	}
-
-	availableAt := time.Now().Add(delay)
-
-	// Build bulk insert query with ON CONFLICT DO NOTHING to avoid duplicates
-	// when the verifier is restarted
-	query := fmt.Sprintf(`
-		INSERT INTO %s (
-			job_id, task_data, status, available_at, created_at, attempt_count, retry_deadline,
-			chain_selector, message_id, owner_id
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-		ON CONFLICT (owner_id, chain_selector, message_id) DO NOTHING
-	`, q.tableName)
-
 	err := sqlutil.TransactDataSource(ctx, q.ds, nil, func(tx sqlutil.DataSource) error {
-		stmt, err := tx.PrepareContext(ctx, query)
-		if err != nil {
-			return fmt.Errorf("failed to prepare statement: %w", err)
-		}
-		defer func() {
-			_ = stmt.Close()
-		}()
-
-		for _, job := range jobs {
-			jobID := uuid.New().String()
-
-			// Serialize payload to JSON
-			data, err := json.Marshal(job)
-			if err != nil {
-				return fmt.Errorf("failed to marshal job payload: %w", err)
-			}
-
-			// Extract chain selector and message ID from the job
-			chainSelector, messageID := job.JobKey()
-
-			now := time.Now()
-
-			// Convert uint64 to string for postgres numeric(20,0) - avoids int64 overflow
-			chainSelectorStr := new(big.Int).SetUint64(chainSelector).String()
-
-			_, err = stmt.ExecContext(ctx,
-				jobID,
-				data,
-				JobStatusPending,
-				availableAt,
-				now,
-				0, // attempt_count
-				now.Add(q.config.RetryDuration),
-				chainSelectorStr,
-				messageID,
-				q.ownerID,
-			)
-			if err != nil {
-				return fmt.Errorf("failed to insert job %s: %w", jobID, err)
-			}
-		}
-
-		return nil
+		_, err := q.publishRows(ctx, tx, delay, jobs...)
+		return err
 	})
 	if err != nil {
 		return err
@@ -145,14 +97,52 @@ func (q *PostgresJobQueue[T]) PublishWithDelay(ctx context.Context, delay time.D
 	// transaction lets the consumer run its query on another pooled connection, read
 	// pre-commit state, find nothing, and never be woken again for these rows.
 	q.signalWork(delay)
-
-	q.logger.Debugw("Published jobs to queue",
-		"queue", q.config.Name,
-		"count", len(jobs),
-		"delay", delay,
-	)
-
+	q.logger.Debugw("Published jobs to queue", "queue", q.config.Name, "count", len(jobs), "delay", delay)
 	return nil
+}
+
+// PublishInTransaction reports actual insertions into the caller's transaction.
+// The caller must commit before notifying the consumer.
+func (q *PostgresJobQueue[T]) PublishInTransaction(ctx context.Context, tx sqlutil.DataSource, jobs ...T) (int64, error) {
+	return q.publishRows(ctx, tx, 0, jobs...)
+}
+
+// NotifyPublished wakes the local consumer after the caller's transaction commits.
+func (q *PostgresJobQueue[T]) NotifyPublished() { q.signalWork(0) }
+
+func (q *PostgresJobQueue[T]) publishRows(ctx context.Context, tx sqlutil.DataSource, delay time.Duration, jobs ...T) (int64, error) {
+	if len(jobs) == 0 {
+		return 0, nil
+	}
+	query := fmt.Sprintf(`INSERT INTO %s
+		(job_id, task_data, status, available_at, created_at, attempt_count, retry_deadline, chain_selector, message_id, owner_id)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+		ON CONFLICT (owner_id, chain_selector, message_id) DO NOTHING`, q.tableName)
+	stmt, err := tx.PrepareContext(ctx, query)
+	if err != nil {
+		return 0, fmt.Errorf("failed to prepare statement: %w", err)
+	}
+	defer func() { _ = stmt.Close() }()
+	var inserted int64
+	for _, job := range jobs {
+		data, err := json.Marshal(job)
+		if err != nil {
+			return 0, fmt.Errorf("failed to marshal job payload: %w", err)
+		}
+		chain, messageID := job.JobKey()
+		now := time.Now()
+		result, err := stmt.ExecContext(ctx, uuid.NewString(), data, JobStatusPending, now.Add(delay), now, 0,
+			now.Add(q.config.RetryDuration), new(big.Int).SetUint64(chain).String(), messageID, q.ownerID)
+		if err != nil {
+			return 0, fmt.Errorf("failed to insert job: %w", err)
+		}
+		count, err := result.RowsAffected()
+		if err != nil {
+			return 0, err
+		}
+		inserted += count
+	}
+	return inserted, nil
 }
 
 // ConsumePending retrieves and locks up to batchSize jobs that are available now. It does
@@ -503,11 +493,11 @@ func (q *PostgresJobQueue[T]) Retry(ctx context.Context, delay time.Duration, er
 				INSERT INTO %s (
 					id, job_id, owner_id, chain_selector, message_id, task_data,
 					status, created_at, available_at, started_at, attempt_count, retry_deadline, last_error,
-					completed_at
+					completed_at, failure_category
 				)
 				SELECT id, job_id, owner_id, chain_selector, message_id, task_data,
 				       status, created_at, available_at, started_at, attempt_count, retry_deadline, last_error,
-				       NOW()
+				       NOW(), 'retry_window_expired'
 				FROM failed
 			`, q.tableName, q.archiveName)
 
@@ -562,14 +552,15 @@ func (q *PostgresJobQueue[T]) Fail(ctx context.Context, errors map[string]error,
 	// final JOIN back to UNNEST to fan-out a single deleted row into multiple INSERT rows,
 	// producing a primary key violation on the archive table.
 	jobIDs, errMsgsArr := uniqueJobIDsWithErrors(jobIDs, errors)
+	categories := make([]string, len(jobIDs))
+	for i, id := range jobIDs {
+		categories[i] = FailureCategory(q.tableName, errors[id])
+	}
 
-	// Single bulk CTE: UNNEST the job IDs and error messages, delete from the active
-	// table, then join back to attach per-job error messages on insert into the archive.
-	// Explicit column names (not SELECT *) keep the query correct if columns are added.
 	query := fmt.Sprintf(`
 		WITH jobs_input AS (
-		    SELECT v.job_id::uuid AS job_id, v.error_msg
-		    FROM UNNEST($1::text[], $2::text[]) AS v(job_id, error_msg)
+		    SELECT v.job_id::uuid AS job_id, v.error_msg, v.category
+		    FROM UNNEST($1::text[], $2::text[], $5::text[]) AS v(job_id, error_msg, category)
 		),
 		to_fail AS (
 		    DELETE FROM %s t
@@ -581,11 +572,11 @@ func (q *PostgresJobQueue[T]) Fail(ctx context.Context, errors map[string]error,
 		INSERT INTO %s (
 		    id, job_id, owner_id, chain_selector, message_id, task_data,
 		    status, created_at, available_at, started_at, attempt_count, retry_deadline,
-		    last_error, completed_at
+		    last_error, completed_at, failure_category
 		)
 		SELECT f.id, f.job_id, f.owner_id, f.chain_selector, f.message_id, f.task_data,
 		       $4, f.created_at, f.available_at, f.started_at, f.attempt_count, f.retry_deadline,
-		       i.error_msg, NOW()
+		       i.error_msg, NOW(), i.category
 		FROM to_fail f
 		JOIN jobs_input i ON f.job_id = i.job_id
 	`, q.tableName, q.archiveName)
@@ -595,6 +586,7 @@ func (q *PostgresJobQueue[T]) Fail(ctx context.Context, errors map[string]error,
 		pq.Array(errMsgsArr), // $2
 		q.ownerID,            // $3
 		JobStatusFailed,      // $4
+		pq.Array(categories), // $5
 	)
 	if err != nil {
 		return fmt.Errorf("failed to fail and archive jobs: %w", err)

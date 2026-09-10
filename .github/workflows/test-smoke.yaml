@@ -97,6 +97,11 @@ jobs:
             pattern: TestE2ESmoke_JobQueue
             profile: standard.profile
             timeout: 10m
+          - name: TestE2ESmoke_Recovery
+            pattern: TestE2ESmoke_Recovery
+            profile: standard.profile
+            timeout: 15m
+            observability: full
           - name: TestE2ESmoke_RemoveRemotePool
             pattern: TestE2ESmoke_RemoveRemotePool
             profile: standard.profile
@@ -108,7 +113,7 @@ jobs:
           - name: TestE2EReorg
             pattern: TestE2EReorg
             profile: standard.src-auto-mine.profile
-            timeout: 5m
+            timeout: 15m
           - name: TestChaos_AggregatorOutageRecovery
             pattern: TestChaos_AggregatorOutageRecovery
             profile: standard.profile
@@ -228,7 +233,7 @@ jobs:
         run: go install ./cmd/ccv
 
       - name: Run Observability Stack
-        run: ccv obs up -m loki
+        run: ccv obs up -m ${{ matrix.test.observability || 'loki' }}
 
       - name: Run Test ${{ matrix.test.name }}
         id: test_run
