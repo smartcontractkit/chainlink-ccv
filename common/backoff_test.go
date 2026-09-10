@@ -1,4 +1,4 @@
-package storagewriter
+package common
 
 import (
 	"testing"
@@ -38,7 +38,7 @@ func TestBackoffDelay(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			require.Equal(t, tt.want, backoffDelay(tt.attempt, base, tt.factor, tt.max))
+			require.Equal(t, tt.want, BackoffDelay(tt.attempt, base, tt.factor, tt.max))
 		})
 	}
 }
@@ -46,11 +46,11 @@ func TestBackoffDelay(t *testing.T) {
 func TestBackoffDelayDoesNotGrowUnbounded(t *testing.T) {
 	prev := time.Duration(0)
 	for attempt := 1; attempt < 100; attempt++ {
-		got := backoffDelay(attempt, 2*time.Second, 2, time.Minute)
+		got := BackoffDelay(attempt, 2*time.Second, 2, time.Minute)
 		require.True(t, got >= prev, "backoff must never decrease: attempt %d", attempt)
 		require.LessOrEqual(t, got, time.Minute, "backoff must never exceed cap: attempt %d", attempt)
 		prev = got
 	}
 	// The tail of a large attempt must sit at the cap, not drift or overflow.
-	require.Equal(t, time.Minute, backoffDelay(10_000, 2*time.Second, 2, time.Minute))
+	require.Equal(t, time.Minute, BackoffDelay(10_000, 2*time.Second, 2, time.Minute))
 }

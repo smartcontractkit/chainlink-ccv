@@ -265,13 +265,14 @@ func (g *GatedVerifier) endpointErrorResult(ctx context.Context, task vtypes.Ver
 		monitoring.MessageTransitionOutcomePolicyUnavailable,
 		monitoring.MessageTransitionReasonPolicyEndpointError)
 
-	delay := g.retryDelayWithJitter()
+	delay := g.retryDelayWithJitter(task.AttemptCount)
 
 	g.lggr.Warnw("Policy hook verdict unavailable, scheduling retry",
 		protocol.LogTypeKey, protocol.LogTypeRetryableMessageFailure,
 		protocol.LogKeyMessageID, task.MessageID,
 		protocol.LogKeySourceChain, task.Message.SourceChainSelector,
 		protocol.LogKeyDestChain, task.Message.DestChainSelector,
+		"attempt", task.AttemptCount,
 		"retryDelay", delay,
 		"error", cause,
 	)
@@ -280,16 +281,26 @@ func (g *GatedVerifier) endpointErrorResult(ctx context.Context, task vtypes.Ver
 	return &verificationErr
 }
 
-// retryDelayWithJitter spreads a message's next attempt across [retryDelay/2, retryDelay*3/2].
-// An outage stalls every message the verifier is holding at once, and a fixed delay would
-// reschedule all of them on the same tick, so the whole backlog would arrive at the endpoint
-// together every retryDelay for as long as the outage lasts. That is the worst shape to hand an
-// endpoint that is already failing or rate-limiting, and the endpoint is the operator's to pay
-// for. Spreading the retries does not reduce the total call volume, only its burstiness; backoff
-// that grows with the attempt count needs the queue's attempt_count on the task and is tracked
-// separately.
-func (g *GatedVerifier) retryDelayWithJitter() time.Duration {
-	return common.WithJitter(g.retryDelay)
+const (
+	// maxRetryDelay caps how far the retry delay grows with the attempt count. The queue's retry
+	// deadline bounds a message's total lifetime; this bounds the gap between attempts, so a
+	// days-long outage still gets a message another look every hour rather than every few days.
+	// It also bounds a misconfigured retry_delay: a base above the cap is clamped to it.
+	maxRetryDelay = time.Hour
+
+	// retryBackoffFactor doubles the wait on each attempt beyond the first.
+	retryBackoffFactor = 2
+)
+
+// retryDelayWithJitter spreads a message's next attempt across [base/2, base*3/2], where base is
+// retryDelay doubled once per attempt beyond the first, capped at maxRetryDelay. An outage stalls
+// every message the verifier is holding at once, and a fixed delay would reschedule all of them on
+// the same tick, so the whole backlog would arrive at the endpoint together on every retry for as
+// long as the outage lasts. That is the worst shape to hand an endpoint that is already failing or
+// rate-limiting, and the endpoint is the operator's to pay for. The jitter only spreads the load;
+// the per-attempt growth is what brings the call volume down.
+func (g *GatedVerifier) retryDelayWithJitter(attemptCount int) time.Duration {
+	return common.WithJitter(common.BackoffDelay(attemptCount, g.retryDelay, retryBackoffFactor, maxRetryDelay))
 }
 
 func (g *GatedVerifier) messageMetrics(message protocol.Message) vtypes.MetricLabeler {
