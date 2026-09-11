@@ -55,17 +55,49 @@ linters:
     # https://golangci-lint.run/usage/linters/#depguard
     depguard:
       rules:
+        # The protocol layer is default-deny: an import must be named here or it
+        # fails. This is deliberately stricter than the other rules -- a blocklist
+        # only stops dependencies we already thought of.
+        # Adding an entry here should be a considered decision.
         protocol:
-          list-mode: lax
+          list-mode: strict
           files:
             - ${config-path}/protocol/*.go
             - ${config-path}/protocol/**/*.go
           allow:
             - $gostd
             - github.com/smartcontractkit/chainlink-ccv/protocol
+            - github.com/smartcontractkit/chain-selectors
+            # See the evm_chain_access rationale: secp256k1 signing is protocol work.
+            # common is allowed for common.Address, the 20-byte signer address shared
+            # by every chain family. common/hexutil is denied by evm_hex_formatting.
+            - github.com/ethereum/go-ethereum/crypto
+            - github.com/ethereum/go-ethereum/common
+            - github.com/google/uuid
+            - github.com/stretchr/testify
+            - go.uber.org/zap
+            - golang.org/x/crypto
+            - google.golang.org/grpc
+            - google.golang.org/protobuf
+
+        # go-ethereum/common is allowed above as an address/crypto primitive, but
+        # depguard matches by prefix, so common/hexutil rides in on that allow by
+        # accident. hexutil is Ethereum hex formatting, not a crypto primitive --
+        # encoding/hex covers the same ground. Denied separately so the `common`
+        # carve-out stays as narrow as it reads.
+        evm_hex_formatting:
+          list-mode: lax
+          files:
+            - $all
+            - "!${config-path}/integration/evm/**"
+            - "!${config-path}/build/devenv/**"
+            - "!${config-path}/deployment/**"
+            # Two call sites: hexutil.Decode in signer.go, hexutil.Encode in
+            # verifier.go. Port both to encoding/hex and delete this line.
+            - "!${config-path}/verifier/pkg/commit/**"
           deny:
-            - pkg: github.com/smartcontractkit/chainlink
-              desc: No chainlink dependencies in protocol abstraction layer
+            - pkg: github.com/ethereum/go-ethereum/common/hexutil
+              desc: Ethereum hex formatting is chain-specific; use encoding/hex.
         executor_verifier:
           list-mode: lax
           files:
@@ -367,10 +399,10 @@ linters:
         - name: string-format
           severity: warning
           arguments:
-            - - 'log.Info[0]'
-              - '/(^[^A-Z]|$)/'
+            - - "log.Info[0]"
+              - "/(^[^A-Z]|$)/"
               - must start with a capital letter
-            - - 'fmt.Errorf[0]'
+            - - "fmt.Errorf[0]"
               - '/(^|[^\.!?])$/'
               - must not end in punctuation
             - - panic
@@ -382,7 +414,8 @@ linters:
         # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#struct-tag
         - name: struct-tag
           severity: warning
-          arguments: ["json,inline", "validate,-,version,yaml,expr", "yaml,inline"]
+          arguments:
+            ["json,inline", "validate,-,version,yaml,expr", "yaml,inline"]
         # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#superfluous-else
         - name: superfluous-else
           severity: warning
@@ -505,10 +538,10 @@ formatters:
     gofmt:
       simplify: true
       rewrite-rules:
-        - pattern: 'interface{}'
-          replacement: 'any'
-        - pattern: 'a[b:len(a)]'
-          replacement: 'a[b:]'
+        - pattern: "interface{}"
+          replacement: "any"
+        - pattern: "a[b:len(a)]"
+          replacement: "a[b:]"
     # https://golangci-lint.run/usage/formatters/#gofumpt
     gofumpt:
       module-path: github.com/smartcontractkit/chainlink-ccv
