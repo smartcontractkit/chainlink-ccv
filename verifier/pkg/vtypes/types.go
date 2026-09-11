@@ -14,6 +14,7 @@ type VerificationTask struct {
 	MessageID                   string                     `json:"message_id"`
 	Message                     protocol.Message           `json:"message"`
 	TxHash                      protocol.ByteSlice         `json:"tx_hash"`
+	SourceBlockHash             protocol.ByteSlice         `json:"source_block_hash,omitempty"`
 	FeeToken                    protocol.UnknownAddress    `json:"fee_token,omitempty"`
 	SourceBlockTimestamp        time.Time                  `json:"source_block_timestamp,omitzero"` // Source-block time; zero when unavailable
 	BlockNumber                 uint64                     `json:"block_number"`                    // Block number when the message was included

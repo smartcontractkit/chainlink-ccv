@@ -57,6 +57,22 @@ func makeBytes32(s string) protocol.Bytes32 {
 	return b
 }
 
+func TestFinalityCheckerPreservesGenesisResetBoundary(t *testing.T) {
+	blocks := map[uint64]protocol.BlockHeader{
+		0: {Number: 0, Hash: makeBytes32("genesis")},
+		1: {Number: 1, Hash: makeBytes32("one"), ParentHash: makeBytes32("genesis")},
+	}
+	setup := setupMockSourceReaderForFinality(t, blocks)
+	checker, err := NewFinalityViolationCheckerService(setup.Reader, 42, logger.Test(t), &testutil.NoopMetricLabeler{})
+	require.NoError(t, err)
+	require.NoError(t, checker.UpdateFinalized(t.Context(), 0))
+	blocks[0] = protocol.BlockHeader{Number: 0, Hash: makeBytes32("different genesis")}
+	require.Error(t, checker.UpdateFinalized(t.Context(), 1))
+	require.True(t, checker.IsFinalityViolated())
+	require.NotNil(t, checker.Evidence())
+	require.Equal(t, uint64(0), checker.Evidence().BlockNumber)
+}
+
 func TestFinalityViolationChecker_NormalOperation(t *testing.T) {
 	lggr, _ := logger.New()
 
@@ -144,7 +160,13 @@ func TestFinalityViolationChecker_DetectsViolation(t *testing.T) {
 	assert.Contains(t, err.Error(), "finality violation")
 	assert.True(t, checker.IsFinalityViolated())
 
-	// Further updates should fail
+	evidence := checker.Evidence()
+	require.NotNil(t, evidence)
+	assert.Equal(t, uint64(101), evidence.BlockNumber)
+	assert.Equal(t, makeBytes32("hash101").String(), evidence.StoredHash)
+	assert.Equal(t, makeBytes32("DIFFERENT").String(), evidence.ObservedHash)
+	evidence.StoredHash = "mutated copy"
+	assert.Equal(t, makeBytes32("hash101").String(), checker.Evidence().StoredHash)
 	err = checker.UpdateFinalized(ctx, 103)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "finality violation already detected")
@@ -327,6 +349,11 @@ func TestFinalityViolationChecker_ParentHashMismatch(t *testing.T) {
 	assert.Contains(t, err.Error(), "finality violation")
 	assert.Contains(t, err.Error(), "parent hash")
 	assert.True(t, checker.IsFinalityViolated())
+	evidence := checker.Evidence()
+	require.NotNil(t, evidence)
+	assert.Equal(t, uint64(101), evidence.BlockNumber)
+	assert.Equal(t, makeBytes32("hash100").String(), evidence.ExpectedParent)
+	assert.Equal(t, makeBytes32("WRONG_PARENT").String(), evidence.ActualParent)
 }
 
 func TestFinalityViolationChecker_LargeForwardGapCapped(t *testing.T) {
