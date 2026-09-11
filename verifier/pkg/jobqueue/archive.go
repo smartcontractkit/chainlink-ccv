@@ -19,30 +19,38 @@ const (
 	ArchiveCollectionInterval = time.Minute
 )
 
-// FailureCategory classifies only at archival, so changing error text later cannot
-// reinterpret historical inventory. Retry expiry is assigned by SQL before this mapping.
-func FailureCategory(queue string, err error) string {
-	if err == nil {
-		return "unknown"
-	}
-	s := strings.ToLower(err.Error())
-	switch {
-	case strings.Contains(s, "policy hook rejected"):
-		return "policy_rejected"
-	case strings.Contains(s, "unmarshal"), strings.Contains(s, "deserialize"),
-		strings.Contains(s, "unsupported message version"), strings.Contains(s, "receipt blobs list is empty"),
-		strings.Contains(s, "verification task is nil"), strings.Contains(s, "sender cannot be empty or zero"),
-		strings.Contains(s, "receiver cannot be empty"), strings.Contains(s, "invalid receipt structure"),
-		strings.Contains(s, "failed to parse receipt structure"), strings.Contains(s, "failed to convert messageid to bytes32"),
-		strings.Contains(s, "neither verifier nor default executor blob found"),
-		strings.Contains(s, "source chain selector") && strings.Contains(s, "not configured"):
-		return "validation_error"
-	case queue == "ccv_storage_writer_jobs":
-		return "storage_failure"
-	default:
-		return "unknown"
-	}
-}
+// failureCategorySQL maps an archived row onto the bounded failure vocabulary at read time.
+//
+// R1 allows either persisting a category or defining a stable mapping; this is the mapping, so
+// the inventory needs no schema change. Every input it reads (last_error, retry_deadline,
+// completed_at) already exists on the archive tables.
+//
+// Retry-window expiry is decided by the timestamps rather than the error text: a job archived
+// because its deadline passed carries whatever error last failed it, which on its own is
+// indistinguishable from the same error on a job archived for another reason.
+//
+// The vocabulary is closed. Anything unmatched is "unknown" rather than a new label, so the
+// metric's cardinality is fixed no matter what an error string says. TestArchiveFailureCategory
+// pins each branch against seeded rows.
+const failureCategorySQL = `CASE
+	WHEN completed_at >= retry_deadline THEN 'retry_window_expired'
+	WHEN last_error ILIKE '%%policy hook rejected%%' THEN 'policy_rejected'
+	WHEN last_error ILIKE '%%unmarshal%%'
+	  OR last_error ILIKE '%%deserialize%%'
+	  OR last_error ILIKE '%%unsupported message version%%'
+	  OR last_error ILIKE '%%receipt blobs list is empty%%'
+	  OR last_error ILIKE '%%verification task is nil%%'
+	  OR last_error ILIKE '%%sender cannot be empty or zero%%'
+	  OR last_error ILIKE '%%receiver cannot be empty%%'
+	  OR last_error ILIKE '%%invalid receipt structure%%'
+	  OR last_error ILIKE '%%failed to parse receipt structure%%'
+	  OR last_error ILIKE '%%failed to convert messageid to bytes32%%'
+	  OR last_error ILIKE '%%neither verifier nor default executor blob found%%'
+	  OR (last_error ILIKE '%%source chain selector%%' AND last_error ILIKE '%%not configured%%')
+	  THEN 'validation_error'
+	WHEN '%s' = 'ccv_storage_writer_jobs' THEN 'storage_failure'
+	ELSE 'unknown'
+END`
 
 type archiveKey struct{ chain, category string }
 
@@ -85,11 +93,12 @@ func newArchiveMetrics() (*archiveMetrics, error) {
 }
 
 func (q *PostgresJobQueue[T]) archiveSnapshot(ctx context.Context) (map[archiveKey]archiveSnapshot, error) {
-	query := fmt.Sprintf(`SELECT chain_selector::text, failure_category, COUNT(*),
+	category := fmt.Sprintf(failureCategorySQL, q.tableName)
+	query := fmt.Sprintf(`SELECT chain_selector::text, %s AS failure_category, COUNT(*),
 		COUNT(*) FILTER (WHERE completed_at <= NOW() - $2::interval),
 		GREATEST(0, EXTRACT(EPOCH FROM NOW() - MIN(completed_at)))::double precision
 		FROM %s WHERE owner_id = $1 AND status = 'failed'
-		GROUP BY chain_selector, failure_category`, q.archiveName)
+		GROUP BY chain_selector, %s`, category, q.archiveName, category)
 	warningAge := fmt.Sprintf("%f seconds", (ArchiveRetention - ArchiveWarningLead).Seconds())
 	rows, err := q.ds.QueryContext(ctx, query, q.ownerID, warningAge)
 	if err != nil {

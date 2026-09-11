@@ -82,33 +82,6 @@ func TestChainStatusBatcher_NewValidation(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestChainStatusBatcher_RecoveryResetPreservesFailureAndClearsStaleWrites(t *testing.T) {
-	batcher, manager := newTestBatcher(t)
-	failure := errors.New("database unavailable")
-	manager.EXPECT().WriteChainStatuses(mock.Anything, []protocol.ChainStatusInfo{status(1, 0, true)}).Return(failure).Once()
-	require.ErrorIs(t, batcher.WriteChainStatuses(t.Context(), []protocol.ChainStatusInfo{status(1, 0, true)}), failure)
-
-	require.ErrorIs(t, batcher.ApplyRecoveryReset(1, func() error { return failure }), failure)
-	require.True(t, batcher.disabledChains[1])
-	require.True(t, batcher.pending[1].Disabled, "failed durable reset must retain the pending disable")
-
-	require.NoError(t, batcher.ApplyRecoveryReset(1, func() error {
-		require.True(t, batcher.disabledChains[1], "sticky state remains until persistence succeeds")
-		return nil
-	}))
-	require.NotContains(t, batcher.pending, protocol.ChainSelector(1))
-	require.NotContains(t, batcher.disabledChains, protocol.ChainSelector(1))
-	require.NoError(t, batcher.flush(t.Context()))
-	require.NoError(t, batcher.WriteChainStatuses(t.Context(), []protocol.ChainStatusInfo{status(1, 120, false)}))
-	require.Equal(t, int64(120), batcher.pending[1].FinalizedBlockHeight.Int64())
-
-	manager.EXPECT().WriteChainStatuses(mock.Anything, []protocol.ChainStatusInfo{status(1, 0, true)}).Return(nil).Once()
-	require.NoError(t, batcher.WriteChainStatuses(t.Context(), []protocol.ChainStatusInfo{status(1, 0, true)}))
-	require.NoError(t, batcher.WriteChainStatuses(t.Context(), []protocol.ChainStatusInfo{status(1, 121, false)}))
-	require.True(t, batcher.disabledChains[1], "a new violation remains sticky after recovery")
-	require.Empty(t, batcher.pending)
-}
-
 func TestChainStatusBatcher_EnabledStatusIsBuffered(t *testing.T) {
 	batcher, mockManager := newTestBatcher(t)
 

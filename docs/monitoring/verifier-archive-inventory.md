@@ -1,8 +1,8 @@
-# Verifier recovery monitoring
+# Verifier archive inventory monitoring
 
-Import [Verifier Recovery](../../build/devenv/dashboards/verifier_recovery.json) into Grafana using the existing Prometheus-compatible `victoriametrics` datasource UID. The JSON lives alongside the other devenv dashboard assets. Point that datasource at your deployment's metric backend or replace the UID before import.
+Import [Verifier Archive Inventory](../../build/devenv/dashboards/verifier_archive_inventory.json) into Grafana using the existing Prometheus-compatible `victoriametrics` datasource UID. The JSON lives alongside the other devenv dashboard assets. Point that datasource at your deployment's metric backend or replace the UID before import.
 
-The [Grafana alert provisioning file](./verifier-recovery-alerts.yaml) defines a retention warning, collection-health warning and audit-failure warning, each linked to the [remediation runbook](../runbooks/remediating-stuck-or-dropped-messages.md). Mount it under Grafana's `provisioning/alerting` directory or import it through your existing provisioning workflow. Set the organization, datasource UID and notification-policy routing for your deployment. This change supplies the rules; it does not modify a live Grafana installation or contact point.
+The [Grafana alert provisioning file](./verifier-archive-inventory-alerts.yaml) defines a retention warning and a collection-health warning, each linked to the [remediation runbook](../runbooks/remediating-stuck-or-dropped-messages.md). Mount it under Grafana's `provisioning/alerting` directory or import it through your existing provisioning workflow. Set the organization, datasource UID and notification-policy routing for your deployment. This change supplies the rules; it does not modify a live Grafana installation or contact point.
 
 ## Archive inventory contract
 
@@ -21,12 +21,6 @@ Persisted reasons are `policy_rejected`, `retry_window_expired`, `validation_err
 Collection starts with the service and repeats every minute with a two-second query deadline. A failed query emits health 0 while leaving last-good inventory unchanged. On success, removed groups emit zero. After a process restart inventory is rebuilt from the archives; an initially empty group has no series until first observed. Treat absent inventory as zero only when collection health is present and fresh. The dashboard deliberately keeps health and freshness visible instead of filling every missing value with zero.
 
 The expiry rule gates on successful collection within three minutes. The separate health rule detects query failure/staleness (retaining timestamp evidence for 15 minutes) or total collector absence. Keep your normal scrape-target/process-availability alerts: this rule cannot discover an expected owner/queue that has never emitted a series, or indefinitely identify one missing owner among healthy owners.
-
-## Recovery and coverage
-
-`verifier_recovery_operations` and `verifier_recovery_remaining_blocks` describe retained operations by owner/source and one of six states: accepted, running, completed, cancelled, failed, blocked. They are refreshed with the reader heartbeat every 30 seconds, with zeros for empty states. `verifier_recovery_collection_success` and `verifier_recovery_last_success_timestamp` expose failure/staleness. The cumulative `verifier_recovery_audit_failures_total` counts failed evidence-write batches, not lost-message totals.
-
-Use `ccv recovery status` for one operation's precise counters and error, and `ccv recovery events` for message-level evidence and coverage. The reader's registry records audit-failure counts at its next successful heartbeat. A crash before persistence can lose those counts; logs/metrics and canonical source investigation still matter. Never interpret empty event history as a complete inventory of traffic missed while disabled.
 
 ## Collection cost and validation
 

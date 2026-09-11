@@ -1,7 +1,7 @@
 apiVersion: 1
 groups:
   - orgId: 1
-    name: ccv-verifier-recovery
+    name: ccv-verifier-archive-inventory
     folder: CCV
     interval: 1m
     rules:
@@ -13,7 +13,7 @@ groups:
         execErrState: Alerting
         annotations:
           summary: CCV failed archive retention warning
-          description: Retained failed jobs are within seven days of the 30-day archive cutoff. Inspect candidates and canonicality before choosing reschedule or source recovery.
+          description: Retained failed jobs are within seven days of the 30-day archive cutoff. Inspect candidates and canonicality before rescheduling.
           runbook_url: https://github.com/smartcontractkit/chainlink-ccv/blob/main/docs/runbooks/remediating-stuck-or-dropped-messages.md
         labels:
           severity: warning
@@ -77,46 +77,6 @@ groups:
                 (verifier_archive_collection_success == 0) + 1
                 or (time() - max_over_time(verifier_archive_last_success_timestamp[15m]) > 180)
                 or absent(verifier_archive_collection_success)
-          - refId: B
-            datasourceUid: __expr__
-            relativeTimeRange:
-              from: 0
-              to: 0
-            model:
-              datasource:
-                type: __expr__
-                uid: __expr__
-              refId: B
-              type: math
-              expression: $A > 0
-      - uid: ccv-recovery-audit
-        title: CCV recovery audit write failed
-        condition: B
-        for: 0s
-        noDataState: OK
-        execErrState: Alerting
-        annotations:
-          summary: CCV recovery audit write failed
-          description: Recovery history has gaps due to failed evidence writes. Finality blocking remains enforced. Query coverage and investigate source data for missing evidence.
-          runbook_url: https://github.com/smartcontractkit/chainlink-ccv/blob/main/docs/runbooks/remediating-stuck-or-dropped-messages.md
-        labels:
-          severity: warning
-          component: verifier
-        data:
-          - refId: A
-            datasourceUid: victoriametrics
-            relativeTimeRange:
-              from: 900
-              to: 0
-            model:
-              datasource:
-                type: prometheus
-                uid: victoriametrics
-              refId: A
-              instant: true
-              range: false
-              expr: >-
-                increase(verifier_recovery_audit_failures_total[15m]) > 0
           - refId: B
             datasourceUid: __expr__
             relativeTimeRange:

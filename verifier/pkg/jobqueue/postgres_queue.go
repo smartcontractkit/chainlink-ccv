@@ -493,11 +493,11 @@ func (q *PostgresJobQueue[T]) Retry(ctx context.Context, delay time.Duration, er
 				INSERT INTO %s (
 					id, job_id, owner_id, chain_selector, message_id, task_data,
 					status, created_at, available_at, started_at, attempt_count, retry_deadline, last_error,
-					completed_at, failure_category
+					completed_at
 				)
 				SELECT id, job_id, owner_id, chain_selector, message_id, task_data,
 				       status, created_at, available_at, started_at, attempt_count, retry_deadline, last_error,
-				       NOW(), 'retry_window_expired'
+				       NOW()
 				FROM failed
 			`, q.tableName, q.archiveName)
 
@@ -552,15 +552,11 @@ func (q *PostgresJobQueue[T]) Fail(ctx context.Context, errors map[string]error,
 	// final JOIN back to UNNEST to fan-out a single deleted row into multiple INSERT rows,
 	// producing a primary key violation on the archive table.
 	jobIDs, errMsgsArr := uniqueJobIDsWithErrors(jobIDs, errors)
-	categories := make([]string, len(jobIDs))
-	for i, id := range jobIDs {
-		categories[i] = FailureCategory(q.tableName, errors[id])
-	}
 
 	query := fmt.Sprintf(`
 		WITH jobs_input AS (
-		    SELECT v.job_id::uuid AS job_id, v.error_msg, v.category
-		    FROM UNNEST($1::text[], $2::text[], $5::text[]) AS v(job_id, error_msg, category)
+		    SELECT v.job_id::uuid AS job_id, v.error_msg
+		    FROM UNNEST($1::text[], $2::text[]) AS v(job_id, error_msg)
 		),
 		to_fail AS (
 		    DELETE FROM %s t
@@ -572,11 +568,11 @@ func (q *PostgresJobQueue[T]) Fail(ctx context.Context, errors map[string]error,
 		INSERT INTO %s (
 		    id, job_id, owner_id, chain_selector, message_id, task_data,
 		    status, created_at, available_at, started_at, attempt_count, retry_deadline,
-		    last_error, completed_at, failure_category
+		    last_error, completed_at
 		)
 		SELECT f.id, f.job_id, f.owner_id, f.chain_selector, f.message_id, f.task_data,
 		       $4, f.created_at, f.available_at, f.started_at, f.attempt_count, f.retry_deadline,
-		       i.error_msg, NOW(), i.category
+		       i.error_msg, NOW()
 		FROM to_fail f
 		JOIN jobs_input i ON f.job_id = i.job_id
 	`, q.tableName, q.archiveName)
@@ -586,7 +582,6 @@ func (q *PostgresJobQueue[T]) Fail(ctx context.Context, errors map[string]error,
 		pq.Array(errMsgsArr), // $2
 		q.ownerID,            // $3
 		JobStatusFailed,      // $4
-		pq.Array(categories), // $5
 	)
 	if err != nil {
 		return fmt.Errorf("failed to fail and archive jobs: %w", err)

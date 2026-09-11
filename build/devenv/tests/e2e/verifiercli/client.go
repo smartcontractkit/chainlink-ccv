@@ -113,19 +113,6 @@ func (c *Client) CLIJSON(ctx context.Context, subcommand []string, args ...strin
 	return out, nil
 }
 
-// ProcessIdentity identifies the container's PID 1 by its process start tick.
-func (c *Client) ProcessIdentity(ctx context.Context) (string, error) {
-	out, err := c.Exec(ctx, "cat", "/proc/1/stat")
-	if err != nil {
-		return "", err
-	}
-	fields := strings.Fields(out)
-	if len(fields) < 22 {
-		return "", fmt.Errorf("invalid process stat: %q", out)
-	}
-	return fields[0] + ":" + fields[21], nil
-}
-
 // Pause sends pkill -STOP to the committee process. Tests use this
 // before CLI mutations so the running verifier does not race the
 // mutation (e.g. overwrite a freshly disabled chain status).

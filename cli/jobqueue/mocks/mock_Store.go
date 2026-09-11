@@ -84,6 +84,129 @@ func (_c *MockStore_ListFailed_Call) RunAndReturn(run func(context.Context, []jo
 	return _c
 }
 
+// ListFailedFiltered provides a mock function with given fields: ctx, queues, ownerID, messageIDs, limit
+func (_m *MockStore) ListFailedFiltered(ctx context.Context, queues []jobqueue.QueueType, ownerID string, messageIDs [][]byte, limit int) ([]jobqueue.ArchivedJob, error) {
+	ret := _m.Called(ctx, queues, ownerID, messageIDs, limit)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListFailedFiltered")
+	}
+
+	var r0 []jobqueue.ArchivedJob
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, []jobqueue.QueueType, string, [][]byte, int) ([]jobqueue.ArchivedJob, error)); ok {
+		return rf(ctx, queues, ownerID, messageIDs, limit)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, []jobqueue.QueueType, string, [][]byte, int) []jobqueue.ArchivedJob); ok {
+		r0 = rf(ctx, queues, ownerID, messageIDs, limit)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]jobqueue.ArchivedJob)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, []jobqueue.QueueType, string, [][]byte, int) error); ok {
+		r1 = rf(ctx, queues, ownerID, messageIDs, limit)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockStore_ListFailedFiltered_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListFailedFiltered'
+type MockStore_ListFailedFiltered_Call struct {
+	*mock.Call
+}
+
+// ListFailedFiltered is a helper method to define mock.On call
+//   - ctx context.Context
+//   - queues []jobqueue.QueueType
+//   - ownerID string
+//   - messageIDs [][]byte
+//   - limit int
+func (_e *MockStore_Expecter) ListFailedFiltered(ctx interface{}, queues interface{}, ownerID interface{}, messageIDs interface{}, limit interface{}) *MockStore_ListFailedFiltered_Call {
+	return &MockStore_ListFailedFiltered_Call{Call: _e.mock.On("ListFailedFiltered", ctx, queues, ownerID, messageIDs, limit)}
+}
+
+func (_c *MockStore_ListFailedFiltered_Call) Run(run func(ctx context.Context, queues []jobqueue.QueueType, ownerID string, messageIDs [][]byte, limit int)) *MockStore_ListFailedFiltered_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].([]jobqueue.QueueType), args[2].(string), args[3].([][]byte), args[4].(int))
+	})
+	return _c
+}
+
+func (_c *MockStore_ListFailedFiltered_Call) Return(_a0 []jobqueue.ArchivedJob, _a1 error) *MockStore_ListFailedFiltered_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockStore_ListFailedFiltered_Call) RunAndReturn(run func(context.Context, []jobqueue.QueueType, string, [][]byte, int) ([]jobqueue.ArchivedJob, error)) *MockStore_ListFailedFiltered_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// Reschedule provides a mock function with given fields: ctx, queue, ownerID, jobID, messageID, retryDuration
+func (_m *MockStore) Reschedule(ctx context.Context, queue jobqueue.QueueType, ownerID string, jobID string, messageID []byte, retryDuration time.Duration) (jobqueue.ArchivedJob, error) {
+	ret := _m.Called(ctx, queue, ownerID, jobID, messageID, retryDuration)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Reschedule")
+	}
+
+	var r0 jobqueue.ArchivedJob
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, jobqueue.QueueType, string, string, []byte, time.Duration) (jobqueue.ArchivedJob, error)); ok {
+		return rf(ctx, queue, ownerID, jobID, messageID, retryDuration)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, jobqueue.QueueType, string, string, []byte, time.Duration) jobqueue.ArchivedJob); ok {
+		r0 = rf(ctx, queue, ownerID, jobID, messageID, retryDuration)
+	} else {
+		r0 = ret.Get(0).(jobqueue.ArchivedJob)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, jobqueue.QueueType, string, string, []byte, time.Duration) error); ok {
+		r1 = rf(ctx, queue, ownerID, jobID, messageID, retryDuration)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockStore_Reschedule_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Reschedule'
+type MockStore_Reschedule_Call struct {
+	*mock.Call
+}
+
+// Reschedule is a helper method to define mock.On call
+//   - ctx context.Context
+//   - queue jobqueue.QueueType
+//   - ownerID string
+//   - jobID string
+//   - messageID []byte
+//   - retryDuration time.Duration
+func (_e *MockStore_Expecter) Reschedule(ctx interface{}, queue interface{}, ownerID interface{}, jobID interface{}, messageID interface{}, retryDuration interface{}) *MockStore_Reschedule_Call {
+	return &MockStore_Reschedule_Call{Call: _e.mock.On("Reschedule", ctx, queue, ownerID, jobID, messageID, retryDuration)}
+}
+
+func (_c *MockStore_Reschedule_Call) Run(run func(ctx context.Context, queue jobqueue.QueueType, ownerID string, jobID string, messageID []byte, retryDuration time.Duration)) *MockStore_Reschedule_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(jobqueue.QueueType), args[2].(string), args[3].(string), args[4].([]byte), args[5].(time.Duration))
+	})
+	return _c
+}
+
+func (_c *MockStore_Reschedule_Call) Return(_a0 jobqueue.ArchivedJob, _a1 error) *MockStore_Reschedule_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockStore_Reschedule_Call) RunAndReturn(run func(context.Context, jobqueue.QueueType, string, string, []byte, time.Duration) (jobqueue.ArchivedJob, error)) *MockStore_Reschedule_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // RescheduleByJobID provides a mock function with given fields: ctx, queue, ownerID, jobID, retryDuration
 func (_m *MockStore) RescheduleByJobID(ctx context.Context, queue jobqueue.QueueType, ownerID string, jobID string, retryDuration time.Duration) error {
 	ret := _m.Called(ctx, queue, ownerID, jobID, retryDuration)
@@ -197,86 +320,3 @@ func NewMockStore(t interface {
 
 	return mock
 }
-
-func (_m *MockStore) ListFailedFiltered(ctx context.Context, queues []jobqueue.QueueType, ownerID string, messageIDs [][]byte, limit int) ([]jobqueue.ArchivedJob, error) {
-	ret := _m.Called(ctx, queues, ownerID, messageIDs, limit)
-
-	if len(ret) == 0 {
-		panic("no return value specified for ListFailedFiltered")
-	}
-
-	var r0 []jobqueue.ArchivedJob
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, []jobqueue.QueueType, string, [][]byte, int) ([]jobqueue.ArchivedJob, error)); ok {
-		return rf(ctx, queues, ownerID, messageIDs, limit)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, []jobqueue.QueueType, string, [][]byte, int) []jobqueue.ArchivedJob); ok {
-		r0 = rf(ctx, queues, ownerID, messageIDs, limit)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]jobqueue.ArchivedJob)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, []jobqueue.QueueType, string, [][]byte, int) error); ok {
-		r1 = rf(ctx, queues, ownerID, messageIDs, limit)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-type MockStore_ListFailedFiltered_Call struct {
-	*mock.Call
-}
-
-func (_e *MockStore_Expecter) ListFailedFiltered(ctx interface{}, queues interface{}, ownerID interface{}, messageIDs interface{}, limit interface{}) *MockStore_ListFailedFiltered_Call {
-	return &MockStore_ListFailedFiltered_Call{Call: _e.mock.On("ListFailedFiltered", ctx, queues, ownerID, messageIDs, limit)}
-}
-
-func (_c *MockStore_ListFailedFiltered_Call) Run(run func(ctx context.Context, queues []jobqueue.QueueType, ownerID string, messageIDs [][]byte, limit int)) *MockStore_ListFailedFiltered_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].([]jobqueue.QueueType), args[2].(string), args[3].([][]byte), args[4].(int))
-	})
-	return _c
-}
-
-func (_c *MockStore_ListFailedFiltered_Call) Return(_a0 []jobqueue.ArchivedJob, _a1 error) *MockStore_ListFailedFiltered_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockStore_ListFailedFiltered_Call) RunAndReturn(run func(context.Context, []jobqueue.QueueType, string, [][]byte, int) ([]jobqueue.ArchivedJob, error)) *MockStore_ListFailedFiltered_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-func (_m *MockStore) Reschedule(ctx context.Context, queue jobqueue.QueueType, ownerID, jobID string, messageID []byte, retryDuration time.Duration) (jobqueue.ArchivedJob, error) {
-	ret := _m.Called(ctx, queue, ownerID, jobID, messageID, retryDuration)
-	if rf, ok := ret.Get(0).(func(context.Context, jobqueue.QueueType, string, string, []byte, time.Duration) (jobqueue.ArchivedJob, error)); ok {
-		return rf(ctx, queue, ownerID, jobID, messageID, retryDuration)
-	}
-	var value jobqueue.ArchivedJob
-	if rf, ok := ret.Get(0).(func(context.Context, jobqueue.QueueType, string, string, []byte, time.Duration) jobqueue.ArchivedJob); ok {
-		value = rf(ctx, queue, ownerID, jobID, messageID, retryDuration)
-	} else if ret.Get(0) != nil {
-		value = ret.Get(0).(jobqueue.ArchivedJob)
-	}
-	if rf, ok := ret.Get(1).(func(context.Context, jobqueue.QueueType, string, string, []byte, time.Duration) error); ok {
-		return value, rf(ctx, queue, ownerID, jobID, messageID, retryDuration)
-	}
-	return value, ret.Error(1)
-}
-
-type MockStore_Reschedule_Call struct { *mock.Call }
-
-func (_e *MockStore_Expecter) Reschedule(ctx, queue, ownerID, jobID, messageID, retryDuration interface{}) *MockStore_Reschedule_Call {
-	return &MockStore_Reschedule_Call{Call: _e.mock.On("Reschedule", ctx, queue, ownerID, jobID, messageID, retryDuration)}
-}
-func (_c *MockStore_Reschedule_Call) Return(value jobqueue.ArchivedJob, err error) *MockStore_Reschedule_Call { _c.Call.Return(value, err); return _c }
-func (_c *MockStore_Reschedule_Call) Run(run func(ctx context.Context, queue jobqueue.QueueType, ownerID, jobID string, messageID []byte, retryDuration time.Duration)) *MockStore_Reschedule_Call {
-	_c.Call.Run(func(args mock.Arguments) { run(args[0].(context.Context), args[1].(jobqueue.QueueType), args[2].(string), args[3].(string), args[4].([]byte), args[5].(time.Duration)) })
-	return _c
-}
-func (_c *MockStore_Reschedule_Call) RunAndReturn(run func(context.Context, jobqueue.QueueType, string, string, []byte, time.Duration) (jobqueue.ArchivedJob, error)) *MockStore_Reschedule_Call { _c.Call.Return(run); return _c }

@@ -284,19 +284,3 @@ func (s *Batcher) restore(drained map[protocol.ChainSelector]protocol.ChainStatu
 		}
 	}
 }
-
-// ApplyRecoveryReset serializes the durable reset with buffered checkpoint flushes.
-// The caller serializes reader polling; persist must commit the boundary and audit
-// atomically. Failure leaves pending writes and the sticky disable intact.
-func (s *Batcher) ApplyRecoveryReset(selector protocol.ChainSelector, persist func() error) error {
-	s.flushMu.Lock()
-	defer s.flushMu.Unlock()
-	if err := persist(); err != nil {
-		return err
-	}
-	s.mu.Lock()
-	delete(s.pending, selector)
-	delete(s.disabledChains, selector)
-	s.mu.Unlock()
-	return nil
-}

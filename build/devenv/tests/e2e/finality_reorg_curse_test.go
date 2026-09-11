@@ -3,6 +3,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"math/big"
 	"testing"
 	"time"
 
@@ -430,15 +431,15 @@ func TestE2EReorg(t *testing.T) {
 		verifyMessageExists(evt.MessageID, "dest1 message while dest2 cursed")
 	})
 
-	t.Run("dropped message under curse can be replayed live with durable evidence", func(t *testing.T) {
+	t.Run("dropped message under curse can be replayed via CLI checkpoint rewind", func(t *testing.T) {
 		require.GreaterOrEqual(t, len(in.Verifier), 1)
 		require.NotNil(t, in.Verifier[0].Out)
 		verifierID := in.Verifier[0].Out.VerifierID
 		require.NotEmpty(t, verifierID)
 
 		// Every verifier with the same VerifierID belongs to the same committee. The aggregator
-		// only returns a result once every member has signed, so every member must
-		// recover the affected source range explicitly.
+		// only returns a result once every member has signed, so every committee member's DB
+		// checkpoint must be rewound and process restarted.
 		var members []*verifiercli.Client
 		for _, v := range in.Verifier {
 			if v.Out == nil || v.Out.VerifierID != verifierID {
@@ -488,7 +489,7 @@ func TestE2EReorg(t *testing.T) {
 
 		// Advance the finalized checkpoint well past the dropped message block while the curse is
 		// still active. Without this, the verifier would keep re-fetching the log each poll, and
-		// lifting the curse alone would verify the message - masking the need for explicit source recovery.
+		// lifting the curse alone would verify the message - masking the need for a CLI rewind.
 		advanceBlocks(verifier.ConfirmationDepth*3 + 30)
 		verifyMessageNotExists(droppedMsgID, "Dropped message should not reach aggregator while cursed")
 
@@ -499,15 +500,18 @@ func TestE2EReorg(t *testing.T) {
 		time.Sleep(10 * time.Second)
 		verifyMessageNotExists(droppedMsgID, "Dropped message should not reappear after uncurse alone")
 
-		block := requireRecoveryDropEvidence(t, ctx, committee, srcSelector, droppedMsgID.String(), "remote_chain_cursed")
-		requireLiveRangeRecovery(t, ctx, committee, srcSelector, block, &block, "replay")
+		require.NoError(t, committee.RewindFinalizedHeight(ctx,
+			verifiercli.FormatChainSelector(srcSelector), verifiercli.FormatBlockHeight(0)),
+			"rewind committee finalized height")
 
+		// Push finality well past the dropped message block again so the fresh rescan that starts
+		// at block 1 can mark the message ready for verification immediately.
 		advanceBlocks(verifier.ConfirmationDepth*2 + 10)
 
 		waitCtx, waitCancel := context.WithTimeout(ctx, 120*time.Second)
 		defer waitCancel()
 		_, err = defaultAggregatorClient.WaitForVerifierResultForMessage(waitCtx, droppedMsgID, 1*time.Second)
-		require.NoError(t, err, "dropped message should be reprocessed after live source recovery")
+		require.NoError(t, err, "dropped message should be reprocessed after CLI checkpoint rewind and restart")
 	})
 
 	t.Run("reorg with faster-than-finality message", func(t *testing.T) {
@@ -745,28 +749,30 @@ func TestE2EReorg(t *testing.T) {
 			return true
 		}, 3*time.Second, 100*time.Millisecond, "chain status should reflect disabled state after finality violation")
 
-		committee := newVerifierCommitteeClientForSmoke(t, in)
-		for _, member := range committee.Members() {
-			require.Eventually(t, func() bool {
-				page, err := member.Recovery().Events(ctx, committee.VerifierID(), fmt.Sprint(srcSelector), "finality_violation")
-				if err != nil {
-					return false
-				}
-				for _, event := range page.Events {
-					if event.Kind == "finality_incident" && event.SourceBlock != nil {
-						return true
-					}
-				}
-				return false
-			}, time.Minute, time.Second, "finality incident must be durable on %s", member.Container())
-		}
+		l.Info().
+			Msg("✨ Test completed: Finality violation detected and system stopped processing new messages")
+	})
 
-		requireLiveRangeRecovery(t, ctx, committee, srcSelector, 1, nil, "reset-reader")
-		afterReset, err := srcImpl.SendMessage(ctx, destSelector, newMessageFields(receiver, "after live finality recovery"), defaultMessageOptions, defaultMessageVersion)
-		require.NoError(t, err)
-		advanceBlocks(verifier.ConfirmationDepth + 5)
-		verifyMessageExists(afterReset.MessageID, "Message after live finality recovery")
-		verifyMessageNotExists(toBeDroppedMessageID, "Reorged-out message must not be resurrected")
+	// a utility test to enable the chain again in the database instead of creating a new env
+	t.Run("enable chain", func(t *testing.T) {
+		err := chainStatusManager.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{
+			{
+				ChainSelector:        protocol.ChainSelector(srcSelector),
+				FinalizedBlockHeight: big.NewInt(0),
+				Disabled:             false,
+			},
+		})
+		require.NoError(t, err, "should be able to enable chain in database")
+
+		statuses, err := chainStatusManager.ReadChainStatuses(ctx, []protocol.ChainSelector{protocol.ChainSelector(srcSelector)})
+		require.NoError(t, err, "should be able to read chain status from database")
+		require.Len(t, statuses, 1, "should have one chain status for source chain")
+
+		chainStatus := statuses[protocol.ChainSelector(srcSelector)]
+		require.NotNil(t, chainStatus, "chain status should exist")
+		require.False(t, chainStatus.Disabled, "chain should be enabled")
+
+		l.Info().Msg("✅ Source chain re-enabled in database after being disabled from finality violation")
 	})
 }
 

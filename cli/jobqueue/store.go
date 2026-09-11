@@ -39,9 +39,6 @@ type ArchivedJob struct {
 	RetryDeadline time.Time
 	// Queue is the queue this job belongs to.
 	Queue QueueType
-
-	// FailureCategory is a persisted, bounded archive-time classification.
-	FailureCategory string
 }
 
 // Store is the minimal database interface required by the jobqueue CLI commands.

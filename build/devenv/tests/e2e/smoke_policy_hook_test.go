@@ -29,7 +29,7 @@ import (
 //  2. An endpoint outage retries — while the endpoint returns 5xx the message is held, not
 //     dropped, and it lands on its own once the endpoint recovers, with no operator action.
 //  3. FAIL drops — the message is never attested, deleting the rejection afterwards does not
-//     bring it back, and a live source-range request replays it.
+//     bring it back, and a checkpoint rewind replays it.
 //  4. A FAIL drop is also recoverable by reschedule — after the endpoint clears, moving the
 //     archived job back to the active queue on every committee member, with the node still
 //     running, gets the message attested, and the endpoint is consulted again.
@@ -175,16 +175,21 @@ func TestE2ESmoke_PolicyHook(t *testing.T) {
 		requireNoAggregatorResult(t, ctx, aggregatorClient, rejected.MessageID,
 			"a dropped message must not reappear just because the endpoint stopped rejecting it")
 
-		requireLiveRangeRecovery(t, ctx, committee, srcSelector, 1, nil, "replay")
+		// Only replay recovers it: rewind the committee checkpoint and let the message be read
+		// again.
+		require.NoError(t, committee.RewindFinalizedHeight(ctx,
+			verifiercli.FormatChainSelector(srcSelector), verifiercli.FormatBlockHeight(0)),
+			"rewind committee finalized height")
 
 		advanceBlocks(verifier.ConfirmationDepth*2 + 10)
 
-		// The bounded rescan re-verifies prior canonical messages as well as the target.
-		// Allow the complete verification pipeline to finish after range admission.
+		// The rescan starts at block 0 and re-verifies every message this test sent, so the
+		// replay gets the same budget the curse-recovery test allows rather than the 45s a
+		// fresh message gets.
 		replayCtx, cancelReplay := context.WithTimeout(ctx, 120*time.Second)
 		defer cancelReplay()
 		_, err = aggregatorClient.WaitForVerifierResultForMessage(replayCtx, rejected.MessageID, time.Second)
-		require.NoError(t, err, "a dropped message must be recoverable by live source replay")
+		require.NoError(t, err, "a dropped message must be recoverable by replaying from a rewound checkpoint")
 	})
 
 	// The per-message lever the runbook recommends: the endpoint rejects one message, the job
@@ -221,8 +226,8 @@ func TestE2ESmoke_PolicyHook(t *testing.T) {
 		messageID := rejected.MessageID.String()
 		for _, m := range committee.Members() {
 			require.Eventually(t, func() bool {
-				rows, err := m.JobQueue().ListJSON(ctx, verifiercli.QueueTaskVerifier, "", messageID)
-				return err == nil && len(rows) > 0 && rows[0].MessageID == messageID && rows[0].FailureCategory == "policy_rejected"
+				out, err := m.JobQueue().List(ctx, verifiercli.QueueTaskVerifier, committee.VerifierID())
+				return err == nil && strings.Contains(strings.ToLower(out), strings.ToLower(messageID))
 			}, 60*time.Second, 2*time.Second,
 				"member %s must show the dropped message in its task-verifier archive", m.Container())
 		}
@@ -236,10 +241,9 @@ func TestE2ESmoke_PolicyHook(t *testing.T) {
 		// result once every member has signed, so skipping a member leaves the message stuck.
 		for _, m := range committee.Members() {
 			out, err := m.JobQueue().RescheduleByMessageID(ctx,
-				verifiercli.QueueTaskVerifier, "", messageID, verifiercli.RetryDuration("1h"))
+				verifiercli.QueueTaskVerifier, committee.VerifierID(), messageID, verifiercli.RetryDuration("1h"))
 			require.NoError(t, err, "reschedule on %s must succeed against the running node; output: %s",
 				m.Container(), out)
-			require.Contains(t, out, committee.VerifierID(), "resolved owner must be reported")
 		}
 
 		replayCtx, cancelReplay := context.WithTimeout(ctx, 90*time.Second)

@@ -42,7 +42,7 @@ An explicit owner is always honored; a wrong owner never falls back to another o
 
 The restored job is pending with attempts reset and a new positive retry duration (default 1 hour). The running verifier normally picks it up on its queue fallback poll within about 30 seconds. `task-verifier` runs verification and policy again. `storage-writer` retries writing the saved result. Neither path re-reads source events or repeats source-reader finality, curse or disablement admission checks.
 
-For changed canonical source data, pre-admission drops or expired archives, use [live source recovery](../recovery/README.md). Replayed and already attested messages are not reconciled against old archive rows; verify the aggregator/indexer result before restoring a candidate.
+For changed canonical source data, pre-admission drops or expired archives, rewind the source checkpoint as described in the [remediation runbook](../../docs/runbooks/remediating-stuck-or-dropped-messages.md#4-rewind-the-checkpoint-for-a-range). Already attested messages are not reconciled against old archive rows; verify the aggregator/indexer result before restoring a candidate.
 
 ## Retention and monitoring
 
@@ -50,4 +50,4 @@ Automatic retry remains 7 days. Non-retryable failures archive immediately. Arch
 
 Both queues now export retained failed inventory once per minute, with a 7-day warning lead (archive age at least 23 days). Categories are persisted when archiving: `policy_rejected`, `retry_window_expired`, `validation_error`, `storage_failure`, and `unknown`. Known validation/deserialization errors take precedence over generic storage failures; expired retries use `retry_window_expired`. Pre-upgrade rows retain `unknown`. Classification is advisory and never determines whether a replay is safe.
 
-See [monitoring and alert provisioning](../../docs/monitoring/verifier-recovery.md) and the [remediation runbook](../../docs/runbooks/remediating-stuck-or-dropped-messages.md). Inventory counts retained failed **jobs**, which may contain repeated or already recovered messages; it does not count distinct affected messages.
+See [monitoring and alert provisioning](../../docs/monitoring/verifier-archive-inventory.md) and the [remediation runbook](../../docs/runbooks/remediating-stuck-or-dropped-messages.md). Inventory counts retained failed **jobs**, which may contain repeated or already recovered messages; it does not count distinct affected messages.

@@ -156,10 +156,10 @@ func TestE2ESmoke_ChainStatusDisableEnable(t *testing.T) {
 	_, err = aggregatorClient.GetVerifierResultForMessage(waitNotProcessed, msgID1)
 	require.Error(t, err, "message should not be in aggregator while source chain is disabled")
 
-	member, err := verifiercli.NewCommitteeClient(verifierID, vc)
+	require.NoError(t, vc.Pause(cliCtx))
+	_, err = vc.ChainStatuses().Enable(cliCtx, verifiercli.FormatChainSelector(srcSelector), verifierID)
 	require.NoError(t, err)
-	requireLiveRangeRecovery(t, ctx, member, srcSelector, 1, nil, "reset-reader")
-	requireAggregatorResult(t, ctx, aggregatorClient, msgID1, "missed message must be recovered on the running node")
+	require.NoError(t, vc.RestartAndWaitReady(cliCtx))
 
 	sentEvent2, err := srcImpl.SendMessage(ctx, destSelector, cciptestinterfaces.MessageFields{Receiver: receiver, Data: []byte("disable-enable-test-2")}, messageOpts, 3)
 	require.NoError(t, err)

@@ -43,6 +43,4 @@ verifier ccv chain-statuses disable --chain-selector <selector> --verifier-id <i
 
 ## Operator note
 
-Shut down the node or verifier before running `enable`, `disable`, or `set-finalized-height`. Changes take effect on the next start. These commands remain the offline fallback for deployments without live recovery.
-
-Upgraded standalone verifiers support [durable live source recovery](../recovery/README.md), including an explicit investigated `reset-reader` for disabled readers. Use that workflow while the service is running so buffered checkpoints and the reader lifecycle are coordinated. Editing a chain-status row alone cannot safely reset a live reader. An unfinished applied live reset must be resumed through its recovery operation; changing only the checkpoint does not release its durable polling pause.
+Shut down the node or verifier before running `enable`, `disable`, or `set-finalized-height`. Changes take effect on the next start.

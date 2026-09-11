@@ -81,7 +81,7 @@ func (s *PostgresStore) listFailedFromTable(
 	query := fmt.Sprintf(`
 		SELECT job_id, message_id, owner_id, chain_selector,
 		       status, attempt_count, COALESCE(last_error, ''), created_at,
-		       completed_at, retry_deadline, failure_category
+		       completed_at, retry_deadline
 		FROM %s
 		WHERE status = 'failed'
 	`, archiveTable)
@@ -127,13 +127,12 @@ func (s *PostgresStore) listFailedFromTable(
 			createdAt        time.Time
 			archivedAt       sql.NullTime
 			retryDeadline    time.Time
-			failureCategory  string
 		)
 
 		if err := rows.Scan(
 			&jobID, &messageID, &ownerIDVal, &chainSelectorStr,
 			&status, &attemptCount, &lastError, &createdAt,
-			&archivedAt, &retryDeadline, &failureCategory,
+			&archivedAt, &retryDeadline,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
@@ -144,17 +143,16 @@ func (s *PostgresStore) listFailedFromTable(
 		}
 
 		job := ArchivedJob{
-			JobID:           jobID,
-			MessageID:       messageID,
-			OwnerID:         ownerIDVal,
-			ChainSelector:   chainSelectorBig.Uint64(),
-			Status:          status,
-			AttemptCount:    attemptCount,
-			LastError:       lastError,
-			CreatedAt:       createdAt,
-			RetryDeadline:   retryDeadline,
-			Queue:           queue,
-			FailureCategory: failureCategory,
+			JobID:         jobID,
+			MessageID:     messageID,
+			OwnerID:       ownerIDVal,
+			ChainSelector: chainSelectorBig.Uint64(),
+			Status:        status,
+			AttemptCount:  attemptCount,
+			LastError:     lastError,
+			CreatedAt:     createdAt,
+			RetryDeadline: retryDeadline,
+			Queue:         queue,
 		}
 		if archivedAt.Valid {
 			t := archivedAt.Time
