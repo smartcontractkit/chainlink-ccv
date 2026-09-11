@@ -19,12 +19,12 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil/pg"
 
 	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/backfill"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/readers"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/registry"
-	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/replay"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/storage"
 	"github.com/smartcontractkit/chainlink-ccv/internal/tablefmt"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -34,9 +34,9 @@ import (
 
 func main() {
 	app := cli.NewApp()
-	app.Name = "indexer-replay"
-	app.Usage = "Replay indexer data from upstream sources"
-	app.Commands = replayCommands()
+	app.Name = "indexer-backfill"
+	app.Usage = "Backfill indexer data from upstream sources"
+	app.Commands = backfillCommands()
 
 	if err := app.Run(os.Args); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -44,16 +44,16 @@ func main() {
 	}
 }
 
-func replayCommands() []cli.Command {
+func backfillCommands() []cli.Command {
 	return []cli.Command{
 		{
 			Name:   "discovery",
-			Usage:  "Replay message discovery from a sequence number",
+			Usage:  "Backfill message discovery from a sequence number",
 			Action: discoveryAction,
 			Flags: []cli.Flag{
 				cli.Uint64Flag{
 					Name:     "since",
-					Usage:    "Replay discovery since this aggregator sequence number",
+					Usage:    "Backfill discovery since this aggregator sequence number",
 					Required: true,
 				},
 				cli.BoolFlag{
@@ -64,12 +64,12 @@ func replayCommands() []cli.Command {
 		},
 		{
 			Name:   "messages",
-			Usage:  "Replay CCV records for specific message IDs",
+			Usage:  "Backfill CCV records for specific message IDs",
 			Action: messagesAction,
 			Flags: []cli.Flag{
 				cli.StringFlag{
 					Name:     "ids",
-					Usage:    "Comma-separated list of message IDs to replay",
+					Usage:    "Comma-separated list of message IDs to backfill",
 					Required: true,
 				},
 				cli.BoolFlag{
@@ -80,7 +80,7 @@ func replayCommands() []cli.Command {
 		},
 		{
 			Name:   "status",
-			Usage:  "Show status of a replay job",
+			Usage:  "Show status of a backfill job",
 			Action: statusAction,
 			Flags: []cli.Flag{
 				cli.StringFlag{
@@ -92,12 +92,12 @@ func replayCommands() []cli.Command {
 		},
 		{
 			Name:   "list",
-			Usage:  "List recent replay jobs",
+			Usage:  "List recent backfill jobs",
 			Action: listAction,
 		},
 		{
 			Name:   "resume",
-			Usage:  "Resume a failed or interrupted replay job",
+			Usage:  "Resume a failed or interrupted backfill job",
 			Action: resumeAction,
 			Flags: []cli.Flag{
 				cli.StringFlag{
@@ -122,8 +122,8 @@ func discoveryAction(c *cli.Context) error {
 	engine, cleanup := mustBuildEngine(ctx, true)
 	defer cleanup()
 
-	req := replay.Request{
-		Type:  replay.TypeDiscovery,
+	req := backfill.Request{
+		Type:  backfill.TypeDiscovery,
 		Since: int64(since),
 		Force: c.Bool("force"),
 	}
@@ -131,12 +131,12 @@ func discoveryAction(c *cli.Context) error {
 	jobID, err := engine.Start(ctx, req)
 	if err != nil {
 		if jobID != "" {
-			return fmt.Errorf("replay failed (job %s can be resumed): %w", jobID, err)
+			return fmt.Errorf("backfill failed (job %s can be resumed): %w", jobID, err)
 		}
-		return fmt.Errorf("replay failed: %w", err)
+		return fmt.Errorf("backfill failed: %w", err)
 	}
 
-	fmt.Printf("Replay completed successfully. Job ID: %s\n", jobID) //nolint:forbidigo // CLI user output
+	fmt.Printf("Backfill completed successfully. Job ID: %s\n", jobID) //nolint:forbidigo // CLI user output
 	return nil
 }
 
@@ -153,8 +153,8 @@ func messagesAction(c *cli.Context) error {
 	engine, cleanup := mustBuildEngine(ctx, false)
 	defer cleanup()
 
-	req := replay.Request{
-		Type:       replay.TypeMessages,
+	req := backfill.Request{
+		Type:       backfill.TypeMessages,
 		MessageIDs: ids,
 		Force:      c.Bool("force"),
 	}
@@ -162,12 +162,12 @@ func messagesAction(c *cli.Context) error {
 	jobID, err := engine.Start(ctx, req)
 	if err != nil {
 		if jobID != "" {
-			return fmt.Errorf("replay failed (job %s can be resumed): %w", jobID, err)
+			return fmt.Errorf("backfill failed (job %s can be resumed): %w", jobID, err)
 		}
-		return fmt.Errorf("replay failed: %w", err)
+		return fmt.Errorf("backfill failed: %w", err)
 	}
 
-	fmt.Printf("Replay completed successfully. Job ID: %s\n", jobID) //nolint:forbidigo // CLI user output
+	fmt.Printf("Backfill completed successfully. Job ID: %s\n", jobID) //nolint:forbidigo // CLI user output
 	return nil
 }
 
@@ -207,19 +207,19 @@ func resumeAction(c *cli.Context) error {
 		return err
 	}
 
-	engine, cleanup := mustBuildEngine(ctx, job.Type == replay.TypeDiscovery)
+	engine, cleanup := mustBuildEngine(ctx, job.Type == backfill.TypeDiscovery)
 	defer cleanup()
 
 	if err := engine.Resume(ctx, jobID); err != nil {
 		return fmt.Errorf("resume failed: %w", err)
 	}
 
-	fmt.Printf("Replay resumed and completed successfully. Job ID: %s\n", jobID) //nolint:forbidigo // CLI user output
+	fmt.Printf("Backfill resumed and completed successfully. Job ID: %s\n", jobID) //nolint:forbidigo // CLI user output
 	return nil
 }
 
-// renderJob prints a single replay job's details.
-func renderJob(j *replay.Job) error {
+// renderJob prints a single backfill job's details.
+func renderJob(j *backfill.Job) error {
 	table := tablefmt.NewKeyValue(os.Stdout)
 
 	data := [][]string{
@@ -263,10 +263,10 @@ func truncateHash(h string) string {
 	return h
 }
 
-// renderJobList prints a table of replay jobs.
-func renderJobList(jobs []replay.Job) error {
+// renderJobList prints a table of backfill jobs.
+func renderJobList(jobs []backfill.Job) error {
 	if len(jobs) == 0 {
-		fmt.Println("No replay jobs found.") //nolint:forbidigo // CLI user output
+		fmt.Println("No backfill jobs found.") //nolint:forbidigo // CLI user output
 		return nil
 	}
 
@@ -294,8 +294,8 @@ func renderJobList(jobs []replay.Job) error {
 	return table.Render()
 }
 
-// mustBuildEngine creates the full replay engine with all dependencies.
-func mustBuildEngine(ctx context.Context, needsDiscoveryReader bool) (*replay.Engine, func()) {
+// mustBuildEngine creates the full backfill engine with all dependencies.
+func mustBuildEngine(ctx context.Context, needsDiscoveryReader bool) (*backfill.Engine, func()) {
 	cfg := mustLoadConfig()
 	lggr := mustCreateLogger(cfg)
 	monitoring := monitoring.NewNoopIndexerMonitoring()
@@ -324,9 +324,9 @@ func mustBuildEngine(ctx context.Context, needsDiscoveryReader bool) (*replay.En
 		lggr.Warnf("Error closing migration database connection: %v", err)
 	}
 
-	replayStore, err := replay.NewStoreFromConfig(ctx, lggr, pgCfg.URI, dbConfig, time.Duration(pgCfg.ConnMaxLifetime), time.Duration(pgCfg.ConnMaxIdleTime))
+	backfillStore, err := backfill.NewStoreFromConfig(ctx, lggr, pgCfg.URI, dbConfig, time.Duration(pgCfg.ConnMaxLifetime), time.Duration(pgCfg.ConnMaxIdleTime))
 	if err != nil {
-		lggr.Fatalf("Failed to create replay store: %v", err)
+		lggr.Fatalf("Failed to create backfill store: %v", err)
 	}
 
 	indexerStorage, err := storage.NewPostgresStorage(ctx, lggr, monitoring, pgCfg.URI, pg.DriverPostgres, dbConfig, time.Duration(pgCfg.ConnMaxLifetime), time.Duration(pgCfg.ConnMaxIdleTime))
@@ -354,7 +354,7 @@ func mustBuildEngine(ctx context.Context, needsDiscoveryReader bool) (*replay.En
 		}
 	}
 
-	var aggFactory replay.AggregatorReaderFactory
+	var aggFactory backfill.AggregatorReaderFactory
 	if needsDiscoveryReader && len(cfg.Discoveries) > 0 {
 		disc := cfg.Discoveries[0]
 		aggFactory = func(since int64) (*readers.ResilientReader, error) {
@@ -366,7 +366,7 @@ func mustBuildEngine(ctx context.Context, needsDiscoveryReader bool) (*replay.En
 		}
 	}
 
-	engine := replay.NewEngine(replayStore, indexerStorage, verifierRegistry, aggFactory, lggr)
+	engine := backfill.NewEngine(backfillStore, indexerStorage, verifierRegistry, aggFactory, lggr)
 
 	cleanup := func() {
 		for _, c := range verifierCleanups {
@@ -377,7 +377,7 @@ func mustBuildEngine(ctx context.Context, needsDiscoveryReader bool) (*replay.En
 	return engine, cleanup
 }
 
-func mustBuildStore(ctx context.Context) *replay.Store {
+func mustBuildStore(ctx context.Context) *backfill.Store {
 	cfg := mustLoadConfig()
 	lggr := mustCreateLogger(cfg)
 
@@ -389,7 +389,7 @@ func mustBuildStore(ctx context.Context) *replay.Store {
 		LockTimeout:            time.Duration(pgCfg.LockTimeout) * time.Second,
 	}
 
-	store, err := replay.NewStoreFromConfig(ctx, lggr, pgCfg.URI, dbConfig, time.Duration(pgCfg.ConnMaxLifetime), time.Duration(pgCfg.ConnMaxIdleTime))
+	store, err := backfill.NewStoreFromConfig(ctx, lggr, pgCfg.URI, dbConfig, time.Duration(pgCfg.ConnMaxLifetime), time.Duration(pgCfg.ConnMaxIdleTime))
 	if err != nil {
 		lggr.Fatalf("Failed to create store: %v", err)
 	}
@@ -415,7 +415,7 @@ func mustCreateLogger(cfg *config.Config) logger.Logger {
 		fmt.Fprintf(os.Stderr, "Failed to create logger: %v\n", err)
 		os.Exit(1)
 	}
-	return logger.Named(logger.Sugared(lggr), "indexer-replay")
+	return logger.Named(logger.Sugared(lggr), "indexer-backfill")
 }
 
 func createVerifierReader(ctx context.Context, lggr logger.Logger, vc *config.VerifierConfig, mon common.IndexerMonitoring) (*readers.VerifierReader, func(), error) {

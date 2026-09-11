@@ -12,7 +12,7 @@ COPY . .
 RUN --mount=type=cache,target=/root/.cache/go-build,id=ccv-go-build \
     --mount=type=cache,target=/go/pkg/mod,id=ccv-go-mod \
     cd indexer && CGO_ENABLED=0 go build -ldflags='-s -w' -o /bin/indexer cmd/main.go && \
-    CGO_ENABLED=0 go build -ldflags='-s -w' -o /bin/indexer-replay cmd/replay/main.go
+    CGO_ENABLED=0 go build -ldflags='-s -w' -o /bin/indexer-backfill cmd/backfill/main.go
 
 FROM alpine:3.23
 RUN apk --no-cache add ca-certificates
@@ -21,7 +21,7 @@ RUN apk --no-cache add ca-certificates
 RUN addgroup -S indexer && adduser -S indexer -G indexer
 
 COPY --chown=indexer:indexer --from=builder /bin/indexer /bin/
-COPY --chown=indexer:indexer --from=builder /bin/indexer-replay /bin/
+COPY --chown=indexer:indexer --from=builder /bin/indexer-backfill /bin/
 COPY --chown=indexer:indexer --from=builder /app/indexer/migrations ./migrations
 USER indexer:indexer
 CMD ["/bin/indexer"]

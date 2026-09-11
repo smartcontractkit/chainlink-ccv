@@ -1,4 +1,4 @@
-package replay
+package backfill
 
 import (
 	"crypto/sha256"
@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// Type distinguishes between the two replay modes.
+// Type distinguishes between the two backfill modes.
 type Type string
 
 const (
@@ -22,11 +22,11 @@ func ParseType(s string) (Type, error) {
 	case TypeDiscovery, TypeMessages:
 		return Type(s), nil
 	default:
-		return "", errors.New("unknown replay type: " + s)
+		return "", errors.New("unknown backfill type: " + s)
 	}
 }
 
-// Status tracks the lifecycle of a replay job.
+// Status tracks the lifecycle of a backfill job.
 type Status string
 
 const (
@@ -41,11 +41,11 @@ func ParseStatus(s string) (Status, error) {
 	case StatusPending, StatusRunning, StatusCompleted, StatusFailed:
 		return Status(s), nil
 	default:
-		return "", errors.New("unknown replay status: " + s)
+		return "", errors.New("unknown backfill status: " + s)
 	}
 }
 
-// Job represents a persisted replay job stored in the replay_jobs table.
+// Job represents a persisted backfill job stored in the replay_jobs table.
 type Job struct {
 	ID             string `json:"id"`
 	Type           Type   `json:"type"`
@@ -53,10 +53,10 @@ type Job struct {
 	ForceOverwrite bool   `json:"forceOverwrite"`
 	RequestHash    string `json:"requestHash"`
 
-	// Discovery replay params
+	// Discovery backfill params
 	SinceSequenceNumber *int64 `json:"sinceSequenceNumber,omitempty"`
 
-	// Message replay params
+	// Message backfill params
 	MessageIDs []string `json:"messageIds,omitempty"`
 
 	// Progress tracking
@@ -73,7 +73,7 @@ type Job struct {
 	CompletedAt  *time.Time `json:"completedAt,omitempty"`
 }
 
-// Request is the input to start a new replay.
+// Request is the input to start a new backfill.
 type Request struct {
 	Type       Type
 	Since      int64
