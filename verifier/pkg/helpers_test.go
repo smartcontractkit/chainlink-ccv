@@ -353,7 +353,7 @@ func createTestMessageSentEvents(
 // Unlike NewCoordinator/NewCoordinatorWithDetector, it does not set initFn: all services (curse detector, source readers,
 // task verifier, storage writer, optional heartbeat) are built in the constructor. Start(ctx) therefore skips init
 // and only starts the already-constructed services. Use this for DB-backed tests that need responsive queue processing
-// without running deferred init (e.g. filterOnlyEnabledSourceReaders) at Start time.
+// without running deferred init (e.g. filterConfiguredSourceReaders) at Start time.
 func NewCoordinatorWithFastWakeup(
 	lggr logger.Logger,
 	verifier Verifier,
@@ -376,21 +376,21 @@ func NewCoordinatorWithFastWakeup(
 
 	lggr = logger.With(lggr, "verifierID", config.VerifierID)
 
-	enabledSourceReaders, err := filterOnlyEnabledSourceReaders(context.Background(), lggr, config, sourceReaders, chainStatusManager)
+	configuredSourceReaders, err := filterConfiguredSourceReaders(context.Background(), lggr, config, sourceReaders, chainStatusManager)
 	if err != nil {
-		return nil, fmt.Errorf("failed to filter enabled source readers: %w", err)
+		return nil, fmt.Errorf("failed to filter configured source readers: %w", err)
 	}
-	if len(enabledSourceReaders) == 0 {
-		return nil, errors.New("no enabled/initialized chain sources, nothing to coordinate")
+	if len(configuredSourceReaders) == 0 {
+		return nil, errors.New("no configured/initialized chain sources, nothing to coordinate")
 	}
 
-	curseDetector, err := createCurseDetector(lggr, config, nil, enabledSourceReaders, monitoring.Metrics())
+	curseDetector, err := createCurseDetector(lggr, config, nil, configuredSourceReaders, monitoring.Metrics())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create curse detector: %w", err)
 	}
 
 	dbSRS, taskVerifierProcessor, storageWriterProcessor, durableErr := createDurableProcessorsWithWakeupInterval(
-		lggr, ds, config, verifier, monitoring, enabledSourceReaders, chainStatusManager, curseDetector, messageTracker, storage, wakeupInterval,
+		lggr, ds, config, verifier, monitoring, configuredSourceReaders, chainStatusManager, curseDetector, messageTracker, storage, wakeupInterval,
 	)
 	if durableErr != nil {
 		return nil, durableErr
@@ -441,7 +441,7 @@ func createDurableProcessorsWithWakeupInterval(
 	config CoordinatorConfig,
 	verifier Verifier,
 	monitoring Monitoring,
-	enabledSourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
+	configuredSourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
 	chainStatusManager protocol.ChainStatusManager,
 	curseDetector common.CurseCheckerService,
 	messageTracker MessageLatencyTracker,
@@ -477,7 +477,7 @@ func createDurableProcessorsWithWakeupInterval(
 	}
 
 	sourceReadersDB, err := createSourceReadersDB(
-		lggr, config, chainStatusManager, curseDetector, monitoring, enabledSourceReaders, taskQueue, common.AllowAllMessagesChecker{},
+		lggr, config, chainStatusManager, curseDetector, monitoring, configuredSourceReaders, taskQueue, common.AllowAllMessagesChecker{},
 	)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to create DB source reader services: %w", err)
