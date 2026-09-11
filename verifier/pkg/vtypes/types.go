@@ -14,13 +14,21 @@ type VerificationTask struct {
 	MessageID                   string                     `json:"message_id"`
 	Message                     protocol.Message           `json:"message"`
 	TxHash                      protocol.ByteSlice         `json:"tx_hash"`
+	FeeToken                    protocol.UnknownAddress    `json:"fee_token,omitempty"`
+	SourceBlockTimestamp        time.Time                  `json:"source_block_timestamp,omitzero"` // Source-block time; zero when unavailable
 	BlockNumber                 uint64                     `json:"block_number"`                    // Block number when the message was included
 	FinalizedBlockAtRead        uint64                     `json:"finalized_block_at_read"`         // Finalized block number when the event was read from chain
 	FinalizedBlockAtReady       uint64                     `json:"finalized_block_at_ready"`        // Finalized block number when the message met its finality requirement (0 until it does)
 	ReadyForVerificationAt      time.Time                  `json:"ready_for_verification_at"`       // Block timestamp when message became ready for verification (for E2E latency)
 	PushedToVerificationQueueAt time.Time                  `json:"pushed_to_verification_queue_at"` // When pushed to task verifier queue (for verification queue latency)
-	TraceParent                 string                     `json:"traceparent,omitempty"`
-	TraceContext                context.Context            `json:"-"`
+	// AttemptCount is the queue's attempt_count for the job carrying this task, stamped at
+	// consume time so a verifier can grow its retry delay with each attempt. The value persisted
+	// in the queue's task_data is stale; only the copy set from the job row is meaningful.
+	// omitempty keeps it out of the enqueued payload entirely, so a stored task never carries a
+	// zero that reads as a real attempt count.
+	AttemptCount int             `json:"attempt_count,omitempty"`
+	TraceParent  string          `json:"traceparent,omitempty"`
+	TraceContext context.Context `json:"-"`
 }
 
 // JobKey implements jobqueue.Jobable interface.
@@ -54,10 +62,16 @@ type CoordinatorConfig struct {
 	VerifierID          string                                  `json:"verifier_id"`
 	StorageBatchSize    int                                     `json:"storage_batch_size"`    // Maximum number of CCVData items to batch before writing to storage (default: 50)
 	StorageBatchTimeout time.Duration                           `json:"storage_batch_timeout"` // Maximum duration to wait before flushing incomplete storage batch (default: 100ms)
-	StorageRetryDelay   time.Duration                           `json:"storage_retry_delay"`   // Delay before retrying failed storage writes (default: 2s)
-	CursePollInterval   time.Duration                           `json:"curse_poll_interval"`   // How often to poll RMN Remote contracts for curse status (default: 10s)
-	CurseRPCTimeout     time.Duration                           `json:"curse_rpc_timeout"`     // Timeout for each RMN RPC call (default: 5s)
-	HeartbeatInterval   time.Duration                           `json:"heartbeat_interval"`    // How often to send heartbeat to aggregator (default: 10s, 0 disables heartbeat)
+	StorageRetryDelay   time.Duration                           `json:"storage_retry_delay"`   // Base delay before retrying a failed storage write, doubled each attempt by StorageBackoffFactor (default: 2s)
+	// StorageBackoffFactor is the exponential multiplier applied to StorageRetryDelay on each
+	// successive failed write attempt (default: 2). A value below 2 disables backoff growth.
+	StorageBackoffFactor int `json:"storage_backoff_factor"`
+	// StorageBackoffMax caps the truncated exponential backoff so failed storage writes do
+	// not space out unbounded (default: 1m).
+	StorageBackoffMax time.Duration `json:"storage_backoff_max"`
+	CursePollInterval time.Duration `json:"curse_poll_interval"` // How often to poll RMN Remote contracts for curse status (default: 10s)
+	CurseRPCTimeout   time.Duration `json:"curse_rpc_timeout"`   // Timeout for each RMN RPC call (default: 5s)
+	HeartbeatInterval time.Duration `json:"heartbeat_interval"`  // How often to send heartbeat to aggregator (default: 10s, 0 disables heartbeat)
 	// ChainStatusFlushInterval is how often buffered chain statuses are written to
 	// the database (default: 30s). A disabled status is always written immediately.
 	ChainStatusFlushInterval time.Duration `json:"chain_status_flush_interval"`

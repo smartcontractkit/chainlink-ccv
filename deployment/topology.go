@@ -91,6 +91,10 @@ type NOPConfig struct {
 	// this NOP receives. It is per-NOP because the endpoint is the operator's own: two NOPs in
 	// the same committee run different policies, or one runs none. Omit it to leave the NOP's
 	// verifier ungated.
+	//
+	// Supported on a NOP in "standalone" mode only. A verifier running inside a Chainlink node
+	// rejects the section at startup, so ApplyVerifierConfig refuses to build a spec for a
+	// "cl"-mode NOP that sets it.
 	PolicyHook *policy.Config `toml:"policy_hook,omitempty"`
 }
 

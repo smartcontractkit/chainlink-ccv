@@ -9,11 +9,11 @@
 | **dest\_blob** | **String** | The destination-chain execution blob. | [default to null] |
 | **dest\_chain\_selector** | **String** | CCIP selector of the destination chain, as a decimal string. See the schema description for why this is not a JSON number. | [default to null] |
 | **execution\_gas\_limit** | **Integer** | Gas limit reserved for execution on the destination chain. | [default to null] |
-| **finality** | **Integer** | The encoded finality requirement of the message. The low 16 bits are a block-confirmation depth; the high bits are flags. | [default to null] |
-| **off\_ramp\_address** | **String** | Destination-chain offRamp that will deliver the message. | [default to null] |
-| **on\_ramp\_address** | **String** | Source-chain onRamp that emitted the message. | [default to null] |
-| **receiver** | **String** | Destination-chain account that will receive the message. | [default to null] |
-| **sender** | **String** | Source-chain account that sent the message. | [default to null] |
+| **finality** | [**Finality**](Finality.md) |  | [default to null] |
+| **off\_ramp\_address** | **String** | Destination-chain offRamp that will deliver the message. Addresses are lowercase 0x-prefixed hex, left-padded to at least 32 bytes; longer addresses retain all bytes and leading zeros. An empty address is \&quot;0x\&quot;. | [default to null] |
+| **on\_ramp\_address** | **String** | Source-chain onRamp that emitted the message. Addresses are lowercase 0x-prefixed hex, left-padded to at least 32 bytes; longer addresses retain all bytes and leading zeros. An empty address is \&quot;0x\&quot;. | [default to null] |
+| **receiver** | **String** | Destination-chain account that will receive the message. Addresses are lowercase 0x-prefixed hex, left-padded to at least 32 bytes; longer addresses retain all bytes and leading zeros. An empty address is \&quot;0x\&quot;. | [default to null] |
+| **sender** | **String** | Source-chain account that sent the message; this may be an application contract rather than an end user. Addresses are lowercase 0x-prefixed hex, left-padded to at least 32 bytes; longer addresses retain all bytes and leading zeros. An empty address is \&quot;0x\&quot;. | [default to null] |
 | **sequence\_number** | **Long** | Per-lane sequence number of the message. | [default to null] |
 | **source\_chain\_selector** | **String** | CCIP selector of the source chain, as a decimal string. See the schema description for why this is not a JSON number. | [default to null] |
 | **token\_transfer** | [**TokenTransfer**](TokenTransfer.md) |  | [optional] [default to null] |

@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.6.0](https://github.com/smartcontractkit/chainlink-ccv/compare/build/devenv/v0.5.0...build/devenv/v0.6.0) (2026-09-09)
+
+
+### ⚠ BREAKING CHANGES
+
+* Add GCP support ([#1410](https://github.com/smartcontractkit/chainlink-ccv/issues/1410))
+* **devenv:** declarative token pairing ([#1405](https://github.com/smartcontractkit/chainlink-ccv/issues/1405))
+
+### Features
+
+* Add GCP support ([#1410](https://github.com/smartcontractkit/chainlink-ccv/issues/1410)) ([b84dbed](https://github.com/smartcontractkit/chainlink-ccv/commit/b84dbed0c9e95663dd93e3ea10cbe92f421cf775))
+* **devenv:** declarative token pairing ([#1405](https://github.com/smartcontractkit/chainlink-ccv/issues/1405)) ([0be567c](https://github.com/smartcontractkit/chainlink-ccv/commit/0be567ccfeb9aec4ce4a08dadcda01e0144d050f))
+* **devenv:** gas limit support + NewTokenCombinationFromRefs ([#1398](https://github.com/smartcontractkit/chainlink-ccv/issues/1398)) ([3c7d1ce](https://github.com/smartcontractkit/chainlink-ccv/commit/3c7d1cef9c36bc4da75d251db7dcf6e9ffbb552a))
+* remove configure lombard evm dependency ([#1394](https://github.com/smartcontractkit/chainlink-ccv/issues/1394)) ([14a9d8b](https://github.com/smartcontractkit/chainlink-ccv/commit/14a9d8ba943c707baedb50c3faf63a42e450bba8))
+* **verifier:** policy hooks ([#1380](https://github.com/smartcontractkit/chainlink-ccv/issues/1380)) ([039ff50](https://github.com/smartcontractkit/chainlink-ccv/commit/039ff507b30c5d31a32f8745f5a82f4efca392ad))
+
+
+### Bug Fixes
+
+* **deps:** bump chain-selectors ([#1425](https://github.com/smartcontractkit/chainlink-ccv/issues/1425)) ([ec06fe4](https://github.com/smartcontractkit/chainlink-ccv/commit/ec06fe497cd2991aa854c178bddeeeaff4311226))
+
 ## [0.5.0](https://github.com/smartcontractkit/chainlink-ccv/compare/build/devenv/v0.4.0...build/devenv/v0.5.0) (2026-08-31)
 
 

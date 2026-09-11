@@ -229,6 +229,10 @@ type Config struct {
 	// default) leaves the verifier behaving exactly as it did before the hook existed; the
 	// section is omitted from marshaled job specs when unset, so specs are unchanged for a
 	// verifier that does not use it.
+	// Supported on the standalone verifier only. The endpoint credential is resolved from the
+	// verifier secrets file, which a verifier running inside a Chainlink node does not have, so
+	// that entry point rejects this section at startup instead of calling the endpoint
+	// unauthenticated.
 	PolicyHook *policy.Config `toml:"policy_hook,omitempty"`
 
 	// CommitteeConfig that is needed by the SourceReader and the application.
