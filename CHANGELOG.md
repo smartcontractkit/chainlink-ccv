@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.12.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.11.0...v0.12.0) (2026-09-11)
+
+
+### ⚠ BREAKING CHANGES
+
+* **verifier:** composable verifier gates via vtypes.Chain ([#1417](https://github.com/smartcontractkit/chainlink-ccv/issues/1417))
+
+### Features
+
+* **hooks:** policy hook followups ([#1437](https://github.com/smartcontractkit/chainlink-ccv/issues/1437)) ([1703932](https://github.com/smartcontractkit/chainlink-ccv/commit/1703932e82679ca01afad527788d6e6fa5d08810))
+
+
+### Bug Fixes
+
+* **verifier:** grow policy hook retry delay with attempt count ([#1416](https://github.com/smartcontractkit/chainlink-ccv/issues/1416)) ([dd536f0](https://github.com/smartcontractkit/chainlink-ccv/commit/dd536f08756ef37aef0a354bba9677f0775bce36))
+* **verifier:** option to disable finality checker in token verifier ([#1438](https://github.com/smartcontractkit/chainlink-ccv/issues/1438)) ([554fc9a](https://github.com/smartcontractkit/chainlink-ccv/commit/554fc9ab0becaa17f63c05ddd37f0dc25cba14c9))
+
+
+### Code Refactoring
+
+* **verifier:** composable verifier gates via vtypes.Chain ([#1417](https://github.com/smartcontractkit/chainlink-ccv/issues/1417)) ([f920c80](https://github.com/smartcontractkit/chainlink-ccv/commit/f920c808e0ba7c886ca07aec50d3013dc360381b))
+
 ## [0.11.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.10.1...v0.11.0) (2026-09-09)
 
 
