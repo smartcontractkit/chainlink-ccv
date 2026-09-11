@@ -48,6 +48,12 @@ approaching the retention cutoff. Existing message transition and failure counte
 events, not the current archive inventory: retries, reschedules, later recovery, and retention
 deletions prevent using those counters as a count of messages available to replay.
 
+The Verifier Archive Inventory dashboard reports retained failed jobs by queue, owner, source
+chain and bounded failure category, and warns from 23 days of archive age, seven days before a
+row becomes eligible for deletion. Collection runs once a minute; check its success and freshness
+before reading the inventory, since a failed collection is not an empty archive. See the
+[monitoring reference and provisionable alerts](../monitoring/verifier-archive-inventory.md).
+
 Check `job-queue list` (step 3) for the retained rows, their `Last Error`, and `Archived At`
 before planning around reschedule. Even an archive row is only a recovery candidate: it can
 refer to a message already attested by another path, or collide with an active job. Archive
