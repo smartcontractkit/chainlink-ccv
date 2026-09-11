@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.7.0](https://github.com/smartcontractkit/chainlink-ccv/compare/build/devenv/v0.6.0...build/devenv/v0.7.0) (2026-09-11)
+
+
+### ⚠ BREAKING CHANGES
+
+* **verifier:** composable verifier gates via vtypes.Chain ([#1417](https://github.com/smartcontractkit/chainlink-ccv/issues/1417))
+
+### Code Refactoring
+
+* **verifier:** composable verifier gates via vtypes.Chain ([#1417](https://github.com/smartcontractkit/chainlink-ccv/issues/1417)) ([f920c80](https://github.com/smartcontractkit/chainlink-ccv/commit/f920c808e0ba7c886ca07aec50d3013dc360381b))
+
 ## [0.6.0](https://github.com/smartcontractkit/chainlink-ccv/compare/build/devenv/v0.5.0...build/devenv/v0.6.0) (2026-09-09)
 
 
