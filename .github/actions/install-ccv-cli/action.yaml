@@ -1,0 +1,26 @@
+name: Install ccv CLI
+description: >-
+  Download the prebuilt ccv CLI artifact and add it to PATH so E2E matrix jobs
+  avoid recompiling it.
+
+inputs:
+  artifact-name:
+    description: Name of the ccv CLI artifact to download
+    required: false
+    default: ccv-cli
+
+runs:
+  using: composite
+  steps:
+    - name: Download ccv CLI
+      uses: actions/download-artifact@v4
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: ${{ runner.temp }}/ccv-bin
+
+    - name: Add ccv CLI to PATH
+      shell: bash
+      run: |
+        set -euo pipefail
+        chmod +x "$RUNNER_TEMP/ccv-bin/ccv"
+        echo "$RUNNER_TEMP/ccv-bin" >> "$GITHUB_PATH"
