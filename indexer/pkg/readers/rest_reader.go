@@ -37,6 +37,7 @@ type RestReaderConfig struct {
 	HTTPClient       *http.Client                // Custom HTTP client (optional)
 	Logger           logger.Logger               // Logger instance (required)
 	Metrics          common.IndexerMetricLabeler // Metrics instance (required)
+	Resilience       ResilienceConfig            // Resilience policies (zero values use defaults)
 }
 
 type restReader struct {
@@ -68,7 +69,7 @@ func NewRestReader(config RestReaderConfig) *ResilientReader {
 		m:                config.Metrics,
 	}
 
-	return NewResilientReader(NewObservedReader(underlying, nil, config.Metrics), config.Logger, DefaultResilienceConfig())
+	return NewResilientReader(NewObservedReader(underlying, nil, config.Metrics), config.Logger, config.Resilience)
 }
 
 func (r *restReader) GetVerifications(ctx context.Context, messageIDs []protocol.Bytes32) (map[protocol.Bytes32]protocol.VerifierResult, error) {

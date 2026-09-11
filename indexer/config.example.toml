@@ -52,3 +52,15 @@ LockTimeout = 30
 [API]
 [API.RateLimit]
 Enabled = false
+
+[Resilience]
+MaxRequestsPerSecond = 5
+MaxConcurrentRequests = 5
+FailureThreshold = 5
+SuccessThreshold = 3
+CircuitBreakerDelay = "3s"
+CircuitBreakerTimeout = "1s"
+RequestTimeout = "10s"
+MaxRetries = 3
+RetryDelay = "1s"
+RetryMaxDelay = "10s"

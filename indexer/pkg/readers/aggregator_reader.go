@@ -11,18 +11,17 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-func NewAggregatorReader(address string, lggr logger.Logger, since int64, hmacConfig hmac.ClientConfig, insecure bool, maxRecvMsgSizeBytes int, m common.IndexerMetricLabeler) (*ResilientReader, error) {
+func NewAggregatorReader(address string, lggr logger.Logger, since int64, hmacConfig hmac.ClientConfig, insecure bool, maxRecvMsgSizeBytes int, m common.IndexerMetricLabeler, resiConfig ResilienceConfig) (*ResilientReader, error) {
 	reader, err := storageaccess.NewAggregatorReader(address, lggr, since, &hmacConfig, insecure, maxRecvMsgSizeBytes, grpcClientDialOptions(m)...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create aggregator reader: %w", err)
 	}
 	observed := NewObservedReader(reader, reader, m)
 
-	config := DefaultResilienceConfig()
-	config.DiscoveryRetryPolicyErrorHandler = aggregatorRetryPolicyErrorHandler
-	config.DiscoveryCircuitBreakerErrorHandler = aggregatorRetryPolicyErrorHandler
+	resiConfig.DiscoveryRetryPolicyErrorHandler = aggregatorRetryPolicyErrorHandler
+	resiConfig.DiscoveryCircuitBreakerErrorHandler = aggregatorRetryPolicyErrorHandler
 
-	return NewResilientReader(observed, lggr, config), nil
+	return NewResilientReader(observed, lggr, resiConfig), nil
 }
 
 // aggregatorRetryPolicyErrorHandler determines if an error from the aggregator should be retried.
