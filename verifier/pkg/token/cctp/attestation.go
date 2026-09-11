@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/mr-tron/base58"
+
+	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -97,7 +100,12 @@ func (h *HTTPAttestationService) Fetch(
 		return Attestation{}, fmt.Errorf("unsupported source chain selector: %d", message.SourceChainSelector)
 	}
 
-	response, err := h.client.GetMessages(ctx, sourceDomain, txHash.String())
+	encodedTxHash, err := encodeTxHash(message.SourceChainSelector, txHash)
+	if err != nil {
+		return Attestation{}, err
+	}
+
+	response, err := h.client.GetMessages(ctx, sourceDomain, encodedTxHash)
 	if err != nil {
 		return Attestation{}, fmt.Errorf(
 			"error fetching messages for chain selector %d and tx hash %s: %s",
@@ -143,7 +151,7 @@ func cctpMatchesMessage(
 		return fmt.Errorf("no CCV address configured for source chain selector: %s", ccipMessage.SourceChainSelector)
 	}
 
-	senderAddress, err := protocol.NewUnknownAddressFromHex(cctpMessage.DecodedMessage.DecodedMessageBody.MessageSender)
+	senderAddress, err := decodeAddress(ccipMessage.SourceChainSelector, cctpMessage.DecodedMessage.DecodedMessageBody.MessageSender)
 	if err != nil {
 		return fmt.Errorf("invalid sender address: %w", err)
 	}
@@ -164,4 +172,40 @@ func cctpMatchesMessage(
 		return fmt.Errorf("hook data mismatch: expected %s, got %s", expectedHookData.String(), actualHookData.String())
 	}
 	return nil
+}
+
+// TODO: inject a per-family address codec into HTTPAttestationService instead of
+// branching on the chain family here. Circle encodes each address in the native format of the
+// chain it belongs to, so both the request and the response need the source chain's codec. The
+// switch below covers the families CCTP supports today; every new non-EVM family needs another
+// branch until the codec is injected.
+
+// encodeTxHash renders a transaction hash in the format Circle's API expects for the source chain.
+// Solana signatures are base58; every other family uses 0x-prefixed hex.
+func encodeTxHash(selector protocol.ChainSelector, txHash protocol.ByteSlice) (string, error) {
+	family, err := chainsel.GetSelectorFamily(uint64(selector))
+	if err != nil {
+		return "", fmt.Errorf("resolve chain family for selector %d: %w", selector, err)
+	}
+	if family == chainsel.FamilySolana {
+		return base58.Encode(txHash), nil
+	}
+	return txHash.String(), nil
+}
+
+// decodeAddress parses an address that Circle returned for the given source chain. Solana
+// addresses come back base58, every other family as 0x-prefixed hex.
+func decodeAddress(selector protocol.ChainSelector, address string) (protocol.UnknownAddress, error) {
+	family, err := chainsel.GetSelectorFamily(uint64(selector))
+	if err != nil {
+		return nil, fmt.Errorf("resolve chain family for selector %d: %w", selector, err)
+	}
+	if family == chainsel.FamilySolana {
+		decoded, derr := base58.Decode(address)
+		if derr != nil {
+			return nil, fmt.Errorf("invalid base58 address %q: %w", address, derr)
+		}
+		return protocol.UnknownAddress(decoded), nil
+	}
+	return protocol.NewUnknownAddressFromHex(address)
 }

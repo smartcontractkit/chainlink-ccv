@@ -4,6 +4,11 @@
 # pyroscope_url is the Pyroscope server URL for continuous profiling; empty disables it.
 pyroscope_url = ""
 
+# disable_finality_checkers lists chain selectors, as strings, whose finality violation checker
+# is disabled. Solana needs it: a skipped slot has no block, which the checker reports as a
+# missing block header. Mirrors commit.Config.DisableFinalityCheckers.
+disable_finality_checkers = []
+
 # token_verifiers is a list of token verifier configurations. Each entry defines a token verifier instance with its own type, version and configuration.
 [[token_verifiers]]
   # verifier_id is the unique identifier for this token verifier instance.
