@@ -30,3 +30,6 @@ coverage.out
 **/.venv/
 **/__pycache__/
 **/*.pyc
+
+# Rust build artifacts
+rust/target/

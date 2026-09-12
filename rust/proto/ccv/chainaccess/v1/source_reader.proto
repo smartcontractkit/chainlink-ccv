@@ -1,0 +1,96 @@
+syntax = "proto3";
+
+package ccv.chainaccess.v1;
+
+option go_package = "github.com/smartcontractkit/chainlink-ccv/rust/grpc-client-go/pb/ccv/chainaccess/v1;pb";
+
+// SourceReader mirrors the Go chainaccess.SourceReader interface
+// (pkg/chainaccess/interfaces.go): CCIP message-event reading, block-header
+// access, head tracking, and RMN curse state for a single chain.
+//
+// Implementations are stateless and hold no persistent state; persistence lives
+// above this interface (in the verifier service). A server can be shut down
+// without notice without getting into a bad state.
+service SourceReader {
+  // Returns MessageSentEvents in [from_block, to_block].
+  // Absent to_block queries up to the latest block.
+  rpc FetchMessageSentEvents(FetchMessageSentEventsRequest) returns (FetchMessageSentEventsResponse);
+  // Batch block-header lookup. Blocks that are missing or fail to load are
+  // omitted from the map; callers must check completeness.
+  rpc GetBlocksHeaders(GetBlocksHeadersRequest) returns (GetBlocksHeadersResponse);
+  // Latest and finalized block headers.
+  rpc LatestAndFinalizedBlock(LatestAndFinalizedBlockRequest) returns (LatestAndFinalizedBlockResponse);
+  // Latest safe block header. Absent (no error) when the chain does not
+  // support the safe tag.
+  rpc LatestSafeBlock(LatestSafeBlockRequest) returns (LatestSafeBlockResponse);
+  // Cursed subjects from the RMN Remote contract (global curse constant or
+  // chain selectors), each exactly 16 bytes.
+  rpc GetRMNCursedSubjects(GetRMNCursedSubjectsRequest) returns (GetRMNCursedSubjectsResponse);
+}
+
+// BlockHeader mirrors protocol.BlockHeader. Hash fields are exactly 32 bytes.
+// Timestamp is unix seconds.
+message BlockHeader {
+  uint64 number = 1;
+  bytes hash = 2;
+  bytes parent_hash = 3;
+  uint64 timestamp = 4;
+}
+
+// ReceiptWithBlob mirrors protocol.ReceiptWithBlob.
+message ReceiptWithBlob {
+  bytes issuer = 1;             // chain-family address bytes (20 for EVM)
+  bytes blob = 2;
+  bytes extra_args = 3;
+  uint64 dest_gas_limit = 4;
+  uint32 dest_bytes_overhead = 5;
+  bytes fee_token_amount = 6;   // uint256 as 32-byte big-endian
+}
+
+// MessageSentEvent mirrors protocol.MessageSentEvent. The message itself is
+// transported in its canonical CCIP v1.7 encoding: decode it with
+// protocol.DecodeMessage on the Go side or ccv_protocol::Message::decode in
+// Rust. This keeps the wire format exactly as expressive as the Go type.
+message MessageSentEvent {
+  bytes message_id = 1;         // 32 bytes
+  bytes encoded_message = 2;    // canonical encoding of protocol.Message
+  repeated ReceiptWithBlob receipts = 3;
+  uint64 block_number = 4;
+  bytes tx_hash = 5;            // 32 bytes
+}
+
+message FetchMessageSentEventsRequest {
+  uint64 from_block = 1;
+  optional uint64 to_block = 2; // absent: query up to the latest block
+}
+
+message FetchMessageSentEventsResponse {
+  repeated MessageSentEvent events = 1;
+}
+
+message GetBlocksHeadersRequest {
+  repeated uint64 block_numbers = 1;
+}
+
+message GetBlocksHeadersResponse {
+  map<uint64, BlockHeader> headers = 1;
+}
+
+message LatestAndFinalizedBlockRequest {}
+
+message LatestAndFinalizedBlockResponse {
+  BlockHeader latest = 1;
+  BlockHeader finalized = 2;
+}
+
+message LatestSafeBlockRequest {}
+
+message LatestSafeBlockResponse {
+  optional BlockHeader safe = 1; // absent when the chain lacks the safe tag
+}
+
+message GetRMNCursedSubjectsRequest {}
+
+message GetRMNCursedSubjectsResponse {
+  repeated bytes subjects = 1; // each exactly 16 bytes (protocol.Bytes16)
+}
