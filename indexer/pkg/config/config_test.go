@@ -235,6 +235,62 @@ func TestConfig_Validate_MergeBufferSize(t *testing.T) {
 	})
 }
 
+func TestResilienceConfigValidate_RetryDelays(t *testing.T) {
+	tests := []struct {
+		name          string
+		retryDelay    common.Duration
+		retryMaxDelay common.Duration
+		wantErr       bool
+		errSub        string
+	}{
+		{"max delay equal to delay passes", common.Duration(time.Second), common.Duration(time.Second), false, ""},
+		{"max delay below delay returns error", common.Duration(10 * time.Second), common.Duration(time.Second), true, "retry max delay (1s) must be at least retry delay (10s)"},
+		{"delay above default max delay returns error", common.Duration(15 * time.Second), 0, true, "retry max delay (10s) must be at least retry delay (15s)"},
+		{"max delay below default delay returns error", 0, common.Duration(500 * time.Millisecond), true, "retry max delay (500ms) must be at least retry delay (1s)"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := ResilienceConfig{RetryDelay: tt.retryDelay, RetryMaxDelay: tt.retryMaxDelay}
+			err := cfg.Validate()
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errSub)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestResilienceConfigValidateDefaults(t *testing.T) {
+	t.Run("zero values are replaced with defaults", func(t *testing.T) {
+		cfg := ResilienceConfig{}
+		require.NoError(t, cfg.Validate())
+		assert.Equal(t, DefaultResilienceConfig(), cfg)
+	})
+
+	t.Run("negative values are replaced with defaults", func(t *testing.T) {
+		cfg := ResilienceConfig{
+			RetryDelay:    common.Duration(-time.Second),
+			RetryMaxDelay: common.Duration(-10 * time.Second),
+		}
+		require.NoError(t, cfg.Validate())
+		assert.Equal(t, DefaultResilienceConfig(), cfg)
+	})
+
+	t.Run("set values are kept and unset values defaulted", func(t *testing.T) {
+		cfg := ResilienceConfig{
+			MaxRequestsPerSecond: 100,
+			RequestTimeout:       common.Duration(30 * time.Second),
+		}
+		require.NoError(t, cfg.Validate())
+		expected := DefaultResilienceConfig()
+		expected.MaxRequestsPerSecond = 100
+		expected.RequestTimeout = common.Duration(30 * time.Second)
+		assert.Equal(t, expected, cfg)
+	})
+}
+
 func validPostgresConfig() *PostgresConfig {
 	return &PostgresConfig{
 		URI:                    "postgresql://user:pass@localhost:5432/db?sslmode=disable",

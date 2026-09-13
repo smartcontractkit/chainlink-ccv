@@ -35,7 +35,6 @@ type ResilienceConfig struct {
 	FailureThreshold      uint32
 	SuccessThreshold      uint32
 	CircuitBreakerDelay   time.Duration
-	CircuitBreakerTimeout time.Duration
 	RequestTimeout        time.Duration
 	MaxConcurrentRequests uint
 	MaxRequestsPerSecond  uint
@@ -46,55 +45,24 @@ type ResilienceConfig struct {
 
 // DefaultResilienceConfig returns a configuration with sensible defaults.
 func DefaultResilienceConfig() ResilienceConfig {
-	return ResilienceConfig{
-		FailureThreshold:      5,
-		SuccessThreshold:      3,
-		CircuitBreakerDelay:   3 * time.Second,
-		CircuitBreakerTimeout: 1 * time.Second,
-		RequestTimeout:        10 * time.Second,
-		MaxConcurrentRequests: 5,
-		MaxRequestsPerSecond:  5,
-		MaxRetries:            3,
-		RetryDelay:            1 * time.Second,
-		RetryMaxDelay:         10 * time.Second,
-	}
+	return NewResilienceConfig(config.DefaultResilienceConfig())
 }
 
 // NewResilienceConfig builds a readers.ResilienceConfig from the indexer's
-// config.ResilienceConfig, applying defaults for any zero-value fields.
+// config.ResilienceConfig. The input must be validated first; zero-value
+// fields are resolved to defaults by config.ResilienceConfig.Validate.
 func NewResilienceConfig(c config.ResilienceConfig) ResilienceConfig {
-	rc := DefaultResilienceConfig()
-	if c.MaxRequestsPerSecond > 0 {
-		rc.MaxRequestsPerSecond = c.MaxRequestsPerSecond
+	return ResilienceConfig{
+		FailureThreshold:      c.FailureThreshold,
+		SuccessThreshold:      c.SuccessThreshold,
+		CircuitBreakerDelay:   time.Duration(c.CircuitBreakerDelay),
+		RequestTimeout:        time.Duration(c.RequestTimeout),
+		MaxConcurrentRequests: c.MaxConcurrentRequests,
+		MaxRequestsPerSecond:  c.MaxRequestsPerSecond,
+		MaxRetries:            c.MaxRetries,
+		RetryDelay:            time.Duration(c.RetryDelay),
+		RetryMaxDelay:         time.Duration(c.RetryMaxDelay),
 	}
-	if c.MaxConcurrentRequests > 0 {
-		rc.MaxConcurrentRequests = c.MaxConcurrentRequests
-	}
-	if c.FailureThreshold > 0 {
-		rc.FailureThreshold = c.FailureThreshold
-	}
-	if c.SuccessThreshold > 0 {
-		rc.SuccessThreshold = c.SuccessThreshold
-	}
-	if c.CircuitBreakerDelay > 0 {
-		rc.CircuitBreakerDelay = time.Duration(c.CircuitBreakerDelay)
-	}
-	if c.CircuitBreakerTimeout > 0 {
-		rc.CircuitBreakerTimeout = time.Duration(c.CircuitBreakerTimeout)
-	}
-	if c.RequestTimeout > 0 {
-		rc.RequestTimeout = time.Duration(c.RequestTimeout)
-	}
-	if c.MaxRetries > 0 {
-		rc.MaxRetries = c.MaxRetries
-	}
-	if c.RetryDelay > 0 {
-		rc.RetryDelay = time.Duration(c.RetryDelay)
-	}
-	if c.RetryMaxDelay > 0 {
-		rc.RetryMaxDelay = time.Duration(c.RetryMaxDelay)
-	}
-	return rc
 }
 
 type executorPolicies[T any] struct {
@@ -179,6 +147,7 @@ func createPolicies[T any](config ResilienceConfig, lggr logger.Logger, name str
 			lggr.Warnw(name+" bulkhead is full", "max_concurrent_requests", config.MaxConcurrentRequests)
 		}).
 		Build()
+
 	to := timeout.NewBuilder[T](config.RequestTimeout).
 		OnTimeoutExceeded(func(failsafe.ExecutionDoneEvent[T]) {
 			lggr.Warnw(name+" request timeout exceeded", "timeout", config.RequestTimeout)
