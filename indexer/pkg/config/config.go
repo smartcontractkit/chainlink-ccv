@@ -1,6 +1,7 @@
 package config
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"os"
@@ -51,6 +52,56 @@ type Config struct {
 	Storage StorageConfig `toml:"Storage"`
 	// API is the configuration for the API inside the indexer.
 	API APIConfig `toml:"API"`
+	// Resilience configures the resilient reader policies (rate limiting, bulkheading,
+	// circuit breaker, and request timeouts).
+	Resilience ResilienceConfig `toml:"Resilience"`
+}
+
+// ResilienceConfig provides configuration for the resilient reader policies.
+// Zero values fall back to the defaults applied during Validate.
+type ResilienceConfig struct {
+	// MaxRequestsPerSecond is the maximum number of requests per second allowed per reader.
+	// 0 uses the default (5).
+	MaxRequestsPerSecond uint `toml:"MaxRequestsPerSecond"`
+	// MaxConcurrentRequests is the maximum number of concurrent requests allowed per reader.
+	// 0 uses the default (5).
+	MaxConcurrentRequests uint `toml:"MaxConcurrentRequests"`
+	// FailureThreshold is the number of consecutive failures that opens the circuit breaker.
+	// 0 uses the default (5).
+	FailureThreshold uint32 `toml:"FailureThreshold"`
+	// SuccessThreshold is the number of consecutive successes that closes the circuit breaker.
+	// 0 uses the default (3).
+	SuccessThreshold uint32 `toml:"SuccessThreshold"`
+	// CircuitBreakerDelay is how long the circuit breaker stays open before entering half-open.
+	// 0 uses the default (3s).
+	CircuitBreakerDelay common.Duration `toml:"CircuitBreakerDelay"`
+	// RequestTimeout is the per-request timeout.
+	// 0 uses the default (10s).
+	RequestTimeout common.Duration `toml:"RequestTimeout"`
+	// MaxRetries is the maximum number of retry attempts per request.
+	// 0 uses the default (3).
+	MaxRetries int `toml:"MaxRetries"`
+	// RetryDelay is the initial delay between retries, using exponential backoff.
+	// 0 uses the default (1s).
+	RetryDelay common.Duration `toml:"RetryDelay"`
+	// RetryMaxDelay is the maximum delay between retries.
+	// 0 uses the default (10s).
+	RetryMaxDelay common.Duration `toml:"RetryMaxDelay"`
+}
+
+// DefaultResilienceConfig returns the default resilience configuration.
+func DefaultResilienceConfig() ResilienceConfig {
+	return ResilienceConfig{
+		MaxRequestsPerSecond:  5,
+		MaxConcurrentRequests: 5,
+		FailureThreshold:      5,
+		SuccessThreshold:      3,
+		CircuitBreakerDelay:   common.Duration(3 * time.Second),
+		RequestTimeout:        common.Duration(10 * time.Second),
+		MaxRetries:            3,
+		RetryDelay:            common.Duration(time.Second),
+		RetryMaxDelay:         common.Duration(10 * time.Second),
+	}
 }
 
 type SchedulerConfig struct {
@@ -340,6 +391,10 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("monitoring config validation failed: %w", err)
 	}
 
+	if err := c.Resilience.Validate(); err != nil {
+		return fmt.Errorf("resilience config validation failed: %w", err)
+	}
+
 	return nil
 }
 
@@ -361,6 +416,34 @@ func (s *SchedulerConfig) Validate() error {
 	}
 
 	return nil
+}
+
+// Validate performs validation on the resilience configuration.
+// Zero or negative values are replaced with their defaults.
+func (r *ResilienceConfig) Validate() error {
+	def := DefaultResilienceConfig()
+	r.MaxRequestsPerSecond = defaultIfNotPositive(r.MaxRequestsPerSecond, def.MaxRequestsPerSecond)
+	r.MaxConcurrentRequests = defaultIfNotPositive(r.MaxConcurrentRequests, def.MaxConcurrentRequests)
+	r.FailureThreshold = defaultIfNotPositive(r.FailureThreshold, def.FailureThreshold)
+	r.SuccessThreshold = defaultIfNotPositive(r.SuccessThreshold, def.SuccessThreshold)
+	r.CircuitBreakerDelay = defaultIfNotPositive(r.CircuitBreakerDelay, def.CircuitBreakerDelay)
+	r.RequestTimeout = defaultIfNotPositive(r.RequestTimeout, def.RequestTimeout)
+	r.MaxRetries = defaultIfNotPositive(r.MaxRetries, def.MaxRetries)
+	r.RetryDelay = defaultIfNotPositive(r.RetryDelay, def.RetryDelay)
+	r.RetryMaxDelay = defaultIfNotPositive(r.RetryMaxDelay, def.RetryMaxDelay)
+	if r.RetryMaxDelay < r.RetryDelay {
+		return fmt.Errorf("retry max delay (%s) must be at least retry delay (%s)", r.RetryMaxDelay, r.RetryDelay)
+	}
+	return nil
+}
+
+// defaultIfNotPositive returns def when v is zero or negative.
+func defaultIfNotPositive[T cmp.Ordered](v, def T) T {
+	var zero T
+	if v <= zero {
+		return def
+	}
+	return v
 }
 
 // Validate performs validation on the storage configuration.
