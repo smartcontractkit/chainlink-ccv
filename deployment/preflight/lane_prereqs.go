@@ -64,9 +64,10 @@ func CheckLaneOffchainReadiness(
 		chainKey := strconv.FormatUint(selector, 10)
 
 		for _, qualifier := range committeeQualifiersCovering(topology, chainKey) {
-			chainCommittee := topology.NOPTopology.Committees[qualifier].ChainConfigs[chainKey]
+			committee := topology.NOPTopology.Committees[qualifier]
+			chainCommittee := committee.ChainConfigs[chainKey]
 			for _, alias := range chainCommittee.NOPAliases {
-				err := requireJob(jobs, shared.NOPAlias(alias), jobSuffixVerifier, qualifier, chainKey, ErrNoVerifierJob)
+				err := requireVerifierJob(jobs, shared.NOPAlias(alias), qualifier, committee.Aggregators, chainKey)
 				if err != nil {
 					return fmt.Errorf("chain %s committee %q: %w", chainKey, qualifier, err)
 				}
@@ -76,7 +77,11 @@ func CheckLaneOffchainReadiness(
 		for _, poolName := range executorPoolsCovering(topology, chainKey) {
 			chainPool := topology.ExecutorPools[poolName].ChainConfigs[chainKey]
 			for _, alias := range chainPool.NOPAliases {
-				err := requireJob(jobs, shared.NOPAlias(alias), jobSuffixExecutor, poolName, chainKey, ErrNoExecutorJob)
+				jobID := shared.NewExecutorJobID(
+					shared.NOPAlias(alias),
+					shared.ExecutorJobScope{ExecutorQualifier: poolName},
+				).ToJobID()
+				err := requireJob(jobs, shared.NOPAlias(alias), jobID, chainKey, ErrNoExecutorJob)
 				if err != nil {
 					return fmt.Errorf("chain %s executor pool %q: %w", chainKey, poolName, err)
 				}
@@ -87,46 +92,57 @@ func CheckLaneOffchainReadiness(
 	return nil
 }
 
-const (
-	jobSuffixVerifier = "verifier"
-	jobSuffixExecutor = "executor"
-)
-
-// requireJob finds the NOP's job for a qualifier and checks it is approved and covers the
-// chain. Job IDs are "<nop>-<qualifier>-<kind>", with an optional aggregator name in the
-// middle for per-aggregator verifier jobs, so they are matched on their parts rather than
-// reconstructed.
-func requireJob(
+// requireVerifierJob checks the NOP has an approved verifier job covering the chain.
+//
+// A committee either runs one consolidated job per NOP (writing to every aggregator) or one
+// job per aggregator. The consolidated job is preferred when present; otherwise every
+// per-aggregator job must be present and approved. Matching on the exact IDs avoids the
+// nondeterminism of scanning the job map, where a stale or rejected entry could otherwise
+// mask a missing or unapproved aggregator job.
+func requireVerifierJob(
 	jobs shared.NOPJobs,
 	alias shared.NOPAlias,
-	kind string,
 	qualifier string,
+	aggregators []ccipoffchain.AggregatorConfig,
 	chainKey string,
-	errMissing error,
 ) error {
-	var found *shared.JobInfo
-	for jobID, info := range jobs[alias] {
-		if jobMatches(string(jobID), kind, qualifier) {
-			found = &info
-			break
+	scope := shared.VerifierJobScope{CommitteeQualifier: qualifier}
+	consolidated := shared.NewConsolidatedVerifierJobID(alias, scope).ToJobID()
+	if _, ok := jobs[alias][consolidated]; ok {
+		return requireJob(jobs, alias, consolidated, chainKey, ErrNoVerifierJob)
+	}
+	if len(aggregators) == 0 {
+		return requireJob(jobs, alias, consolidated, chainKey, ErrNoVerifierJob)
+	}
+	for _, aggregator := range aggregators {
+		jobID := shared.NewVerifierJobID(alias, aggregator.Name, scope).ToJobID()
+		if err := requireJob(jobs, alias, jobID, chainKey, ErrNoVerifierJob); err != nil {
+			return err
 		}
-	}
-	if found == nil {
-		return fmt.Errorf("NOP %q: %w", alias, errMissing)
-	}
-	if !found.IsRunning() || found.LatestStatus() != shared.JobProposalStatusApproved {
-		return fmt.Errorf("NOP %q job %q status %q: %w",
-			alias, found.JobID, found.LatestStatus(), ErrJobNotApproved)
-	}
-	if !strings.Contains(found.Spec, chainKey) {
-		return fmt.Errorf("NOP %q job %q: %w", alias, found.JobID, ErrJobMissingChain)
 	}
 	return nil
 }
 
-// jobMatches reports whether a job ID belongs to the given kind and qualifier.
-func jobMatches(jobID, kind, qualifier string) bool {
-	return strings.HasSuffix(jobID, "-"+kind) && strings.Contains(jobID, "-"+qualifier+"-")
+// requireJob checks the NOP's job with the given ID is approved and covers the chain.
+func requireJob(
+	jobs shared.NOPJobs,
+	alias shared.NOPAlias,
+	jobID shared.JobID,
+	chainKey string,
+	errMissing error,
+) error {
+	info, ok := jobs[alias][jobID]
+	if !ok {
+		return fmt.Errorf("NOP %q: %w", alias, errMissing)
+	}
+	if !info.IsRunning() || info.LatestStatus() != shared.JobProposalStatusApproved {
+		return fmt.Errorf("NOP %q job %q status %q: %w",
+			alias, info.JobID, info.LatestStatus(), ErrJobNotApproved)
+	}
+	if !strings.Contains(info.Spec, chainKey) {
+		return fmt.Errorf("NOP %q job %q: %w", alias, info.JobID, ErrJobMissingChain)
+	}
+	return nil
 }
 
 // committeeQualifiersCovering returns, sorted, the committees whose chain_configs include the chain.

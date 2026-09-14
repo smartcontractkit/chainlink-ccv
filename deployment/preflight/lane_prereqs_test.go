@@ -176,3 +176,67 @@ func TestCheckLaneOffchainReadiness_ChainNotInTopology(t *testing.T) {
 	err := preflight.CheckLaneOffchainReadiness(ds, topologyFor(), []uint64{99})
 	require.NoError(t, err)
 }
+
+// topologyWithAggregators covers both lane chains in one committee with two aggregators.
+func topologyWithAggregators() *ccipoffchain.EnvironmentTopology {
+	topology := topologyFor()
+	committee := topology.NOPTopology.Committees[committeeQ]
+	committee.Aggregators = []ccipoffchain.AggregatorConfig{
+		{Name: "agg-1", Address: "http://aggregator-1:8080"},
+		{Name: "agg-2", Address: "http://aggregator-2:8080"},
+	}
+	topology.NOPTopology.Committees[committeeQ] = committee
+	return topology
+}
+
+func TestCheckLaneOffchainReadiness_PerAggregatorVerifierJobs(t *testing.T) {
+	executorJob := shared.JobID(fmt.Sprintf("%s-%s-executor", nopAlias, executorQ))
+	bothChains := verifierSpecFor(laneChain, remoteChain)
+	agg1Job := shared.JobID(fmt.Sprintf("%s-agg-1-%s-verifier", nopAlias, committeeQ))
+	agg2Job := shared.JobID(fmt.Sprintf("%s-agg-2-%s-verifier", nopAlias, committeeQ))
+
+	tests := []struct {
+		name    string
+		jobs    []shared.JobInfo
+		wantErr error
+	}{
+		{
+			name: "Success - every per-aggregator job approved",
+			jobs: []shared.JobInfo{
+				jobInfo(agg1Job, bothChains, shared.JobProposalStatusApproved),
+				jobInfo(agg2Job, bothChains, shared.JobProposalStatusApproved),
+				jobInfo(executorJob, bothChains, shared.JobProposalStatusApproved),
+			},
+		},
+		{
+			name: "Failure - one aggregator job missing",
+			jobs: []shared.JobInfo{
+				jobInfo(agg1Job, bothChains, shared.JobProposalStatusApproved),
+				jobInfo(executorJob, bothChains, shared.JobProposalStatusApproved),
+			},
+			wantErr: preflight.ErrNoVerifierJob,
+		},
+		{
+			name: "Failure - one aggregator job rejected",
+			jobs: []shared.JobInfo{
+				jobInfo(agg1Job, bothChains, shared.JobProposalStatusApproved),
+				jobInfo(agg2Job, bothChains, shared.JobProposalStatusRejected),
+				jobInfo(executorJob, bothChains, shared.JobProposalStatusApproved),
+			},
+			wantErr: preflight.ErrJobNotApproved,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := preflight.CheckLaneOffchainReadiness(
+				dataStoreWithJobs(t, tc.jobs...), topologyWithAggregators(), []uint64{laneChain},
+			)
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
