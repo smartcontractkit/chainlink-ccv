@@ -8,6 +8,14 @@ components:
           format: int64
           minimum: 0
           type: integer
+        fee_token:
+          description: 'Source-chain asset used to pay the message fees. Omitted when the source reader or an older queued task does not supply it. Addresses are lowercase 0x-prefixed hex, left-padded to at least 32 bytes; longer addresses retain all bytes and leading zeros. An empty address is "0x". A supplied all-zero address is preserved, including when it identifies a native fee asset.'
+          type: string
+        fee_token_amount:
+          description: 'Total fee in the fee asset''s smallest unit, as a decimal string. Sums all emitted receipt fees, including verifier, token, executor and network fees. Omitted when receipts or any receipt amount are unavailable; a known zero fee is "0".'
+          example: "1000000000000000"
+          pattern: "^[0-9]+$"
+          type: string
         finalized_block_number:
           description: The source chain's finalized head at the moment the message met its finality requirement. It is fixed at that point, so a message that is retried reports the head as of the original decision rather than the current one.
           format: int64
@@ -29,6 +37,11 @@ components:
           format: int64
           minimum: 0
           type: integer
+        source_block_timestamp:
+          description: The source block's timestamp in UTC (RFC 3339), when available from the source event or a matching block header already fetched by the verifier. Omitted when unavailable, including for older queued tasks. Never substitutes the discovery or finality time and does not require an additional RPC.
+          example: "2026-09-09T12:34:56Z"
+          format: date-time
+          type: string
         source_tx_hash:
           description: Identifier of the source-chain transaction that emitted the message. It is the raw identifier bytes the source chain reported, hex-encoded with an 0x prefix, whatever the chain family's own convention is - a 32-byte EVM transaction hash and a 64-byte Solana signature both arrive here as hex, not as the chain's native rendering. An endpoint that wants to show or query the native form (base58 for Solana, for example) re-encodes these bytes itself, using source_chain_selector to know which family it is looking at.
           example: "0x4c0f2a9b8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a3928170605f4e3"
@@ -71,6 +84,29 @@ components:
       required:
         - decision
       type: object
+    Finality:
+      description: The decoded finality requirement as applied by the verifier. This is the requested requirement, not the observed confirmation depth in EvaluateRequest.block_depth. Unsupported flags or flag/depth combinations fall back to full finality.
+      properties:
+        block_depth:
+          description: Required block confirmations when mode is blockDepth, capped by full finality. Zero when mode is finalized.
+          format: int32
+          minimum: 0
+          maximum: 65535
+          type: integer
+        mode:
+          description: blockDepth waits for the requested confirmations or full finality, whichever comes first. finalized waits for the finalized head, or the safe head when safe is true.
+          enum:
+            - blockDepth
+            - finalized
+          type: string
+        safe:
+          description: True only for a supported safe-head requirement, with mode finalized and block_depth zero. If the source chain has no safe head, the verifier waits for full finality instead.
+          type: boolean
+      required:
+        - mode
+        - block_depth
+        - safe
+      type: object
     Message:
       description: |
         The decoded CCIP message. Byte fields are hex-encoded with an 0x prefix; an empty byte field is "0x".
@@ -102,21 +138,18 @@ components:
           minimum: 0
           type: integer
         finality:
-          description: The encoded finality requirement of the message. The low 16 bits are a block-confirmation depth; the high bits are flags.
-          format: int32
-          minimum: 0
-          type: integer
+          $ref: "#/components/schemas/Finality"
         off_ramp_address:
-          description: Destination-chain offRamp that will deliver the message.
+          description: 'Destination-chain offRamp that will deliver the message. Addresses are lowercase 0x-prefixed hex, left-padded to at least 32 bytes; longer addresses retain all bytes and leading zeros. An empty address is "0x".'
           type: string
         on_ramp_address:
-          description: Source-chain onRamp that emitted the message.
+          description: 'Source-chain onRamp that emitted the message. Addresses are lowercase 0x-prefixed hex, left-padded to at least 32 bytes; longer addresses retain all bytes and leading zeros. An empty address is "0x".'
           type: string
         receiver:
-          description: Destination-chain account that will receive the message.
+          description: 'Destination-chain account that will receive the message. Addresses are lowercase 0x-prefixed hex, left-padded to at least 32 bytes; longer addresses retain all bytes and leading zeros. An empty address is "0x".'
           type: string
         sender:
-          description: Source-chain account that sent the message.
+          description: 'Source-chain account that sent the message; this may be an application contract rather than an end user. Addresses are lowercase 0x-prefixed hex, left-padded to at least 32 bytes; longer addresses retain all bytes and leading zeros. An empty address is "0x".'
           type: string
         sequence_number:
           description: Per-lane sequence number of the message.
@@ -159,19 +192,19 @@ components:
           example: "1000000000000000000"
           type: string
         dest_token_address:
-          description: Destination-chain token contract.
+          description: 'Destination-chain token address. Addresses are lowercase 0x-prefixed hex, left-padded to at least 32 bytes; longer addresses retain all bytes and leading zeros. An empty address is "0x".'
           type: string
         extra_data:
           description: Pool-specific data carried with the transfer.
           type: string
         source_pool_address:
-          description: Source-chain token pool the tokens were locked or burned in.
+          description: 'Source-chain token pool the tokens were locked or burned in. Addresses are lowercase 0x-prefixed hex, left-padded to at least 32 bytes; longer addresses retain all bytes and leading zeros. An empty address is "0x".'
           type: string
         source_token_address:
-          description: Source-chain token contract.
+          description: 'Source-chain token address. Addresses are lowercase 0x-prefixed hex, left-padded to at least 32 bytes; longer addresses retain all bytes and leading zeros. An empty address is "0x".'
           type: string
         token_receiver:
-          description: Destination-chain account receiving the tokens.
+          description: 'Destination-chain account receiving the tokens. Addresses are lowercase 0x-prefixed hex, left-padded to at least 32 bytes; longer addresses retain all bytes and leading zeros. An empty address is "0x".'
           type: string
         version:
           description: Token transfer format version.

@@ -28,6 +28,13 @@ const (
 	TokenDecimals  = uint8(18)
 )
 
+// PoolSpecificPresets carries deploy-time arguments that only apply to specific pool types (e.g.
+// BurnToAddressMintTokenPool's burn address). Callers deploying pool types without any such
+// arguments can pass nil.
+type PoolSpecificPresets struct {
+	BurnAddress string
+}
+
 type TokenPool struct {
 	selector uint64
 	decimals uint8
@@ -69,6 +76,21 @@ func (tp *TokenPool) Kind() string {
 func DeployTokenPoolV200(t *testing.T, env *deployment.Environment, poolType, qual string, legacyPool tokenpool.TokenPool, finalityConfig finality.Config, lockBoxGroups ...[]uint64) tokenpool.TokenPool {
 	t.Helper()
 
+	return deployTokenPoolV200(t, env, poolType, qual, legacyPool, finalityConfig, "", lockBoxGroups...)
+}
+
+// MigrateToBurnToAddressMintTokenPoolV200 deploys the v2.0.0 successor to legacyPool as a
+// BurnToAddressMintTokenPool and migrates its liquidity. burnAddress is the fixed address that
+// receives tokens sent for burning, mirroring the v1.6.1 pool's constructor argument.
+func MigrateToBurnToAddressMintTokenPoolV200(t *testing.T, env *deployment.Environment, qual string, legacyPool tokenpool.TokenPool, finalityConfig finality.Config, burnAddress string) tokenpool.TokenPool {
+	t.Helper()
+
+	return deployTokenPoolV200(t, env, cciputils.BurnToAddressMintTokenPool.String(), qual, legacyPool, finalityConfig, burnAddress)
+}
+
+func deployTokenPoolV200(t *testing.T, env *deployment.Environment, poolType, qual string, legacyPool tokenpool.TokenPool, finalityConfig finality.Config, burnAddress string, lockBoxGroups ...[]uint64) tokenpool.TokenPool {
+	t.Helper()
+
 	env.OperationsBundle = operations.NewBundle(env.OperationsBundle.GetContext, env.OperationsBundle.Logger, operations.NewMemoryReporter())
 	out, err := tokens.TokenExpansion().Apply(*env, tokens.TokenExpansionInput{
 		ChainAdapterVersion: cciputils.Version_2_0_0,
@@ -83,6 +105,7 @@ func DeployTokenPoolV200(t *testing.T, env *deployment.Environment, poolType, qu
 					TokenRef:              &datastore.AddressRef{Address: legacyPool.Token()},
 					PoolType:              poolType,
 					LockBoxGroups:         lockBoxGroups,
+					BurnAddress:           burnAddress,
 				},
 			},
 		},
@@ -114,19 +137,19 @@ func DeployTokenPoolV200(t *testing.T, env *deployment.Environment, poolType, qu
 func DeployLockReleaseTokenPoolV161(t *testing.T, env *deployment.Environment, sel uint64, qual string) tokenpool.TokenPool {
 	t.Helper()
 
-	return deployTokenPoolWithPresets(t, env, sel, qual, cciputils.LockReleaseTokenPool.String(), cciputils.Version_1_6_1)
+	return deployTokenPoolWithPresets(t, env, sel, qual, cciputils.LockReleaseTokenPool.String(), cciputils.Version_1_6_1, nil)
 }
 
 func DeployBurnMintTokenPoolV161(t *testing.T, env *deployment.Environment, sel uint64, qual string) tokenpool.TokenPool {
 	t.Helper()
 
-	return deployTokenPoolWithPresets(t, env, sel, qual, cciputils.BurnMintTokenPool.String(), cciputils.Version_1_6_1)
+	return deployTokenPoolWithPresets(t, env, sel, qual, cciputils.BurnMintTokenPool.String(), cciputils.Version_1_6_1, nil)
 }
 
 func DeployBurnMintTokenPoolV151(t *testing.T, env *deployment.Environment, sel uint64, qual string) tokenpool.TokenPool {
 	t.Helper()
 
-	return deployTokenPoolWithPresets(t, env, sel, qual, cciputils.BurnMintTokenPool.String(), cciputils.Version_1_5_1)
+	return deployTokenPoolWithPresets(t, env, sel, qual, cciputils.BurnMintTokenPool.String(), cciputils.Version_1_5_1, nil)
 }
 
 // DeployBurnFromMintTokenPoolV161 deploys a BurnFromMintTokenPool, a burn-mint variant that burns
@@ -134,7 +157,7 @@ func DeployBurnMintTokenPoolV151(t *testing.T, env *deployment.Environment, sel 
 func DeployBurnFromMintTokenPoolV161(t *testing.T, env *deployment.Environment, sel uint64, qual string) tokenpool.TokenPool {
 	t.Helper()
 
-	return deployTokenPoolWithPresets(t, env, sel, qual, cciputils.BurnFromMintTokenPool.String(), cciputils.Version_1_6_1)
+	return deployTokenPoolWithPresets(t, env, sel, qual, cciputils.BurnFromMintTokenPool.String(), cciputils.Version_1_6_1, nil)
 }
 
 // DeployBurnWithFromMintTokenPoolV161 deploys a BurnWithFromMintTokenPool, a burn-mint variant that
@@ -142,7 +165,7 @@ func DeployBurnFromMintTokenPoolV161(t *testing.T, env *deployment.Environment, 
 func DeployBurnWithFromMintTokenPoolV161(t *testing.T, env *deployment.Environment, sel uint64, qual string) tokenpool.TokenPool {
 	t.Helper()
 
-	return deployTokenPoolWithPresets(t, env, sel, qual, cciputils.BurnWithFromMintTokenPool.String(), cciputils.Version_1_6_1)
+	return deployTokenPoolWithPresets(t, env, sel, qual, cciputils.BurnWithFromMintTokenPool.String(), cciputils.Version_1_6_1, nil)
 }
 
 // DeploySiloedLockReleaseTokenPoolV161 deploys a SiloedLockReleaseTokenPool, a lock-release variant
@@ -151,7 +174,15 @@ func DeployBurnWithFromMintTokenPoolV161(t *testing.T, env *deployment.Environme
 func DeploySiloedLockReleaseTokenPoolV161(t *testing.T, env *deployment.Environment, sel uint64, qual string) tokenpool.TokenPool {
 	t.Helper()
 
-	return deployTokenPoolWithPresets(t, env, sel, qual, cciputils.SiloedLockReleaseTokenPool.String(), cciputils.Version_1_6_1)
+	return deployTokenPoolWithPresets(t, env, sel, qual, cciputils.SiloedLockReleaseTokenPool.String(), cciputils.Version_1_6_1, nil)
+}
+
+// DeployBurnToAddressMintTokenPoolV161 deploys a BurnToAddressMintTokenPool, a burn-mint variant
+// that sends burned tokens to a fixed on-chain address instead of destroying them via burn(amount).
+func DeployBurnToAddressMintTokenPoolV161(t *testing.T, env *deployment.Environment, sel uint64, qual, burnAddress string) tokenpool.TokenPool {
+	t.Helper()
+
+	return deployTokenPoolWithPresets(t, env, sel, qual, cciputils.BurnToAddressMintTokenPool.String(), cciputils.Version_1_6_1, &PoolSpecificPresets{BurnAddress: burnAddress})
 }
 
 func deployTokenPoolWithPresets(
@@ -161,8 +192,16 @@ func deployTokenPoolWithPresets(
 	qual string,
 	poolType string,
 	poolVersion *semver.Version,
+	presets *PoolSpecificPresets,
 ) tokenpool.TokenPool {
 	t.Helper()
+
+	var burnAddr string
+	if poolType == cciputils.BurnToAddressMintTokenPool.String() {
+		require.NotNil(t, presets, "BurnToAddressMintTokenPool requires presets to be provided")
+		require.NotEmpty(t, presets.BurnAddress, "BurnToAddressMintTokenPool requires a burn address in presets")
+		burnAddr = presets.BurnAddress
+	}
 
 	env.OperationsBundle = operations.NewBundle(env.OperationsBundle.GetContext, env.OperationsBundle.Logger, operations.NewMemoryReporter())
 	out, err := tokens.TokenExpansion().Apply(*env, tokens.TokenExpansionInput{
@@ -183,6 +222,7 @@ func deployTokenPoolWithPresets(
 				DeployTokenPoolInput: &tokens.DeployTokenPoolInput{
 					TokenPoolQualifier: qual,
 					PoolType:           poolType,
+					BurnAddress:        burnAddr,
 				},
 			},
 		},

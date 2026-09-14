@@ -38,6 +38,9 @@ type HeadTracker interface {
 type SourceReader interface {
 	// FetchMessageSentEvents returns MessageSentEvents in the given block range.
 	// The toBlock parameter can be nil to query up to the latest block.
+	// Readers return the decoded Message with its receipts and fee asset, and nothing derived
+	// from them: a consumer that needs a normalized view builds it at its own boundary. The
+	// Message is what signing and message IDs are computed over and must be returned unchanged.
 	FetchMessageSentEvents(ctx context.Context, fromBlock, toBlock *big.Int) ([]protocol.MessageSentEvent, error)
 
 	// GetBlocksHeaders returns the full block headers for a batch of block numbers.

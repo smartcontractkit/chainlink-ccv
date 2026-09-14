@@ -498,6 +498,18 @@ func buildVerifierJobSpecs(
 			return nil, affectedScope, err
 		}
 
+		// A verifier running inside a Chainlink node rejects [policy_hook] at startup: the
+		// endpoint credential comes from the standalone verifier's secrets file, which that
+		// deployment has no equivalent of. Emitting the section into a cl-mode spec would ship a
+		// job that cannot load, so the mismatch fails here, where the operator can still fix the
+		// topology.
+		if mode == shared.NOPModeCL && nop.PolicyHook != nil {
+			return nil, affectedScope, fmt.Errorf(
+				"NOP %q has a [policy_hook] but runs in %q mode; the policy hook is supported on a standalone verifier only",
+				nopAlias, mode,
+			)
+		}
+
 		sortedFinalityCheckers := slices.Clone(disableFinalityCheckers)
 		slices.Sort(sortedFinalityCheckers)
 

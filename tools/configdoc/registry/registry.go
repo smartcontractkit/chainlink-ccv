@@ -172,6 +172,7 @@ func tokenVerifierConfigInstance() any {
 		TokenVerifiers: []token.VerifierConfig{
 			{VerifierID: "token-verifier-1", Type: "cctp", Version: "2.0"},
 		},
+		DisableFinalityCheckers: []string{},
 		CommitteeConfig: chainaccess.CommitteeConfig{
 			OnRampAddresses:    map[string]string{"1": "0x00000000000000000000000000000000000000a1"},
 			RMNRemoteAddresses: map[string]string{"1": "0x00000000000000000000000000000000000000b1"},
@@ -314,6 +315,7 @@ func bootstrapSecretsInstance() any {
 			Backend:  bootstrap.KeystoreBackendPostgres,
 			Password: "your-keystore-password",
 			KMS: bootstrap.KMSKeystoreConfig{
+				Provider:     bootstrap.KMSProviderAWS,
 				EcdsaKeyID:   "arn:aws:kms:us-east-1:...:key/abc123-...",
 				Ed25519KeyID: "arn:aws:kms:us-east-1:...:key/def456-...",
 				AWSKMSConfig: &bootstrap.AWSKMSConfig{

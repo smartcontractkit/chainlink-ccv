@@ -142,6 +142,10 @@ The hook is off unless the `[policy_hook]` section is present in the committee v
 verifier without it behaves exactly as it did before the hook existed, down to the bytes of its job
 spec.
 
+The hook runs on the standalone verifier only. A verifier running inside a Chainlink node has no
+secrets file to resolve the endpoint credential from, so it rejects the section at startup rather
+than calling the endpoint unauthenticated.
+
 ```toml
 [policy_hook]
   base_url = "https://policy.internal.example.com"
@@ -168,10 +172,11 @@ trip through the drop path. An endpoint that needs longer than 15s should take t
 work itself, and answer with an error until it has a verdict.
 
 `retry_delay` is how long a message waits before the endpoint is asked again after an error, and
-defaults to 10s. The actual delay is jittered per message across half to one and a half times that
-value: an outage stalls every message the node is holding at once, and a fixed delay would send the
-whole backlog at the endpoint together on each retry. The delay does not grow with the attempt
-count.
+defaults to 10s. The delay doubles with each attempt, capped at one hour, and the result is jittered
+per message across half to one and a half times it: an outage stalls every message the node is
+holding at once, and a fixed delay would send the whole backlog at the endpoint together on each
+retry. The growth is what brings call volume down over a long outage; the jitter only spreads it. A
+`retry_delay` set above the cap is clamped to it, so the hour holds from the first retry.
 
 Retries are bounded by the task queue's own retry window, currently 7 days from when the message was
 queued. An outage shorter than that delays messages rather than losing them. A message still without
@@ -180,12 +185,15 @@ checkpoint rewind to recover, so an outage approaching a week is an operational 
 something the retry loop rides out.
 
 In a JD deployment the section is emitted into the job spec from the NOP's entry in the environment
-topology, which is where an operator sets their own endpoint:
+topology, which is where an operator sets their own endpoint. The NOP has to be in `standalone`
+mode, since that is the only deployment the hook is supported on; `ApplyVerifierConfig` refuses to
+build a spec for a `cl`-mode NOP that sets the section:
 
 ```toml
 [[environment_topology.nop_topology.nops]]
 alias = "acme-verifier-1"
 name = "acme-verifier-1"
+mode = "standalone"
   [environment_topology.nop_topology.nops.policy_hook]
   base_url = "https://policy.internal.acme.example"
 ```
@@ -196,7 +204,17 @@ Two NOPs in the same committee can run different policies, or one can run none.
 
 The verifier POSTs JSON to `<base_url>/v1/evaluate` with `Content-Type: application/json`. The
 request carries the decoded CCIP message and its source-chain provenance so the endpoint does not
-have to fetch or decode anything:
+have to fetch or decode anything.
+
+Normalized addresses, the total fee and the decoded finality requirement are produced while the
+request is built, from the message, its receipts and the fee asset the task already carries.
+Nothing is stored and no intermediate object is passed around: `policy.NewEvaluateRequest` writes
+the padded, decoded values straight into the request. The derivation is a pure function of the
+task and performs no RPCs, so a task read back from the queue after a restart produces the same
+request as the one that was queued. The original message is untouched and remains what message
+IDs and signatures are computed over.
+
+An example request:
 
 ```json
 {
@@ -205,6 +223,9 @@ have to fetch or decode anything:
   "message_id": "0x9f2b...3e4",
   "source_tx_hash": "0x4c0f...4e3",
   "source_block_number": 1837421,
+  "source_block_timestamp": "2026-09-09T12:34:56Z",
+  "fee_token": "0x0000000000000000000000001111111111111111111111111111111111111111",
+  "fee_token_amount": "1000000000000000",
   "finalized_block_number": 1837436,
   "block_depth": 15,
   "message": {
@@ -214,6 +235,7 @@ have to fetch or decode anything:
     "sequence_number": 42,
     "sender": "0x...",
     "receiver": "0x...",
+    "finality": { "mode": "finalized", "block_depth": 0, "safe": false },
     "data": "0x...",
     "token_transfer": { "amount": "1000000000000000000", "...": "..." }
   }
@@ -234,6 +256,41 @@ rather than the customer data behind the decision. Anything past 256 characters 
 
 Things worth knowing when building the endpoint:
 
+* `fee_token` identifies the source-chain fee asset. `fee_token_amount` is the sum of all emitted
+  receipt fees, including verifier, token, executor and network fees, in that asset's smallest
+  unit. It is a decimal string so large amounts retain their precision. These are event metadata
+  alongside `message`, rather than fields of the signed message. A fee asset missing from the
+  source reader or an older queued task is omitted; a missing receipt amount makes the total
+  unavailable and omitted too. A supplied zero address and a known zero fee are preserved.
+* `source_block_timestamp` is the time of the block containing the message, in UTC RFC 3339
+  format. The verifier carries it from the source event, or uses a block header already fetched
+  during discovery or readiness when its number matches the message's block. It never uses a
+  different block's timestamp or fetches an extra block just for the hook. If the source reader
+  or provider supplies no timestamp and no fetched header matches, the field is omitted. Older
+  queued tasks without the field also omit it. Available metadata survives queue persistence and
+  retries.
+* Every address field uses lowercase `0x`-prefixed hex, left-padded with zeros to at least 32 bytes:
+  sender, receiver, ramps, token pool, token addresses, token receiver and fee token. This makes
+  a 20-byte address and its 32-byte padded form identical in the hook request. The same rule
+  applies to every chain, without registry lookups or native-address conversion. Addresses longer
+  than 32 bytes retain all bytes and leading zeros; an empty address is `"0x"`. Payloads, hashes
+  and other non-address byte fields retain their original lengths. The normalization applies to
+  the request only; the original message bytes and signatures are unaffected.
+* `message.finality` describes the requirement the verifier applied, using the objects below.
+  Its `block_depth` is the requested confirmation count; the request's top-level `block_depth`
+  remains the observed distance below the finalized head when the message became ready.
+
+  | Requirement | `message.finality` |
+  | --- | --- |
+  | Full finality | `{"mode":"finalized","block_depth":0,"safe":false}` |
+  | N confirmations, capped by full finality | `{"mode":"blockDepth","block_depth":N,"safe":false}` |
+  | Safe head, falling back to full finality when unavailable | `{"mode":"finalized","block_depth":0,"safe":true}` |
+
+  Unsupported flags or combinations of flags and depth use the full-finality object, matching
+  the verifier's readiness rules. The object describes the requirement, not which head ultimately
+  satisfied it.
+* `sender` is the source-chain account that sent the CCIP message, which can be an application
+  contract. No transaction-origin or end-user identity is inferred or looked up.
 * Calls are idempotent from the verifier's side. A retried message arrives again with the same
   `message_id` and the same verdict is expected.
 * `message_id` in the response echoes the request. Recommended, not required: nothing else in a
@@ -309,14 +366,16 @@ at least 32 bytes hex-encoded, which is what the shared scheme requires; generat
 `hmac.GenerateCredentials`. Setting one of the two and not the other is a startup error rather than
 a silent downgrade to no authentication.
 
-A verifier running inside a Chainlink node has no secrets file, so the node supplies its credential
-through `constructors.WithPolicyHookCredential`, the same way it supplies the aggregator
-credentials. Without that option the endpoint is called unauthenticated.
+A verifier running inside a Chainlink node has no secrets file, and the hook is not supported
+there: configuring the `[policy_hook]` section on that entry point is a startup error rather than
+a silent downgrade to calling the endpoint unauthenticated. Run the standalone verifier to use the
+hook.
 
 Set `require_auth = true` on any verifier whose endpoint checks the signature. Without it a
 credential that failed to reach the container leaves the verifier calling unauthenticated, the
 endpoint answering 401, and every message on the lane retrying until the queue's 7-day deadline. With
-it the node refuses to start. The boot log line carries `authenticated=true|false` either way.
+it the verifier process refuses to start. The boot log line carries `authenticated=true|false`
+either way.
 
 ## Observing it
 
@@ -336,6 +395,12 @@ before the endpoint was called, and it carries `reason="task_invalid"`; the mess
 the node's own error, so it lands on the message-failure counter under whatever class that error
 maps to, not under a policy class. Failures from the endpoint itself are classified as
 `policy_rejected` or `policy_endpoint_error`.
+
+Endpoint latency is a separate histogram, `verifier_policy_http_request_duration_seconds`, labeled
+with the same `policy_passed` / `policy_rejected` / `policy_unavailable` outcome vocabulary. It
+counts calls, not messages: a skipped task makes no call, so it never appears here. The outcome counters only count; an endpoint that is slow but not yet
+timing out shows up here first. Buckets run from 1ms to 15s, the largest `request_timeout` an
+operator may configure, so a call that runs to the ceiling still lands in a bucket.
 
 A rising `policy_skipped` says something upstream is feeding the verifier messages it cannot sign.
 It is not a policy problem and paging on it as one would be wrong.

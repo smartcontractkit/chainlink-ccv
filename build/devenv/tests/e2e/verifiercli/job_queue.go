@@ -50,3 +50,17 @@ func (j JobQueueClient) Reschedule(ctx context.Context, queue QueueName, verifie
 		"--job-id", jobID,
 		"--retry-duration", string(retry))
 }
+
+// RescheduleByMessageID runs `job-queue reschedule` matching the job by its
+// message ID instead of the job UUID - the form an operator uses during
+// incident response, when the message ID is known but the per-node job ID is
+// not. messageID is hex with or without a 0x prefix. retry must be a valid
+// time.ParseDuration string.
+func (j JobQueueClient) RescheduleByMessageID(ctx context.Context, queue QueueName, verifierID, messageID string, retry RetryDuration) (string, error) {
+	return j.client.CLI(ctx, JobQueueSubcommand,
+		"reschedule",
+		"--queue", string(queue),
+		"--verifier-id", verifierID,
+		"--message-id", messageID,
+		"--retry-duration", string(retry))
+}

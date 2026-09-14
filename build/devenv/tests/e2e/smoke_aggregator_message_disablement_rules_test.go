@@ -365,10 +365,20 @@ func sendMessageAndConfirm(
 	return sentEvt
 }
 
+// defaultAggregatorResultTimeout is the budget for a message that is on its way already. A phase
+// that first has to wait out a verifier-side retry delay needs requireAggregatorResultWithin.
+const defaultAggregatorResultTimeout = 45 * time.Second
+
 func requireAggregatorResult(t *testing.T, ctx context.Context, aggregatorClient *ccv.AggregatorClient, messageID [32]byte, msg string) {
 	t.Helper()
 
-	waitCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	requireAggregatorResultWithin(t, ctx, aggregatorClient, messageID, defaultAggregatorResultTimeout, msg)
+}
+
+func requireAggregatorResultWithin(t *testing.T, ctx context.Context, aggregatorClient *ccv.AggregatorClient, messageID [32]byte, timeout time.Duration, msg string) {
+	t.Helper()
+
+	waitCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	_, err := aggregatorClient.WaitForVerifierResultForMessage(waitCtx, messageID, 500*time.Millisecond)
 	require.NoError(t, err, msg)

@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 const (
@@ -32,10 +33,22 @@ const (
 	PASS EvaluateResponseDecision = "PASS"
 )
 
+// Defines values for FinalityMode.
+const (
+	BlockDepth FinalityMode = "blockDepth"
+	Finalized  FinalityMode = "finalized"
+)
+
 // EvaluateRequest The context a committee verifier sends for one message. It carries the decoded CCIP message and its source-chain provenance so the endpoint does not have to fetch or decode anything itself.
 type EvaluateRequest struct {
 	// BlockDepth How far the message's block sits below finalized_block_number. Zero when the message's block is the finalized head or newer, which is the case for a message that met its finality requirement against the safe head rather than the finalized one.
 	BlockDepth uint64 `json:"block_depth"`
+
+	// FeeToken Source-chain asset used to pay the message fees. Omitted when the source reader or an older queued task does not supply it. Addresses are lowercase 0x-prefixed hex, left-padded to at least 32 bytes; longer addresses retain all bytes and leading zeros. An empty address is "0x". A supplied all-zero address is preserved, including when it identifies a native fee asset.
+	FeeToken *string `json:"fee_token,omitempty"`
+
+	// FeeTokenAmount Total fee in the fee asset's smallest unit, as a decimal string. Sums all emitted receipt fees, including verifier, token, executor and network fees. Omitted when receipts or any receipt amount are unavailable; a known zero fee is "0".
+	FeeTokenAmount *string `json:"fee_token_amount,omitempty"`
 
 	// FinalizedBlockNumber The source chain's finalized head at the moment the message met its finality requirement. It is fixed at that point, so a message that is retried reports the head as of the original decision rather than the current one.
 	FinalizedBlockNumber uint64 `json:"finalized_block_number"`
@@ -53,6 +66,9 @@ type EvaluateRequest struct {
 
 	// SourceBlockNumber The source-chain block the message was emitted in.
 	SourceBlockNumber uint64 `json:"source_block_number"`
+
+	// SourceBlockTimestamp The source block's timestamp in UTC (RFC 3339), when available from the source event or a matching block header already fetched by the verifier. Omitted when unavailable, including for older queued tasks. Never substitutes the discovery or finality time and does not require an additional RPC.
+	SourceBlockTimestamp *time.Time `json:"source_block_timestamp,omitempty"`
 
 	// SourceTxHash Identifier of the source-chain transaction that emitted the message. It is the raw identifier bytes the source chain reported, hex-encoded with an 0x prefix, whatever the chain family's own convention is - a 32-byte EVM transaction hash and a 64-byte Solana signature both arrive here as hex, not as the chain's native rendering. An endpoint that wants to show or query the native form (base58 for Solana, for example) re-encodes these bytes itself, using source_chain_selector to know which family it is looking at.
 	SourceTxHash string `json:"source_tx_hash"`
@@ -83,6 +99,21 @@ type EvaluateResponse struct {
 // HOLD is reserved and not implemented by this release. It is listed here so that implementing it later is an additive change rather than a breaking one for an endpoint that validates responses strictly against this enum. Do not return it: a verifier reads it as "verdict unknown" and retries the message until the task queue's deadline. To hold a message for review today, answer FAIL and replay the message once the review clears.
 type EvaluateResponseDecision string
 
+// Finality The decoded finality requirement as applied by the verifier. This is the requested requirement, not the observed confirmation depth in EvaluateRequest.block_depth. Unsupported flags or flag/depth combinations fall back to full finality.
+type Finality struct {
+	// BlockDepth Required block confirmations when mode is blockDepth, capped by full finality. Zero when mode is finalized.
+	BlockDepth uint16 `json:"block_depth"`
+
+	// Mode blockDepth waits for the requested confirmations or full finality, whichever comes first. finalized waits for the finalized head, or the safe head when safe is true.
+	Mode FinalityMode `json:"mode"`
+
+	// Safe True only for a supported safe-head requirement, with mode finalized and block_depth zero. If the source chain has no safe head, the verifier waits for full finality instead.
+	Safe bool `json:"safe"`
+}
+
+// FinalityMode blockDepth waits for the requested confirmations or full finality, whichever comes first. finalized waits for the finalized head, or the safe head when safe is true.
+type FinalityMode string
+
 // Message The decoded CCIP message. Byte fields are hex-encoded with an 0x prefix; an empty byte field is "0x".
 //
 // Chain selectors are decimal strings, not JSON numbers. They are opaque 64-bit identifiers drawn from the whole uint64 range, and a JSON number is a float64 in JavaScript and in most schema-generated clients, which is exact only to 2^53. Parsing one as a number silently loses precision - about a quarter of the registered selectors are above 2^63 alone. Parse them as strings, or as a 64-bit unsigned integer if your language has one. Counters bounded by a real chain (block numbers, sequence numbers, gas limits) are JSON numbers, because they cannot reach 2^53.
@@ -105,19 +136,19 @@ type Message struct {
 	// ExecutionGasLimit Gas limit reserved for execution on the destination chain.
 	ExecutionGasLimit uint32 `json:"execution_gas_limit"`
 
-	// Finality The encoded finality requirement of the message. The low 16 bits are a block-confirmation depth; the high bits are flags.
-	Finality uint32 `json:"finality"`
+	// Finality The decoded finality requirement as applied by the verifier. This is the requested requirement, not the observed confirmation depth in EvaluateRequest.block_depth. Unsupported flags or flag/depth combinations fall back to full finality.
+	Finality Finality `json:"finality"`
 
-	// OffRampAddress Destination-chain offRamp that will deliver the message.
+	// OffRampAddress Destination-chain offRamp that will deliver the message. Addresses are lowercase 0x-prefixed hex, left-padded to at least 32 bytes; longer addresses retain all bytes and leading zeros. An empty address is "0x".
 	OffRampAddress string `json:"off_ramp_address"`
 
-	// OnRampAddress Source-chain onRamp that emitted the message.
+	// OnRampAddress Source-chain onRamp that emitted the message. Addresses are lowercase 0x-prefixed hex, left-padded to at least 32 bytes; longer addresses retain all bytes and leading zeros. An empty address is "0x".
 	OnRampAddress string `json:"on_ramp_address"`
 
-	// Receiver Destination-chain account that will receive the message.
+	// Receiver Destination-chain account that will receive the message. Addresses are lowercase 0x-prefixed hex, left-padded to at least 32 bytes; longer addresses retain all bytes and leading zeros. An empty address is "0x".
 	Receiver string `json:"receiver"`
 
-	// Sender Source-chain account that sent the message.
+	// Sender Source-chain account that sent the message; this may be an application contract rather than an end user. Addresses are lowercase 0x-prefixed hex, left-padded to at least 32 bytes; longer addresses retain all bytes and leading zeros. An empty address is "0x".
 	Sender string `json:"sender"`
 
 	// SequenceNumber Per-lane sequence number of the message.
@@ -138,19 +169,19 @@ type TokenTransfer struct {
 	// Amount Transferred amount in the token's smallest unit, as a decimal string because it does not fit a JSON number.
 	Amount string `json:"amount"`
 
-	// DestTokenAddress Destination-chain token contract.
+	// DestTokenAddress Destination-chain token address. Addresses are lowercase 0x-prefixed hex, left-padded to at least 32 bytes; longer addresses retain all bytes and leading zeros. An empty address is "0x".
 	DestTokenAddress string `json:"dest_token_address"`
 
 	// ExtraData Pool-specific data carried with the transfer.
 	ExtraData string `json:"extra_data"`
 
-	// SourcePoolAddress Source-chain token pool the tokens were locked or burned in.
+	// SourcePoolAddress Source-chain token pool the tokens were locked or burned in. Addresses are lowercase 0x-prefixed hex, left-padded to at least 32 bytes; longer addresses retain all bytes and leading zeros. An empty address is "0x".
 	SourcePoolAddress string `json:"source_pool_address"`
 
-	// SourceTokenAddress Source-chain token contract.
+	// SourceTokenAddress Source-chain token address. Addresses are lowercase 0x-prefixed hex, left-padded to at least 32 bytes; longer addresses retain all bytes and leading zeros. An empty address is "0x".
 	SourceTokenAddress string `json:"source_token_address"`
 
-	// TokenReceiver Destination-chain account receiving the tokens.
+	// TokenReceiver Destination-chain account receiving the tokens. Addresses are lowercase 0x-prefixed hex, left-padded to at least 32 bytes; longer addresses retain all bytes and leading zeros. An empty address is "0x".
 	TokenReceiver string `json:"token_receiver"`
 
 	// Version Token transfer format version.

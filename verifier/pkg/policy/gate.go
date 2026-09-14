@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	mrand "math/rand/v2"
 	"sync"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
@@ -197,13 +197,30 @@ func (g *GatedVerifier) evaluateAll(ctx context.Context, tasks []vtypes.Verifica
 			defer func() { <-sem }()
 
 			req := NewEvaluateRequest(g.verifierID, &tasks[index])
+			// Started after the request is built, so the histogram measures the endpoint and
+			// not the marshaling in front of it.
+			start := time.Now()
 			verdict, err := g.checker.Evaluate(ctx, req)
+			g.messageMetrics(tasks[index].Message).RecordPolicyHTTPRequestDuration(ctx, callOutcome(verdict, err), time.Since(start))
 			out[index] = evaluation{verdict: verdict, err: err}
 		}(i)
 	}
 	wg.Wait()
 
 	return out
+}
+
+// callOutcome classifies one endpoint call for the duration histogram in the same vocabulary the
+// stage's transition counter uses, so the two can be read side by side.
+func callOutcome(verdict Verdict, err error) string {
+	switch {
+	case err != nil:
+		return monitoring.MessageTransitionOutcomePolicyUnavailable
+	case verdict.Decision == DecisionFail:
+		return monitoring.MessageTransitionOutcomePolicyRejected
+	default:
+		return monitoring.MessageTransitionOutcomePolicyPassed
+	}
 }
 
 // rejectedResult turns a FAIL into a permanent verification error. The task verifier fails the
@@ -250,13 +267,14 @@ func (g *GatedVerifier) endpointErrorResult(ctx context.Context, task vtypes.Ver
 		monitoring.MessageTransitionOutcomePolicyUnavailable,
 		monitoring.MessageTransitionReasonPolicyEndpointError)
 
-	delay := g.retryDelayWithJitter()
+	delay := g.retryDelayWithJitter(task.AttemptCount)
 
 	g.lggr.Warnw("Policy hook verdict unavailable, scheduling retry",
 		protocol.LogTypeKey, protocol.LogTypeRetryableMessageFailure,
 		protocol.LogKeyMessageID, task.MessageID,
 		protocol.LogKeySourceChain, task.Message.SourceChainSelector,
 		protocol.LogKeyDestChain, task.Message.DestChainSelector,
+		"attempt", task.AttemptCount,
 		"retryDelay", delay,
 		"error", cause,
 	)
@@ -265,21 +283,26 @@ func (g *GatedVerifier) endpointErrorResult(ctx context.Context, task vtypes.Ver
 	return &verificationErr
 }
 
-// retryDelayWithJitter spreads a message's next attempt across [retryDelay/2, retryDelay*3/2].
-// An outage stalls every message the verifier is holding at once, and a fixed delay would
-// reschedule all of them on the same tick, so the whole backlog would arrive at the endpoint
-// together every retryDelay for as long as the outage lasts. That is the worst shape to hand an
-// endpoint that is already failing or rate-limiting, and the endpoint is the operator's to pay
-// for. Spreading the retries does not reduce the total call volume, only its burstiness; backoff
-// that grows with the attempt count needs the queue's attempt_count on the task and is tracked
-// separately.
-func (g *GatedVerifier) retryDelayWithJitter() time.Duration {
-	half := int64(g.retryDelay / 2)
-	if half <= 0 {
-		return g.retryDelay
-	}
-	//nolint:gosec // G404: jitter spreads retry load, it is not a security decision.
-	return g.retryDelay - time.Duration(half) + time.Duration(mrand.Int64N(2*half+1))
+const (
+	// maxRetryDelay caps how far the retry delay grows with the attempt count. The queue's retry
+	// deadline bounds a message's total lifetime; this bounds the gap between attempts, so a
+	// days-long outage still gets a message another look every hour rather than every few days.
+	// It also bounds a misconfigured retry_delay: a base above the cap is clamped to it.
+	maxRetryDelay = time.Hour
+
+	// retryBackoffFactor doubles the wait on each attempt beyond the first.
+	retryBackoffFactor = 2
+)
+
+// retryDelayWithJitter spreads a message's next attempt across [base/2, base*3/2], where base is
+// retryDelay doubled once per attempt beyond the first, capped at maxRetryDelay. An outage stalls
+// every message the verifier is holding at once, and a fixed delay would reschedule all of them on
+// the same tick, so the whole backlog would arrive at the endpoint together on every retry for as
+// long as the outage lasts. That is the worst shape to hand an endpoint that is already failing or
+// rate-limiting, and the endpoint is the operator's to pay for. The jitter only spreads the load;
+// the per-attempt growth is what brings the call volume down.
+func (g *GatedVerifier) retryDelayWithJitter(attemptCount int) time.Duration {
+	return common.WithJitter(common.BackoffDelay(attemptCount, g.retryDelay, retryBackoffFactor, maxRetryDelay))
 }
 
 func (g *GatedVerifier) messageMetrics(message protocol.Message) vtypes.MetricLabeler {
@@ -294,56 +317,62 @@ func (g *GatedVerifier) messageMetrics(message protocol.Message) vtypes.MetricLa
 
 var _ vtypes.Verifier = (*GatedVerifier)(nil)
 
-// WrapVerifier applies the policy hook to inner when the operator configured one. A nil config
-// returns inner unchanged, so a verifier without a hook has no extra layer in its call path at
-// all. Both the standalone and Chainlink-node constructors call this, which keeps the enable
-// condition and the gate's construction in one place rather than duplicated per deployment mode.
-func WrapVerifier(
+// Gate returns the verifier decorator that applies the operator's policy hook. A nil config
+// yields a decorator that returns the verifier it is given unchanged, so a verifier without a
+// hook has no extra layer in its call path at all. Apply it with vtypes.Chain:
+//
+//	verifier, err := vtypes.Chain(commitVerifier, policy.Gate(lggr, verifierID, cfg.PolicyHook, monitoring, cred))
+//
+// The hook's credential comes from the standalone verifier's secrets file, which is also the only
+// deployment mode that supports the hook: the Chainlink-node constructor rejects a configured
+// [policy_hook] section at boot rather than calling this.
+func Gate(
 	lggr logger.Logger,
 	verifierID string,
-	inner vtypes.Verifier,
 	cfg *Config,
 	verifierMonitoring vtypes.Monitoring,
 	cred *hmac.ClientConfig,
-) (vtypes.Verifier, error) {
-	if cfg == nil {
-		return inner, nil
-	}
-	// Checked here rather than in Config.Validate because the credential lives in the secrets
-	// file, and Config.Validate also runs where a job spec is built rather than run, on a
-	// machine that has no business holding the verifier's secrets.
-	if cfg.RequireAuth && cred == nil {
-		return nil, errors.New(
-			"policy_hook sets require_auth but no credential is configured; supply [policy_hook] api_key and secret_key in the verifier secrets file")
-	}
+) vtypes.Decorator {
+	return func(inner vtypes.Verifier) (vtypes.Verifier, error) {
+		if cfg == nil {
+			return inner, nil
+		}
+		// Checked here rather than in Config.Validate because the credential lives in the secrets
+		// file, and Config.Validate also runs where a job spec is built rather than run, on a
+		// machine that has no business holding the verifier's secrets.
+		if cfg.RequireAuth && cred == nil {
+			return nil, errors.New(
+				"policy_hook sets require_auth but no credential is configured; supply [policy_hook] api_key and secret_key in the verifier secrets file")
+		}
 
-	checker, err := NewHTTPChecker(lggr, cfg, cred)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create policy hook client: %w", err)
-	}
-	retryDelay, err := cfg.RetryDelayDuration()
-	if err != nil {
-		return nil, err
-	}
-	gated, err := NewGatedVerifier(lggr, verifierID, inner, checker, verifierMonitoring, retryDelay)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create policy gated verifier: %w", err)
-	}
+		checker, err := NewHTTPChecker(lggr, cfg, cred)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create policy hook client: %w", err)
+		}
+		retryDelay, err := cfg.RetryDelayDuration()
+		if err != nil {
+			return nil, err
+		}
+		gated, err := NewGatedVerifier(lggr, verifierID, inner, checker, verifierMonitoring, retryDelay)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create policy gated verifier: %w", err)
+		}
 
-	// The endpoint is logged as the full URL the verifier will POST, not as the configured base:
-	// an operator debugging a 404 needs to see the path their server has to serve.
-	//
-	// authenticated is logged on every boot too: an operator whose endpoint checks signatures
-	// needs to be able to see from the node's own logs that it is sending them.
-	endpoint, err := cfg.EvaluateURL()
-	if err != nil {
-		return nil, err
-	}
-	lggr.Infow("Policy hook enabled",
-		"endpoint", endpoint,
-		"retryDelay", retryDelay,
-		"authenticated", cred != nil,
-	)
+		// The endpoint is logged as the full URL the verifier will POST, not as the configured
+		// base: an operator debugging a 404 needs to see the path their server has to serve.
+		//
+		// authenticated is logged on every boot too: an operator whose endpoint checks signatures
+		// needs to be able to see from the node's own logs that it is sending them.
+		endpoint, err := cfg.EvaluateURL()
+		if err != nil {
+			return nil, err
+		}
+		lggr.Infow("Policy hook enabled",
+			"endpoint", endpoint,
+			"retryDelay", retryDelay,
+			"authenticated", cred != nil,
+		)
 
-	return gated, nil
+		return gated, nil
+	}
 }

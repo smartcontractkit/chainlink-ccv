@@ -45,7 +45,7 @@ mock: ensure-mockery
     @echo "Generating mocks with mockery..."
     find . -type f -name .mockery.yaml -execdir mockery \;
 
-tidy: ensure-go
+tidy: ensure-go ensure-gomods ensure-modgraph
     gomods tidy
     ./tools/bin/modgraph.sh > go.md
 

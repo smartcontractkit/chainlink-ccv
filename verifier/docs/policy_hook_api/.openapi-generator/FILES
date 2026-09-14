@@ -1,6 +1,7 @@
 Apis/DefaultApi.md
 Models/EvaluateRequest.md
 Models/EvaluateResponse.md
+Models/Finality.md
 Models/Message.md
 Models/TokenTransfer.md
 README.md

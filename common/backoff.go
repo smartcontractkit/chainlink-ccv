@@ -1,0 +1,40 @@
+package common
+
+import "time"
+
+// BackoffDelay returns a truncated exponential backoff delay for the given attempt.
+//
+// attempt is the 1-based number of the attempt that just failed, matching the job queue's
+// attempt_count column (incremented once per consume). An attempt of 1 returns base; each
+// subsequent attempt multiplies the delay by factor, capped at maxDelay.
+//
+// The result is clamped to maxDelay, so retries converge on a steady cadence instead of growing
+// without bound. A base above maxDelay is clamped before any growth, so a misconfigured base
+// cannot exceed the cap on the very first retry. A non-positive attempt, an attempt of 1, or a
+// factor below 2 all reduce to base. Duration math is overflow-safe: the multiplication only
+// happens while delay is below maxDelay.
+//
+// Pair it with WithJitter. Backoff brings the total call volume down; jitter keeps a backlog that
+// stalled together from arriving together.
+func BackoffDelay(attempt int, base time.Duration, factor int, maxDelay time.Duration) time.Duration {
+	if maxDelay > 0 && base > maxDelay {
+		base = maxDelay
+	}
+	if attempt <= 1 || factor < 2 || maxDelay <= 0 {
+		return base
+	}
+
+	delay := base
+	for i := 1; i < attempt; i++ {
+		// next would exceed the cap (or the int64 range); bail early rather than
+		// risking overflow of the duration.
+		if delay > maxDelay/time.Duration(factor) {
+			return maxDelay
+		}
+		delay *= time.Duration(factor)
+	}
+	if delay > maxDelay {
+		return maxDelay
+	}
+	return delay
+}

@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	vtypes "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
@@ -288,12 +289,49 @@ func TestGatedVerifier_RetryDelayIsJittered(t *testing.T) {
 
 	seen := make(map[time.Duration]struct{})
 	for range 500 {
-		delay := gate.retryDelayWithJitter()
+		delay := gate.retryDelayWithJitter(1)
 		require.GreaterOrEqual(t, delay, 500*time.Millisecond)
 		require.LessOrEqual(t, delay, 1500*time.Millisecond)
 		seen[delay] = struct{}{}
 	}
 	assert.Greater(t, len(seen), 1, "a fixed delay would synchronize every held message onto one tick")
+}
+
+// TestGatedVerifier_RetryDelayBacksOff pins the growth: the midpoint of the jittered range doubles
+// with each attempt, so a long outage costs the endpoint less and less traffic, up to the cap.
+func TestGatedVerifier_RetryDelayBacksOff(t *testing.T) {
+	backoff := func(attempt int) time.Duration {
+		return common.BackoffDelay(attempt, time.Second, retryBackoffFactor, maxRetryDelay)
+	}
+	assert.Equal(t, time.Second, backoff(0), "an unstamped task is a first attempt")
+	assert.Equal(t, time.Second, backoff(1))
+	assert.Equal(t, 2*time.Second, backoff(2))
+	assert.Equal(t, 4*time.Second, backoff(3))
+	assert.Equal(t, maxRetryDelay, backoff(100), "the cap bounds the gap between attempts")
+
+	gate := newGate(t, &stubChecker{}, &stubVerifier{})
+	for range 100 {
+		delay := gate.retryDelayWithJitter(3)
+		require.GreaterOrEqual(t, delay, 2*time.Second, "attempt 3 jitters around 4x the configured delay")
+		require.LessOrEqual(t, delay, 6*time.Second)
+	}
+}
+
+// A retry_delay configured above the cap must not escape it on the very first retry. The cap is
+// what bounds the gap between attempts, and a base that outruns it would leave a message waiting
+// longer than the documented hour before the endpoint is asked again.
+func TestGatedVerifier_RetryDelayCapsAnOversizedBase(t *testing.T) {
+	gate, err := NewGatedVerifier(
+		logger.Test(t), "committee-verifier-1", &stubVerifier{}, &stubChecker{},
+		monitoring.NewFakeVerifierMonitoring(), 24*time.Hour)
+	require.NoError(t, err)
+
+	for _, attempt := range []int{0, 1, 2, 50} {
+		delay := gate.retryDelayWithJitter(attempt)
+		require.LessOrEqual(t, delay, maxRetryDelay+maxRetryDelay/2,
+			"attempt %d must jitter around the cap, not around the configured base", attempt)
+		require.GreaterOrEqual(t, delay, maxRetryDelay/2)
+	}
 }
 
 func TestGatedVerifier_MixedBatch(t *testing.T) {
@@ -401,22 +439,22 @@ func TestGatedVerifier_TruncatesOversizedRejectionReason(t *testing.T) {
 	assert.Empty(t, inner.forwarded(), "a FAIL must still not reach the wrapped verifier")
 }
 
-func TestWrapVerifier(t *testing.T) {
+func TestGate(t *testing.T) {
 	inner := &stubVerifier{}
 	lggr := logger.Test(t)
 	mon := monitoring.NewFakeVerifierMonitoring()
 
 	t.Run("no config leaves the verifier untouched", func(t *testing.T) {
-		got, err := WrapVerifier(lggr, "v", inner, nil, mon, nil)
+		got, err := Gate(lggr, "v", nil, mon, nil)(inner)
 		require.NoError(t, err)
 		assert.Same(t, inner, got, "a verifier without a hook must not gain a layer")
 	})
 
 	t.Run("config wraps the verifier", func(t *testing.T) {
-		got, err := WrapVerifier(lggr, "v", inner, &Config{
+		got, err := Gate(lggr, "v", &Config{
 			BaseURL:    "https://policy.example.com",
 			RetryDelay: "3s",
-		}, mon, nil)
+		}, mon, nil)(inner)
 		require.NoError(t, err)
 
 		gate, ok := got.(*GatedVerifier)
@@ -425,7 +463,7 @@ func TestWrapVerifier(t *testing.T) {
 	})
 
 	t.Run("invalid config fails construction", func(t *testing.T) {
-		_, err := WrapVerifier(lggr, "v", inner, &Config{BaseURL: "not a url at all"}, mon, nil)
+		_, err := Gate(lggr, "v", &Config{BaseURL: "not a url at all"}, mon, nil)(inner)
 		require.Error(t, err)
 	})
 
@@ -433,20 +471,20 @@ func TestWrapVerifier(t *testing.T) {
 		// The failure has to happen here rather than at the first message: a credential that
 		// never reached the container would otherwise show up as every message on the lane
 		// retrying against a 401.
-		_, err := WrapVerifier(lggr, "v", inner, &Config{
+		_, err := Gate(lggr, "v", &Config{
 			BaseURL:     "https://policy.example.com",
 			RequireAuth: true,
-		}, mon, nil)
+		}, mon, nil)(inner)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "secrets file", "the error must name where the credential is meant to come from")
 		assert.Contains(t, err.Error(), "api_key")
 	})
 
 	t.Run("require_auth with a credential wraps the verifier", func(t *testing.T) {
-		got, err := WrapVerifier(lggr, "v", inner, &Config{
+		got, err := Gate(lggr, "v", &Config{
 			BaseURL:     "https://policy.example.com",
 			RequireAuth: true,
-		}, mon, testCredential())
+		}, mon, testCredential())(inner)
 		require.NoError(t, err)
 		assert.NotSame(t, inner, got)
 	})

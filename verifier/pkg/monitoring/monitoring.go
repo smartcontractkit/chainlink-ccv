@@ -234,3 +234,6 @@ func (f *FakeVerifierMetricLabeler) RecordTokenHTTPRequest(context.Context, stri
 
 func (f *FakeVerifierMetricLabeler) RecordTokenHTTPCooldownSeconds(context.Context, string, time.Duration) {
 }
+
+func (f *FakeVerifierMetricLabeler) RecordPolicyHTTPRequestDuration(context.Context, string, time.Duration) {
+}

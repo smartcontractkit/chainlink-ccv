@@ -140,6 +140,10 @@ an error rather than a silent downgrade. Errors name the field, never the value.
 
 ### `NewVerificationCoordinator` policy credential (additive, not breaking)
 
+> Superseded by `2026-09-05_policy_hook_standalone_only.md`. The hook is no longer supported on a
+> verifier running inside a Chainlink node, and `constructors.WithPolicyHookCredential` is gone.
+> The rest of this section describes the shape that shipped here.
+
 `cmd/verifier/servicefactory.go` resolves the credential from the secrets file. The Chainlink-node
 path has no secrets file, so `constructors.NewVerificationCoordinator` accepts one from its caller,
 as it already does for the aggregator credentials. It arrives as a variadic option rather than a
