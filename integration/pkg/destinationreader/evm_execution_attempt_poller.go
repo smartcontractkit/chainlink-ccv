@@ -37,7 +37,7 @@ const (
 	evmExecutionAttemptPollerServiceName = "evm.executionattemptpoller.Service"
 	// maxFilterBlockRange is the maximum block range for filter queries to avoid RPC limits.
 	// Common Ethereum RPC limits are around 10,000 blocks, using a conservative value here.
-	maxFilterBlockRange = 5000
+	maxFilterBlockRange = 1000
 	// maxSubscriptionReconnectAttempts is the maximum number of times to attempt reconnecting the subscription
 	// before falling back to HTTP polling mode.
 	maxSubscriptionReconnectAttempts = 5
