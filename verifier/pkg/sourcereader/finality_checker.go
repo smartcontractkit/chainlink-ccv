@@ -52,6 +52,7 @@ type FinalityViolationCheckerService struct {
 
 	// Flag indicating if violation was detected
 	violationDetected bool
+	evidence          *FinalityEvidence
 }
 
 // NewFinalityViolationCheckerService creates a new finality violation checker.
@@ -91,8 +92,8 @@ func (f *FinalityViolationCheckerService) UpdateFinalized(ctx context.Context, f
 		return fmt.Errorf("finality violation already detected, service stopped")
 	}
 
-	// If this is the first call, just store the finalized block
-	if f.lastFinalized == 0 {
+	// Block zero is a valid investigated boundary; only an empty history is uninitialized.
+	if len(f.finalizedBlocks) == 0 {
 		header, err := f.fetchSingleBlock(ctx, finalizedBlock)
 		if err != nil {
 			return fmt.Errorf("failed to fetch initial finalized block %d: %w", finalizedBlock, err)
@@ -184,6 +185,7 @@ func (f *FinalityViolationCheckerService) validateAndStore(ctx context.Context, 
 	// Check if we already have this block stored
 	if storedHeader, ok := f.finalizedBlocks[blockNum]; ok {
 		if storedHeader.Hash != newHeader.Hash {
+			f.evidence = &FinalityEvidence{BlockNumber: blockNum, StoredHash: storedHeader.Hash.String(), ObservedHash: newHeader.Hash.String()}
 			f.violationDetected = true
 			f.lggr.Errorw("FINALITY VIOLATION DETECTED - block hash changed",
 				"blockNumber", blockNum,
@@ -206,6 +208,7 @@ func (f *FinalityViolationCheckerService) validateAndStore(ctx context.Context, 
 					"expectedParent", prevHeader.Hash,
 					"actualParent", newHeader.ParentHash,
 				)
+				f.evidence = &FinalityEvidence{BlockNumber: blockNum, ExpectedParent: prevHeader.Hash.String(), ActualParent: newHeader.ParentHash.String()}
 				f.violationDetected = true
 				f.metrics.SetVerifierFinalityViolated(ctx, f.chainSelector, true)
 				return fmt.Errorf("finality violation: block %d parent hash %s doesn't match block %d hash %s",
@@ -234,6 +237,7 @@ func (f *FinalityViolationCheckerService) reset() {
 	f.finalizedBlocks = make(map[uint64]protocol.BlockHeader)
 	f.lastFinalized = 0
 	f.violationDetected = false
+	f.evidence = nil
 	f.metrics.SetVerifierFinalityViolated(context.Background(), f.chainSelector, false)
 
 	f.lggr.Infow("Finality checker state reset",
@@ -301,4 +305,24 @@ func (n *NoOpFinalityViolationChecker) UpdateFinalized(ctx context.Context, fina
 // IsFinalityViolated implements protocol.FinalityViolationChecker.
 func (n *NoOpFinalityViolationChecker) IsFinalityViolated() bool {
 	return false
+}
+
+// FinalityEvidence contains chain-neutral observations already fetched by the checker.
+type FinalityEvidence struct {
+	BlockNumber    uint64 `json:"block_number,string"`
+	StoredHash     string `json:"stored_hash,omitempty"`
+	ObservedHash   string `json:"observed_hash,omitempty"`
+	ExpectedParent string `json:"expected_parent,omitempty"`
+	ActualParent   string `json:"actual_parent,omitempty"`
+}
+
+// Evidence returns a copy of the first detected violation, or nil when unavailable.
+func (f *FinalityViolationCheckerService) Evidence() *FinalityEvidence {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	if f.evidence == nil {
+		return nil
+	}
+	snapshot := *f.evidence
+	return &snapshot
 }

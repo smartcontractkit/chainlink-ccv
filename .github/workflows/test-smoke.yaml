@@ -138,6 +138,11 @@ jobs:
             pattern: TestE2ESmoke_JobQueue
             profile: standard.profile
             timeout: 10m
+          - name: TestE2ESmoke_Recovery
+            pattern: TestE2ESmoke_Recovery
+            profile: standard.profile
+            timeout: 15m
+            observability: full
           - name: TestE2ESmoke_RemoveRemotePool
             pattern: TestE2ESmoke_RemoveRemotePool
             profile: standard.profile
@@ -269,7 +274,7 @@ jobs:
         uses: ./.github/actions/install-ccv-cli
 
       - name: Run Observability Stack
-        run: ccv obs up -m loki
+        run: ccv obs up -m ${{ matrix.test.observability || 'loki' }}
 
       - name: Run Test ${{ matrix.test.name }}
         id: test_run

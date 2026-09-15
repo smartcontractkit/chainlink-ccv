@@ -16,6 +16,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/heartbeat"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/jobqueue"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/recovery"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/sourcereader"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/storagewriter"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/taskverifier"
@@ -134,14 +135,14 @@ func NewCoordinatorWithDetector(
 		vc.chainStatusBatcher = batcher
 		batchedChainStatusManager := protocol.ChainStatusManager(batcher)
 
-		enabledSourceReaders, err := filterOnlyEnabledSourceReaders(ctx, lggr, config, sourceReaders, batchedChainStatusManager)
+		configuredSourceReaders, err := filterConfiguredSourceReaders(ctx, lggr, config, sourceReaders, batchedChainStatusManager)
 		if err != nil {
-			return fmt.Errorf("failed to filter enabled source readers: %w", err)
+			return fmt.Errorf("failed to filter configured source readers: %w", err)
 		}
-		if len(enabledSourceReaders) == 0 {
-			return errors.New("no enabled/initialized chain sources, nothing to coordinate")
+		if len(configuredSourceReaders) == 0 {
+			return errors.New("no configured/initialized chain sources, nothing to coordinate")
 		}
-		curseDetector, err := createCurseDetector(lggr, config, detector, enabledSourceReaders, monitoring.Metrics())
+		curseDetector, err := createCurseDetector(lggr, config, detector, configuredSourceReaders, monitoring.Metrics())
 		if err != nil {
 			return fmt.Errorf("failed to create curse detector: %w", err)
 		}
@@ -153,7 +154,7 @@ func NewCoordinatorWithDetector(
 		}
 
 		processors, err := createDurableProcessors(
-			lggr, ds, config, verifier, monitoring, enabledSourceReaders, batchedChainStatusManager, vc.curseDetector, messageTracker, storage, messageRulesChecker,
+			lggr, ds, config, verifier, monitoring, configuredSourceReaders, batchedChainStatusManager, vc.curseDetector, messageTracker, storage, messageRulesChecker,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to create durable processors: %w", err)
@@ -202,7 +203,7 @@ func createDurableProcessors(
 	config CoordinatorConfig,
 	verifier Verifier,
 	monitoring Monitoring,
-	enabledSourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
+	configuredSourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
 	chainStatusManager protocol.ChainStatusManager,
 	curseDetector common.CurseCheckerService,
 	messageTracker MessageLatencyTracker,
@@ -260,10 +261,18 @@ func createDurableProcessors(
 	}
 
 	sourceReadersDB, err := createSourceReadersDB(
-		lggr, config, chainStatusManager, curseDetector, monitoring, enabledSourceReaders, taskQueueObserver, messageRulesChecker,
+		lggr, config, chainStatusManager, curseDetector, monitoring, configuredSourceReaders, taskQueueObserver, messageRulesChecker,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create DB source reader services: %w", err)
+	}
+
+	recoveryStore := recovery.NewStore(ds)
+	recoverySlots := make(chan struct{}, 1)
+	for _, reader := range sourceReadersDB {
+		if err := reader.ConfigureRecovery(recoveryStore, taskQueue, recoverySlots); err != nil {
+			return nil, fmt.Errorf("configure source recovery: %w", err)
+		}
 	}
 
 	taskVerifierProcessor, err := taskverifier.NewProcessor(
@@ -368,12 +377,12 @@ func createSourceReadersDB(
 	chainStatusManager protocol.ChainStatusManager,
 	curseDetector common.CurseCheckerService,
 	monitoring Monitoring,
-	enabledSourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
+	configuredSourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
 	taskQueue jobqueue.JobQueue[VerificationTask],
 	messageRulesChecker common.MessageRulesChecker,
 ) (map[protocol.ChainSelector]*sourcereader.Service, error) {
 	sourceReaderServices := make(map[protocol.ChainSelector]*sourcereader.Service)
-	for chainSelector, sourceReader := range enabledSourceReaders {
+	for chainSelector, sourceReader := range configuredSourceReaders {
 		sourceCfg := config.SourceConfigs[chainSelector]
 		filter := chainaccess.NewReceiptIssuerFilter(sourceCfg.VerifierAddress, sourceCfg.DefaultExecutorAddress)
 		lggr.Infow("PollInterval: ", "chainSelector", chainSelector, "interval", sourceCfg.PollInterval)
@@ -391,7 +400,7 @@ func createSourceReadersDB(
 	return sourceReaderServices, nil
 }
 
-func filterOnlyEnabledSourceReaders(
+func filterConfiguredSourceReaders(
 	ctx context.Context,
 	lggr logger.Logger,
 	config CoordinatorConfig,
@@ -408,23 +417,22 @@ func filterOnlyEnabledSourceReaders(
 		return nil, fmt.Errorf("failed to read chain statuses from storage: %w", err)
 	}
 
-	enabledSourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
+	configuredSourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
 	for chainSelector, sourceReader := range sourceReaders {
 		if sourceReader == nil {
 			continue
 		}
 		lggr.Infow("Chain Status", "chainSelector", chainSelector, "status", statusMap[chainSelector])
 		if chainStatus, ok := statusMap[chainSelector]; ok && chainStatus.Disabled {
-			lggr.Warnw("Chain is disabled, skipping", "chain", chainSelector, "blockHeight", chainStatus.FinalizedBlockHeight)
-			continue
+			lggr.Warnw("Chain is disabled; reader will wait for explicit live recovery", "chain", chainSelector)
 		}
 		if _, ok := config.SourceConfigs[chainSelector]; !ok {
 			lggr.Warnw("No source config for chain selector, skipping", "chainSelector", chainSelector)
 			continue
 		}
-		enabledSourceReaders[chainSelector] = sourceReader
+		configuredSourceReaders[chainSelector] = sourceReader
 	}
-	return enabledSourceReaders, nil
+	return configuredSourceReaders, nil
 }
 
 func (vc *Coordinator) Close() error {
