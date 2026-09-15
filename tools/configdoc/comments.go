@@ -1,51 +1,62 @@
 package configdoc
 
 import (
-	gopath "path"
-
-	"github.com/invopop/jsonschema"
+	"github.com/smartcontractkit/chainlink-common/x/config/commentparsing"
 )
 
-// CommentLookup resolves Go doc comments for struct fields. It is backed by
-// invopop/jsonschema's AddGoComments, which parses Go source and indexes every
-// type/field doc comment. We use only its comment map — never its JSON Schema
-// output — so the fact that jsonschema keys property names off `json` tags
-// (which our `toml`-tagged structs mostly lack) is irrelevant here.
+// CommentLookup resolves Go doc comments for struct fields.
 //
-// invopop keys each comment as `path.Join(base, walkedDir).TypeName.FieldName`,
-// where walkedDir is the filesystem directory it walked — so the key embeds the
-// directory we passed, not a clean import path. We therefore remember the
-// import-path -> directory mapping and reconstruct the same key at lookup time.
+// The comments come from chainlink-common/x/config/commentparsing, which reads them from source
+// for a type this module declares and from the DocComments method compiled into a dependency for
+// one it does not. That second case is why this is not simply a source walk: a config field whose
+// type comes from another module has no source tree here to read.
 type CommentLookup struct {
-	comments map[string]string
-	dirs     map[string]string // import path -> filesystem dir passed to invopop
+	// fields is keyed by package path, type name and field name together, which is all the
+	// identity a reflected struct field has.
+	fields map[string]string
 }
 
 // LoadComments parses the Go source for the given packages and indexes their
 // doc comments. pkgs maps each package's import path to the filesystem
 // directory holding its source. Full multi-line comments are retained (not just
 // the first-sentence synopsis).
+//
+// Prefer letting [Generator.Render] discover the packages itself: this cannot reach a type from
+// another module, because it is given directories and a dependency's source is not among them.
 func LoadComments(pkgs map[string]string) (*CommentLookup, error) {
-	r := new(jsonschema.Reflector)
+	lookup := &CommentLookup{fields: make(map[string]string)}
 	for importPath, dir := range pkgs {
-		if err := r.AddGoComments(importPath, dir, jsonschema.WithFullComment()); err != nil {
+		pkg, err := commentparsing.ParseDir(dir)
+		if err != nil {
 			return nil, err
 		}
+		pkg.ImportPath = importPath
+		lookup.add(*pkg)
 	}
-	if r.CommentMap == nil {
-		r.CommentMap = make(map[string]string)
+	return lookup, nil
+}
+
+// commentsFrom indexes the packages a discovery walk resolved, whatever the origin of each one's
+// comments.
+func commentsFrom(pkgs []commentparsing.Package) *CommentLookup {
+	lookup := &CommentLookup{fields: make(map[string]string)}
+	for _, pkg := range pkgs {
+		lookup.add(pkg)
 	}
-	return &CommentLookup{comments: r.CommentMap, dirs: pkgs}, nil
+	return lookup
+}
+
+func (c *CommentLookup) add(pkg commentparsing.Package) {
+	for _, typ := range pkg.Types {
+		for name, doc := range typ.Fields {
+			c.fields[pkg.ImportPath+"."+typ.Name+"."+name] = doc.Comment
+		}
+	}
 }
 
 // Field returns the doc comment for a struct field, identified by its declaring
 // type's import path, the type name, and the Go field name. Returns "" if the
 // package was not loaded or no comment was found.
 func (c *CommentLookup) Field(pkgPath, typeName, fieldName string) string {
-	dir, ok := c.dirs[pkgPath]
-	if !ok {
-		return ""
-	}
-	prefix := gopath.Join(pkgPath, dir)
-	return c.comments[prefix+"."+typeName+"."+fieldName]
+	return c.fields[pkgPath+"."+typeName+"."+fieldName]
 }

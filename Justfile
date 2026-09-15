@@ -31,6 +31,7 @@ generate: ensure-oapi-codegen
     rm -f indexer/indexer_openapi_v1.yaml
     rm -f indexer/pkg/client/internal/client.go
     find . -name 'go.mod' -execdir go generate ./... \;
+    just config-docs
     just mock
 
 # Regenerate configuration/secrets docs from the app config structs.
