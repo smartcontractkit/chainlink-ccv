@@ -48,6 +48,4 @@ For changed canonical source data, pre-admission drops or expired archives, rewi
 
 Automatic retry remains 7 days. Non-retryable failures archive immediately. Archive cleanup remains 30 days after `archived_at` (`completed_at` in SQL), swept every 4 hours.
 
-Both queues now export retained failed inventory once per minute, with a 7-day warning lead (archive age at least 23 days). Categories are persisted when archiving: `policy_rejected`, `retry_window_expired`, `validation_error`, `storage_failure`, and `unknown`. Known validation/deserialization errors take precedence over generic storage failures; expired retries use `retry_window_expired`. Pre-upgrade rows retain `unknown`. Classification is advisory and never determines whether a replay is safe.
-
-See [monitoring and alert provisioning](../../docs/monitoring/verifier-archive-inventory.md) and the [remediation runbook](../../docs/runbooks/remediating-stuck-or-dropped-messages.md). Inventory counts retained failed **jobs**, which may contain repeated or already recovered messages; it does not count distinct affected messages.
+Retained failed-job inventory metrics are not part of this change; see the [remediation runbook](../../docs/runbooks/remediating-stuck-or-dropped-messages.md) for the manual procedure.
