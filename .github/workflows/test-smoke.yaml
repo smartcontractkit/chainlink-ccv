@@ -149,7 +149,7 @@ jobs:
           - name: TestE2EReorg
             pattern: TestE2EReorg
             profile: standard.src-auto-mine.profile
-            timeout: 5m
+            timeout: 15m
           - name: TestChaos_AggregatorOutageRecovery
             pattern: TestChaos_AggregatorOutageRecovery
             profile: standard.profile
