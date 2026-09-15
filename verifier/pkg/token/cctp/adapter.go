@@ -25,7 +25,7 @@ type ChainAdapter interface {
 	DecodeAddress(address string) (protocol.UnknownAddress, error)
 }
 
-var adapters = map[string]ChainAdapter{}
+var adapters = make(map[string]ChainAdapter)
 
 // RegisterAdapter registers the adapter for one chain family. It panics on a nil or
 // duplicate registration: both are programming errors, and registration runs in init
