@@ -25,6 +25,21 @@ const (
 	AppPathInsideContainer = "/app"
 )
 
+// TelemetryAttrs copies base telemetry attributes and adds OTel service identity:
+// service.name for the service type and service.instance.id for the container name.
+// The fresh map prevents per-service writes from aliasing the shared config.
+func TelemetryAttrs(base map[string]string, service, instance string) map[string]string {
+	attrs := make(map[string]string, len(base)+2)
+	for k, v := range base {
+		attrs[k] = v
+	}
+	attrs["service.name"] = service
+	if instance != "" {
+		attrs["service.instance.id"] = instance
+	}
+	return attrs
+}
+
 // awsCredentialEnvVars are the standard AWS SDK environment variables that carry credentials and
 // region. Forwarding these from the host lets a container reach AWS (e.g. KMS) via the default
 // credential chain without a mounted profile. Session-token creds (SSO/STS) are short-lived, so a

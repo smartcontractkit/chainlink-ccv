@@ -103,6 +103,7 @@ TraceBatchTimeout = 10
 
 [Monitoring.Beholder.TelemetryAttributes]
 ccip_env = "devenv"
+service.name = "aggregator"
 
 # Committee config is loaded from the generated config file.
 # generatedConfigPath is set dynamically during config generation.

@@ -231,6 +231,7 @@ func runPhase3Core(
 			ver.Bootstrap = &services.BootstrapInput{}
 		}
 		m := monitoring
+		m.Beholder.TelemetryAttributes = services.TelemetryAttrs(monitoring.Beholder.TelemetryAttributes, "verifier", ver.ContainerName)
 		ver.Bootstrap.Monitoring = &m
 	}
 	if err := committeeverifier.LaunchStandaloneVerifiers(
