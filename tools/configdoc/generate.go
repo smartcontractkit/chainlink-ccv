@@ -9,10 +9,9 @@
 // holds no repo-specific target list — see this repo's tools/configdoc/registry
 // package for an example consumer.
 //
-// Limitation: doc comments are only harvested for packages inside the Generator's
-// module. A config field whose *type* lives in a different module is still
-// emitted but gets no comment, which trips the completeness gate — so keep a
-// repo's config structs (and their nested types) within that repo's module.
+// A config field whose *type* lives in a different module is documented from the DocComments
+// method that module generated, so it needs no source tree here. A module that never generated
+// has no comments to read, which trips the completeness gate.
 package configdoc
 
 import (
@@ -26,6 +25,9 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
+	"golang.org/x/mod/modfile"
+
+	"github.com/smartcontractkit/chainlink-common/x/config/commentparsing"
 )
 
 // Generator renders documentation targets to commented TOML. ModuleRoot is the
@@ -61,12 +63,11 @@ func NewGenerator(dir string) (*Generator, error) {
 	}
 }
 
-// modulePath extracts the module import path from go.mod contents.
+// modulePath goes through the go tool's own parser because a directive may carry an inline
+// comment, be quoted, or be separated by a tab.
 func modulePath(gomod []byte) (string, error) {
-	for line := range strings.SplitSeq(string(gomod), "\n") {
-		if rest, ok := strings.CutPrefix(strings.TrimSpace(line), "module "); ok {
-			return strings.TrimSpace(rest), nil
-		}
+	if path := modfile.ModulePath(gomod); path != "" {
+		return path, nil
 	}
 	return "", errors.New("no module directive in go.mod")
 }
@@ -86,22 +87,76 @@ type Stale struct {
 // path, creating directories as needed. It returns the written file paths. A
 // render or I/O error aborts and is returned along with the paths written so far.
 func (g *Generator) Write(targets []Target, outDir string) ([]string, error) {
-	var written []string
+	rel, err := g.relative(outDir)
+	if err != nil {
+		return nil, err
+	}
+
+	// Run writes the DocComments methods for every package the walk reached alongside these docs,
+	// out of the one discovery walk both need. That is what lets a downstream module document a
+	// config field whose type is declared in this one.
+	if err := commentparsing.Run(g.runArgs(targets), g.Files(targets, rel)); err != nil {
+		return nil, err
+	}
+
+	written := make([]string, 0, len(targets))
 	for _, t := range targets {
-		content, err := g.Render(t)
-		if err != nil {
-			return written, err
-		}
-		path := filepath.Join(outDir, filepath.FromSlash(t.Out))
-		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-			return written, err
-		}
-		if err := os.WriteFile(path, []byte(content), 0o644); err != nil { //nolint:gosec // G306: generated docs are not secret
-			return written, err
-		}
-		written = append(written, path)
+		written = append(written, filepath.Join(outDir, filepath.FromSlash(t.Out)))
 	}
 	return written, nil
+}
+
+// runArgs are what commentparsing needs beyond the targets themselves.
+//
+// Dir is the module root because every generated path is resolved against it, and a package's
+// DocComments file belongs beside the structs it describes rather than under the docs directory.
+func (g *Generator) runArgs(targets []Target) commentparsing.RunArgs {
+	return commentparsing.RunArgs{
+		Roots:       Roots(targets),
+		Dir:         g.ModuleRoot,
+		LocalPrefix: g.ModulePath,
+		Tool:        g.ModulePath + "/tools/configdoc",
+	}
+}
+
+// relative expresses outDir the way a generator's paths must be: against the module root the run
+// is anchored to. A caller gives it relative to the working directory, which is the same thing
+// only when that is the module root.
+func (g *Generator) relative(outDir string) (string, error) {
+	abs := outDir
+	if !filepath.IsAbs(abs) {
+		resolved, err := filepath.Abs(abs)
+		if err != nil {
+			return "", err
+		}
+		abs = resolved
+	}
+	return filepath.Rel(g.ModuleRoot, abs)
+}
+
+// files renders every target from one discovery walk, keyed by the path each is committed at.
+//
+// It goes through commentparsing.Files rather than Run so that checking whether the committed docs
+// are up to date does not write the answer it is about to compare against.
+func (g *Generator) files(targets []Target, outDir string) (map[string]string, error) {
+	rel, err := g.relative(outDir)
+	if err != nil {
+		return nil, err
+	}
+
+	generated, err := commentparsing.Files(g.runArgs(targets), g.Files(targets, rel))
+	if err != nil {
+		return nil, fmt.Errorf("loading comments: %w", err)
+	}
+
+	// Keyed by the paths the caller built from outDir, not the module-root-relative ones the run
+	// was anchored to, because those are what it compares against.
+	files := make(map[string]string, len(targets))
+	for _, t := range targets {
+		out := filepath.FromSlash(t.Out)
+		files[filepath.Join(outDir, out)] = generated[filepath.Join(rel, out)]
+	}
+	return files, nil
 }
 
 // Check renders every target and compares it against the committed file under
@@ -109,13 +164,17 @@ func (g *Generator) Write(targets []Target, outDir string) ([]string, error) {
 // fresh). A render error aborts and is returned. This is the engine behind both
 // the CLI's -check mode and each repo's freshness test.
 func (g *Generator) Check(targets []Target, outDir string) ([]Stale, error) {
+	files, err := g.files(targets, outDir)
+	if err != nil {
+		return nil, err
+	}
+
+	// Only the targets are compared. The DocComments files written alongside them are guarded the
+	// way any other generated Go is, by regenerating and diffing, and have no Target to name.
 	var stale []Stale
 	for _, t := range targets {
-		want, err := g.Render(t)
-		if err != nil {
-			return nil, err
-		}
 		path := filepath.Join(outDir, filepath.FromSlash(t.Out))
+		want := files[path]
 		got, err := os.ReadFile(path) //nolint:gosec // G304: path is built from the trusted target list + outDir, not user input
 		if err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
@@ -136,6 +195,16 @@ func (g *Generator) Check(targets []Target, outDir string) ([]Stale, error) {
 // walking), loads the doc comments for the packages the instance's structs live
 // in, and injects those comments into the encoded output.
 func (g *Generator) Render(t Target) (string, error) {
+	pkgs, err := commentparsing.Discover(g.ModuleRoot, t.New())
+	if err != nil {
+		return "", fmt.Errorf("%s: loading comments: %w", t.Name, err)
+	}
+	return g.render(t, commentsFrom(pkgs))
+}
+
+// render is Render with the comments already resolved, so several targets sharing a type resolve
+// it once rather than each walking the tree again.
+func (g *Generator) render(t Target, comments *CommentLookup) (string, error) {
 	inst := t.New()
 	if err := validateInitializedPointers(inst); err != nil {
 		return "", fmt.Errorf("%s: %w", t.Name, err)
@@ -144,11 +213,6 @@ func (g *Generator) Render(t Target) (string, error) {
 	var buf bytes.Buffer
 	if err := toml.NewEncoder(&buf).Encode(inst); err != nil {
 		return "", fmt.Errorf("%s: encoding: %w", t.Name, err)
-	}
-
-	comments, err := LoadComments(g.packageDirs(inst))
-	if err != nil {
-		return "", fmt.Errorf("%s: loading comments: %w", t.Name, err)
 	}
 
 	body, err := InjectComments(buf.String(), reflect.TypeOf(inst), comments)
@@ -234,52 +298,6 @@ func (g *Generator) header(t Target) string {
 			"# %s %s reference. Values shown are defaults or illustrative examples.\n\n",
 		titleCase(t.Name), kind,
 	)
-}
-
-// packageDirs maps each package contributing a field on inst to its source
-// directory, so LoadComments indexes exactly the needed packages.
-func (g *Generator) packageDirs(inst any) map[string]string {
-	dirs := make(map[string]string)
-	for pkg := range collectPackages(reflect.TypeOf(inst)) {
-		rel := strings.TrimPrefix(strings.TrimPrefix(pkg, g.ModulePath), "/")
-		dirs[pkg] = filepath.Join(g.ModuleRoot, filepath.FromSlash(rel))
-	}
-	return dirs
-}
-
-// collectPackages returns the set of package import paths of every struct type
-// reachable through the fields of t (following embeds, nested structs, and
-// struct-valued maps/slices).
-func collectPackages(t reflect.Type) map[string]bool {
-	out := make(map[string]bool)
-	visited := make(map[reflect.Type]bool)
-	var walk func(reflect.Type)
-	walk = func(t reflect.Type) {
-		t = deref(t)
-		if t.Kind() != reflect.Struct || visited[t] {
-			return
-		}
-		visited[t] = true
-		if t.PkgPath() != "" {
-			out[t.PkgPath()] = true
-		}
-		for _, f := range reflect.VisibleFields(t) {
-			if !f.IsExported() {
-				continue
-			}
-			ft := deref(f.Type)
-			switch ft.Kind() {
-			case reflect.Struct:
-				walk(ft)
-			case reflect.Slice, reflect.Array, reflect.Map:
-				if ft.Elem().Kind() == reflect.Struct {
-					walk(ft.Elem())
-				}
-			}
-		}
-	}
-	walk(t)
-	return out
 }
 
 func titleCase(s string) string {
