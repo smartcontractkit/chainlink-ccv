@@ -35,7 +35,7 @@ source chain and failure category. `verifier_archive_collection_success` and
 is never mistaken for a healthy one. Collection runs once a minute and clears groups that have
 disappeared, so a reschedule or cleanup shows up as a transition to zero rather than a stuck value.
 
-The category is derived at read time by `failureCategorySQL` rather than stored. R1 allows either
+The category is derived at read time by `failureCategorySQL` rather than stored. CCIP-13475 allows either
 persisting a category or defining a stable mapping, and every input the mapping needs
 (`last_error`, `retry_deadline`, `completed_at`) is already on the archive tables — so the
 inventory costs no migration. Retry-window expiry is decided by the timestamps, because a job
@@ -77,6 +77,7 @@ archive restore and active-job uniqueness checks are unchanged.
 
 ## Scope
 
-This is R1–R3 of the recovery follow-ups. R4 (durable pre-admission drop history) and R5 (live
-source-range recovery) are not included; both need durable storage and are being taken separately
-so the schema question can be argued on its own terms.
+This is CCIP-13475, CCIP-13499 and CCIP-13500 of the recovery follow-ups. CCIP-13501 (durable
+pre-admission drop history) and CCIP-13502 (live source-range recovery) are not included; both
+need durable storage and are being taken separately so the schema question can be argued on its
+own terms.

@@ -159,7 +159,7 @@ func TestArchiveInventoryRepresentativePlan(t *testing.T) {
 	}
 	require.NoError(t, rows.Err())
 	t.Log(plan.String())
-	// R1 asks for the collection cost to be validated against a representative archive rather
+	// CCIP-13475 asks for the collection cost to be validated against a representative archive rather
 	// than for a particular plan. The log carries the plan, buffers and timing for review; the
 	// assertion only pins that the payload column stays out of the scan.
 	require.NotContains(t, plan.String(), "task_data")

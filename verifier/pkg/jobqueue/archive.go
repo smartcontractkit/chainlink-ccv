@@ -21,8 +21,8 @@ const (
 
 // failureCategorySQL maps an archived row onto the bounded failure vocabulary at read time.
 //
-// R1 allows either persisting a category or defining a stable mapping; this is the mapping, so
-// the inventory needs no schema change. Every input it reads (last_error, retry_deadline,
+// CCIP-13475 allows either persisting a category or defining a stable mapping; this is the
+// mapping, so the inventory needs no schema change. Every input it reads (last_error, retry_deadline,
 // completed_at) already exists on the archive tables.
 //
 // Retry-window expiry is decided by the timestamps rather than the error text: a job archived
