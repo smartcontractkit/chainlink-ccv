@@ -3,6 +3,7 @@ package services
 import (
 	_ "embed"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -30,9 +31,7 @@ const (
 // The fresh map prevents per-service writes from aliasing the shared config.
 func TelemetryAttrs(base map[string]string, service, instance string) map[string]string {
 	attrs := make(map[string]string, len(base)+2)
-	for k, v := range base {
-		attrs[k] = v
-	}
+	maps.Copy(attrs, base)
 	attrs["service.name"] = service
 	if instance != "" {
 		attrs["service.instance.id"] = instance
