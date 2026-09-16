@@ -392,19 +392,6 @@ func (r *Service) processEventCycle(ctx context.Context, latest, finalized *prot
 			continue
 		}
 
-		sCtx, span := r.monitoring.Tracing().StartMessageSpan(ctx, monitoring.MessageDiscoverySpanName(r.verifierID), event.MessageID,
-			attribute.String(tracing.VerifierIDKey, r.verifierID),
-			attribute.String(tracing.BlockNumberKey, strconv.FormatUint(event.BlockNumber, 10)),
-			attribute.String(tracing.TxHashKey, event.TxHash.String()),
-			attribute.String(tracing.SourceChainNameKey, event.Message.SourceChainSelector.ChainName()),
-			attribute.String(tracing.SourceChainSelectorKey, event.Message.SourceChainSelector.String()),
-			attribute.String(tracing.DestChainNameKey, event.Message.DestChainSelector.ChainName()),
-			attribute.String(tracing.DestChainSelectorKey, event.Message.DestChainSelector.String()),
-		)
-		span.AddEvent(monitoring.EventChainEventDiscovered, oteltrace.WithAttributes(attribute.String(tracing.MessageIDKey, onchainMessageID)))
-
-		carrier := propagation.MapCarrier{}
-		otel.GetTextMapPropagator().Inject(sCtx, carrier)
 		task := verifier.VerificationTask{
 			Message:              event.Message,
 			ReceiptBlobs:         event.Receipts,
@@ -414,31 +401,46 @@ func (r *Service) processEventCycle(ctx context.Context, latest, finalized *prot
 			FeeToken:             event.FeeToken,
 			SourceBlockTimestamp: sourceBlockTimestamp(event.BlockNumber, event.BlockTimestamp, latest, finalized),
 			FinalizedBlockAtRead: finalized.Number,
-			TraceParent:          carrier.Get("traceparent"),
-			TraceContext:         sCtx,
 		}
+
+		r.mu.RLock()
+		_, alreadyPending := r.pendingTasks[onchainMessageID]
+		_, alreadySent := r.sentTasks[onchainMessageID]
+		r.mu.RUnlock()
+		if !alreadyPending && !alreadySent {
+			sCtx, span := r.monitoring.Tracing().StartMessageSpan(ctx, monitoring.MessageDiscoverySpanName(r.verifierID), event.MessageID,
+				attribute.String(tracing.VerifierIDKey, r.verifierID),
+				attribute.String(tracing.BlockNumberKey, strconv.FormatUint(event.BlockNumber, 10)),
+				attribute.String(tracing.TxHashKey, event.TxHash.String()),
+				attribute.String(tracing.SourceChainNameKey, event.Message.SourceChainSelector.ChainName()),
+				attribute.String(tracing.SourceChainSelectorKey, event.Message.SourceChainSelector.String()),
+				attribute.String(tracing.DestChainNameKey, event.Message.DestChainSelector.ChainName()),
+				attribute.String(tracing.DestChainSelectorKey, event.Message.DestChainSelector.String()),
+			)
+			carrier := propagation.MapCarrier{}
+			otel.GetTextMapPropagator().Inject(sCtx, carrier)
+			span.AddEvent(monitoring.EventChainEventDiscovered, oteltrace.WithAttributes(attribute.String(tracing.MessageIDKey, onchainMessageID)))
+
+			task.TraceParent = carrier.Get("traceparent")
+			task.TraceContext = sCtx
+		}
+
 		tasks = append(tasks, task)
 		r.messageMetrics(event.Message).IncrementMessageTransition(
 			ctx,
 			monitoring.MessageTransitionStageSourceRead,
 			monitoring.MessageTransitionOutcomeDiscovered,
 			monitoring.MessageTransitionReasonNone)
-
-		span.AddEvent(monitoring.EventTaskFormed)
 	}
 
 	r.addToPendingQueueHandleReorg(tasks, fromBlock, lastQueriedBlock)
 
-	// The discovery span ends here - it does not stay open across the
-	// pending/cursed/disabled/publish lifecycle (which can span seconds).
-	// addToPendingQueueHandleReorg already ends spans for tasks it drops
-	// (duplicate/already-sent/reorg-removed); End() is idempotent, so ending
-	// every task's span again here is safe and covers the tasks it kept
-	// (added to pendingTasks). A fresh "send" span is started at publish
-	// time instead of keeping this one open.
-	for _, task := range tasks {
-		tracing.SpanFromContext(task.TraceContext).End()
-	}
+	// Unlike before, the discovery span is NOT ended here for a task that made
+	// it into pendingTasks: sendReadyMessages reuses that same span across the
+	// cursed/disabled/finality-wait lifecycle instead of opening a new one on
+	// every poll, so it has to still be open when that code runs. Spans for
+	// tasks addToPendingQueueHandleReorg drops (duplicate/already-sent) are
+	// ended there instead.
 
 	if len(events) == 0 {
 		r.logger.Debugw("No events found in range",
@@ -592,8 +594,7 @@ func (r *Service) addToPendingQueueHandleReorg(tasks []verifier.VerificationTask
 	for _, task := range tasks {
 		span := tracing.SpanFromContext(task.TraceContext)
 		if _, exists := r.pendingTasks[task.MessageID]; exists {
-			// Duplicate of an already-tracked pending task from an overlapping
-			// query range - this task's span is a throwaway, end it now.
+			// already tracked - span is a throwaway
 			span.AddEvent(monitoring.EventAlreadyTracked)
 			span.End()
 			continue
@@ -602,6 +603,7 @@ func (r *Service) addToPendingQueueHandleReorg(tasks []verifier.VerificationTask
 			r.logger.Debugw("Skipping already-sent message",
 				protocol.LogKeyMessageID, task.MessageID,
 				"blockNumber", task.BlockNumber)
+			// already sent - span is a throwaway
 			span.AddEvent(monitoring.EventAlreadySent)
 			span.End()
 			continue
@@ -692,13 +694,7 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 		toBeDeleted := make([]string, 0)
 
 		for msgID, task := range r.pendingTasks {
-			// Fresh span per send attempt - not a continuation of the (already
-			// ended) discovery span, but still parented under it so it lands
-			// in the same trace.
-			sendCtx, sendSpan := r.monitoring.Tracing().StartMessageSpan(
-				task.TraceContext, monitoring.MessageTaskSendSpanName(r.verifierID), task.Message.MustMessageID(),
-				attribute.String(tracing.VerifierIDKey, r.verifierID),
-			)
+			taskSpan := tracing.SpanFromContext(task.TraceContext)
 
 			cursed, curseErr := r.curseDetector.IsRemoteChainCursed(ctx, task.Message.SourceChainSelector, task.Message.DestChainSelector)
 			if cursed {
@@ -714,12 +710,11 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 						monitoring.MessageTransitionOutcomeCurseStateUnknown,
 						monitoring.MessageTransitionReasonCurseStateUnknown)
 					hasBlockingUnknown = true
-					sendSpan.End()
 					// In this particular case we can't make a decision, so we'll just skip the task
 					// Curse err should be transient so the next poll is likely to have the information
 					continue
 				}
-				sendSpan.AddEvent(monitoring.EventCursedDropped,
+				taskSpan.AddEvent(monitoring.EventCursedDropped,
 					oteltrace.WithAttributes(
 						attribute.String(tracing.SourceChainNameKey, task.Message.SourceChainSelector.ChainName()),
 						attribute.String(tracing.SourceChainSelectorKey, task.Message.SourceChainSelector.String()),
@@ -727,7 +722,7 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 						attribute.String(tracing.DestChainSelectorKey, task.Message.DestChainSelector.String()),
 					),
 				)
-				sendSpan.End()
+				taskSpan.End()
 				r.logger.Warnw("Dropping task - lane is cursed",
 					protocol.LogKeyMessageID, msgID,
 					protocol.LogKeySourceChain, task.Message.SourceChainSelector,
@@ -754,13 +749,13 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 					monitoring.MessageTransitionOutcomeRulesStateUnknown,
 					monitoring.MessageTransitionReasonRulesStateUnknown)
 				hasBlockingUnknown = true
-				sendSpan.RecordError(disablementErr)
-				sendSpan.SetStatus(codes.Error, disablementErr.Error())
-				sendSpan.End()
+				// Recorded but not ended - transient/unknown
+				taskSpan.RecordError(disablementErr)
+				taskSpan.SetStatus(codes.Error, disablementErr.Error())
 				continue
 			}
 			if disabled {
-				sendSpan.AddEvent(monitoring.EventDisabledDropped,
+				taskSpan.AddEvent(monitoring.EventDisabledDropped,
 					oteltrace.WithAttributes(
 						attribute.String(tracing.SourceChainNameKey, task.Message.SourceChainSelector.ChainName()),
 						attribute.String(tracing.SourceChainSelectorKey, task.Message.SourceChainSelector.String()),
@@ -768,7 +763,7 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 						attribute.String(tracing.DestChainSelectorKey, task.Message.DestChainSelector.String()),
 					),
 				)
-				sendSpan.End()
+				taskSpan.End()
 				r.logger.Warnw("Dropping task - message matched a disablement rule",
 					protocol.LogKeyMessageID, msgID,
 					protocol.LogKeySourceChain, task.Message.SourceChainSelector,
@@ -782,55 +777,38 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 				continue
 			}
 
-			if r.isMessageReadyForVerification(task, latestBlock, latestSafeBlock, latestFinalizedBlock) {
-				task.SourceBlockTimestamp = sourceBlockTimestamp(task.BlockNumber, task.SourceBlockTimestamp, latest, safe, finalized)
-
-				// Set the timestamp when message became ready for verification
-				// This is the finalized block timestamp which represents when the message met finality criteria
-				task.ReadyForVerificationAt = latest.Timestamp
-
-				// The finalized head as of now. The policy hook publishes this as
-				// finalized_block_number and derives block_depth from it, so an
-				// operator's endpoint can see how deeply confirmed a message was when
-				// the verifier decided it was ready (see verifier/pkg/policy/contract.go).
-				// FinalizedBlockAtRead cannot serve that: it is captured at discovery,
-				// when the message's own block is still ahead of the finalized head, so
-				// a depth computed from it is 0 for every message that took the normal
-				// path to finality.
-				task.FinalizedBlockAtReady = latestFinalizedBlock.Uint64()
-
-				// Carry the send span forward as the task's TraceContext/TraceParent so
-				// the publish step (below) and downstream taskverifier/storagewriter
-				// nest under this send span rather than the ended discovery span.
-				task.TraceContext = sendCtx
-				carrier := propagation.MapCarrier{}
-				otel.GetTextMapPropagator().Inject(sendCtx, carrier)
-				task.TraceParent = carrier.Get("traceparent")
-
-				ready = append(ready, task)
-
-				sendSpan.AddEvent(
-					monitoring.EventReadyForVerification,
-					oteltrace.WithAttributes(
-						attribute.String(tracing.BlockNumberKey, strconv.FormatUint(task.BlockNumber, 10)),
-						attribute.String(tracing.LatestBlockNumberKey, latestBlock.String()),
-						attribute.String(tracing.LatestSafeBlockNumberKey, latestSafeBlock.String()),
-						attribute.String(tracing.LatestFinalizedBlockNumberKey, latestFinalizedBlock.String()),
-					),
-				)
-				// Not ended here - still open until the publish step below ends it.
-			} else {
-				sendSpan.AddEvent(
-					monitoring.EventNotReadyForVerification,
-					oteltrace.WithAttributes(
-						attribute.String(tracing.BlockNumberKey, strconv.FormatUint(task.BlockNumber, 10)),
-						attribute.String(tracing.LatestBlockNumberKey, latestBlock.String()),
-						attribute.String(tracing.LatestSafeBlockNumberKey, latestSafeBlock.String()),
-						attribute.String(tracing.LatestFinalizedBlockNumberKey, latestFinalizedBlock.String()),
-					),
-				)
-				sendSpan.End()
+			if !r.isMessageReadyForVerification(task, latestBlock, latestSafeBlock, latestFinalizedBlock) {
+				continue
 			}
+
+			task.SourceBlockTimestamp = sourceBlockTimestamp(task.BlockNumber, task.SourceBlockTimestamp, latest, safe, finalized)
+
+			// Set the timestamp when message became ready for verification
+			// This is the finalized block timestamp which represents when the message met finality criteria
+			task.ReadyForVerificationAt = latest.Timestamp
+
+			// The finalized head as of now. The policy hook publishes this as
+			// finalized_block_number and derives block_depth from it, so an
+			// operator's endpoint can see how deeply confirmed a message was when
+			// the verifier decided it was ready (see verifier/pkg/policy/contract.go).
+			// FinalizedBlockAtRead cannot serve that: it is captured at discovery,
+			// when the message's own block is still ahead of the finalized head, so
+			// a depth computed from it is 0 for every message that took the normal
+			// path to finality.
+			task.FinalizedBlockAtReady = latestFinalizedBlock.Uint64()
+
+			ready = append(ready, task)
+
+			taskSpan.AddEvent(
+				monitoring.EventReadyForVerification,
+				oteltrace.WithAttributes(
+					attribute.String(tracing.BlockNumberKey, strconv.FormatUint(task.BlockNumber, 10)),
+					attribute.String(tracing.LatestBlockNumberKey, latestBlock.String()),
+					attribute.String(tracing.LatestSafeBlockNumberKey, latestSafeBlock.String()),
+					attribute.String(tracing.LatestFinalizedBlockNumberKey, latestFinalizedBlock.String()),
+				),
+			)
+			// Not ended here - still open until the publish step below ends it.
 		}
 
 		// Delete dropped tasks immediately (these are not queued)
@@ -891,7 +869,6 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 				span := tracing.SpanFromContext(task.TraceContext)
 				span.RecordError(err)
 				span.SetStatus(codes.Error, err.Error())
-				span.End()
 			}
 			return 0 // Do not advance checkpoint on publish failure
 		}
@@ -1011,6 +988,11 @@ func (r *Service) handleFinalityViolation(ctx context.Context) {
 			monitoring.MessageTransitionStagePendingFinality,
 			monitoring.MessageTransitionOutcomeFinalityBlocked,
 			monitoring.MessageTransitionReasonFinalityViolation)
+
+		// task's span has been open since discovery
+		span := tracing.SpanFromContext(task.TraceContext)
+		span.AddEvent(monitoring.EventFinalityBlocked)
+		span.End()
 	}
 	r.pendingTasks = make(map[string]verifier.VerificationTask)
 	r.pendingSince = make(map[string]time.Time)
