@@ -135,7 +135,7 @@ func (s *Scheduler) backoff(attempt int) time.Duration {
 	}
 
 	if s.config.BaseDelay > 0 && d <= 0 {
-		s.lggr.Warn("Invariant Check triggered in Scheduler, messages will still be scheduled however no delay will be added.")
+		s.lggr.Warn("Invariant Check triggered in Scheduler, backoff delay overflowed to zero, falling back to MaxDelay.")
 		d = s.config.MaxDelay
 	}
 

@@ -1,9 +1,9 @@
-# Indexer scheduler backoff overflow and rate limiter circuit breaker fix
+# Indexer scheduler backoff overflow and rate limiter retry fix
 
 ## Executive Summary
 
-- This change fixes two compounding bugs in the indexer that caused stuck messages to retry at the ticker interval (~50 ms) instead of the configured backoff delay (up to 30 s), and caused rate-limited requests to open the circuit breaker and retry indefinitely.
-- The scheduler backoff function shifted `BaseDelay` left by the attempt count without an overflow guard; at high attempt counts the result became zero, so the scheduler dispatched the task on every tick with no delay. The rate limiter rejection error was not excluded from the retry policy or the circuit breaker, so a rate-limited request retried, opened the breaker, and then retried again in a tight loop.
+- This change fixes a signed integer overflow in the indexer scheduler backoff function that caused stuck messages to retry at the ticker interval (~50 ms) instead of the configured backoff delay (up to 30 s). It also includes a follow-up fix to the resilient reader retry policy added in #1364 so that rate-limited requests abort cleanly instead of retrying and cycling the circuit breaker.
+- The scheduler backoff function shifted `BaseDelay` left by the attempt count without an overflow guard; at high attempt counts the result became zero, so the scheduler dispatched the task on every tick with no delay. Separately, the retry policy from #1364 did not exclude `ratelimiter.ErrExceeded` from retry or the circuit breaker, so a rate-limited request would retry in a loop and open the breaker.
 - Affects `indexer/pkg/worker` (scheduler backoff) and `indexer/pkg/readers` (resilient reader policy stack).
 - No breaking changes. No configuration changes. No migration steps.
 
@@ -37,42 +37,18 @@ Production logs confirmed the bug: message `0xa9e0fc65...` at attempt 191,962 re
 
 ### Fix
 
-The overflow guard changed from `d < 0` to `d <= 0` and is gated on `BaseDelay > 0` so that the legitimate `BaseDelay = 0` fast-path (immediate dispatch, used in tests) is not affected. When overflow is detected, the delay resets to `MaxDelay` instead of `BaseDelay`, so the scheduler uses the maximum retry spacing for a message that has already been retrying for a long time.
-
-```go
-// Before
-d := s.config.BaseDelay << (attempt - 1)
-if s.config.MaxDelay > 0 && d > s.config.MaxDelay {
-    d = s.config.MaxDelay
-}
-if d < 0 {
-    s.lggr.Warn("Invariant Check triggered in Scheduler, messages will still be scheduled however no delay will be added.")
-    d = s.config.BaseDelay
-}
-
-// After
-d := s.config.BaseDelay << (attempt - 1)
-if s.config.MaxDelay > 0 && d > s.config.MaxDelay {
-    d = s.config.MaxDelay
-}
-if s.config.BaseDelay > 0 && d <= 0 {
-    s.lggr.Warn("Invariant Check triggered in Scheduler, messages will still be scheduled however no delay will be added.")
-    d = s.config.MaxDelay
-}
-```
-
-The `attempt < 0` guard was also changed to `attempt < 1` to prevent a negative shift (`BaseDelay << -1`), which is undefined behavior in Go.
+The overflow guard changed from `d < 0` to `d <= 0` and is gated on `BaseDelay > 0` so that the legitimate `BaseDelay = 0` fast-path (immediate dispatch, used in tests) is not affected. When overflow is detected, the delay resets to `MaxDelay` instead of `BaseDelay`, so the scheduler uses the maximum retry spacing for a message that has already been retrying for a long time. The `attempt < 0` guard was also changed to `attempt < 1` to prevent a negative shift (`BaseDelay << -1`), which is undefined behavior in Go.
 
 ## Rate limiter and circuit breaker
 
 ### Root cause
 
-`createPolicies` (`indexer/pkg/readers/resilient_reader.go:105`) built the retry policy and circuit breaker without special handling for `ratelimiter.ErrExceeded`. When the rate limiter rejected a request after its 1 s wait budget, two things happened:
+The retry policy added in #1364 built the retry policy and circuit breaker without special handling for `ratelimiter.ErrExceeded`. When the rate limiter rejected a request after its 1 s wait budget, two things happened:
 
 1. The retry policy retried the request, because `ErrExceeded` was not in the `AbortOnErrors` list. Each retry hit the rate limiter again, so the request retried in a loop until `MaxRetries` was exhausted.
 2. The circuit breaker counted `ErrExceeded` as a failure, because `cbHandleIf` returned `true` for any non-nil error. After `FailureThreshold` consecutive rejections, the breaker opened and subsequent requests failed immediately with `circuitbreaker.ErrOpen`.
 
-The combined effect: a reader that exceeded its rate limit would retry rapidly, open the circuit breaker, and then fail all requests for `CircuitBreakerDelay` (default 3 s). When the breaker closed, the cycle repeated.
+The combined effect: a reader that exceeded its rate limit would retry rapidly, open the circuit breaker, and then fail all requests for `CircuitBreakerDelay` (default 3 s). When the breaker closed, the cycle repeated. This policy is not yet deployed to staging, so this is a follow-up fix before rollout.
 
 ### Fix
 
@@ -81,43 +57,6 @@ Two changes in `createPolicies`:
 1. `ratelimiter.ErrExceeded` was added to the retry policy `AbortOnErrors` list. A rate-limited request now aborts immediately instead of retrying. The caller receives `ErrExceeded` and the scheduler applies backoff before the next attempt.
 
 2. The circuit breaker `HandleIf` function now checks `errors.Is(err, ratelimiter.ErrExceeded)` and returns `false`, so rate limiter rejections do not count as downstream failures and do not open the breaker.
-
-```go
-// Before
-rp := retrypolicy.NewBuilder[T]().
-    HandleIf(retryHandleIf).
-    WithMaxRetries(config.MaxRetries).
-    WithBackoff(config.RetryDelay, config.RetryMaxDelay).
-    AbortOnErrors(context.Canceled, context.DeadlineExceeded, circuitbreaker.ErrOpen).
-    ReturnLastFailure().
-    ...
-
-cbHandleIf := func(resp T, err error) bool {
-    if cbErrorHandler != nil {
-        return cbErrorHandler(resp, err)
-    }
-    return err != nil
-}
-
-// After
-rp := retrypolicy.NewBuilder[T]().
-    HandleIf(retryHandleIf).
-    WithMaxRetries(config.MaxRetries).
-    WithBackoff(config.RetryDelay, config.RetryMaxDelay).
-    AbortOnErrors(context.Canceled, context.DeadlineExceeded, circuitbreaker.ErrOpen, ratelimiter.ErrExceeded).
-    ReturnLastFailure().
-    ...
-
-cbHandleIf := func(resp T, err error) bool {
-    if errors.Is(err, ratelimiter.ErrExceeded) {
-        return false
-    }
-    if cbErrorHandler != nil {
-        return cbErrorHandler(resp, err)
-    }
-    return err != nil
-}
-```
 
 ## New Features / Additions
 
@@ -128,7 +67,7 @@ No new features.
 - **Rollout:** no feature flags. No configuration change. A binary swap applies the fix.
 - **Rollback:** a binary swap reverts the fix. No schema, persistence, or wire-format change.
 - **Dependencies:** none added.
-- **Observability note:** after rollout, the `Invariant Check triggered in Scheduler` warning log should appear less frequently for a given message (at most once, when the delay first overflows) and the delay should reset to `MaxDelay` instead of `BaseDelay`. Circuit breaker `opened` events caused by rate limiter rejections should stop.
+- **Observability note:** after rollout, the `Invariant Check triggered in Scheduler` warning log should appear less frequently for a given message (at most once, when the delay first overflows) and the delay should reset to `MaxDelay` instead of `BaseDelay`. Circuit breaker `opened` events caused by rate limiter rejections should not occur once the retry policy from #1364 deploys with this fix.
 
 ## References
 

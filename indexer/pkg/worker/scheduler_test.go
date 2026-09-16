@@ -126,11 +126,10 @@ func TestScheduler_Backoff_Overflow(t *testing.T) {
 	s, err := NewScheduler(lggr, scfg)
 	require.NoError(t, err)
 
+	expected := time.Duration(scfg.MaxDelay) * time.Millisecond
 	for _, attempt := range []int{62, 63, 64, 100, 1000, 150000} {
 		d := s.backoff(attempt)
-		require.Positive(t, int64(d), "backoff must be positive for attempt %d", attempt)
-		require.LessOrEqual(t, int64(d), int64(scfg.MaxDelay)*int64(time.Millisecond),
-			"backoff must not exceed MaxDelay for attempt %d", attempt)
+		require.Equal(t, expected, d, "backoff must reset to MaxDelay for attempt %d", attempt)
 	}
 }
 
