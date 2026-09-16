@@ -14,6 +14,7 @@ import (
 	"go.uber.org/zap/zapcore"
 
 	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
+	ccvmonitoring "github.com/smartcontractkit/chainlink-ccv/common/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/common/monitoring/logging"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
@@ -76,9 +77,7 @@ func main() {
 			TraceSampleRatio:         config.Monitoring.Beholder.TraceSampleRatio,
 			TraceBatchTimeout:        time.Second * time.Duration(config.Monitoring.Beholder.TraceBatchTimeout),
 		}
-		for k, v := range config.Monitoring.Beholder.TelemetryAttributes {
-			beholderConfig.ResourceAttributes = append(beholderConfig.ResourceAttributes, attribute.String(k, v))
-		}
+		beholderConfig.ResourceAttributes = ccvmonitoring.ResourceAttributes(config.Monitoring.Beholder.TelemetryAttributes)
 		if _, ok := config.Monitoring.Beholder.TelemetryAttributes["service.name"]; !ok {
 			beholderConfig.ResourceAttributes = append(beholderConfig.ResourceAttributes, attribute.String("service.name", "indexer"))
 		}

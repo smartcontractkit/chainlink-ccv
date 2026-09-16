@@ -17,7 +17,6 @@ import (
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
 	"github.com/urfave/cli"
-	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap/zapcore"
 
 	messagedisablementcli "github.com/smartcontractkit/chainlink-ccv/aggregator/cli/messagedisablement"
@@ -26,6 +25,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/secrets"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/postgres"
+	ccvmonitoring "github.com/smartcontractkit/chainlink-ccv/common/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/common/monitoring/logging"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	zaplog "github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
@@ -172,9 +172,7 @@ func runServer(configPath, logLevelStr string, lggr logger.Logger, sugaredLggr l
 			TraceSampleRatio:         config.Monitoring.Beholder.TraceSampleRatio,
 			TraceBatchTimeout:        time.Duration(config.Monitoring.Beholder.TraceBatchTimeout) * time.Second,
 		}
-		for k, v := range config.Monitoring.Beholder.TelemetryAttributes {
-			beholderConfig.ResourceAttributes = append(beholderConfig.ResourceAttributes, attribute.String(k, v))
-		}
+		beholderConfig.ResourceAttributes = ccvmonitoring.ResourceAttributes(config.Monitoring.Beholder.TelemetryAttributes)
 		m, err := monitoring.InitMonitoring(beholderConfig)
 		if err != nil {
 			sugaredLggr.Fatalf("Failed to initialize aggregator monitoring: %v", err)
