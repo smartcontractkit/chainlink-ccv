@@ -25,6 +25,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/secrets"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/postgres"
+	ccvmonitoring "github.com/smartcontractkit/chainlink-ccv/common/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/common/monitoring/logging"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	zaplog "github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
@@ -74,7 +75,7 @@ func main() {
 	}
 
 	app.Action = func(c *cli.Context) error {
-		runServer(c.String("config"), lggr, sugaredLggr)
+		runServer(c.String("config"), zapLevel.String(), lggr, sugaredLggr)
 		return nil
 	}
 
@@ -139,7 +140,7 @@ func main() {
 	}
 }
 
-func runServer(configPath string, lggr logger.Logger, sugaredLggr logger.SugaredLogger) {
+func runServer(configPath, logLevelStr string, lggr logger.Logger, sugaredLggr logger.SugaredLogger) {
 	config, err := configuration.LoadConfig(configPath, sugaredLggr)
 	if err != nil {
 		lggr.Errorw("Failed to load configuration", "path", configPath, "error", err)
@@ -160,7 +161,7 @@ func runServer(configPath string, lggr logger.Logger, sugaredLggr logger.Sugared
 
 	var aggMonitoring common.AggregatorMonitoring = monitoring.NewNoopAggregatorMonitoring()
 	if config.Monitoring.Beholder.Enabled {
-		m, err := monitoring.InitMonitoring(beholder.Config{
+		beholderConfig := beholder.Config{
 			InsecureConnection:       config.Monitoring.Beholder.InsecureConnection,
 			CACertFile:               config.Monitoring.Beholder.CACertFile,
 			OtelExporterGRPCEndpoint: config.Monitoring.Beholder.OtelExporterGRPCEndpoint,
@@ -169,11 +170,21 @@ func runServer(configPath string, lggr logger.Logger, sugaredLggr logger.Sugared
 			MetricReaderInterval:     time.Duration(config.Monitoring.Beholder.MetricReaderInterval) * time.Second,
 			TraceSampleRatio:         config.Monitoring.Beholder.TraceSampleRatio,
 			TraceBatchTimeout:        time.Duration(config.Monitoring.Beholder.TraceBatchTimeout) * time.Second,
-		})
+		}
+		beholderConfig.ResourceAttributes = ccvmonitoring.ResourceAttributes(config.Monitoring.Beholder.TelemetryAttributes)
+		m, err := monitoring.InitMonitoring(beholderConfig)
 		if err != nil {
 			sugaredLggr.Fatalf("Failed to initialize aggregator monitoring: %v", err)
 		}
 		aggMonitoring = m
+		streamLggr, err := logging.InitLogger("aggregator", logLevelStr, config.Monitoring)
+		if err != nil {
+			sugaredLggr.Fatalf("Failed to initialize aggregator logger: %v", err)
+		}
+		// The streaming logger replaces the stdout-only logger. The rebind affects only
+		// references taken after this point: construct any logger-holding component below.
+		lggr = logging.WithService(streamLggr, "aggregator")
+		sugaredLggr = logger.Sugared(lggr)
 		lggr.Info("Monitoring enabled")
 	}
 
