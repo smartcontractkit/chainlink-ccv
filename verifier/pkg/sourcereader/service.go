@@ -409,13 +409,16 @@ func (r *Service) processEventCycle(ctx context.Context, latest, finalized *prot
 		r.mu.RUnlock()
 		if !alreadyPending && !alreadySent {
 			sCtx, span := r.monitoring.Tracing().StartMessageSpan(ctx, monitoring.MessageDiscoverySpanName(r.verifierID), event.MessageID,
-				attribute.String(tracing.VerifierIDKey, r.verifierID),
-				attribute.String(tracing.BlockNumberKey, strconv.FormatUint(event.BlockNumber, 10)),
-				attribute.String(tracing.TxHashKey, event.TxHash.String()),
-				attribute.String(tracing.SourceChainNameKey, event.Message.SourceChainSelector.ChainName()),
-				attribute.String(tracing.SourceChainSelectorKey, event.Message.SourceChainSelector.String()),
-				attribute.String(tracing.DestChainNameKey, event.Message.DestChainSelector.ChainName()),
-				attribute.String(tracing.DestChainSelectorKey, event.Message.DestChainSelector.String()),
+				tracing.AlwaysSampled(),
+				tracing.WithAttributes(
+					tracing.VerifierIDKey, r.verifierID,
+					tracing.BlockNumberKey, strconv.FormatUint(event.BlockNumber, 10),
+					tracing.TxHashKey, event.TxHash.String(),
+					tracing.SourceChainNameKey, event.Message.SourceChainSelector.ChainName(),
+					tracing.SourceChainSelectorKey, event.Message.SourceChainSelector.String(),
+					tracing.DestChainNameKey, event.Message.DestChainSelector.ChainName(),
+					tracing.DestChainSelectorKey, event.Message.DestChainSelector.String(),
+				),
 			)
 			carrier := propagation.MapCarrier{}
 			otel.GetTextMapPropagator().Inject(sCtx, carrier)

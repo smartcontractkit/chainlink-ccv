@@ -13,6 +13,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/auth"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/testutil"
 	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	messagerules "github.com/smartcontractkit/chainlink-ccv/common/messagerules"
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
@@ -66,7 +67,7 @@ func TestWriteCommitCCVNodeDataHandler_MessageDisablementGate(t *testing.T) {
 	agg := mocks.NewMockAggregationTriggerer(t)
 	sig := mocks.NewMockSignatureValidator(t)
 	mon := mocks.NewMockAggregatorMonitoring(t)
-
+	testutil.StubTracing(mon)
 	// None of these should be called when the message is disabled
 	store.EXPECT().SaveCommitVerification(mock.Anything, mock.Anything, mock.Anything).Maybe()
 	agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Maybe()
@@ -225,6 +226,7 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 			}
 
 			mon := mocks.NewMockAggregatorMonitoring(t)
+			testutil.StubTracing(mon)
 			labeler := mocks.NewMockAggregatorMetricLabeler(t)
 			mon.EXPECT().Metrics().Return(labeler).Maybe()
 			labeler.EXPECT().With(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(labeler).Maybe()

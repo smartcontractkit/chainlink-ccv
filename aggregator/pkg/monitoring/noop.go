@@ -6,6 +6,8 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	commonmetrics "github.com/smartcontractkit/chainlink-ccv/common/metrics"
+	"github.com/smartcontractkit/chainlink-ccv/common/monitoring/tracing"
+	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 )
 
 // noopServiceMetrics implements commonmetrics.ServiceMetrics with no-op behavior for noop monitoring.
@@ -14,17 +16,31 @@ type noopServiceMetrics struct{}
 func (noopServiceMetrics) RecordServiceStarted(context.Context) {}
 
 type NoopAggregatorMonitoring struct {
+	tracing tracing.Tracing
 	commonmetrics.ServiceMetrics
 }
 
 func NewNoopAggregatorMonitoring() *NoopAggregatorMonitoring {
 	return &NoopAggregatorMonitoring{
+		// beholder.GetTracer() returns a no-op tracer until a beholder client is set,
+		// so this is safe to use even when monitoring is disabled.
+		tracing:        tracing.NewTracing(beholder.GetTracer()),
 		ServiceMetrics: noopServiceMetrics{},
 	}
 }
 
 func (m *NoopAggregatorMonitoring) Metrics() common.AggregatorMetricLabeler {
 	return NewNoopAggregatorMetricLabeler()
+}
+
+func (m *NoopAggregatorMonitoring) Tracing() tracing.Tracing {
+	// beholder.GetTracer() returns a no-op tracer until a beholder client is set,
+	// so this is safe even for a zero-value NoopAggregatorMonitoring{} (bypassing
+	// NewNoopAggregatorMonitoring), which several tests construct directly.
+	if m.tracing == nil {
+		return tracing.NewTracing(beholder.GetTracer())
+	}
+	return m.tracing
 }
 
 type NoopAggregatorMetricLabeler struct{}

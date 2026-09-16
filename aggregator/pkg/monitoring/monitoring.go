@@ -5,12 +5,14 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	commonmetrics "github.com/smartcontractkit/chainlink-ccv/common/metrics"
+	"github.com/smartcontractkit/chainlink-ccv/common/monitoring/tracing"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/metrics"
 )
 
 type AggregatorBeholderMonitoring struct {
 	metrics common.AggregatorMetricLabeler
+	tracing tracing.Tracing
 	commonmetrics.ServiceMetrics
 }
 
@@ -40,10 +42,15 @@ func InitMonitoring(config beholder.Config) (common.AggregatorMonitoring, error)
 
 	return &AggregatorBeholderMonitoring{
 		metrics:        NewAggregatorMetricLabeler(metrics.NewLabeler(), aggregatorMetrics),
+		tracing:        tracing.NewTracing(beholder.GetTracer()),
 		ServiceMetrics: serviceMetrics,
 	}, nil
 }
 
 func (m *AggregatorBeholderMonitoring) Metrics() common.AggregatorMetricLabeler {
 	return m.metrics
+}
+
+func (m *AggregatorBeholderMonitoring) Tracing() tracing.Tracing {
+	return m.tracing
 }

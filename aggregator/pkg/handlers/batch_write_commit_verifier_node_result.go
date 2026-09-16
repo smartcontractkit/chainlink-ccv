@@ -5,9 +5,13 @@ import (
 	"fmt"
 	"sync"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
+	commontracing "github.com/smartcontractkit/chainlink-ccv/common/monitoring/tracing"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	grpcstatus "google.golang.org/grpc/status"
@@ -41,6 +45,13 @@ func (h *BatchWriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, 
 	responses := make([]*committeepb.WriteCommitteeVerifierNodeResultResponse, len(requests))
 	errors := NewBatchErrorArray(len(requests))
 
+	// One traceparent per request, in order (see ItemTraceParentMetadataHeader) -
+	// otelgrpc's own extraction only covers the RPC as a whole, not each item.
+	var itemTraceParents []string
+	if md, ok := metadata.FromIncomingContext(ctx); ok {
+		itemTraceParents = md.Get(commontracing.ItemTraceParentMetadataHeader)
+	}
+
 	wg := sync.WaitGroup{}
 
 	for i, r := range requests {
@@ -54,7 +65,12 @@ func (h *BatchWriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, 
 				}
 				return
 			}
-			resp, err := h.handler.Handle(ctx, r)
+			itemCtx := ctx
+			if i < len(itemTraceParents) && itemTraceParents[i] != "" {
+				carrier := propagation.MapCarrier{"traceparent": itemTraceParents[i]}
+				itemCtx = otel.GetTextMapPropagator().Extract(ctx, carrier)
+			}
+			resp, err := h.handler.Handle(itemCtx, r)
 			if err != nil {
 				statusErr, ok := grpcstatus.FromError(err)
 				if !ok {

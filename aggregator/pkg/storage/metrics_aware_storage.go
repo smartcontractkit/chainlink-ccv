@@ -107,8 +107,8 @@ func (s *MetricsAwareStorage) GetBatchAggregatedReportByMessageIDs(ctx context.C
 	})
 }
 
-func (s *MetricsAwareStorage) SubmitAggregatedReport(ctx context.Context, report *model.CommitAggregatedReport) error {
-	return captureMetricsNoReturn(ctx, s.metrics(ctx), s.logger(ctx), s.slowQueryThreshold, submitReportOp, func() error {
+func (s *MetricsAwareStorage) SubmitAggregatedReport(ctx context.Context, report *model.CommitAggregatedReport) (bool, error) {
+	return captureMetrics(ctx, s.metrics(ctx), s.logger(ctx), s.slowQueryThreshold, submitReportOp, func() (bool, error) {
 		return s.inner.SubmitAggregatedReport(ctx, report)
 	})
 }

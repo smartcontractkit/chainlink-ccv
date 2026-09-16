@@ -6,6 +6,7 @@ import (
 	context "context"
 
 	common "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
+	tracing "github.com/smartcontractkit/chainlink-ccv/common/monitoring/tracing"
 	mock "github.com/stretchr/testify/mock"
 )
 
@@ -99,6 +100,53 @@ func (_c *MockAggregatorMonitoring_RecordServiceStarted_Call) Return() *MockAggr
 
 func (_c *MockAggregatorMonitoring_RecordServiceStarted_Call) RunAndReturn(run func(context.Context)) *MockAggregatorMonitoring_RecordServiceStarted_Call {
 	_c.Run(run)
+	return _c
+}
+
+// Tracing provides a mock function with no fields
+func (_m *MockAggregatorMonitoring) Tracing() tracing.Tracing {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for Tracing")
+	}
+
+	var r0 tracing.Tracing
+	if rf, ok := ret.Get(0).(func() tracing.Tracing); ok {
+		r0 = rf()
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(tracing.Tracing)
+		}
+	}
+
+	return r0
+}
+
+// MockAggregatorMonitoring_Tracing_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Tracing'
+type MockAggregatorMonitoring_Tracing_Call struct {
+	*mock.Call
+}
+
+// Tracing is a helper method to define mock.On call
+func (_e *MockAggregatorMonitoring_Expecter) Tracing() *MockAggregatorMonitoring_Tracing_Call {
+	return &MockAggregatorMonitoring_Tracing_Call{Call: _e.mock.On("Tracing")}
+}
+
+func (_c *MockAggregatorMonitoring_Tracing_Call) Run(run func()) *MockAggregatorMonitoring_Tracing_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockAggregatorMonitoring_Tracing_Call) Return(_a0 tracing.Tracing) *MockAggregatorMonitoring_Tracing_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockAggregatorMonitoring_Tracing_Call) RunAndReturn(run func() tracing.Tracing) *MockAggregatorMonitoring_Tracing_Call {
+	_c.Call.Return(run)
 	return _c
 }
 

@@ -32,21 +32,20 @@ func randomSpanID() oteltrace.SpanID {
 	return spanID
 }
 
-// SpanContextForMessage returns a remote SpanContext whose TraceID is
-// deterministically derived from messageID and whose SpanID is random.
-func SpanContextForMessage(messageID protocol.Bytes32) oteltrace.SpanContext {
+// spanContextForMessage returns a remote SpanContext whose TraceID is deterministically
+// derived from messageID and whose SpanID is random. Not sampled unless alwaysSampled is
+// true, in which case the configured Sampler's ratio is bypassed - see AlwaysSampled.
+func spanContextForMessage(messageID protocol.Bytes32, alwaysSampled bool) oteltrace.SpanContext {
+	flags := oteltrace.TraceFlags(0)
+	if alwaysSampled {
+		flags = oteltrace.FlagsSampled
+	}
 	return oteltrace.NewSpanContext(oteltrace.SpanContextConfig{
 		TraceID:    TraceIDForMessage(messageID),
 		SpanID:     randomSpanID(),
-		TraceFlags: oteltrace.FlagsSampled,
+		TraceFlags: flags,
 		Remote:     true,
 	})
-}
-
-// TraceContextForMessage returns ctx carrying messageID's deterministic
-// SpanContext as the current span.
-func TraceContextForMessage(ctx context.Context, messageID protocol.Bytes32) context.Context {
-	return oteltrace.ContextWithSpanContext(ctx, SpanContextForMessage(messageID))
 }
 
 // SpanFromContext returns the span carried by ctx. Unlike oteltrace.SpanFromContext,
@@ -60,14 +59,40 @@ func SpanFromContext(ctx context.Context) oteltrace.Span {
 	return oteltrace.SpanFromContext(ctx)
 }
 
+// spanConfig accumulates the options passed to one StartMessageSpan call.
+type spanConfig struct {
+	alwaysSampled bool
+	attrs         []attribute.KeyValue
+}
+
+// SpanOption configures a single StartMessageSpan call.
+type SpanOption func(*spanConfig)
+
+// AlwaysSampled forces the span to be recorded regardless of the configured Sampler's ratio.
+// Reserve it for low-volume, high-value spans (one per write/discovery); omit it for
+// per-attempt/retry spans so the configured sampling ratio bounds their volume.
+func AlwaysSampled() SpanOption {
+	return func(c *spanConfig) { c.alwaysSampled = true }
+}
+
+// WithAttributes attaches key-value string pairs to the span, e.g. WithAttributes("k1", "v1", "k2", "v2").
+func WithAttributes(kv ...string) SpanOption {
+	if len(kv)%2 != 0 {
+		panic("tracing.WithAttributes: odd number of key-value arguments")
+	}
+	return func(c *spanConfig) {
+		for i := 0; i < len(kv); i += 2 {
+			c.attrs = append(c.attrs, attribute.String(kv[i], kv[i+1]))
+		}
+	}
+}
+
 // Tracing exposes span creation for the message pipeline.
 type Tracing interface {
-	// StartMessageSpan starts a span for messageID. If ctx already carries a
-	// valid span context (a real in-process parent, e.g. the message's
-	// discovery span or a previous attempt), that parent is used; otherwise a
-	// deterministic parent derived from messageID is synthesized, so the span
-	// still lands in a consistent per-message trace.
-	StartMessageSpan(ctx context.Context, name string, messageID protocol.Bytes32, attrs ...attribute.KeyValue) (context.Context, oteltrace.Span)
+	// StartMessageSpan starts a span for messageID, parented off ctx's span, or a synthesized
+	// one otherwise (TraceID from messageID, SpanID random). Sampled only if AlwaysSampled is
+	// passed - any inherited sampled flag is cleared otherwise.
+	StartMessageSpan(ctx context.Context, name string, messageID protocol.Bytes32, opts ...SpanOption) (context.Context, oteltrace.Span)
 }
 
 type messageTracing struct {
@@ -83,13 +108,26 @@ func withMessageID(messageID string, attrs []attribute.KeyValue) []attribute.Key
 	return append([]attribute.KeyValue{attribute.String(MessageIDKey, messageID)}, attrs...)
 }
 
-func (t *messageTracing) StartMessageSpan(ctx context.Context, name string, messageID protocol.Bytes32, attrs ...attribute.KeyValue) (context.Context, oteltrace.Span) {
+func (t *messageTracing) StartMessageSpan(ctx context.Context, name string, messageID protocol.Bytes32, opts ...SpanOption) (context.Context, oteltrace.Span) {
+	var cfg spanConfig
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
 	tCtx := ctx
 	if tCtx == nil {
 		tCtx = context.Background()
 	}
-	if !oteltrace.SpanContextFromContext(tCtx).IsValid() {
-		tCtx = TraceContextForMessage(tCtx, messageID)
+	switch {
+	case !oteltrace.SpanContextFromContext(tCtx).IsValid():
+		tCtx = oteltrace.ContextWithSpanContext(tCtx, spanContextForMessage(messageID, cfg.alwaysSampled))
+	default:
+		// A real parent (e.g. a persisted traceparent reused across every retry) may carry
+		// a sampled flag this call didn't ask for; clear it so the configured Sampler's
+		// ratio actually governs this span instead of blindly inheriting the parent's.
+		if sc := oteltrace.SpanContextFromContext(tCtx); !cfg.alwaysSampled && sc.IsSampled() {
+			tCtx = oteltrace.ContextWithSpanContext(tCtx, sc.WithTraceFlags(sc.TraceFlags()&^oteltrace.FlagsSampled))
+		}
 	}
-	return t.tracer.Start(tCtx, name, oteltrace.WithAttributes(withMessageID(messageID.String(), attrs)...))
+	return t.tracer.Start(tCtx, name, oteltrace.WithAttributes(withMessageID(messageID.String(), cfg.attrs)...))
 }
