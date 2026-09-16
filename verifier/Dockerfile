@@ -18,7 +18,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build,id=ccv-go-build \
     CGO_ENABLED=0 go build -ldflags='-s -w' -o /bin/verifier main.go
 
 FROM alpine:3.23
-RUN apk --no-cache add ca-certificates tini
+RUN apk --no-cache upgrade libcrypto3 libssl3 && apk --no-cache add ca-certificates tini
 
 # Create a non-root user and group for running the application
 RUN addgroup -S verifier && adduser -S verifier -G verifier
