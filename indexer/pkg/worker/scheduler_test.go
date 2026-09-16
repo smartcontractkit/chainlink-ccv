@@ -114,6 +114,40 @@ func TestScheduler_Backoff_NegativeAttempt(t *testing.T) {
 	require.GreaterOrEqual(t, int(d.Milliseconds()), scfg.BaseDelay)
 }
 
+// TestScheduler_Backoff_Overflow verifies that the backoff function does not
+// return 0 or negative delays due to integer overflow at high attempt counts.
+// Before the fix, BaseDelay << (attempt-1) overflowed to 0 at attempt 64+,
+// defeating the retry backoff entirely.
+func TestScheduler_Backoff_Overflow(t *testing.T) {
+	lggr, err := logger.NewWith(logging.DevelopmentConfig(zapcore.DebugLevel))
+	require.NoError(t, err)
+
+	scfg := config.SchedulerConfig{TickerInterval: 50, BaseDelay: 100, MaxDelay: 30000, VerificationVisibilityWindow: 60}
+	s, err := NewScheduler(lggr, scfg)
+	require.NoError(t, err)
+
+	for _, attempt := range []int{62, 63, 64, 100, 1000, 150000} {
+		d := s.backoff(attempt)
+		require.Positive(t, int64(d), "backoff must be positive for attempt %d", attempt)
+		require.LessOrEqual(t, int64(d), int64(scfg.MaxDelay)*int64(time.Millisecond),
+			"backoff must not exceed MaxDelay for attempt %d", attempt)
+	}
+}
+
+// TestScheduler_Backoff_BaseDelayZero verifies that when BaseDelay is 0,
+// backoff returns 0 (immediate dispatch) and does not trigger the overflow guard.
+func TestScheduler_Backoff_BaseDelayZero(t *testing.T) {
+	lggr, err := logger.NewWith(logging.DevelopmentConfig(zapcore.DebugLevel))
+	require.NoError(t, err)
+
+	scfg := config.SchedulerConfig{TickerInterval: 50, BaseDelay: 0, MaxDelay: 1000, VerificationVisibilityWindow: 60}
+	s, err := NewScheduler(lggr, scfg)
+	require.NoError(t, err)
+
+	d := s.backoff(1)
+	require.Equal(t, time.Duration(0), d, "backoff with BaseDelay=0 should return 0 for immediate dispatch")
+}
+
 // TestScheduler_Enqueue_TTLExpired_DLQ asserts Enqueue returns an error for
 // tasks whose TTL is already expired and that such tasks are placed on DLQ.
 func TestScheduler_Enqueue_TTLExpired_DLQ(t *testing.T) {

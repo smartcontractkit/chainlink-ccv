@@ -2,6 +2,7 @@ package readers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync/atomic"
 	"time"
@@ -111,16 +112,21 @@ func createPolicies[T any](config ResilienceConfig, lggr logger.Logger, name str
 		HandleIf(retryHandleIf).
 		WithMaxRetries(config.MaxRetries).
 		WithBackoff(config.RetryDelay, config.RetryMaxDelay).
-		AbortOnErrors(context.Canceled, context.DeadlineExceeded, circuitbreaker.ErrOpen).
+		AbortOnErrors(context.Canceled, context.DeadlineExceeded, circuitbreaker.ErrOpen, ratelimiter.ErrExceeded).
 		ReturnLastFailure().
 		OnRetry(func(failsafe.ExecutionEvent[T]) {
 			lggr.Warnw(name+" retrying request", "max_retries", config.MaxRetries)
 		}).
 		Build()
 
-	cbHandleIf := func(resp T, err error) bool { return err != nil }
-	if cbErrorHandler != nil {
-		cbHandleIf = cbErrorHandler
+	cbHandleIf := func(resp T, err error) bool {
+		if errors.Is(err, ratelimiter.ErrExceeded) {
+			return false
+		}
+		if cbErrorHandler != nil {
+			return cbErrorHandler(resp, err)
+		}
+		return err != nil
 	}
 
 	cb := circuitbreaker.NewBuilder[T]().
