@@ -215,16 +215,14 @@ func TestResilientReader_RateLimitExceededNotRetriedAndBreakerStaysClosed(t *tes
 	var rateLimitErrors, successes atomic.Int32
 	var wg sync.WaitGroup
 	for range 3 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			_, err := rr.ReadCCVData(context.Background())
 			if err == nil {
 				successes.Add(1)
 			} else if errors.Is(err, ratelimiter.ErrExceeded) {
 				rateLimitErrors.Add(1)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 
