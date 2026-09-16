@@ -17,7 +17,8 @@ import (
 // Accepting the node's file directly is what keeps the CL-to-standalone migration free of a
 // conversion step: an operator mounts the config their node already runs with and starts the
 // process. Settings standalone CCV has no equivalent for are dropped, and the conversion's warnings
-// say which, so nothing goes missing silently.
+// say which, so nothing goes missing silently. Sections outside [[EVM]] are ignored wholesale and
+// named in the conversion's IgnoredSections.
 //
 // The two formats are told apart by their top-level table: `chains` is the standalone format,
 // `EVM` is a node config. Anything with neither is rejected by the strict decode below.

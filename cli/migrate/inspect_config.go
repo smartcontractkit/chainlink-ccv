@@ -21,10 +21,10 @@ func inspectConfigCommand() cli.Command {
 		Usage: "Print the effective per-chain EVM settings standalone will run, for the " +
 			"pre-cutover settings diff",
 		Description: "Accepts the Chainlink node's TOML config or a standalone-format EVM config and prints " +
-			"the conversion warnings (what the node config sets that standalone drops) followed by each " +
-			"chain's effective settings: finality, TXM block time (flagged when the 2s fallback fired), " +
-			"head-tracker persistence, and the RPC node set. RPC URLs are never printed — they can carry " +
-			"API keys. See docs/migration/evm-cl-to-standalone.md.",
+			"the conversion warnings (what the node config sets that standalone drops), the top-level " +
+			"sections the conversion ignores, and each chain's effective settings: finality, TXM block " +
+			"time (flagged when the 2s fallback fired), head-tracker persistence, and the RPC node set. " +
+			"RPC URLs are never printed — they can carry API keys. See docs/migration/evm-cl-to-standalone.md.",
 		Flags: []cli.Flag{
 			cli.StringFlag{Name: "config", Usage: "path to the EVM config: the node's TOML or a standalone-format file", Required: true},
 			cli.StringFlag{Name: "chain-selector", Usage: "optional: print only this chain"},
@@ -46,9 +46,12 @@ func inspectConfigCommand() cli.Command {
 
 // configReport is what `ccv migrate inspect-config` prints.
 type configReport struct {
-	ConvertedFromNodeConfig bool                                `json:"converted_from_node_config"`
-	Warnings                []string                            `json:"warnings,omitempty"`
-	Chains                  map[string]evmconfig.EffectiveChain `json:"chains"`
+	ConvertedFromNodeConfig bool     `json:"converted_from_node_config"`
+	Warnings                []string `json:"warnings,omitempty"`
+	// IgnoredSections names the node config's top-level sections the conversion does not read.
+	// They are file-level, so --chain-selector narrows the chains and warnings but not this list.
+	IgnoredSections []string                            `json:"ignored_top_level_sections,omitempty"`
+	Chains          map[string]evmconfig.EffectiveChain `json:"chains"`
 }
 
 func buildConfigReport(configPath, chainSelector string) (*configReport, error) {
@@ -64,6 +67,7 @@ func buildConfigReport(configPath, chainSelector string) (*configReport, error) 
 	report := &configReport{ConvertedFromNodeConfig: conversion != nil, Chains: chains}
 	if conversion != nil {
 		report.Warnings = conversion.Warnings
+		report.IgnoredSections = conversion.IgnoredSections
 	}
 
 	if chainSelector != "" {
@@ -77,7 +81,7 @@ func buildConfigReport(configPath, chainSelector string) (*configReport, error) 
 		report.Chains = map[string]evmconfig.EffectiveChain{chainSelector: chain}
 		// The warnings narrow with the chains: a multi-chain node config would otherwise print
 		// every other chain's dropped settings next to this one chain's settings, which reads as
-		// this chain's deviations.
+		// this chain's deviations. IgnoredSections does not narrow: it is file-level.
 		if conversion != nil {
 			report.Warnings = conversion.WarningsByChainID[chain.ChainID]
 		}

@@ -291,11 +291,11 @@ HTTPURL = 'https://arb.example.com'
 }
 
 // Warnings come out in the order the operator wrote the config, so an operator reading the startup
-// log walks their own file top to bottom. Every pair below is deliberately in the opposite order to
-// what sorting the strings would produce: arbitrum-sepolia precedes sepolia though "11155111" sorts
-// before "421614", node zeta precedes node alpha, and "dropped HTTPURLExtraWrite" precedes
-// "dropped IsLoadBalancedRPC". Node zeta also sets Order, a supported setting, to prove it never
-// enters the warning stream.
+// log walks their own file top to bottom: chains and nodes follow file order, while the dropped
+// settings within one chain or node come out sorted. The chains and nodes below are deliberately in
+// the opposite order to what sorting would produce: arbitrum-sepolia precedes sepolia though
+// "11155111" sorts before "421614", and node zeta precedes node alpha. Node zeta also sets Order, a
+// supported setting, to prove it never enters the warning stream.
 func TestConvertChainlinkNodeConfigWarningsFollowOperatorOrder(t *testing.T) {
 	t.Parallel()
 
@@ -344,6 +344,83 @@ HTTPURLExtraWrite = 'https://sepolia-write.example.com'
 			"chain " + sepoliaChainID + " node primary: dropped HTTPURLExtraWrite, standalone CCV does not expose it",
 		},
 	}, got.WarningsByChainID)
+}
+
+// Set-detection reads the operator's file rather than the decoded chainlink-evm struct, so it
+// names settings the typed config has no field for: options a newer node version added, and typos
+// of real ones. Those are exactly the drops an operator cannot otherwise see — a typo of
+// FinalityDepth silently reverting to the chain default is the case this guards.
+func TestConvertChainlinkNodeConfigWarnsAboutSettingsUnknownToTheTypedConfig(t *testing.T) {
+	t.Parallel()
+
+	got, err := convertChainlinkNodeConfig([]byte(`
+[[EVM]]
+ChainID = '` + sepoliaChainID + `'
+FinalityDepht = 22
+[EVM.GasEstimator]
+Mode = 'BlockHistory'
+FutureEstimatorSetting = 'x'
+[[EVM.Nodes]]
+Name = 'primary'
+HTTPURL = 'https://sepolia.example.com'
+FutureNodeSetting = true
+`))
+	require.NoError(t, err)
+	require.Equal(t, []string{
+		"chain " + sepoliaChainID + ": dropped set chain-level settings with no standalone equivalent: " +
+			"FinalityDepht, GasEstimator.FutureEstimatorSetting, GasEstimator.Mode",
+		"chain " + sepoliaChainID + " node primary: dropped FutureNodeSetting, standalone CCV does not expose it",
+	}, got.Warnings)
+}
+
+// Everything outside [[EVM]] is ignored by design — but named, not silent: the conversion lists
+// the top-level sections it did not read so the pre-cutover review sees them.
+func TestConvertChainlinkNodeConfigNamesIgnoredTopLevelSections(t *testing.T) {
+	t.Parallel()
+
+	got, err := convertChainlinkNodeConfig([]byte(`
+[Log]
+Level = 'debug'
+
+[Database]
+URL = 'postgresql://localhost:5432/chainlink'
+
+[[EVM]]
+ChainID = '` + sepoliaChainID + `'
+[[EVM.Nodes]]
+Name = 'primary'
+HTTPURL = 'https://sepolia.example.com'
+
+[WebServer]
+HTTPPort = 6688
+`))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"Database", "Log", "WebServer"}, got.IgnoredSections)
+	assert.Empty(t, got.Warnings, "a config that sets nothing extra has no drops to warn about")
+}
+
+// A setting written in an earlier [[EVM]] block for the chain is still set after the blocks merge:
+// later blocks override but never un-set, so the dropped-settings warning unions the blocks.
+func TestConvertChainlinkNodeConfigWarnsAboutSettingsFromMergedBlocks(t *testing.T) {
+	t.Parallel()
+
+	got, err := convertChainlinkNodeConfig([]byte(`
+[[EVM]]
+ChainID = '` + sepoliaChainID + `'
+[EVM.HeadTracker]
+HistoryDepth = 100
+[[EVM.Nodes]]
+Name = 'primary'
+HTTPURL = 'https://sepolia.example.com'
+
+[[EVM]]
+ChainID = '` + sepoliaChainID + `'
+FinalityDepth = 99
+`))
+	require.NoError(t, err)
+	require.Equal(t, []string{
+		"chain " + sepoliaChainID + ": dropped set chain-level settings with no standalone equivalent: HeadTracker.HistoryDepth",
+	}, got.Warnings)
 }
 
 // TestConvertedConfigLoadsStrictly encodes a conversion the way the CLI does and decodes it the way

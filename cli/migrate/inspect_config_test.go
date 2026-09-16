@@ -130,4 +130,31 @@ HTTPURL = 'https://arb.example.com'
 		_, err = buildConfigReport(path, "999")
 		require.ErrorContains(t, err, "not in")
 	})
+
+	// The ignored top-level sections are file-level: they are named in every report, including a
+	// chain-narrowed one, so the review sees what the conversion did not read at all.
+	t.Run("ignored top-level sections are named and survive chain narrowing", func(t *testing.T) {
+		t.Parallel()
+		path := writeConfigFile(t, `
+[Log]
+Level = 'debug'
+
+[WebServer]
+HTTPPort = 6688
+
+[[EVM]]
+ChainID = '11155111'
+[[EVM.Nodes]]
+Name = 'sepolia'
+HTTPURL = 'https://sepolia.example.com'
+`)
+
+		full, err := buildConfigReport(path, "")
+		require.NoError(t, err)
+		assert.Equal(t, []string{"Log", "WebServer"}, full.IgnoredSections)
+
+		narrowed, err := buildConfigReport(path, "16015286601757825753")
+		require.NoError(t, err)
+		assert.Equal(t, full.IgnoredSections, narrowed.IgnoredSections)
+	})
 }

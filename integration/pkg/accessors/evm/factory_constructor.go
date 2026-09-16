@@ -3,6 +3,7 @@ package evm
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
@@ -53,10 +54,15 @@ func CreateEVMAccessorFactory(lggr logger.Logger, genericConfig chainaccess.Gene
 		return nil, fmt.Errorf("failed to load EVM config: %w", err)
 	}
 	// Present only when a Chainlink node config was converted. Logged at warn so an operator who
-	// mounted their node's file sees what standalone CCV could not carry over.
+	// mounted their node's file sees what standalone CCV could not carry over — including the
+	// top-level sections the conversion does not read at all.
 	if conversion != nil {
 		for _, warning := range conversion.Warnings {
 			lggr.Warnw("converted Chainlink node EVM config", "detail", warning)
+		}
+		if len(conversion.IgnoredSections) > 0 {
+			lggr.Warnw("converted Chainlink node EVM config", "detail",
+				"ignoring top-level sections with no standalone equivalent: "+strings.Join(conversion.IgnoredSections, ", "))
 		}
 	}
 	infos, err := evmCfg.ToInfos()

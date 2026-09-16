@@ -138,9 +138,12 @@ through the output with Chainlink Labs. Two kinds of finding come out of it, and
 differently:
 
 - The `warnings` list names settings your node config carries that standalone has no equivalent for
-  (`GasEstimator.Mode`, `HeadTracker.HistoryDepth`, send-only nodes, and so on). There is nothing to
-  correct in the config for these: standalone will not read them whatever you write. Record that you
-  accept each one, or raise it with Chainlink Labs if a deviation is not acceptable.
+  (`GasEstimator.Mode`, `HeadTracker.HistoryDepth`, send-only nodes, and so on), and
+  `ignored_top_level_sections` names the non-EVM sections (`Log`, `WebServer`, `P2P`, …) the
+  conversion does not read at all. The warnings are read from your file directly, so a setting too
+  new for this tool — or a typo of a real one — is named too. There is nothing to correct in the
+  config for these: standalone will not read them whatever you write. Record that you accept each
+  one, or raise it with Chainlink Labs if a deviation is not acceptable.
 - The per-chain settings standalone does honor are worth changing now if they are wrong. Those are
   the TXM block time and the finality pair, and they carry over from the node config, so an agreed
   value goes in as `[EVM.Transactions.TransactionManagerV2] BlockTime` or `FinalityDepth` /
@@ -383,7 +386,8 @@ executor published, and the operator's funding in step 7 confirms it is the inte
 ## Why the node's TOML is reused as-is
 
 The `[[EVM]]` and `[[EVM.Nodes]]` sections are translated at startup and chain IDs resolved to chain
-selectors; every other section is ignored. Reusing the file rather than rewriting it is what keeps
+selectors; every other section is ignored, and named both at startup and in the report's
+`ignored_top_level_sections`. Reusing the file rather than rewriting it is what keeps
 finality behavior identical across the cutover — the node's own chain defaults are applied before
 translating, so a chain that was never configured explicitly keeps the behavior it had instead of
 moving onto finality tags.
@@ -395,7 +399,8 @@ Chain-level tuning beyond finality — gas estimation, node pool, head tracker, 
 transaction-manager settings — does not carry over, with one exception:
 `Transactions.TransactionManagerV2.BlockTime`. Whatever the node config sets that the conversion
 drops is logged by name at startup, so custom tuning surfaces instead of silently reverting to
-chain defaults.
+chain defaults. The set-detection reads the file itself, so a setting this tool's chainlink-evm
+version predates — or a typo of a real setting — is named rather than missed.
 
 If the node config sets no TXM v2 block time, standalone runs a 2-second block time, which retries
 and fee-bumps far more aggressively than the node did on a slow chain. The fallback is loud: the
@@ -406,7 +411,8 @@ per-chain value with Chainlink Labs before the cutover; the
 [TXM v2 assessment](txm-v2-assessment.md) explains the fallback.
 
 Send-only nodes and the per-node `HTTPURLExtraWrite` and `IsLoadBalancedRPC` settings have no
-standalone equivalent and are dropped. Each one is logged at startup. An operator relying on a
+standalone equivalent and are dropped, as is any other per-node setting beyond the endpoint URLs,
+the name, and the selection order. Each one is logged at startup. An operator relying on a
 send-only endpoint should add it as a full node.
 
 ## Finality checking stays on
