@@ -124,7 +124,7 @@ require (
 	github.com/smartcontractkit/chainlink-common v0.11.2-0.20260715145851-8219609496a4 // indirect
 	github.com/smartcontractkit/chainlink-common/keystore v1.3.1-0.20260903141829-ef07b52a737d // indirect
 	github.com/smartcontractkit/chainlink-common/pkg/chipingress v0.0.11-0.20260626151909-052e55e62e62 // indirect
-	github.com/smartcontractkit/chainlink-common/x/config v0.0.0-20260916134405-fa20ace24133 // indirect
+	github.com/smartcontractkit/chainlink-common/x/config v0.0.0-20260916165214-bec98c549e43 // indirect
 	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier v0.0.0-20251211142334-5c3421fe2c8d // indirect
 	github.com/smartcontractkit/chainlink-protos/cre/go v0.0.0-20260622152157-c8e129347b8b // indirect
 	github.com/smartcontractkit/chainlink-protos/linking-service/go v0.0.0-20260512230622-65f10f4cd305 // indirect

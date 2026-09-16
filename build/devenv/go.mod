@@ -74,7 +74,7 @@ require (
 	github.com/quic-go/quic-go v0.59.1 // indirect
 	github.com/smartcontractkit/chainlink-canton v0.0.0-20260615233851-4e78e7c23a58 // indirect
 	github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20260908164107-3de1349d970b // indirect
-	github.com/smartcontractkit/chainlink-common/x/config v0.0.0-20260916134405-fa20ace24133 // indirect
+	github.com/smartcontractkit/chainlink-common/x/config v0.0.0-20260916165214-bec98c549e43 // indirect
 	github.com/smartcontractkit/chainlink-ton/cciplib v0.1.0 // indirect
 	github.com/smartcontractkit/go-daml v0.0.0-20260615231356-88c6ee9b5774 // indirect
 	github.com/wlynxg/anet v0.0.5 // indirect

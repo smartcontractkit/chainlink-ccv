@@ -84,8 +84,12 @@ type Stale struct {
 }
 
 // Write renders every target and writes it under outDir at the target's Out
-// path, creating directories as needed. It returns the written file paths. A
-// render or I/O error aborts and is returned along with the paths written so far.
+// path, creating directories as needed. It returns the written file paths.
+//
+// An error returns no paths. The write is one commentparsing run over the docs and the
+// DocComments files together, which reports whether it completed rather than which files it got
+// to, so there is no partial list to hand back; a failed run leaves the tree to be repaired by
+// rerunning, not by reading a prefix of what it managed.
 func (g *Generator) Write(targets []Target, outDir string) ([]string, error) {
 	rel, err := g.relative(outDir)
 	if err != nil {
@@ -169,8 +173,11 @@ func (g *Generator) Check(targets []Target, outDir string) ([]Stale, error) {
 		return nil, err
 	}
 
-	// Only the targets are compared. The DocComments files written alongside them are guarded the
-	// way any other generated Go is, by regenerating and diffing, and have no Target to name.
+	// Only the targets are compared. The DocComments files written alongside them have no Target
+	// to name, and are guarded the way any other generated Go in the repo is: the repo-hygiene job
+	// runs `just generate` and fails on a dirty tree, which covers whatever a run rewrites. A
+	// consumer repo needs that same regenerate-and-diff step, because this check alone would pass
+	// with a stale committed DocComments method that its own dependents then read.
 	var stale []Stale
 	for _, t := range targets {
 		path := filepath.Join(outDir, filepath.FromSlash(t.Out))
