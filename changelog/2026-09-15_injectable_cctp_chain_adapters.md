@@ -14,7 +14,7 @@
 | `cctp.encodeTxHash` | removed | `\bencodeTxHash\b` | `verifier/pkg/token/cctp/attestation.go:191` | [#chain-codecs-moved-out-of-the-core-package](#chain-codecs-moved-out-of-the-core-package) |
 | `cctp.decodeAddress` | removed | `\bdecodeAddress\b` | `verifier/pkg/token/cctp/attestation.go:205` | [#chain-codecs-moved-out-of-the-core-package](#chain-codecs-moved-out-of-the-core-package) |
 | `cctp.HTTPAttestationService.Fetch` | behavior-changed | `NewAttestationService\(` | `verifier/pkg/token/cctp/attestation.go:90` | [#fetch-resolves-the-adapter](#fetch-resolves-the-adapter) |
-| `cctp.Domains` | behavior-changed | `cctp\.Domains\b` | `verifier/pkg/token/cctp/consts.go:21` | [#domains-stays-the-evm-catalog](#domains-stays-the-evm-catalog) |
+| `cctp.Domains` | behavior-changed | `cctp\.Domains\b` | `verifier/pkg/token/cctp/consts.go:21` | [#domains-is-the-evm-catalog-only](#domains-is-the-evm-catalog-only) |
 | `cctp.ChainAdapter` | added | `\bChainAdapter\b` | `verifier/pkg/token/cctp/adapter.go:19` | [#register-a-family-adapter](#register-a-family-adapter) |
 | `cctp.RegisterAdapter` | added | `\bRegisterAdapter\b` | `verifier/pkg/token/cctp/adapter.go:33` | [#register-a-family-adapter](#register-a-family-adapter) |
 | `cctp.AdapterFor` | added | `\bAdapterFor\b` | `verifier/pkg/token/cctp/adapter.go:44` | [#register-a-family-adapter](#register-a-family-adapter) |
@@ -45,13 +45,13 @@
 - **Why:** the core path must not hold a chain-specific branch.
 - **Who is affected:** a consumer that matches on the old error string `unsupported source chain selector`.
 
-### Domains stays the EVM catalog
+### Domains is the EVM catalog only
 
-- **What changed:** `cctp.Domains` stays exported and stays populated. The EVM adapter reads it.
-- **Before:** `Domains` was the single source for every family.
-- **After:** `Domains` remains the EVM and Circle catalog. It no longer drives a non-EVM family. A non-EVM family holds its own domain table in its adapter.
-- **Why:** a chain repo owns its chain data. `build/devenv` and tooling keep using `Domains`.
-- **Who is affected:** no compile break. A reader of `Domains` for a non-EVM selector sees the same value, but that value no longer reaches the verifier path.
+- **What changed:** `cctp.Domains` stays exported, but the two Solana entries are gone. The EVM adapter reads the map.
+- **Before:** `Domains` held every family. It listed `SOLANA_MAINNET` to domain 5 and `SOLANA_DEVNET` to domain 5.
+- **After:** `Domains` holds only EVM entries. The Solana adapter holds the Solana domain table.
+- **Why:** a chain repository owns its chain data. `build/devenv` and tooling keep using `Domains` for EVM selectors.
+- **Who is affected:** a consumer that reads `Domains` for a Solana selector. The key is now absent. Read the Solana adapter in `chainlink-ccip-solana/pkg/cctp` instead.
 
 ## Migration Guide
 
