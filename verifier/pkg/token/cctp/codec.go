@@ -12,10 +12,8 @@ import (
 // hash and address encodings.
 //
 // One codec exists per chain family. The EVM codec lives in this package; other families
-// register theirs from their own module (see
-// github.com/smartcontractkit/chainlink-ccip-solana/pkg/cctp for Solana). The verifier
-// resolves the codec from the source chain's family, so the core path holds no
-// chain-specific branch.
+// register theirs from their own module. The verifier resolves the codec from the source
+// chain's family, so the core path holds no chain-specific branch.
 type ChainCodec interface {
 	// Domain returns the Circle CCTP domain for the source chain selector.
 	Domain(selector protocol.ChainSelector) (uint32, bool)

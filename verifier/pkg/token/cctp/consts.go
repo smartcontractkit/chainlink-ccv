@@ -18,7 +18,6 @@ var DefaultVerifierVersion = mustDecodeHex(DefaultVerifierVersionHex)
 // Domains represent mapping between ChainSelector and Circle specific
 // domains used for xchain transfers
 // https://developers.circle.com/cctp/cctp-supported-blockchains
-// Solana selectors are absent: the Solana adapter owns that table.
 var Domains = map[uint64]uint32{
 	// ---------- Mainnet Domains ----------
 	sel.ETHEREUM_MAINNET.Selector:              0,
