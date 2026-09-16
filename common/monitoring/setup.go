@@ -58,11 +58,7 @@ func SetupBeholder(config BeholderConfig, signer crypto.Signer, metricViews []sd
 	}
 
 	if len(config.TelemetryAttributes) > 0 {
-		attrs := make([]attribute.KeyValue, 0, len(config.TelemetryAttributes))
-		for k, v := range config.TelemetryAttributes {
-			attrs = append(attrs, attribute.String(k, v))
-		}
-		beholderConfig.ResourceAttributes = attrs
+		beholderConfig.ResourceAttributes = ResourceAttributes(config.TelemetryAttributes)
 	}
 
 	if len(metricViews) > 0 {
@@ -84,6 +80,15 @@ func SetupBeholder(config BeholderConfig, signer crypto.Signer, metricViews []sd
 }
 
 var _ beholder.Signer = (*beholderSigner)(nil)
+
+// ResourceAttributes converts config telemetry attributes into OTel resource attributes.
+func ResourceAttributes(attrs map[string]string) []attribute.KeyValue {
+	out := make([]attribute.KeyValue, 0, len(attrs))
+	for k, v := range attrs {
+		out = append(out, attribute.String(k, v))
+	}
+	return out
+}
 
 type beholderSigner struct {
 	signer crypto.Signer

@@ -15,7 +15,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build,id=ccv-go-build \
     CGO_ENABLED=0 go build -ldflags='-s -w' -o /bin/executor main.go
 
 FROM alpine:3.23
-RUN apk --no-cache add ca-certificates
+RUN apk --no-cache upgrade libcrypto3 libssl3 && apk --no-cache add ca-certificates
 
 # Create a non-root user and group for running the application
 RUN addgroup -S executor && adduser -S executor -G executor

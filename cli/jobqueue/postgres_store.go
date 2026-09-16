@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"fmt"
 	"math/big"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
@@ -38,6 +40,14 @@ func tableNames(q QueueType) (active, archive string, err error) {
 // An empty queues slice queries both queues.
 // An empty ownerID queries all verifier IDs.
 func (s *PostgresStore) ListFailed(ctx context.Context, queues []QueueType, ownerID string, limit int) ([]ArchivedJob, error) {
+	return s.ListFailedFiltered(ctx, queues, ownerID, nil, limit)
+}
+
+// ListFailedFiltered applies exact message IDs before ordering and the per-queue limit.
+func (s *PostgresStore) ListFailedFiltered(ctx context.Context, queues []QueueType, ownerID string, messageIDs [][]byte, limit int) ([]ArchivedJob, error) {
+	if limit < 0 {
+		return nil, fmt.Errorf("limit must be non-negative")
+	}
 	if len(queues) == 0 {
 		queues = []QueueType{QueueTypeTaskVerifier, QueueTypeStorageWriter}
 	}
@@ -50,7 +60,7 @@ func (s *PostgresStore) ListFailed(ctx context.Context, queues []QueueType, owne
 			return nil, err
 		}
 
-		jobs, err := s.listFailedFromTable(ctx, archiveTable, ownerID, limit, q)
+		jobs, err := s.listFailedFromTable(ctx, archiveTable, ownerID, messageIDs, limit, q)
 		if err != nil {
 			return nil, fmt.Errorf("failed to list failed jobs from %s: %w", archiveTable, err)
 		}
@@ -64,6 +74,7 @@ func (s *PostgresStore) listFailedFromTable(
 	ctx context.Context,
 	archiveTable string,
 	ownerID string,
+	messageIDs [][]byte,
 	limit int,
 	queue QueueType,
 ) ([]ArchivedJob, error) {
@@ -82,7 +93,15 @@ func (s *PostgresStore) listFailedFromTable(
 		args = append(args, ownerID)
 	}
 
-	query += " ORDER BY created_at DESC"
+	if len(messageIDs) > 0 {
+		placeholders := make([]string, len(messageIDs))
+		for i, id := range messageIDs {
+			placeholders[i] = fmt.Sprintf("$%d", len(args)+1)
+			args = append(args, id)
+		}
+		query += " AND message_id IN (" + strings.Join(placeholders, ",") + ")"
+	}
+	query += " ORDER BY created_at DESC, job_id DESC"
 
 	if limit > 0 {
 		query += fmt.Sprintf(" LIMIT $%d", len(args)+1)
@@ -154,42 +173,85 @@ func (s *PostgresStore) RescheduleByJobID(
 	jobID string,
 	retryDuration time.Duration,
 ) error {
-	activeTable, archiveTable, err := tableNames(queue)
-	if err != nil {
-		return err
-	}
-
-	affected, err := s.restoreFromArchive(ctx, activeTable, archiveTable, ownerID, "job_id", jobID, retryDuration)
-	if err != nil {
-		return err
-	}
-	if affected == 0 {
-		return fmt.Errorf("no failed job with job_id=%q found in %s for owner_id=%q", jobID, archiveTable, ownerID)
-	}
-	return nil
+	_, err := s.Reschedule(ctx, queue, ownerID, jobID, nil, retryDuration)
+	return err
 }
 
-// RescheduleByMessageID moves a failed job from the archive back to the active table.
-func (s *PostgresStore) RescheduleByMessageID(
-	ctx context.Context,
-	queue QueueType,
-	ownerID string,
-	messageID []byte,
-	retryDuration time.Duration,
-) error {
-	activeTable, archiveTable, err := tableNames(queue)
-	if err != nil {
-		return err
-	}
+func (s *PostgresStore) RescheduleByMessageID(ctx context.Context, queue QueueType, ownerID string, messageID []byte, retryDuration time.Duration) error {
+	_, err := s.Reschedule(ctx, queue, ownerID, "", messageID, retryDuration)
+	return err
+}
 
-	affected, err := s.restoreFromArchive(ctx, activeTable, archiveTable, ownerID, "message_id", messageID, retryDuration)
+// Reschedule locks matching failed rows and restores the selected UUID/owner in one transaction.
+// Ambiguity, a missing target or an active-job conflict leave the archive intact.
+// A successful result contains the resolved JobID, OwnerID and Queue.
+func (s *PostgresStore) Reschedule(ctx context.Context, queue QueueType, ownerID, jobID string, messageID []byte, retryDuration time.Duration) (ArchivedJob, error) {
+	var selected ArchivedJob
+	active, archive, err := tableNames(queue)
 	if err != nil {
-		return err
+		return selected, err
 	}
-	if affected == 0 {
-		return fmt.Errorf("no failed job with the given message_id found in %s for owner_id=%q", archiveTable, ownerID)
+	if (jobID == "") == (len(messageID) == 0) || retryDuration <= 0 {
+		return selected, fmt.Errorf("select exactly one job ID or message ID and a positive retry duration")
 	}
-	return nil
+	column, value := "job_id", any(jobID)
+	if jobID == "" {
+		column, value = "message_id", messageID
+	}
+	err = sqlutil.TransactDataSource(ctx, s.ds, nil, func(tx sqlutil.DataSource) error {
+		query := fmt.Sprintf("SELECT job_id, owner_id FROM %s WHERE status = 'failed' AND %s = $1", archive, column)
+		args := []any{value}
+		if ownerID != "" {
+			query += " AND owner_id = $2"
+			args = append(args, ownerID)
+		}
+		query += " ORDER BY owner_id, job_id FOR UPDATE"
+		rows, err := tx.QueryContext(ctx, query, args...)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = rows.Close() }()
+		owners := make(map[string]struct{})
+		count := 0
+		for rows.Next() {
+			if err := rows.Scan(&selected.JobID, &selected.OwnerID); err != nil {
+				return err
+			}
+			owners[selected.OwnerID] = struct{}{}
+			count++
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		if err := rows.Close(); err != nil {
+			return err
+		}
+		if count == 0 {
+			return fmt.Errorf("no failed job matches in queue %s for owner %q", queue, ownerID)
+		}
+		if len(owners) > 1 {
+			candidates := make([]string, 0, len(owners))
+			for owner := range owners {
+				candidates = append(candidates, owner)
+			}
+			sort.Strings(candidates)
+			return fmt.Errorf("multiple owners match: %s; select --verifier-id", strings.Join(candidates, ", "))
+		}
+		if count > 1 {
+			return fmt.Errorf("multiple failed jobs match owner %q; select one with --job-id", selected.OwnerID)
+		}
+		store := NewPostgresStore(tx)
+		affected, err := store.restoreFromArchive(ctx, active, archive, selected.OwnerID, "job_id", selected.JobID, retryDuration)
+		if err != nil {
+			return fmt.Errorf("restore failed (an active job may already exist): %w", err)
+		}
+		if affected != 1 {
+			return fmt.Errorf("selected archive job changed; nothing restored")
+		}
+		selected.Queue = queue
+		return nil
+	})
+	return selected, err
 }
 
 // restoreFromArchive is the shared CTE that deletes a row from the archive and inserts it into
