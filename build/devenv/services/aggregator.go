@@ -264,6 +264,8 @@ func (a *AggregatorInput) GenerateConfigs(generatedConfigFileName string) (*Gene
 		config.Monitoring.Beholder.OtelExporterHTTPEndpoint = a.MonitoringOtelExporterHTTPEndpoint
 	}
 
+	config.Monitoring.Beholder.TelemetryAttributes["service.instance.id"] = fmt.Sprintf("%s-%s", a.InstanceName(), AggregatorContainerNameSuffix)
+
 	// Override aggregation channel buffer size if specified (useful for pentest)
 	if a.AggregationChannelBufferSize > 0 {
 		config.Aggregation.ChannelBufferSize = a.AggregationChannelBufferSize

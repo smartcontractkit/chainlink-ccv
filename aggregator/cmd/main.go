@@ -141,7 +141,7 @@ func main() {
 	}
 }
 
-func runServer(configPath string, logLevelStr string, lggr logger.Logger, sugaredLggr logger.SugaredLogger) {
+func runServer(configPath, logLevelStr string, lggr logger.Logger, sugaredLggr logger.SugaredLogger) {
 	config, err := configuration.LoadConfig(configPath, sugaredLggr)
 	if err != nil {
 		lggr.Errorw("Failed to load configuration", "path", configPath, "error", err)

@@ -79,6 +79,9 @@ func main() {
 		for k, v := range config.Monitoring.Beholder.TelemetryAttributes {
 			beholderConfig.ResourceAttributes = append(beholderConfig.ResourceAttributes, attribute.String(k, v))
 		}
+		if _, ok := config.Monitoring.Beholder.TelemetryAttributes["service.name"]; !ok {
+			beholderConfig.ResourceAttributes = append(beholderConfig.ResourceAttributes, attribute.String("service.name", "indexer"))
+		}
 		indexerMonitoring, err = monitoring.InitMonitoring(beholderConfig)
 		if err != nil {
 			lggr.Fatalf("Failed to initialize indexer monitoring: %v", err)

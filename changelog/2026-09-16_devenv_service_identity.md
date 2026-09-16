@@ -10,13 +10,15 @@
 
 - `services.TelemetryAttrs` (`build/devenv/services/common.go`) copies the shared telemetry attributes and adds `service.name` for the service type and `service.instance.id` for the container name. The fresh map prevents per-service writes from changing the shared config.
 - The committee verifier, executor, and token verifier components inject these attributes into each bootstrap Monitoring config.
+- The committee verifier component applies the verifier defaults before it builds the attributes. A verifier without an explicit `container_name` still gets the default name as its `service.instance.id`.
 - The token verifier component now reads its Monitoring config from the observability phase output, not from the environment topology. This matches the other bootstrap services.
 
 ## Aggregator and indexer stream logs
 
 - Both mains convert `Monitoring.Beholder.TelemetryAttributes` into `beholder.Config.ResourceAttributes` before `InitMonitoring`.
 - Both mains replace the application logger with `logging.InitLogger` plus `logging.WithService` when beholder is enabled. Logs now reach Loki with `service.name` set.
-- The aggregator template sets `"service.name" = "aggregator"` in its telemetry attributes.
+- The aggregator template sets `"service.name" = "aggregator"`. `GenerateConfigs` adds `"service.instance.id"` per aggregator from its instance name, so each aggregator container gets its own Loki stream.
+- The indexer main adds `"service.name" = "indexer"` when the config does not set one. The default indexer env config carries only `ccip_env`, so without this fallback Loki would show `unknown_service:indexer`.
 - The aggregator main fixes a small bug: an invalid `LOG_LEVEL` env var now resets the level string to `"info"` too. Before, the zap level fell back but the string kept the invalid value.
 
 ## Dependency update

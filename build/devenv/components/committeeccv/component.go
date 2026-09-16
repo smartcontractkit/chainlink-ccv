@@ -227,12 +227,11 @@ func runPhase3Core(
 		if ver == nil {
 			continue
 		}
-		if ver.Bootstrap == nil {
-			ver.Bootstrap = &services.BootstrapInput{}
-		}
+		def := committeeverifier.ApplyDefaults(*ver)
 		m := monitoring
-		m.Beholder.TelemetryAttributes = services.TelemetryAttrs(monitoring.Beholder.TelemetryAttributes, "verifier", ver.ContainerName)
-		ver.Bootstrap.Monitoring = &m
+		m.Beholder.TelemetryAttributes = services.TelemetryAttrs(monitoring.Beholder.TelemetryAttributes, "verifier", def.ContainerName)
+		def.Bootstrap.Monitoring = &m
+		*ver = def
 	}
 	if err := committeeverifier.LaunchStandaloneVerifiers(
 		verifiers, aggregators, committeeverifier.CommitteeAggregatorNames(inputs.topology),
