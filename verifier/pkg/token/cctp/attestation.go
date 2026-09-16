@@ -92,20 +92,17 @@ func (h *HTTPAttestationService) Fetch(
 	txHash protocol.ByteSlice,
 	message protocol.Message,
 ) (Attestation, error) {
-	adapter, err := AdapterFor(message.SourceChainSelector)
+	codec, err := ChainCodecFor(message.SourceChainSelector)
 	if err != nil {
 		return Attestation{}, err
 	}
 
-	sourceDomain, ok := adapter.Domain(message.SourceChainSelector)
+	sourceDomain, ok := codec.Domain(message.SourceChainSelector)
 	if !ok {
 		return Attestation{}, fmt.Errorf("unsupported source chain selector: %d", message.SourceChainSelector)
 	}
 
-	encodedTxHash, err := adapter.EncodeTxHash(txHash)
-	if err != nil {
-		return Attestation{}, err
-	}
+	encodedTxHash := codec.EncodeTxHash(txHash)
 
 	response, err := h.client.GetMessages(ctx, sourceDomain, encodedTxHash)
 	if err != nil {
@@ -153,12 +150,12 @@ func cctpMatchesMessage(
 		return fmt.Errorf("no CCV address configured for source chain selector: %s", ccipMessage.SourceChainSelector)
 	}
 
-	adapter, err := AdapterFor(ccipMessage.SourceChainSelector)
+	codec, err := ChainCodecFor(ccipMessage.SourceChainSelector)
 	if err != nil {
 		return err
 	}
 
-	senderAddress, err := adapter.DecodeAddress(cctpMessage.DecodedMessage.DecodedMessageBody.MessageSender)
+	senderAddress, err := codec.DecodeAddress(cctpMessage.DecodedMessage.DecodedMessageBody.MessageSender)
 	if err != nil {
 		return fmt.Errorf("invalid sender address: %w", err)
 	}
