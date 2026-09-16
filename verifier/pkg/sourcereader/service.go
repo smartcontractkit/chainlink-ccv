@@ -435,12 +435,9 @@ func (r *Service) processEventCycle(ctx context.Context, latest, finalized *prot
 
 	r.addToPendingQueueHandleReorg(tasks, fromBlock, lastQueriedBlock)
 
-	// Unlike before, the discovery span is NOT ended here for a task that made
-	// it into pendingTasks: sendReadyMessages reuses that same span across the
-	// cursed/disabled/finality-wait lifecycle instead of opening a new one on
-	// every poll, so it has to still be open when that code runs. Spans for
-	// tasks addToPendingQueueHandleReorg drops (duplicate/already-sent) are
-	// ended there instead.
+	// Spans for pending tasks stay open here - sendReadyMessages reuses them
+	// instead of opening a new one per poll. Dropped tasks' spans are ended in
+	// addToPendingQueueHandleReorg instead.
 
 	if len(events) == 0 {
 		r.logger.Debugw("No events found in range",
@@ -732,6 +729,9 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 					monitoring.MessageTransitionStageAdmission,
 					monitoring.MessageTransitionOutcomeLaneCursed,
 					monitoring.MessageTransitionReasonRemoteChainCursed)
+				// Terminal-drop marker so rediscovery doesn't reopen a new span
+				// every poll; evicted from sentTasks once the block finalizes.
+				r.sentTasks[msgID] = task
 				toBeDeleted = append(toBeDeleted, msgID)
 				continue
 			}
@@ -773,6 +773,8 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 					monitoring.MessageTransitionStageAdmission,
 					monitoring.MessageTransitionOutcomeMessageDisabled,
 					monitoring.MessageTransitionReasonMessageDisablementRule)
+				// See the cursed-drop branch above.
+				r.sentTasks[msgID] = task
 				toBeDeleted = append(toBeDeleted, msgID)
 				continue
 			}
