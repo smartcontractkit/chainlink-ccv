@@ -44,7 +44,6 @@ func main() {
 	if err := zapLevel.UnmarshalText([]byte(logLevelStr)); err != nil {
 		fmt.Fprintf(os.Stderr, "Invalid LOG_LEVEL '%s', defaulting to 'info'\n", logLevelStr)
 		zapLevel = zapcore.InfoLevel
-		logLevelStr = "info"
 	}
 	lggr, err := logger.NewWith(zaplog.GetLogProfile(zapLevel))
 	if err != nil {
@@ -76,7 +75,7 @@ func main() {
 	}
 
 	app.Action = func(c *cli.Context) error {
-		runServer(c.String("config"), logLevelStr, lggr, sugaredLggr)
+		runServer(c.String("config"), zapLevel.String(), lggr, sugaredLggr)
 		return nil
 	}
 
@@ -182,6 +181,8 @@ func runServer(configPath, logLevelStr string, lggr logger.Logger, sugaredLggr l
 		if err != nil {
 			sugaredLggr.Fatalf("Failed to initialize aggregator logger: %v", err)
 		}
+		// The streaming logger replaces the stdout-only logger. The rebind affects only
+		// references taken after this point: construct any logger-holding component below.
 		lggr = logging.WithService(streamLggr, "aggregator")
 		sugaredLggr = logger.Sugared(lggr)
 		lggr.Info("Monitoring enabled")

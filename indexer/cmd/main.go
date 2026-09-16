@@ -89,6 +89,8 @@ func main() {
 		if err != nil {
 			lggr.Fatalf("Failed to initialize indexer logger: %v", err)
 		}
+		// The streaming logger replaces the stdout-only logger. The rebind affects only
+		// references taken after this point: construct any logger-holding component below.
 		lggr = logger.Sugared(logging.WithService(streamLggr, "indexer"))
 	} else {
 		lggr.Infow("Monitoring disabled, using noop implementation")
