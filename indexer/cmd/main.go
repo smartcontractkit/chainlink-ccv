@@ -10,6 +10,7 @@ import (
 
 	"github.com/grafana/pyroscope-go"
 	"github.com/jmoiron/sqlx"
+	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap/zapcore"
 
 	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
@@ -65,7 +66,7 @@ func main() {
 	// Setup OTEL Monitoring (via beholder)
 	var indexerMonitoring common.IndexerMonitoring
 	if config.Monitoring.Beholder.Enabled {
-		indexerMonitoring, err = monitoring.InitMonitoring(beholder.Config{
+		beholderConfig := beholder.Config{
 			InsecureConnection:       config.Monitoring.Beholder.InsecureConnection,
 			CACertFile:               config.Monitoring.Beholder.CACertFile,
 			OtelExporterHTTPEndpoint: config.Monitoring.Beholder.OtelExporterHTTPEndpoint,
@@ -74,10 +75,22 @@ func main() {
 			MetricReaderInterval:     time.Second * time.Duration(config.Monitoring.Beholder.MetricReaderInterval),
 			TraceSampleRatio:         config.Monitoring.Beholder.TraceSampleRatio,
 			TraceBatchTimeout:        time.Second * time.Duration(config.Monitoring.Beholder.TraceBatchTimeout),
-		})
+		}
+		for k, v := range config.Monitoring.Beholder.TelemetryAttributes {
+			beholderConfig.ResourceAttributes = append(beholderConfig.ResourceAttributes, attribute.String(k, v))
+		}
+		if _, ok := config.Monitoring.Beholder.TelemetryAttributes["service.name"]; !ok {
+			beholderConfig.ResourceAttributes = append(beholderConfig.ResourceAttributes, attribute.String("service.name", "indexer"))
+		}
+		indexerMonitoring, err = monitoring.InitMonitoring(beholderConfig)
 		if err != nil {
 			lggr.Fatalf("Failed to initialize indexer monitoring: %v", err)
 		}
+		streamLggr, err := logging.InitLogger("indexer", config.LogLevel, config.Monitoring)
+		if err != nil {
+			lggr.Fatalf("Failed to initialize indexer logger: %v", err)
+		}
+		lggr = logger.Sugared(logging.WithService(streamLggr, "indexer"))
 	} else {
 		lggr.Infow("Monitoring disabled, using noop implementation")
 		indexerMonitoring = monitoring.NewNoopIndexerMonitoring()

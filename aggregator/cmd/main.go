@@ -17,6 +17,7 @@ import (
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
 	"github.com/urfave/cli"
+	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap/zapcore"
 
 	messagedisablementcli "github.com/smartcontractkit/chainlink-ccv/aggregator/cli/messagedisablement"
@@ -43,6 +44,7 @@ func main() {
 	if err := zapLevel.UnmarshalText([]byte(logLevelStr)); err != nil {
 		fmt.Fprintf(os.Stderr, "Invalid LOG_LEVEL '%s', defaulting to 'info'\n", logLevelStr)
 		zapLevel = zapcore.InfoLevel
+		logLevelStr = "info"
 	}
 	lggr, err := logger.NewWith(zaplog.GetLogProfile(zapLevel))
 	if err != nil {
@@ -74,7 +76,7 @@ func main() {
 	}
 
 	app.Action = func(c *cli.Context) error {
-		runServer(c.String("config"), lggr, sugaredLggr)
+		runServer(c.String("config"), logLevelStr, lggr, sugaredLggr)
 		return nil
 	}
 
@@ -139,7 +141,7 @@ func main() {
 	}
 }
 
-func runServer(configPath string, lggr logger.Logger, sugaredLggr logger.SugaredLogger) {
+func runServer(configPath, logLevelStr string, lggr logger.Logger, sugaredLggr logger.SugaredLogger) {
 	config, err := configuration.LoadConfig(configPath, sugaredLggr)
 	if err != nil {
 		lggr.Errorw("Failed to load configuration", "path", configPath, "error", err)
@@ -160,7 +162,7 @@ func runServer(configPath string, lggr logger.Logger, sugaredLggr logger.Sugared
 
 	var aggMonitoring common.AggregatorMonitoring = monitoring.NewNoopAggregatorMonitoring()
 	if config.Monitoring.Beholder.Enabled {
-		m, err := monitoring.InitMonitoring(beholder.Config{
+		beholderConfig := beholder.Config{
 			InsecureConnection:       config.Monitoring.Beholder.InsecureConnection,
 			CACertFile:               config.Monitoring.Beholder.CACertFile,
 			OtelExporterGRPCEndpoint: config.Monitoring.Beholder.OtelExporterGRPCEndpoint,
@@ -169,11 +171,21 @@ func runServer(configPath string, lggr logger.Logger, sugaredLggr logger.Sugared
 			MetricReaderInterval:     time.Duration(config.Monitoring.Beholder.MetricReaderInterval) * time.Second,
 			TraceSampleRatio:         config.Monitoring.Beholder.TraceSampleRatio,
 			TraceBatchTimeout:        time.Duration(config.Monitoring.Beholder.TraceBatchTimeout) * time.Second,
-		})
+		}
+		for k, v := range config.Monitoring.Beholder.TelemetryAttributes {
+			beholderConfig.ResourceAttributes = append(beholderConfig.ResourceAttributes, attribute.String(k, v))
+		}
+		m, err := monitoring.InitMonitoring(beholderConfig)
 		if err != nil {
 			sugaredLggr.Fatalf("Failed to initialize aggregator monitoring: %v", err)
 		}
 		aggMonitoring = m
+		streamLggr, err := logging.InitLogger("aggregator", logLevelStr, config.Monitoring)
+		if err != nil {
+			sugaredLggr.Fatalf("Failed to initialize aggregator logger: %v", err)
+		}
+		lggr = logging.WithService(streamLggr, "aggregator")
+		sugaredLggr = logger.Sugared(lggr)
 		lggr.Info("Monitoring enabled")
 	}
 
