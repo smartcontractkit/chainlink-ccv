@@ -88,6 +88,7 @@ func main() {
 				if err != nil {
 					return fmt.Errorf("failed to load config: %w", err)
 				}
+				cfg.SetDefaults()
 				sec, err := secrets.LoadFromEnv(secrets.SecretsPathEnvVar, secrets.DefaultSecretsPath)
 				if err != nil {
 					return fmt.Errorf("failed to load secrets: %w", err)
@@ -147,6 +148,7 @@ func runServer(configPath, logLevelStr string, lggr logger.Logger, sugaredLggr l
 		os.Exit(1)
 	}
 	lggr.Infow("Loaded configuration", "config", config)
+	config.SetDefaults()
 
 	sec, err := secrets.LoadFromEnv(secrets.SecretsPathEnvVar, secrets.DefaultSecretsPath)
 	if err != nil {
