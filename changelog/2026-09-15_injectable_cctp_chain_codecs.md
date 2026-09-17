@@ -19,9 +19,9 @@
 | `cctp.HTTPAttestationService.Fetch` | behavior-changed | `func \(h \*HTTPAttestationService\) Fetch` | `verifier/pkg/token/cctp/attestation.go:94` | [#fetch-reads-the-codec-map](#fetch-reads-the-codec-map) |
 | `cctp.Domains` | behavior-changed | `cctp\.Domains\b` | `verifier/pkg/token/cctp/consts.go:21` | [#domains-is-the-evm-catalog-only](#domains-is-the-evm-catalog-only) |
 | `chainaccess.CCTPCodec` | added | `\bCCTPCodec\b` | `pkg/chainaccess/interfaces.go:102` | [#the-accessor-exposes-the-codec](#the-accessor-exposes-the-codec) |
-| `evmaccessor.Domain` | added | `func \(a \*accessor\) Domain` | `integration/pkg/accessors/evm/codec.go:18` | [#implement-the-codec-on-the-chain-accessor](#implement-the-codec-on-the-chain-accessor) |
-| `evmaccessor.EncodeTxHash` | added | `func \(a \*accessor\) EncodeTxHash` | `integration/pkg/accessors/evm/codec.go:24` | [#implement-the-codec-on-the-chain-accessor](#implement-the-codec-on-the-chain-accessor) |
-| `evmaccessor.DecodeAddress` | added | `func \(a \*accessor\) DecodeAddress` | `integration/pkg/accessors/evm/codec.go:29` | [#implement-the-codec-on-the-chain-accessor](#implement-the-codec-on-the-chain-accessor) |
+| `evmaccessor.Domain` | added | `func \(a \*accessor\) Domain` | `integration/pkg/accessors/evm/cctp_codec.go:18` | [#implement-the-codec-on-the-chain-accessor](#implement-the-codec-on-the-chain-accessor) |
+| `evmaccessor.EncodeTxHash` | added | `func \(a \*accessor\) EncodeTxHash` | `integration/pkg/accessors/evm/cctp_codec.go:24` | [#implement-the-codec-on-the-chain-accessor](#implement-the-codec-on-the-chain-accessor) |
+| `evmaccessor.DecodeAddress` | added | `func \(a \*accessor\) DecodeAddress` | `integration/pkg/accessors/evm/cctp_codec.go:29` | [#implement-the-codec-on-the-chain-accessor](#implement-the-codec-on-the-chain-accessor) |
 
 ## Breaking Changes
 
@@ -108,12 +108,12 @@ type CCTPCodec interface {
 }
 ```
 
-The EVM implementation is `integration/pkg/accessors/evm/codec.go`. It reads the `Domains` catalog, returns the hex transaction hash, and decodes a hex address. A compile-time assertion ties it to the EVM accessor type.
+The EVM implementation is `integration/pkg/accessors/evm/cctp_codec.go`. It reads the `Domains` catalog, returns the hex transaction hash, and decodes a hex address. A compile-time assertion ties it to the EVM accessor type.
 
 ## New Features / Additions
 
 - **`chainaccess.CCTPCodec`** — the chain-family contract, in `pkg/chainaccess/interfaces.go`. `Accessor.CCTPCodec()` exposes it.
-- **EVM accessor codec** — `integration/pkg/accessors/evm/codec.go` with `Domain`, `EncodeTxHash`, and `DecodeAddress`.
+- **EVM accessor codec** — `integration/pkg/accessors/evm/cctp_codec.go` with `Domain`, `EncodeTxHash`, and `DecodeAddress`.
 - **`cctpCodecs` map** — built in `cmd/verifier/tokenfactory.go` from the accessors the runtime already resolves.
 
 ## Compatibility & Requirements
