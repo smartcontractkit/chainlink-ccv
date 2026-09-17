@@ -33,6 +33,9 @@ func NewKeystoreRegistry(lggr logger.Logger, inner chainaccess.Registry, ks keys
 	return &KeystoreRegistry{lggr: lggr, inner: inner, ks: ks}
 }
 
+// GetAccessor is safe for concurrent use: kr.ks is shared across chains, but keystore.Keystore
+// implementations guard their own state, and SetKeystore only reads/builds signer state scoped to
+// the individual accessor it's called on.
 func (kr *KeystoreRegistry) GetAccessor(ctx context.Context, chainSelector protocol.ChainSelector) (chainaccess.Accessor, error) {
 	accessor, err := kr.inner.GetAccessor(ctx, chainSelector)
 	if err != nil {

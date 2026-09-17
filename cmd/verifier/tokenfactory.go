@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"sync"
 	"time"
 
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -99,23 +100,10 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 	cfg := appConfig
 
 	// On-ramp addresses are the application-owned source-chain set. RPC connection and tuning
-	// details are supplied independently by each chain family's local config.
+	// details are supplied independently by each chain family's local config. Chains are dialed in
+	// parallel — see sourceReadersForChains.
 	chainSelectors := chainaccess.Infos[string](cfg.OnRampAddresses).GetAllChainSelectors()
-	sourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
-	for _, selector := range chainSelectors {
-		accessor, err := deps.Registry.GetAccessor(ctx, selector)
-		if err != nil {
-			tvf.lggr.Errorw("Skipping chain, failed to get accessor for chain selector", "error", err, "chainSelector", selector)
-			continue
-		}
-		reader, err := accessor.SourceReader()
-		if err != nil {
-			tvf.lggr.Warnw("Skipping chain, source reader not available", "chainSelector", selector, "error", err)
-			continue
-		}
-		sourceReaders[selector] = reader
-		tvf.lggr.Infow("Created source reader for chain", "chainSelector", selector)
-	}
+	sourceReaders := sourceReadersForChains(ctx, tvf.lggr, deps.Registry, chainSelectors, nil)
 
 	// Load the verifier secrets file (only [db].url is used by the token verifier); an absent file
 	// is fine and falls back to CL_DATABASE_URL.
@@ -230,6 +218,61 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 
 func (tvf *tokenVerifierFactory) MetricViews() []sdkmetric.View {
 	return monitoring.MetricViews()
+}
+
+// sourceReadersForChains dials every chain's accessor in parallel and returns the source readers
+// that came up. transform, if non-nil, runs on each dialed reader (e.g. to wrap it with
+// monitoring) before it's kept; a transform error skips that chain the same as a dial failure.
+//
+// Parallel dialing is load-bearing: every GetAccessor runs a full EVM runtime startup (RPC dial,
+// head tracker) under the bootstrapper's startup deadline, so sequential dialing makes boot time
+// the sum of all chains' dials — enough configured chains, or one slow RPC endpoint, exhausts the
+// deadline and crash-loops the process mid-start. A chain that fails here is logged and skipped
+// individually; only the absence of every reader is fatal, which the caller enforces.
+func sourceReadersForChains(
+	ctx context.Context,
+	lggr logger.Logger,
+	registry chainaccess.Registry,
+	selectors []protocol.ChainSelector,
+	transform func(protocol.ChainSelector, chainaccess.SourceReader) (chainaccess.SourceReader, error),
+) map[protocol.ChainSelector]chainaccess.SourceReader {
+	// Each chain writes only to its own slot, so the goroutines below need no shared-state lock.
+	readers := make([]chainaccess.SourceReader, len(selectors))
+	var wg sync.WaitGroup
+	for i, selector := range selectors {
+		wg.Add(1)
+		go func(i int, selector protocol.ChainSelector) {
+			defer wg.Done()
+			accessor, err := registry.GetAccessor(ctx, selector)
+			if err != nil {
+				lggr.Errorw("Skipping chain, failed to get accessor for chain selector", "error", err, "chainSelector", selector)
+				return
+			}
+			reader, err := accessor.SourceReader()
+			if err != nil {
+				lggr.Warnw("Skipping chain, source reader not available", "chainSelector", selector, "error", err)
+				return
+			}
+			if transform != nil {
+				reader, err = transform(selector, reader)
+				if err != nil {
+					lggr.Errorw("Skipping chain, failed to transform source reader", "chainSelector", selector, "error", err)
+					return
+				}
+			}
+			readers[i] = reader
+		}(i, selector)
+	}
+	wg.Wait()
+
+	sourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader, len(selectors))
+	for i, reader := range readers {
+		if reader != nil {
+			sourceReaders[selectors[i]] = reader
+			lggr.Infow("Created source reader for chain", "chainSelector", selectors[i])
+		}
+	}
+	return sourceReaders
 }
 
 func createCCTPCoordinator(
