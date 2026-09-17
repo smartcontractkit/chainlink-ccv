@@ -2,7 +2,6 @@ package readers
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync/atomic"
 	"time"
@@ -119,14 +118,9 @@ func createPolicies[T any](config ResilienceConfig, lggr logger.Logger, name str
 		}).
 		Build()
 
-	cbHandleIf := func(resp T, err error) bool {
-		if errors.Is(err, ratelimiter.ErrExceeded) {
-			return false
-		}
-		if cbErrorHandler != nil {
-			return cbErrorHandler(resp, err)
-		}
-		return err != nil
+	cbHandleIf := func(resp T, err error) bool { return err != nil }
+	if cbErrorHandler != nil {
+		cbHandleIf = cbErrorHandler
 	}
 
 	cb := circuitbreaker.NewBuilder[T]().
@@ -161,7 +155,7 @@ func createPolicies[T any](config ResilienceConfig, lggr logger.Logger, name str
 		Build()
 
 	return executorPolicies[T]{
-		executor:       failsafe.With(rp, cb, rl, bh, to),
+		executor:       failsafe.With(rp, rl, cb, bh, to),
 		circuitBreaker: cb,
 	}
 }

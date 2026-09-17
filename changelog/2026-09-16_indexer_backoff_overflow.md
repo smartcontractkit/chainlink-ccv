@@ -12,7 +12,7 @@
 | Symbol | Kind | Search | Location | Section |
 |---|---|---|---|---|
 | `worker.Scheduler.backoff` | behavior-changed | `func \(s \*Scheduler\) backoff` | `indexer/pkg/worker/scheduler.go:128` | [#scheduler-backoff-overflow](#scheduler-backoff-overflow) |
-| `readers.createPolicies` | behavior-changed | `func createPolicies\[T any\]` | `indexer/pkg/readers/resilient_reader.go:105` | [#rate-limiter-and-circuit-breaker](#rate-limiter-and-circuit-breaker) |
+| `readers.createPolicies` | behavior-changed | `func createPolicies\[T any\]` | `indexer/pkg/readers/resilient_reader.go:104` | [#rate-limiter-and-circuit-breaker](#rate-limiter-and-circuit-breaker) |
 
 ## Breaking Changes
 
@@ -58,7 +58,7 @@ Two changes in `createPolicies`:
 
 1. `ratelimiter.ErrExceeded` was added to the retry policy `AbortOnErrors` list. A rate-limited request now aborts immediately instead of retrying. The caller receives `ErrExceeded` and the scheduler applies backoff before the next attempt.
 
-2. The circuit breaker `HandleIf` function now checks `errors.Is(err, ratelimiter.ErrExceeded)` and returns `false`, so rate limiter rejections do not count as downstream failures and do not open the breaker.
+2. The policy composition now places the rate limiter outside the circuit breaker: `failsafe.With(rp, rl, cb, bh, to)`. A rate-limited request aborts at the rate limiter and never enters the circuit breaker, so the breaker records neither a failure nor a success for it. Excluding `ErrExceeded` in the breaker's `HandleIf` instead would classify the rejection as a breaker success (`RecordSuccess`), which could erase a downstream-failure streak or satisfy the half-open success threshold without calling downstream.
 
 ## New Features / Additions
 
