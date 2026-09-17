@@ -135,7 +135,7 @@ Unlike Lombard, CCTP uses the source **transaction hash** to look up attestation
 AttestationService.Fetch(ctx, txHash, message) → Attestation
 ```
 
-`sourceDomain` is derived from the message's `SourceChainSelector` using Circle's domain mapping:
+`sourceDomain` is derived from the message's `SourceChainSelector` using Circle's domain mapping. The source chain's chain accessor supplies the mapping through `CCTPCodec.Domain`:
 
 | Chain | Domain |
 |---|---|
@@ -147,7 +147,7 @@ AttestationService.Fetch(ctx, txHash, message) → Attestation
 | Polygon | 7 |
 | ... | ... |
 
-The full domain table is defined in `verifier/pkg/token/cctp/consts.go`.
+The EVM catalog is defined in `verifier/pkg/token/cctp/consts.go`. Every other chain family supplies its own table through `CCTPCodec` on its chain accessor; for Solana that table lives in `chainlink-ccip-solana/pkg/accessors`.
 
 ## Per-Message API Call
 

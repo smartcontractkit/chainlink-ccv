@@ -102,11 +102,17 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 	// details are supplied independently by each chain family's local config.
 	chainSelectors := chainaccess.Infos[string](cfg.OnRampAddresses).GetAllChainSelectors()
 	sourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
+	cctpCodecs := make(map[protocol.ChainSelector]chainaccess.CCTPCodec)
 	for _, selector := range chainSelectors {
 		accessor, err := deps.Registry.GetAccessor(ctx, selector)
 		if err != nil {
 			tvf.lggr.Errorw("Skipping chain, failed to get accessor for chain selector", "error", err, "chainSelector", selector)
 			continue
+		}
+		// Only CCTP-capable chains carry a codec, so a miss is not an error here. A CCTP
+		// verifier that later reads a message from such a chain fails at Fetch.
+		if codec, err := accessor.CCTPCodec(); err == nil {
+			cctpCodecs[selector] = codec
 		}
 		reader, err := accessor.SourceReader()
 		if err != nil {
@@ -176,6 +182,7 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 				cfg.DisableFinalityCheckers,
 				tvf.lggr,
 				sourceReaders,
+				cctpCodecs,
 				storage.NewCCVWriter(
 					tvf.lggr,
 					verifierConfig.CCTPConfig.ParsedVerifierResolvers,
@@ -239,6 +246,7 @@ func createCCTPCoordinator(
 	disableFinalityCheckers []string,
 	lggr logger.Logger,
 	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
+	cctpCodecs map[protocol.ChainSelector]chainaccess.CCTPCodec,
 	ccvStorage protocol.CCVNodeDataWriter,
 	messageTracker verifier.MessageLatencyTracker,
 	verifierMonitoring verifier.Monitoring,
@@ -247,7 +255,7 @@ func createCCTPCoordinator(
 ) (*verifier.Coordinator, error) {
 	cctpSourceConfigs := createSourceConfigs(cctpConfig.ParsedVerifierResolvers, disableFinalityCheckers)
 
-	attestationService, err := cctp.NewAttestationService(lggr, verifierMonitoring, *cctpConfig)
+	attestationService, err := cctp.NewAttestationService(lggr, verifierMonitoring, *cctpConfig, cctpCodecs)
 	if err != nil {
 		lggr.Errorw("Failed to create CCTP attestation service", "error", err)
 		return nil, fmt.Errorf("failed to create CCTP attestation service: %w", err)

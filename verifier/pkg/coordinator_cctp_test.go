@@ -477,7 +477,12 @@ func createCCTPCoordinator(
 	noopMonitoring := monitoring.NewFakeVerifierMonitoring()
 	noopLatencyTracker := testutil.NoopLatencyTracker{}
 
-	attestationService, err := cctp.NewAttestationService(ts.logger, noopMonitoring, *cctpConfig)
+	cctpCodecs := make(map[protocol.ChainSelector]chainaccess.CCTPCodec, len(cctpConfig.ParsedVerifiers))
+	for selector := range cctpConfig.ParsedVerifiers {
+		cctpCodecs[selector] = evmTestCodec{}
+	}
+
+	attestationService, err := cctp.NewAttestationService(ts.logger, noopMonitoring, *cctpConfig, cctpCodecs)
 	require.NoError(ts.t, err)
 
 	ccvWriter := storage.NewCCVWriter(
@@ -526,4 +531,19 @@ func createFakeCCTPServer(t *testing.T, attestations []attestationMock) *httptes
 			w.WriteHeader(http.StatusNotFound)
 		}
 	}))
+}
+
+// evmTestCodec mirrors the EVM accessor's CCTP codec, so these tests exercise the
+// attestation path with the EVM chain facts.
+type evmTestCodec struct{}
+
+func (evmTestCodec) Domain(selector protocol.ChainSelector) (uint32, bool) {
+	domain, ok := cctp.Domains[uint64(selector)]
+	return domain, ok
+}
+
+func (evmTestCodec) EncodeTxHash(txHash protocol.ByteSlice) string { return txHash.String() }
+
+func (evmTestCodec) DecodeAddress(address string) (protocol.UnknownAddress, error) {
+	return protocol.NewUnknownAddressFromHex(address)
 }
