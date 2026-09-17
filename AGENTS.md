@@ -19,3 +19,9 @@ than a silent downgrade to no authentication.
 Related: configuration that is marshaled into a Job Distributor job spec (for example the
 verifier's `[policy_hook]` TOML section) must never carry a credential value, because the spec is
 stored in JD. Reference where the secret lives; keep the value in the secrets file.
+
+## Code comments: 3 lines max
+
+Long comment blocks are hard to comprehend and takes a lot of space. State the
+rule/behavior in one line, the reason in one more if it's non-obvious, and stop. If a comment
+needs a paragraph, put that reasoning in the PR description or commit message instead.
