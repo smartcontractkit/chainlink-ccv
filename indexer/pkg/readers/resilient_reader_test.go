@@ -190,6 +190,11 @@ func TestResilientReader_RequestTimeoutExceeded(t *testing.T) {
 	assert.Equal(t, 1, mock.getCallCount())
 }
 
+// TestResilientReader_RateLimitExceededNotRetriedAndBreakerStaysClosed verifies
+// that a rate-limit rejection aborts without retry and never enters the circuit
+// breaker. FailureThreshold=1 and CircuitBreakerDelay=10s make this a regression
+// test for the policy order: with the old rp, cb, rl stack the single rejection
+// is classified as a breaker failure and opens the breaker for the rest of the test.
 func TestResilientReader_RateLimitExceededNotRetriedAndBreakerStaysClosed(t *testing.T) {
 	mock := &mockOffchainReader{
 		responses: []protocol.QueryResponse{{}},
@@ -199,9 +204,9 @@ func TestResilientReader_RateLimitExceededNotRetriedAndBreakerStaysClosed(t *tes
 	require.NoError(t, err)
 
 	cfg := ResilienceConfig{
-		FailureThreshold:      3,
+		FailureThreshold:      1,
 		SuccessThreshold:      2,
-		CircuitBreakerDelay:   500 * time.Millisecond,
+		CircuitBreakerDelay:   10 * time.Second,
 		RequestTimeout:        10 * time.Second,
 		MaxConcurrentRequests: 10,
 		MaxRequestsPerSecond:  1,
@@ -235,5 +240,5 @@ func TestResilientReader_RateLimitExceededNotRetriedAndBreakerStaysClosed(t *tes
 		"downstream should be called exactly twice; rate-limited call must not retry")
 
 	assert.Equal(t, circuitbreaker.ClosedState, rr.GetDiscoveryCircuitBreakerState(),
-		"circuit breaker must remain closed because ErrExceeded is excluded from breaker")
+		"circuit breaker must remain closed: the rejection never enters the breaker")
 }
