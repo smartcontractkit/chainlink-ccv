@@ -42,6 +42,12 @@ const (
 	SecretsPathEnv     = "BOOTSTRAPPER_SECRETS_PATH"
 	DefaultSecretsPath = "/etc/bootstrap/secrets.toml" //nolint:gosec // G101: this is a file path, not a credential
 
+	// defaultStartupTimeout bounds Run's synchronous startup when no startup_timeout is set in the
+	// bootstrap config. Per-chain accessor dialing and per-chain source reader startup both run in
+	// parallel, so this bounds the slowest chain's dial/init rather than the sum across all
+	// chains — but one slow or unresponsive RPC endpoint can still exhaust it on its own. Raise
+	// startup_timeout in the config rather than relying on this default when boot misses the
+	// deadline.
 	defaultStartupTimeout  = 10 * time.Second
 	defaultShutdownTimeout = 10 * time.Second
 
@@ -1068,7 +1074,8 @@ func withGCPKMSKeystoreFactory(fn gcpKMSKeystoreFactoryFn) Option {
 }
 
 // Run is a convenience function that loads config, creates a [Bootstrapper],
-// starts it, and blocks until SIGINT or SIGTERM is received.
+// starts it, and blocks until SIGINT or SIGTERM is received. The startup phase is bounded by the
+// config's startup_timeout (default 10s); see NonSecretConfig.StartupTimeout.
 func Run(
 	name string,
 	fac ServiceFactory,
@@ -1079,7 +1086,7 @@ func Run(
 		return fmt.Errorf("failed to create bootstrapper: %w", err)
 	}
 
-	startCtx, startCancel := context.WithTimeout(context.Background(), defaultStartupTimeout)
+	startCtx, startCancel := context.WithTimeout(context.Background(), bootstrapper.config.resolveStartupTimeout())
 	defer startCancel()
 
 	if err := bootstrapper.Start(startCtx); err != nil {

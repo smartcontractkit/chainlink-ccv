@@ -10,6 +10,16 @@ app_config_mode = "jd_app_config"
 # (BOOTSTRAPPER_CONFIG_PATH): this file holds the app's own config, not the operator/infra config.
 local_app_config_path = "/etc/committee-verifier/app.toml"
 
+# startup_timeout bounds the synchronous startup phase in Run: keystore, DB, monitoring, JD
+# registration in jd mode; in local mode the whole service start, including per-chain accessor
+# dialing and the coordinators' source reader initialization. Unset (or zero) means the default
+# 10s. Both accessor dialing and source reader initialization run in parallel per chain, so
+# this costs the slowest chain's dial/init rather than the sum — but one slow or unresponsive
+# RPC endpoint can still exhaust it. A deployment with many chains lacking a stored chain
+# status — or one slow RPC endpoint — can raise this instead of crash-looping on "context
+# deadline exceeded" during boot.
+startup_timeout = "0s"
+
 [jd]
   # server_wsrpc_url is the URL of the Job Distributor server's WebSocket RPC endpoint.
   server_wsrpc_url = "ws://job-distributor:8080/ws"
