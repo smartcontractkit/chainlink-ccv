@@ -85,6 +85,7 @@ type Stale struct {
 
 // Write renders every target and writes it under outDir at the target's Out
 // path, creating directories as needed. It returns the written file paths.
+// outDir must resolve inside the module root, which is where the run is anchored.
 //
 // An error returns no paths. The write is one commentparsing run over the docs and the
 // DocComments files together, which reports whether it completed rather than which files it got
@@ -126,6 +127,11 @@ func (g *Generator) runArgs(targets []Target) commentparsing.RunArgs {
 // relative expresses outDir the way a generator's paths must be: against the module root the run
 // is anchored to. A caller gives it relative to the working directory, which is the same thing
 // only when that is the module root.
+//
+// A directory outside the module is refused here rather than deeper in. The run is anchored at
+// the module root so each package's DocComments file lands beside the structs it describes, and
+// it will not write above that anchor; the error it raises names a path relative to a directory
+// the caller never supplied, so this one names the directory the caller did.
 func (g *Generator) relative(outDir string) (string, error) {
 	abs := outDir
 	if !filepath.IsAbs(abs) {
@@ -135,7 +141,17 @@ func (g *Generator) relative(outDir string) (string, error) {
 		}
 		abs = resolved
 	}
-	return filepath.Rel(g.ModuleRoot, abs)
+	rel, err := filepath.Rel(g.ModuleRoot, abs)
+	if err != nil {
+		return "", err
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf(
+			"output directory %s is outside module root %s: docs are written within the module being documented",
+			outDir, g.ModuleRoot,
+		)
+	}
+	return rel, nil
 }
 
 // files renders every target from one discovery walk, keyed by the path each is committed at.
@@ -165,7 +181,7 @@ func (g *Generator) files(targets []Target, outDir string) (map[string]string, e
 
 // Check renders every target and compares it against the committed file under
 // outDir, returning the targets that are stale or missing (empty when all are
-// fresh). A render error aborts and is returned. This is the engine behind both
+// fresh). outDir is restricted as Write's is. A render error aborts and is returned. This is the engine behind both
 // the CLI's -check mode and each repo's freshness test.
 func (g *Generator) Check(targets []Target, outDir string) ([]Stale, error) {
 	files, err := g.files(targets, outDir)
