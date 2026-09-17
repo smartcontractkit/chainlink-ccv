@@ -10,6 +10,7 @@
 package verifiercli
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os/exec"
@@ -98,6 +99,20 @@ func (c *Client) CLI(ctx context.Context, subcommand []string, args ...string) (
 	return c.Exec(ctx, full...)
 }
 
+// CLIJSON separates stderr diagnostics from the machine-readable stdout stream.
+func (c *Client) CLIJSON(ctx context.Context, subcommand []string, args ...string) ([]byte, error) {
+	full := append([]string{"exec", c.containerName, c.binaryPath}, subcommand...)
+	full = append(full, args...)
+	cmd := exec.CommandContext(ctx, "docker", full...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("CLI failed: %w: %s", err, stderr.String())
+	}
+	return out, nil
+}
+
 // Pause sends pkill -STOP to the committee process. Tests use this
 // before CLI mutations so the running verifier does not race the
 // mutation (e.g. overwrite a freshly disabled chain status).
@@ -134,7 +149,21 @@ func (c *Client) RestartAndWaitReady(ctx context.Context) error {
 	if out, err := restartCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("docker restart %s: %w (output: %s)", c.containerName, err, string(out))
 	}
+	return c.waitReady(ctx)
+}
 
+// CrashAndWaitReady injects abrupt process failure, then starts the same container.
+// Use only in durability tests, never as part of the live recovery workflow.
+func (c *Client) CrashAndWaitReady(ctx context.Context) error {
+	for _, args := range [][]string{{"kill", "--signal=KILL", c.containerName}, {"start", c.containerName}} {
+		if out, err := exec.CommandContext(ctx, "docker", args...).CombinedOutput(); err != nil {
+			return fmt.Errorf("docker %s %s: %w (output: %s)", args[0], c.containerName, err, string(out))
+		}
+	}
+	return c.waitReady(ctx)
+}
+
+func (c *Client) waitReady(ctx context.Context) error {
 	deadline := time.Now().Add(defaultRestartReadyTimeout)
 	var lastErr error
 	for time.Now().Before(deadline) {

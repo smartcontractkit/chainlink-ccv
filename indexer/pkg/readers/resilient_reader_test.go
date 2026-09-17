@@ -4,9 +4,12 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/failsafe-go/failsafe-go/circuitbreaker"
+	"github.com/failsafe-go/failsafe-go/ratelimiter"
 	"github.com/failsafe-go/failsafe-go/timeout"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -185,4 +188,57 @@ func TestResilientReader_RequestTimeoutExceeded(t *testing.T) {
 	assert.ErrorIs(t, err, timeout.ErrExceeded,
 		"request timeout (50ms) should mark the attempt failed; the 1s call exceeds it")
 	assert.Equal(t, 1, mock.getCallCount())
+}
+
+// TestResilientReader_RateLimitExceededNotRetriedAndBreakerStaysClosed verifies
+// that a rate-limit rejection aborts without retry and never enters the circuit
+// breaker. FailureThreshold=1 and CircuitBreakerDelay=10s make this a regression
+// test for the policy order: with the old rp, cb, rl stack the single rejection
+// is classified as a breaker failure and opens the breaker for the rest of the test.
+func TestResilientReader_RateLimitExceededNotRetriedAndBreakerStaysClosed(t *testing.T) {
+	mock := &mockOffchainReader{
+		responses: []protocol.QueryResponse{{}},
+		delay:     1500 * time.Millisecond,
+	}
+	lggr, err := logger.New()
+	require.NoError(t, err)
+
+	cfg := ResilienceConfig{
+		FailureThreshold:      1,
+		SuccessThreshold:      2,
+		CircuitBreakerDelay:   10 * time.Second,
+		RequestTimeout:        10 * time.Second,
+		MaxConcurrentRequests: 10,
+		MaxRequestsPerSecond:  1,
+		MaxRetries:            3,
+		RetryDelay:            50 * time.Millisecond,
+		RetryMaxDelay:         100 * time.Millisecond,
+	}
+
+	rr := NewResilientReader(mock, lggr, cfg)
+
+	var rateLimitErrors, successes atomic.Int32
+	var wg sync.WaitGroup
+	for range 3 {
+		wg.Go(func() {
+			_, err := rr.ReadCCVData(context.Background())
+			if err == nil {
+				successes.Add(1)
+			} else if errors.Is(err, ratelimiter.ErrExceeded) {
+				rateLimitErrors.Add(1)
+			}
+		})
+	}
+	wg.Wait()
+
+	require.Equal(t, int32(1), rateLimitErrors.Load(),
+		"exactly one call should get ErrExceeded")
+	require.Equal(t, int32(2), successes.Load(),
+		"two calls should succeed after waiting for permits")
+
+	assert.Equal(t, 2, mock.getCallCount(),
+		"downstream should be called exactly twice; rate-limited call must not retry")
+
+	assert.Equal(t, circuitbreaker.ClosedState, rr.GetDiscoveryCircuitBreakerState(),
+		"circuit breaker must remain closed: the rejection never enters the breaker")
 }

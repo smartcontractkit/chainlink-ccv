@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.12.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.11.0...v0.12.0) (2026-09-14)
+
+
+### ⚠ BREAKING CHANGES
+
+* **verifier:** composable verifier gates via vtypes.Chain ([#1417](https://github.com/smartcontractkit/chainlink-ccv/issues/1417))
+
+### Features
+
+* **hooks:** policy hook followups ([#1437](https://github.com/smartcontractkit/chainlink-ccv/issues/1437)) ([1703932](https://github.com/smartcontractkit/chainlink-ccv/commit/1703932e82679ca01afad527788d6e6fa5d08810))
+* support resilient reader config for indexer and add retry policy ([#1364](https://github.com/smartcontractkit/chainlink-ccv/issues/1364)) ([02af09e](https://github.com/smartcontractkit/chainlink-ccv/commit/02af09e86d1b5f552625003b9eab95ca421766a5))
+
+
+### Bug Fixes
+
+* **indexer:** anchor generate-docs.sh to its own directory ([#1420](https://github.com/smartcontractkit/chainlink-ccv/issues/1420)) ([177abec](https://github.com/smartcontractkit/chainlink-ccv/commit/177abecf0a631cb2ad6b7df01c999a2d5de24cf5))
+* **indexer:** unsigned selector and sequence number in client response models ([#1419](https://github.com/smartcontractkit/chainlink-ccv/issues/1419)) ([4238033](https://github.com/smartcontractkit/chainlink-ccv/commit/423803322296347cb879a14107289978311dfda8))
+* reduce `maxFilterBlockRange` to 1000 ([#1446](https://github.com/smartcontractkit/chainlink-ccv/issues/1446)) ([7cdff50](https://github.com/smartcontractkit/chainlink-ccv/commit/7cdff50bd78dac70b09fd0daf56653455824b796))
+* **verifier:** grow policy hook retry delay with attempt count ([#1416](https://github.com/smartcontractkit/chainlink-ccv/issues/1416)) ([dd536f0](https://github.com/smartcontractkit/chainlink-ccv/commit/dd536f08756ef37aef0a354bba9677f0775bce36))
+* **verifier:** option to disable finality checker in token verifier ([#1438](https://github.com/smartcontractkit/chainlink-ccv/issues/1438)) ([554fc9a](https://github.com/smartcontractkit/chainlink-ccv/commit/554fc9ab0becaa17f63c05ddd37f0dc25cba14c9))
+
+
+### Code Refactoring
+
+* **verifier:** composable verifier gates via vtypes.Chain ([#1417](https://github.com/smartcontractkit/chainlink-ccv/issues/1417)) ([f920c80](https://github.com/smartcontractkit/chainlink-ccv/commit/f920c808e0ba7c886ca07aec50d3013dc360381b))
+
 ## [0.11.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.10.1...v0.11.0) (2026-09-09)
 
 

@@ -10,6 +10,7 @@ import (
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	blockchainscomp "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/blockchains"
 	fakecomp "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/fake"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/components/observability"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
@@ -78,6 +79,10 @@ func (c *component) RunPhase4(
 		return nil, nil, fmt.Errorf("tokenverifier: environment_topology not found in phase outputs")
 	}
 	fmt.Printf("tokenverifier: environment_topology: %+v\n", topology)
+	obs, ok := priorOutputs[observability.Key].(*observability.Observability)
+	if !ok || obs == nil {
+		return nil, nil, fmt.Errorf("tokenverifier: observability not found in phase outputs")
+	}
 
 	var fakeOut *services.FakeOutput
 	if fake, ok := priorOutputs[fakecomp.Key].(*services.FakeInput); ok && fake != nil {
@@ -195,9 +200,9 @@ func (c *component) RunPhase4(
 		if tvIn.Bootstrap == nil {
 			tvIn.Bootstrap = &services.BootstrapInput{}
 		}
-		monitoring := topology.Monitoring
-		fmt.Printf("tokenverifier: monitoring: %+v\n", monitoring)
-		tvIn.Bootstrap.Monitoring = &monitoring
+		m := obs.Monitoring
+		m.Beholder.TelemetryAttributes = services.TelemetryAttrs(obs.Monitoring.Beholder.TelemetryAttributes, "token-verifier", tvIn.ContainerName)
+		tvIn.Bootstrap.Monitoring = &m
 		out, launchErr := services.NewTokenVerifier(&tvIn, blockchainOutputs, modifiers)
 		if launchErr != nil {
 			return nil, nil, fmt.Errorf("tokenverifier: launching %q: %w", tvIn.ContainerName, launchErr)

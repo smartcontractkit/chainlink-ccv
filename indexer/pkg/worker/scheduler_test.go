@@ -8,11 +8,9 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap/zapcore"
 
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -25,8 +23,7 @@ import (
 //     it onto the scheduler's delay heap and the task should only be moved to
 //     the Ready channel when the scheduler's ticker triggers PopAllReady().
 func TestScheduler_EnqueueImmediateAndDelayed(t *testing.T) {
-	lggr, err := logger.NewWith(logging.DevelopmentConfig(zapcore.DebugLevel))
-	require.NoError(t, err)
+	lggr := logger.Test(t)
 
 	// Subtest: immediate fast-path
 	t.Run("Immediate", func(t *testing.T) {
@@ -79,8 +76,7 @@ func TestScheduler_EnqueueImmediateAndDelayed(t *testing.T) {
 // expired are sent to the scheduler's DLQ. The scheduler itself does not
 // persist message status; that responsibility belongs to the DLQ consumer.
 func TestScheduler_DLQOnTTLExpired(t *testing.T) {
-	lggr, err := logger.NewWith(logging.DevelopmentConfig(zapcore.DebugLevel))
-	require.NoError(t, err)
+	lggr := logger.Test(t)
 
 	cfg := config.SchedulerConfig{TickerInterval: 50, BaseDelay: 10, MaxDelay: 1000, VerificationVisibilityWindow: 60}
 	s, err := NewScheduler(lggr, cfg)
@@ -103,15 +99,46 @@ func TestScheduler_DLQOnTTLExpired(t *testing.T) {
 // TestScheduler_Backoff_NegativeAttempt validates backoff calculation lower-bounds
 // the delay when an invalid negative attempt value is provided.
 func TestScheduler_Backoff_NegativeAttempt(t *testing.T) {
-	lggr, err := logger.NewWith(logging.DevelopmentConfig(zapcore.DebugLevel))
-	require.NoError(t, err)
+	lggr := logger.Test(t)
 
 	scfg := config.SchedulerConfig{TickerInterval: 50, BaseDelay: 10, MaxDelay: 1000, VerificationVisibilityWindow: 60}
 	s, err := NewScheduler(lggr, scfg)
 	require.NoError(t, err)
 
-	d := s.backoff(-5)
+	d := s.backoff(-6)
 	require.GreaterOrEqual(t, int(d.Milliseconds()), scfg.BaseDelay)
+}
+
+// TestScheduler_Backoff_Overflow verifies that the backoff function does not
+// return 0 or negative delays due to integer overflow at high attempt counts,
+// and that a non-overflow attempt doubles the base delay.
+// Before the fix, BaseDelay << (attempt-1) overflowed to 0 at attempt 64+,
+// defeating the retry backoff entirely.
+func TestScheduler_Backoff_Overflow(t *testing.T) {
+	scfg := config.SchedulerConfig{TickerInterval: 50, BaseDelay: 100, MaxDelay: 30000, VerificationVisibilityWindow: 60}
+	s, err := NewScheduler(logger.Test(t), scfg)
+	require.NoError(t, err)
+
+	expected := time.Duration(scfg.MaxDelay) * time.Millisecond
+	for _, attempt := range []int{62, 63, 64, 100, 1000, 150000} {
+		d := s.backoff(attempt - 1)
+		require.Equal(t, expected, d, "backoff must saturate to MaxDelay for attempt %d", attempt)
+	}
+
+	require.Equal(t, time.Duration(scfg.BaseDelay<<1)*time.Millisecond, s.backoff(1), "non-overflow delay must double the base")
+}
+
+// TestScheduler_Backoff_BaseDelayZero verifies that when BaseDelay is 0,
+// backoff returns 0 (immediate dispatch).
+func TestScheduler_Backoff_BaseDelayZero(t *testing.T) {
+	lggr := logger.Test(t)
+
+	scfg := config.SchedulerConfig{TickerInterval: 50, BaseDelay: 0, MaxDelay: 1000, VerificationVisibilityWindow: 60}
+	s, err := NewScheduler(lggr, scfg)
+	require.NoError(t, err)
+
+	d := s.backoff(0)
+	require.Equal(t, time.Duration(0), d, "backoff with BaseDelay=0 should return 0 for immediate dispatch")
 }
 
 // TestScheduler_Enqueue_TTLExpired_DLQ asserts Enqueue returns an error for
