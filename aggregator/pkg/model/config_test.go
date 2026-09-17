@@ -1046,7 +1046,7 @@ func TestResolveSecrets_FileClientCredentialsReplacePerClient(t *testing.T) {
 	t.Setenv("CLIENT2_ENV_SECRET", otherCreds.Secret)
 
 	cfg := &AggregatorConfig{
-		Storage: &StorageConfig{},
+		Storage: &StorageConfig{StorageType: StorageTypePostgreSQL},
 		APIClients: []*ClientConfig{
 			{
 				ClientID:    "client1",
@@ -1062,6 +1062,9 @@ func TestResolveSecrets_FileClientCredentialsReplacePerClient(t *testing.T) {
 	}
 
 	s := loadSecretsFromString(t, `
+[storage]
+url = "postgres://test-host/agg"
+
 [[clients]]
 client_id  = "client1"
 api_key    = "`+fileCreds.APIKey+`"
@@ -1097,6 +1100,31 @@ url = "postgres://file-host/agg"
 `)
 	require.NoError(t, cfg.ResolveSecrets(s))
 	assert.Equal(t, "postgres://file-host/agg", cfg.Storage.ConnectionURL)
+}
+
+func TestResolveSecrets_MissingStorageSection(t *testing.T) {
+	// Regression: a config.toml without a [storage] section used to panic in
+	// ResolveSecrets on a nil Storage pointer. The binary applies SetDefaults
+	// before ResolveSecrets, which materializes an empty StorageConfig with no
+	// type; either way ResolveSecrets must fail with a clear error naming the
+	// section instead of panicking or skipping secret resolution.
+
+	t.Run("defaults applied first, as the binary does", func(t *testing.T) {
+		cfg := &AggregatorConfig{}
+		cfg.SetDefaults()
+		require.NotNil(t, cfg.Storage)
+
+		err := cfg.ResolveSecrets(nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "[storage]")
+	})
+
+	t.Run("nil receiver field, as direct callers may hit", func(t *testing.T) {
+		cfg := &AggregatorConfig{}
+		err := cfg.ResolveSecrets(nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "[storage]")
+	})
 }
 
 func TestGetClientByClientID(t *testing.T) {
@@ -1329,12 +1357,13 @@ func TestResolveSecrets_FromEnvironment(t *testing.T) {
 	})
 
 	t.Run("loads redis config when rate limiting enabled", func(t *testing.T) {
+		t.Setenv("AGGREGATOR_STORAGE_CONNECTION_URL", "postgres://localhost:5432/test")
 		t.Setenv("AGGREGATOR_REDIS_ADDRESS", "localhost:6379")
 		t.Setenv("AGGREGATOR_REDIS_PASSWORD", "secret")
 		t.Setenv("AGGREGATOR_REDIS_DB", "1")
 
 		cfg := &AggregatorConfig{
-			Storage: &StorageConfig{},
+			Storage: &StorageConfig{StorageType: StorageTypePostgreSQL},
 			RateLimiting: RateLimitingConfig{
 				Enabled: true,
 				Storage: RateLimiterStoreConfig{Type: RateLimiterStoreTypeRedis},
@@ -1348,8 +1377,10 @@ func TestResolveSecrets_FromEnvironment(t *testing.T) {
 	})
 
 	t.Run("fails when redis address missing", func(t *testing.T) {
+		t.Setenv("AGGREGATOR_STORAGE_CONNECTION_URL", "postgres://localhost:5432/test")
+
 		cfg := &AggregatorConfig{
-			Storage: &StorageConfig{},
+			Storage: &StorageConfig{StorageType: StorageTypePostgreSQL},
 			RateLimiting: RateLimitingConfig{
 				Enabled: true,
 				Storage: RateLimiterStoreConfig{Type: RateLimiterStoreTypeRedis},
@@ -1361,11 +1392,12 @@ func TestResolveSecrets_FromEnvironment(t *testing.T) {
 	})
 
 	t.Run("fails with invalid redis DB value", func(t *testing.T) {
+		t.Setenv("AGGREGATOR_STORAGE_CONNECTION_URL", "postgres://localhost:5432/test")
 		t.Setenv("AGGREGATOR_REDIS_ADDRESS", "localhost:6379")
 		t.Setenv("AGGREGATOR_REDIS_DB", "not-a-number")
 
 		cfg := &AggregatorConfig{
-			Storage: &StorageConfig{},
+			Storage: &StorageConfig{StorageType: StorageTypePostgreSQL},
 			RateLimiting: RateLimitingConfig{
 				Enabled: true,
 				Storage: RateLimiterStoreConfig{Type: RateLimiterStoreTypeRedis},
