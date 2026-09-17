@@ -39,6 +39,8 @@ Production logs confirmed the bug: message `0xa9e0fc65...` at attempt 191,962 re
 
 The overflow guard changed from `d < 0` to `d <= 0` and is gated on `BaseDelay > 0` so that the legitimate `BaseDelay = 0` fast-path (immediate dispatch, used in tests) is not affected. When overflow is detected, the delay resets to `MaxDelay` instead of `BaseDelay`, so the scheduler uses the maximum retry spacing for a message that has already been retrying for a long time. The `attempt < 0` guard was also changed to `attempt < 1` to prevent a negative shift (`BaseDelay << -1`), which is undefined behavior in Go.
 
+The overflow warning was also corrected: it now reports the actual non-positive delay value, the messageID, and the attempt count, instead of claiming the delay `overflowed to zero` in every case.
+
 ## Rate limiter and circuit breaker
 
 ### Root cause
@@ -67,7 +69,7 @@ No new features.
 - **Rollout:** no feature flags. No configuration change. A binary swap applies the fix.
 - **Rollback:** a binary swap reverts the fix. No schema, persistence, or wire-format change.
 - **Dependencies:** none added.
-- **Observability note:** after rollout, the `Invariant Check triggered in Scheduler` warning log should appear less frequently for a given message (at most once, when the delay first overflows) and the delay should reset to `MaxDelay` instead of `BaseDelay`. Circuit breaker `opened` events caused by rate limiter rejections should not occur once the retry policy from #1364 deploys with this fix.
+- **Observability note:** after rollout, the delay resets to `MaxDelay` instead of `BaseDelay`, so a stuck message retries at the `MaxDelay` cadence (30 s in production) instead of every tick. The `Invariant Check triggered in Scheduler` warning is emitted once per retry while a message is in the overflow range — bounded by the `MaxDelay` cadence, roughly 2,880 lines per day per stuck message — and each line includes the messageID, attempt count, non-positive delay value, and `MaxDelay` fallback, so retries can be traced per message. Circuit breaker `opened` events caused by rate limiter rejections should not occur once the retry policy from #1364 deploys with this fix.
 
 ## References
 

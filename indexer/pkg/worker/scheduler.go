@@ -121,10 +121,11 @@ func (s *Scheduler) shouldEnqueue(t *Task) (bool, time.Duration) {
 		return false, time.Duration(0)
 	}
 
-	return true, s.backoff(t.attempt + 1)
+	return true, s.backoff(t)
 }
 
-func (s *Scheduler) backoff(attempt int) time.Duration {
+func (s *Scheduler) backoff(t *Task) time.Duration {
+	attempt := t.attempt + 1
 	if attempt < 1 {
 		attempt = 1
 	}
@@ -135,7 +136,7 @@ func (s *Scheduler) backoff(attempt int) time.Duration {
 	}
 
 	if s.config.BaseDelay > 0 && d <= 0 {
-		s.lggr.Warn("Invariant Check triggered in Scheduler, backoff delay overflowed to zero, falling back to MaxDelay.")
+		s.lggr.Warnf("Invariant Check triggered in Scheduler, backoff delay overflowed to non-positive %dms for message %s at attempt %d, falling back to MaxDelay %dms.", d, t.messageID, attempt, s.config.MaxDelay)
 		d = s.config.MaxDelay
 	}
 

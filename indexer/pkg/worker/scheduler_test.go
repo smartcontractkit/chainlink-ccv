@@ -110,7 +110,7 @@ func TestScheduler_Backoff_NegativeAttempt(t *testing.T) {
 	s, err := NewScheduler(lggr, scfg)
 	require.NoError(t, err)
 
-	d := s.backoff(-5)
+	d := s.backoff(&Task{attempt: -6})
 	require.GreaterOrEqual(t, int(d.Milliseconds()), scfg.BaseDelay)
 }
 
@@ -128,8 +128,32 @@ func TestScheduler_Backoff_Overflow(t *testing.T) {
 
 	expected := time.Duration(scfg.MaxDelay) * time.Millisecond
 	for _, attempt := range []int{62, 63, 64, 100, 1000, 150000} {
-		d := s.backoff(attempt)
+		d := s.backoff(&Task{attempt: attempt - 1})
 		require.Equal(t, expected, d, "backoff must reset to MaxDelay for attempt %d", attempt)
+	}
+}
+
+// TestScheduler_Backoff_OverflowWarnsPerRetry verifies the overflow warning is
+// emitted on every backoff call in the overflow range and describes the
+// non-positive case accurately (messageID, attempt, and delay value).
+func TestScheduler_Backoff_OverflowWarnsPerRetry(t *testing.T) {
+	lggr, logs := logger.TestObserved(t, zapcore.WarnLevel)
+
+	scfg := config.SchedulerConfig{TickerInterval: 50, BaseDelay: 100, MaxDelay: 30000, VerificationVisibilityWindow: 60}
+	s, err := NewScheduler(lggr, scfg)
+	require.NoError(t, err)
+
+	tsk := &Task{attempt: 999}
+	for range 3 {
+		s.backoff(tsk)
+	}
+
+	warns := logs.All()
+	require.Len(t, warns, 3, "warning should be emitted on every overflow retry")
+	for _, w := range warns {
+		require.Contains(t, w.Message, "non-positive")
+		require.Contains(t, w.Message, "message 0x")
+		require.Contains(t, w.Message, "attempt 1000")
 	}
 }
 
@@ -143,7 +167,7 @@ func TestScheduler_Backoff_BaseDelayZero(t *testing.T) {
 	s, err := NewScheduler(lggr, scfg)
 	require.NoError(t, err)
 
-	d := s.backoff(1)
+	d := s.backoff(&Task{})
 	require.Equal(t, time.Duration(0), d, "backoff with BaseDelay=0 should return 0 for immediate dispatch")
 }
 
