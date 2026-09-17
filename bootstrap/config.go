@@ -318,6 +318,11 @@ type NonSecretConfig struct {
 	// Chains declares the chains on which this node has a signing identity.
 	// Each entry causes the bootstrapper to register the node's signing key for that chain in JD.
 	// Optional: if empty, no signing key sync is performed.
+	//
+	// At boot each entry is checked against the chain family's own mounted config when the family
+	// registered a coverage checker (chainaccess.RegisterDeclaredChainCoverageChecker): a declared
+	// chain the config cannot serve is a startup error naming the chain, rather than a message-time
+	// failure. Families without a registered checker are not checked.
 	Chains []ChainRegistration `toml:"chains"`
 
 	// KeyImport adopts a Chainlink node key into the keystore on first boot instead of generating

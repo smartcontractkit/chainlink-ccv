@@ -12,14 +12,16 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-// Importing this package registers the EVM accessor factory with chainaccess, so a process that
-// does not run EVM chains must not import it: chainaccess.NewRegistry constructs every registered
-// factory eagerly and CreateEVMAccessorFactory fails when no EVM config is mounted. Tooling that
-// only needs to read or convert EVM config imports
+// Importing this package registers the EVM accessor factory — and the EVM declared-chain coverage
+// checker (see coverage.go) — with chainaccess, so a process that does not run EVM chains must not
+// import it: chainaccess.NewRegistry constructs every registered factory eagerly and
+// CreateEVMAccessorFactory fails when no EVM config is mounted. Tooling that only needs to read or
+// convert EVM config imports
 // github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig instead, which
 // registers nothing.
 func init() {
 	chainaccess.Register(chainsel.FamilyEVM, CreateEVMAccessorFactory)
+	chainaccess.RegisterDeclaredChainCoverageChecker(chainsel.FamilyEVM, checkDeclaredChainCoverage)
 }
 
 var _ chainaccess.AccessorFactoryConstructor = CreateEVMAccessorFactory

@@ -546,6 +546,153 @@ HTTPURL = 'https://sepolia.example.com'
 	}
 }
 
+// A chain that cannot run standalone is skipped, not fatal: the reason is recorded in
+// FailedChains and warned about, and the remaining chains convert. The leftover [[EVM]] block for a
+// chain whose RPC was decommissioned — or a typo'd chain ID — must not take down the config for
+// the chains that are fine. Whether a skip is acceptable is the bootstrapper's call: it refuses to
+// boot when the skipped chain is one the operator declared in [[chains]].
+func TestConvertChainlinkNodeConfigSkipsUnservableChains(t *testing.T) {
+	t.Parallel()
+
+	t.Run("an unknown chain ID skips, the rest convert", func(t *testing.T) {
+		t.Parallel()
+		got, err := convertChainlinkNodeConfig([]byte(`
+[[EVM]]
+ChainID = '88888888888888'
+[[EVM.Nodes]]
+Name = 'mystery'
+HTTPURL = 'https://mystery.example.com'
+
+[[EVM]]
+ChainID = '` + sepoliaChainID + `'
+[[EVM.Nodes]]
+Name = 'primary'
+HTTPURL = 'https://sepolia.example.com'
+`))
+		require.NoError(t, err)
+		assert.Len(t, got.Config.Chains, 1)
+		assert.Contains(t, got.Config.Chains, sepoliaSelector)
+
+		require.Len(t, got.FailedChains, 1)
+		assert.Equal(t, "88888888888888", got.FailedChains[0].ChainID)
+		assert.Contains(t, got.FailedChains[0].Reason, "no known chain selector")
+
+		require.Len(t, got.Warnings, 1, "the failed chain's only warning is the skip line")
+		assert.Equal(t, "chain 88888888888888: skipped, "+got.FailedChains[0].Reason, got.Warnings[0])
+		assert.Equal(t, got.Warnings, got.WarningsByChainID["88888888888888"],
+			"the grouped view carries the same skip line")
+	})
+
+	t.Run("a node without an HTTP URL skips only its own chain", func(t *testing.T) {
+		t.Parallel()
+		got, err := convertChainlinkNodeConfig([]byte(`
+[[EVM]]
+ChainID = '` + sepoliaChainID + `'
+[[EVM.Nodes]]
+Name = 'primary'
+HTTPURL = 'https://sepolia.example.com'
+
+[[EVM]]
+ChainID = '` + arbSepChainID + `'
+[[EVM.Nodes]]
+Name = 'ws-only'
+WSURL = 'wss://arb.example.com'
+`))
+		require.NoError(t, err)
+		assert.Len(t, got.Config.Chains, 1)
+		assert.Contains(t, got.Config.Chains, sepoliaSelector)
+
+		require.Len(t, got.FailedChains, 1)
+		assert.Equal(t, arbSepChainID, got.FailedChains[0].ChainID)
+		assert.Contains(t, got.FailedChains[0].Reason, "node ws-only has no HTTPURL")
+		assert.Contains(t, got.FailedChains[0].Reason, "standalone CCV requires an HTTP endpoint")
+
+		require.Equal(t, []string{
+			"chain " + arbSepChainID + ": skipped, node ws-only has no HTTPURL; standalone CCV requires an HTTP endpoint for every node",
+		}, got.Warnings)
+	})
+
+	t.Run("a chain with no nodes and a send-only pool both skip", func(t *testing.T) {
+		t.Parallel()
+		got, err := convertChainlinkNodeConfig([]byte(`
+[[EVM]]
+ChainID = '` + sepoliaChainID + `'
+
+[[EVM]]
+ChainID = '` + arbSepChainID + `'
+[[EVM.Nodes]]
+Name = 'broadcast-only'
+HTTPURL = 'https://arb.example.com'
+SendOnly = true
+
+[[EVM]]
+ChainID = '1'
+[[EVM.Nodes]]
+Name = 'primary'
+HTTPURL = 'https://eth.example.com'
+`))
+		require.NoError(t, err)
+		require.Len(t, got.Config.Chains, 1)
+		assert.Contains(t, got.Config.Chains, "5009297550715157269", "the healthy ethereum-mainnet chain converts")
+		require.Len(t, got.FailedChains, 2)
+		assert.Equal(t, sepoliaChainID, got.FailedChains[0].ChainID)
+		assert.Contains(t, got.FailedChains[0].Reason, "has no [[EVM.Nodes]] entries")
+		assert.Equal(t, arbSepChainID, got.FailedChains[1].ChainID)
+		assert.Contains(t, got.FailedChains[1].Reason, "has no usable [[EVM.Nodes]] entries after conversion")
+	})
+
+	t.Run("every enabled chain failing is an error naming all of them", func(t *testing.T) {
+		t.Parallel()
+		_, err := convertChainlinkNodeConfig([]byte(`
+[[EVM]]
+ChainID = '88888888888888'
+[[EVM.Nodes]]
+Name = 'mystery'
+HTTPURL = 'https://mystery.example.com'
+
+[[EVM]]
+ChainID = '` + sepoliaChainID + `'
+`))
+		require.ErrorContains(t, err, "config has no usable EVM chains")
+		require.ErrorContains(t, err, "chain 88888888888888 its chain ID has no known chain selector")
+		require.ErrorContains(t, err, "chain "+sepoliaChainID+" has no [[EVM.Nodes]] entries")
+	})
+
+	t.Run("disabled and failing chains coexist with a healthy one", func(t *testing.T) {
+		t.Parallel()
+		got, err := convertChainlinkNodeConfig([]byte(`
+[[EVM]]
+ChainID = '` + sepoliaChainID + `'
+Enabled = false
+[[EVM.Nodes]]
+Name = 'primary'
+HTTPURL = 'https://sepolia.example.com'
+
+[[EVM]]
+ChainID = '88888888888888'
+[[EVM.Nodes]]
+Name = 'mystery'
+HTTPURL = 'https://mystery.example.com'
+
+[[EVM]]
+ChainID = '` + arbSepChainID + `'
+[[EVM.Nodes]]
+Name = 'arb'
+HTTPURL = 'https://arb.example.com'
+`))
+		require.NoError(t, err)
+		assert.Len(t, got.Config.Chains, 1)
+		assert.Contains(t, got.Config.Chains, arbSepSelector)
+
+		require.Len(t, got.FailedChains, 1)
+		assert.Equal(t, "88888888888888", got.FailedChains[0].ChainID)
+
+		require.Len(t, got.Warnings, 2)
+		assert.Contains(t, got.Warnings[0], "chain "+sepoliaChainID+": skipped, the node has it disabled")
+		assert.Contains(t, got.Warnings[1], "chain 88888888888888: skipped, its chain ID has no known chain selector")
+	})
+}
+
 // sepoliaDefaultFinalityDepth is the depth the conversion must emit for a Sepolia chain whose
 // finality settings the operator left unset: zero if the node defaults Sepolia to finality tags,
 // the default confirmation depth otherwise. It is read from chainlink-evm's own defaults rather

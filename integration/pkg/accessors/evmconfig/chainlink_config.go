@@ -12,14 +12,69 @@ import (
 )
 
 const (
-	// DefaultTXMBlockTime is the retry cadence TXM v2 falls back to when the operator sets none.
-	// TXM v2 requires a block time of at least two seconds. It also uses head
-	// notifications for fee updates, so this is only a retry cadence fallback.
+	// DefaultTXMBlockTime is the retry cadence TXM v2 falls back to when the operator sets none
+	// and the chain has no curated entry. TXM v2 requires a block time of at least two seconds
+	// (upstream validation rejects less), so it is also the best legal value for every chain
+	// whose real block interval is shorter. It also uses head notifications for fee updates, so
+	// this is only a retry cadence fallback.
 	DefaultTXMBlockTime = 2 * time.Second
 	// DefaultNewHeadsPollInterval keeps the production head tracker usable for deployments that
 	// include HTTP-only RPCs. All-WebSocket pools retain subscriptions.
 	DefaultNewHeadsPollInterval = time.Second
 )
+
+// TXMBlockTimeSource identifies where a chain's effective TXM v2 block time came from. It rides
+// along with the value so the fallback warning and the pre-cutover report can tell an operator
+// apart from a default — and a chain-specific default from the generic 2s one.
+type TXMBlockTimeSource string
+
+const (
+	// TXMBlockTimeOperator is an explicit txm_block_time (standalone config) or
+	// Transactions.TransactionManagerV2.BlockTime (node config).
+	TXMBlockTimeOperator TXMBlockTimeSource = "operator"
+	// TXMBlockTimeCuratedDefault is the per-chain value from curatedTXMBlockTimeByChainID.
+	TXMBlockTimeCuratedDefault TXMBlockTimeSource = "curated_chain_default"
+	// TXMBlockTimeGenericFallback is DefaultTXMBlockTime: the chain has no curated entry.
+	TXMBlockTimeGenericFallback TXMBlockTimeSource = "generic_fallback"
+)
+
+// curatedTXMBlockTimeByChainID holds the block interval of chains whose real block time is above
+// the two-second floor upstream validation enforces — the only chains the generic fallback
+// mistunes. TXM v2 rebroadcasts a transaction once it is RetryBlockThreshold (derived from the v1
+// BumpThreshold, default 3) times BlockTime old, so the value must track the chain's real cadence:
+// on a 12s chain the 2s fallback bumps fees at 6s instead of 36s, and on Rootstock's ~30s blocks it
+// would bump before one block has passed. Chains at or below two seconds are deliberately absent —
+// the floor already serves them. Values are the chains' publicly documented block intervals; when
+// in doubt the entry errs high, since a slower-than-ideal bump cadence costs latency where a
+// faster one burns fees.
+var curatedTXMBlockTimeByChainID = map[string]time.Duration{
+	"1":        12 * time.Second, // Ethereum mainnet
+	"11155111": 12 * time.Second, // Ethereum Sepolia
+	"17000":    12 * time.Second, // Ethereum Holesky
+	"30":       30 * time.Second, // Rootstock (merge-mined)
+	"100":      5 * time.Second,  // Gnosis
+	"10200":    5 * time.Second,  // Gnosis Chiado
+	"109":      5 * time.Second,  // Shibarium
+	"592":      12 * time.Second, // Astar (Substrate)
+	"964":      12 * time.Second, // Bittensor EVM (Substrate)
+	"1116":     3 * time.Second,  // Core
+	"2020":     3 * time.Second,  // Ronin
+	"534352":   3 * time.Second,  // Scroll
+}
+
+// ResolveTXMBlockTime resolves the block time a chain will run: the operator's explicit value when
+// set, then the curated per-chain default, then the generic fallback. BuildChainlinkEVMTOML writes
+// the resolved value into the chainlink-evm config, and the runtime log and pre-cutover report read
+// the source to say which of the three produced it.
+func ResolveTXMBlockTime(info Info) (time.Duration, TXMBlockTimeSource) {
+	if info.TXMBlockTime != 0 {
+		return info.TXMBlockTime, TXMBlockTimeOperator
+	}
+	if curated, ok := curatedTXMBlockTimeByChainID[info.ChainID]; ok {
+		return curated, TXMBlockTimeCuratedDefault
+	}
+	return DefaultTXMBlockTime, TXMBlockTimeGenericFallback
+}
 
 // BuildChainlinkEVMTOML builds and validates the full chainlink-evm TOML config for one chain,
 // applying CCV's overrides on top of chain-specific upstream defaults. It is exported to the
@@ -75,10 +130,7 @@ func BuildChainlinkEVMTOML(info Info) (*evmtoml.EVMConfig, error) {
 	// AutoPurge.MinAttempts, and both change fee behavior for every transaction
 	// rather than only stuck ones. Restart-orphaned transactions are handled without
 	// it (see standaloneChain.recoverOrphanedTransactions).
-	blockTime := info.TXMBlockTime
-	if blockTime == 0 {
-		blockTime = DefaultTXMBlockTime
-	}
+	blockTime, _ := ResolveTXMBlockTime(info)
 	chain.Transactions.TransactionManagerV2.BlockTime = commonconfig.MustNewDuration(blockTime)
 
 	nodes := make(evmtoml.EVMNodes, 0, len(info.Nodes))

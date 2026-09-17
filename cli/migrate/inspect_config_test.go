@@ -59,7 +59,7 @@ SendOnly = true
 		assert.Contains(t, report.Warnings, "chain 11155111 node send-only: dropped, SendOnly nodes have no standalone equivalent")
 	})
 
-	t.Run("unset block time is reported as the fallback", func(t *testing.T) {
+	t.Run("unset block time on a curated chain reports the chain default", func(t *testing.T) {
 		t.Parallel()
 		path := writeConfigFile(t, `
 [[EVM]]
@@ -72,8 +72,9 @@ HTTPURL = 'https://sepolia.example.com'
 		report, err := buildConfigReport(path, "")
 		require.NoError(t, err)
 		chain := report.Chains["16015286601757825753"]
-		assert.Equal(t, "2s", chain.TXMBlockTime)
+		assert.Equal(t, "12s", chain.TXMBlockTime)
 		assert.True(t, chain.TXMBlockTimeIsDefault)
+		assert.Equal(t, "curated_chain_default", chain.TXMBlockTimeSource)
 	})
 
 	t.Run("standalone format needs no conversion", func(t *testing.T) {
@@ -129,6 +130,73 @@ HTTPURL = 'https://arb.example.com'
 
 		_, err = buildConfigReport(path, "999")
 		require.ErrorContains(t, err, "not in")
+	})
+
+	// A chain whose [[EVM]] section cannot run standalone is skipped by the conversion rather than
+	// failing the report: the review must see the skip and its reason, because that chain will not
+	// be served at all.
+	t.Run("a chain that fails conversion is reported, not fatal", func(t *testing.T) {
+		t.Parallel()
+		path := writeConfigFile(t, `
+[[EVM]]
+ChainID = '11155111'
+[[EVM.Nodes]]
+Name = 'primary'
+HTTPURL = 'https://sepolia.example.com'
+
+[[EVM]]
+ChainID = '421614'
+[[EVM.Nodes]]
+Name = 'ws-only'
+WSURL = 'wss://arb.example.com'
+
+[[EVM]]
+ChainID = '88888888888888'
+[[EVM.Nodes]]
+Name = 'mystery'
+HTTPURL = 'https://mystery.example.com'
+`)
+
+		report, err := buildConfigReport(path, "")
+		require.NoError(t, err)
+		assert.Len(t, report.Chains, 1, "only the healthy chain projects")
+		assert.Contains(t, report.Chains, "16015286601757825753")
+
+		require.Len(t, report.FailedChains, 2)
+		assert.Equal(t, "421614", report.FailedChains[0].ChainID)
+		assert.Contains(t, report.FailedChains[0].Reason, "node ws-only has no HTTPURL")
+		assert.Equal(t, "88888888888888", report.FailedChains[1].ChainID)
+		assert.Contains(t, report.FailedChains[1].Reason, "no known chain selector")
+
+		assert.Contains(t, report.Warnings, "chain 421614: skipped, node ws-only has no HTTPURL; standalone CCV requires an HTTP endpoint for every node")
+	})
+
+	// Narrowing to a chain that failed conversion must answer "what happens to my chain" — the
+	// failure, with its reason — instead of a bare not-in-config error.
+	t.Run("chain-selector on a failed chain reports the failure", func(t *testing.T) {
+		t.Parallel()
+		path := writeConfigFile(t, `
+[[EVM]]
+ChainID = '11155111'
+[[EVM.Nodes]]
+Name = 'primary'
+HTTPURL = 'https://sepolia.example.com'
+
+[[EVM]]
+ChainID = '421614'
+[[EVM.Nodes]]
+Name = 'ws-only'
+WSURL = 'wss://arb.example.com'
+`)
+
+		report, err := buildConfigReport(path, "3478487238524512106") // arbitrum-sepolia
+		require.NoError(t, err)
+		assert.Empty(t, report.Chains)
+		require.Len(t, report.FailedChains, 1)
+		assert.Equal(t, "421614", report.FailedChains[0].ChainID)
+		assert.Contains(t, report.FailedChains[0].Reason, "no HTTPURL")
+		require.Len(t, report.Warnings, 1)
+		assert.Contains(t, report.Warnings[0], "chain 421614: skipped")
 	})
 
 	// The ignored top-level sections are file-level: they are named in every report, including a
