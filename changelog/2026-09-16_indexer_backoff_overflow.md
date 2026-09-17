@@ -11,7 +11,7 @@
 
 | Symbol | Kind | Search | Location | Section |
 |---|---|---|---|---|
-| `worker.Scheduler.backoff` | behavior-changed | `func \(s \*Scheduler\) backoff` | `indexer/pkg/worker/scheduler.go:127` | [#scheduler-backoff-overflow](#scheduler-backoff-overflow) |
+| `worker.Scheduler.backoff` | behavior-changed | `func \(s \*Scheduler\) backoff` | `indexer/pkg/worker/scheduler.go:128` | [#scheduler-backoff-overflow](#scheduler-backoff-overflow) |
 | `readers.createPolicies` | behavior-changed | `func createPolicies\[T any\]` | `indexer/pkg/readers/resilient_reader.go:105` | [#rate-limiter-and-circuit-breaker](#rate-limiter-and-circuit-breaker) |
 
 ## Breaking Changes
@@ -26,7 +26,7 @@ No migration steps. The fix is internal and does not change any public API, conf
 
 ### Root cause
 
-`Scheduler.backoff` (`indexer/pkg/worker/scheduler.go:127`) computed the retry delay as `BaseDelay << (attempt - 1)` using signed `int` arithmetic. For a 64-bit `int`, the shift overflows at high attempt counts:
+`Scheduler.backoff` (`indexer/pkg/worker/scheduler.go:128`) computed the retry delay as `BaseDelay << (attempt - 1)` using signed `int` arithmetic. For a 64-bit `int`, the shift overflows at high attempt counts:
 
 - At shift 61, a bit lands on the sign bit. The result becomes negative. The guard `d < 0` caught this and reset the delay to `BaseDelay`.
 - At shift 62 and above, all bits shift past the 64-bit boundary. The result becomes **zero**. The guard `d < 0` did not catch zero, so the function returned a delay of 0 ms.
@@ -37,9 +37,9 @@ Production logs confirmed the bug: message `0xa9e0fc65...` at attempt 191,962 re
 
 ### Fix
 
-The overflow guard changed from `d < 0` to `d <= 0` and is gated on `BaseDelay > 0` so that the legitimate `BaseDelay = 0` fast-path (immediate dispatch, used in tests) is not affected. When overflow is detected, the delay resets to `MaxDelay` instead of `BaseDelay`, so the scheduler uses the maximum retry spacing for a message that has already been retrying for a long time. The `attempt < 0` guard was also changed to `attempt < 1` to prevent a negative shift (`BaseDelay << -1`), which is undefined behavior in Go.
+The scheduler no longer computes the delay itself: `backoff` delegates to `common.BackoffDelay` (`common/backoff.go:19`), the same truncated exponential backoff that the verifier storage writer (`verifier/pkg/storagewriter/processor.go:531`) and the policy gate (`verifier/pkg/policy/gate.go:305`) already use. The shared function multiplies the delay only while the next value stays at or below the cap, so the result can never exceed `MaxDelay` or the `int64` range — overflow is impossible by construction, and no wrapped value exists to inspect. The attempt is passed 1-based as `t.attempt + 1`; a non-positive attempt reduces to `BaseDelay`, so no attempt clamp is needed.
 
-The overflow warning was also corrected: it now reports the actual non-positive delay value, the messageID, and the attempt count, instead of claiming the delay `overflowed to zero` in every case.
+The overflow warning is removed: overflow cannot occur with the shared primitive, so the invariant it reported no longer exists.
 
 ## Rate limiter and circuit breaker
 
@@ -69,7 +69,7 @@ No new features.
 - **Rollout:** no feature flags. No configuration change. A binary swap applies the fix.
 - **Rollback:** a binary swap reverts the fix. No schema, persistence, or wire-format change.
 - **Dependencies:** none added.
-- **Observability note:** after rollout, the delay resets to `MaxDelay` instead of `BaseDelay`, so a stuck message retries at the `MaxDelay` cadence (30 s in production) instead of every tick. The `Invariant Check triggered in Scheduler` warning is emitted once per retry while a message is in the overflow range — bounded by the `MaxDelay` cadence, roughly 2,880 lines per day per stuck message — and each line includes the messageID, attempt count, non-positive delay value, and `MaxDelay` fallback, so retries can be traced per message. Circuit breaker `opened` events caused by rate limiter rejections should not occur once the retry policy from #1364 deploys with this fix.
+- **Observability note:** after rollout, a stuck message retries at the `MaxDelay` cadence (30 s in production) instead of every tick, and expires through the TTL/DLQ path, where `UpdateMessageStatus` records `MessageTimeout`. The `Invariant Check triggered in Scheduler` warning no longer exists: overflow cannot occur with `common.BackoffDelay`, so there is nothing to report. Circuit breaker `opened` events caused by rate limiter rejections should not occur once the retry policy from #1364 deploys with this fix.
 
 ## References
 
