@@ -3,7 +3,7 @@
 ## Executive Summary
 
 - This change makes the chain accessor supply the CCTP codec for its chain. The codec gives the domain lookup, the transaction-hash codec, and the address codec.
-- Before this change the CCTP verifier held chain knowledge in the core package. A static `Domains` map mapped a chain selector to a Circle domain. Two functions branched on the chain family to pick base58 for Solana and hex for EVM.
+- Before this change the CCTP verifier held chain knowledge in the core package. A static `Domains` map in the core package mapped a chain selector to a Circle domain. Two functions branched on the chain family to pick base58 for Solana and hex for EVM.
 - The verifier already resolves one accessor per source chain through `chainaccess`. The accessor is now also the codec for that chain, so the runtime holds one chain-specific interface, not two.
 - Affected code: `verifier/pkg/token/cctp`, `cmd/verifier/tokenfactory.go`, and `integration/pkg/accessors/evm`.
 - Headline impact: this is a breaking change. `cctp.NewAttestationService` gained a required argument, and a source chain whose accessor does not implement `CCTPCodec` now fails at `Fetch`.
@@ -17,7 +17,8 @@
 | `cctp.NewAttestationService` | signature-changed | `NewAttestationService\(` | `verifier/pkg/token/cctp/attestation.go:71` | [#newattestationservice-takes-the-chain-codecs](#newattestationservice-takes-the-chain-codecs) |
 | `chainaccess.Accessor.CCTPCodec` | signature-changed | `CCTPCodec\(\) \(CCTPCodec, error\)` | `pkg/chainaccess/interfaces.go:125` | [#the-accessor-exposes-the-codec](#the-accessor-exposes-the-codec) |
 | `cctp.HTTPAttestationService.Fetch` | behavior-changed | `func \(h \*HTTPAttestationService\) Fetch` | `verifier/pkg/token/cctp/attestation.go:94` | [#fetch-reads-the-codec-map](#fetch-reads-the-codec-map) |
-| `cctp.Domains` | behavior-changed | `cctp\.Domains\b` | `verifier/pkg/token/cctp/consts.go:21` | [#domains-is-the-evm-catalog-only](#domains-is-the-evm-catalog-only) |
+| `cctp.Domains` | removed | `cctp\.Domains\b` | `verifier/pkg/token/cctp/consts.go` | [#the-circle-domain-catalog-moved-to-the-evm-accessor](#the-circle-domain-catalog-moved-to-the-evm-accessor) |
+| `evmaccessor.CCTPDomain` | added | `\bCCTPDomain\b` | `integration/pkg/accessors/evm/cctp_domains.go:63` | [#the-circle-domain-catalog-moved-to-the-evm-accessor](#the-circle-domain-catalog-moved-to-the-evm-accessor) |
 | `chainaccess.CCTPCodec` | added | `\bCCTPCodec\b` | `pkg/chainaccess/interfaces.go:102` | [#the-accessor-exposes-the-codec](#the-accessor-exposes-the-codec) |
 | `evmaccessor.Domain` | added | `func \(a \*accessor\) Domain` | `integration/pkg/accessors/evm/cctp_codec.go:18` | [#implement-the-codec-on-the-chain-accessor](#implement-the-codec-on-the-chain-accessor) |
 | `evmaccessor.EncodeTxHash` | added | `func \(a \*accessor\) EncodeTxHash` | `integration/pkg/accessors/evm/cctp_codec.go:24` | [#implement-the-codec-on-the-chain-accessor](#implement-the-codec-on-the-chain-accessor) |
@@ -65,19 +66,19 @@
 - **Why:** the core path must not resolve a codec from a chain family.
 - **Who is affected:** a consumer that matches on the old error string `unsupported source chain selector`. That string still exists for a codec whose domain table has no entry for the selector.
 
-### Domains is the EVM catalog only
+### The Circle domain catalog moved to the EVM accessor
 
-- **What changed:** `cctp.Domains` stays exported, but the two Solana entries are gone. The EVM accessor codec reads the map.
-- **Before:** `Domains` held every family. It listed `SOLANA_MAINNET` to domain 5 and `SOLANA_DEVNET` to domain 5.
-- **After:** `Domains` holds only EVM entries. The Solana codec holds the Solana domain table.
-- **Why:** a chain repository owns its chain data. `build/devenv` and tooling keep using `Domains` for EVM selectors.
-- **Who is affected:** a consumer that reads `Domains` for a Solana selector. The key is now absent. Read the Solana codec in `chainlink-ccip-solana/pkg/accessors` instead.
+- **What changed:** `cctp.Domains` is gone. The EVM catalog lives in `integration/pkg/accessors/evm/cctp_domains.go`, and `evmaccessor.CCTPDomain(selector)` reads it.
+- **Before:** the CCTP core package held the catalog, so `verifier/pkg/token/cctp` carried EVM chain data.
+- **After:** `verifier/pkg/token/cctp/consts.go` holds only the verifier version constants. The EVM accessor owns the EVM catalog and the Solana accessor owns the Solana table.
+- **Why:** the CCTP core must hold no chain data of any family, so the EVM chain repository can own its table later. `build/devenv` already imports the EVM accessor, so its call sites keep working.
+- **Who is affected:** a consumer that imported `cctp.Domains`. Use `evmaccessor.CCTPDomain` for an EVM selector, or the family accessor's `CCTPCodec.Domain` for any family.
 
 ## Migration Guide
 
-Do nothing for an EVM-only token verifier.
+Every chain family follows the same path: the accessor implements the contract. The EVM accessor already does, so the EVM-only token verifier needs no change and is the standard case.
 
-For a non-EVM family, implement the three methods on the chain accessor and return the accessor from `CCTPCodec()`. No registration and no blank import are needed, because `chainaccess` already resolves that accessor for each source chain.
+Another family implements the three methods on its accessor and returns the accessor from `CCTPCodec()`. No registration and no blank import are needed, because `chainaccess` already resolves that accessor for each source chain.
 
 1. Add `Domain`, `EncodeTxHash`, and `DecodeAddress` to the family accessor type.
 2. Keep the family domain table in the family repository.
@@ -108,7 +109,7 @@ type CCTPCodec interface {
 }
 ```
 
-The EVM implementation is `integration/pkg/accessors/evm/cctp_codec.go`. It reads the `Domains` catalog, returns the hex transaction hash, and decodes a hex address. A compile-time assertion ties it to the EVM accessor type.
+The EVM implementation is `integration/pkg/accessors/evm/cctp_codec.go`. It reads the EVM catalog through `CCTPDomain`, returns the hex transaction hash, and decodes a hex address. A compile-time assertion ties it to the EVM accessor type.
 
 ## New Features / Additions
 

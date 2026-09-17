@@ -73,8 +73,11 @@ var attestationResponseBody = []byte(`
 // attestation path with the EVM chain facts.
 type evmTestCodec struct{}
 
+// evmTestDomains holds the local-test domain these tests need.
+var evmTestDomains = map[uint64]uint32{sel.GETH_TESTNET.Selector: 100}
+
 func (evmTestCodec) Domain(selector protocol.ChainSelector) (uint32, bool) {
-	domain, ok := Domains[uint64(selector)]
+	domain, ok := evmTestDomains[uint64(selector)]
 	return domain, ok
 }
 

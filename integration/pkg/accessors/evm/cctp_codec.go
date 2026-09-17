@@ -3,7 +3,6 @@ package evm
 import (
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/cctp"
 )
 
 // The EVM accessor is the CCTP chain codec for every EVM source chain.
@@ -16,7 +15,7 @@ func (a *accessor) CCTPCodec() (chainaccess.CCTPCodec, error) {
 
 // Domain returns the Circle CCTP domain for the source chain selector.
 func (a *accessor) Domain(selector protocol.ChainSelector) (uint32, bool) {
-	domain, ok := cctp.Domains[uint64(selector)]
+	domain, ok := CCTPDomain(uint64(selector))
 	return domain, ok
 }
 
