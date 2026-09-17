@@ -87,6 +87,10 @@ type Stale struct {
 // path, creating directories as needed. It returns the written file paths.
 // outDir must resolve inside the module root, which is where the run is anchored.
 //
+// Pass the module's whole target list, as Main does. A run rewrites the DocComments file of every
+// package its walk reaches and drops the ones this tool wrote that it did not produce, so a subset
+// takes the omitted targets' methods with it.
+//
 // An error returns no paths. The write is one commentparsing run over the docs and the
 // DocComments files together, which reports whether it completed rather than which files it got
 // to, so there is no partial list to hand back; a failed run leaves the tree to be repaired by
