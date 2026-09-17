@@ -37,6 +37,11 @@ const (
 	QuorumMetKey      = "quorum_met"
 	BatchSizeKey      = "batch_size"
 	CallerIDKey       = "caller_id"
+
+	// Indexer span attributes.
+	VerifierNameKey    = "verifier_name"
+	VerifierAddressKey = "verifier_address"
+	DiscoverySourceKey = "discovery_source"
 )
 
 // ItemTraceParentMetadataHeader carries one W3C traceparent per batch item, in

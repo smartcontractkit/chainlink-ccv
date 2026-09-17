@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	commonmetrics "github.com/smartcontractkit/chainlink-ccv/common/metrics"
+	"github.com/smartcontractkit/chainlink-ccv/common/monitoring/tracing"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/metrics"
@@ -14,6 +15,7 @@ var _ common.IndexerMonitoring = (*IndexerBeholderMonitoring)(nil)
 
 type IndexerBeholderMonitoring struct {
 	metrics common.IndexerMetricLabeler
+	tracing tracing.Tracing
 	commonmetrics.ServiceMetrics
 }
 
@@ -44,12 +46,17 @@ func InitMonitoring(config beholder.Config) (common.IndexerMonitoring, error) {
 
 	return &IndexerBeholderMonitoring{
 		metrics:        NewIndexerMetricLabeler(metrics.NewLabeler(), indexerMetrics),
+		tracing:        tracing.NewTracing(beholder.GetTracer()),
 		ServiceMetrics: serviceMetrics,
 	}, nil
 }
 
 func (i *IndexerBeholderMonitoring) Metrics() common.IndexerMetricLabeler {
 	return i.metrics
+}
+
+func (i *IndexerBeholderMonitoring) Tracing() tracing.Tracing {
+	return i.tracing
 }
 
 // noopServiceMetrics implements commonmetrics.ServiceMetrics with no-op behavior for noop monitoring.
@@ -59,7 +66,8 @@ func (noopServiceMetrics) RecordServiceStarted(context.Context) {}
 
 // NoopIndexerMonitoring provides a no-op implementation of IndexerMonitoring.
 type NoopIndexerMonitoring struct {
-	noop common.IndexerMetricLabeler
+	noop    common.IndexerMetricLabeler
+	tracing tracing.Tracing
 	commonmetrics.ServiceMetrics
 }
 
@@ -67,10 +75,15 @@ type NoopIndexerMonitoring struct {
 func NewNoopIndexerMonitoring() common.IndexerMonitoring {
 	return &NoopIndexerMonitoring{
 		noop:           NewNoopIndexerMetricLabeler(),
+		tracing:        tracing.NewTracing(beholder.GetTracer()),
 		ServiceMetrics: noopServiceMetrics{},
 	}
 }
 
 func (n *NoopIndexerMonitoring) Metrics() common.IndexerMetricLabeler {
 	return n.noop
+}
+
+func (n *NoopIndexerMonitoring) Tracing() tracing.Tracing {
+	return n.tracing
 }
