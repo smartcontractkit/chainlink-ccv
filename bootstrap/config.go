@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 
@@ -313,6 +314,16 @@ type NonSecretConfig struct {
 	// (BOOTSTRAPPER_CONFIG_PATH): this file holds the app's own config, not the operator/infra config.
 	LocalAppConfigPath string `toml:"local_app_config_path,omitempty"`
 
+	// StartupTimeout bounds the synchronous startup phase in Run: keystore, DB, monitoring, JD
+	// registration in jd mode; in local mode the whole service start, including per-chain accessor
+	// dialing and the coordinators' source reader initialization. Unset (or zero) means the default
+	// 10s. Both accessor dialing and source reader initialization run in parallel per chain, so
+	// this costs the slowest chain's dial/init rather than the sum — but one slow or unresponsive
+	// RPC endpoint can still exhaust it. A deployment with many chains lacking a stored chain
+	// status — or one slow RPC endpoint — can raise this instead of crash-looping on "context
+	// deadline exceeded" during boot.
+	StartupTimeout time.Duration `toml:"startup_timeout,omitempty"`
+
 	JD     JDConfig     `toml:"jd,omitempty"`
 	Server ServerConfig `toml:"server,omitempty"`
 	// Chains declares the chains on which this node has a signing identity.
@@ -432,6 +443,15 @@ func validateChains(chains []ChainRegistration) []error {
 	return errs
 }
 
+// resolveStartupTimeout returns the startup timeout to use: the configured value when set, else
+// the default. A negative value never reaches here — validate rejects it at load time.
+func (c *Config) resolveStartupTimeout() time.Duration {
+	if c.StartupTimeout > 0 {
+		return c.StartupTimeout
+	}
+	return defaultStartupTimeout
+}
+
 // validate checks the config for correctness. Validation is mode-driven — keyed on the config's
 // app_config_mode rather than inferred from which sections happen to be present in the file:
 //
@@ -466,6 +486,11 @@ func (c *Config) validate(m AppConfigMode) error {
 		if err := c.Monitoring.Validate(); err != nil {
 			errs = append(errs, fmt.Errorf("failed to validate 'monitoring' section: %w", err))
 		}
+	}
+	// StartupTimeout applies to every mode, so it is validated unconditionally rather than inside
+	// the mode branches.
+	if c.StartupTimeout < 0 {
+		errs = append(errs, fmt.Errorf("field 'startup_timeout' must be a positive duration when set, got %s", c.StartupTimeout))
 	}
 	// The key import populates the keystore, which both modes initialize when [db] and [keystore]
 	// are present, so it is validated in every mode rather than only alongside the JD infra bundle.

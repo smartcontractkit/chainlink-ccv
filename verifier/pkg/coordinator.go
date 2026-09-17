@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"sync"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/common"
@@ -342,10 +343,8 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 		}
 
 		if vc.sourceReaderServices != nil {
-			for chainSelector, srs := range vc.sourceReaderServices {
-				if err := srs.Start(ctx); err != nil {
-					return fmt.Errorf("failed to start source reader service for chain %s: %w", chainSelector, err)
-				}
+			if err := startSourceReaderServices(ctx, vc.sourceReaderServices); err != nil {
+				return err
 			}
 		}
 
@@ -360,6 +359,37 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 
 		return nil
 	})
+}
+
+// startSourceReaderServices starts every per-chain source reader service in parallel. Each Start
+// call can block on a synchronous RPC (initializeStartBlock does one for any chain with no stored
+// ccv_chain_statuses row), so starting sequentially makes boot time the sum of every chain's call
+// and lets a single slow or unresponsive chain exhaust the whole startup deadline before the rest
+// even begin - the root cause of the "failed to start source reader service" crashloop.
+func startSourceReaderServices(ctx context.Context, sourceReaderServices map[protocol.ChainSelector]services.Service) error {
+	type result struct {
+		chainSelector protocol.ChainSelector
+		err           error
+	}
+	results := make(chan result, len(sourceReaderServices))
+	var wg sync.WaitGroup
+	for chainSelector, srs := range sourceReaderServices {
+		wg.Add(1)
+		go func(chainSelector protocol.ChainSelector, srs services.Service) {
+			defer wg.Done()
+			results <- result{chainSelector: chainSelector, err: srs.Start(ctx)}
+		}(chainSelector, srs)
+	}
+	wg.Wait()
+	close(results)
+
+	var errs []error
+	for r := range results {
+		if r.err != nil {
+			errs = append(errs, fmt.Errorf("failed to start source reader service for chain %s: %w", r.chainSelector, r.err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 func createSourceReadersDB(

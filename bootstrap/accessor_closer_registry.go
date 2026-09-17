@@ -12,7 +12,8 @@ import (
 )
 
 // AccessorCloserRegistry wraps a chainaccess.Registry, tracks every Accessor handed
-// out, and closes them all via CloseAll at shutdown.
+// out, and closes them all via CloseAll at shutdown. GetAccessor may be called
+// concurrently; see its doc for the resulting CloseAll ordering requirement.
 //
 // Callers must invoke CloseAll after factory.Stop (or its equivalent) returns,
 // so the factory's coordinator drains its readers first.
@@ -30,13 +31,20 @@ func NewAccessorCloserRegistry(lggr logger.Logger, inner chainaccess.Registry) *
 }
 
 // GetAccessor delegates to the inner Registry and tracks the returned Accessor.
+//
+// The inner call runs without the lock so concurrent callers dial their chains in parallel —
+// holding the lock across it would serialize every accessor construction, which for EVM chains
+// includes an RPC dial per chain. Only the bookkeeping append is serialized. CloseAll is
+// therefore not called while a GetAccessor is in flight: every caller of this wrapper
+// (the service factories) finishes all GetAccessor calls before returning, and CloseAll runs
+// after the factory returns.
 func (t *AccessorCloserRegistry) GetAccessor(ctx context.Context, chainSelector protocol.ChainSelector) (chainaccess.Accessor, error) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
 	a, err := t.inner.GetAccessor(ctx, chainSelector)
 	if err != nil {
 		return nil, err
 	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	t.accessors = append(t.accessors, a)
 	return a, nil
 }

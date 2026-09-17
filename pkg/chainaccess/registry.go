@@ -163,7 +163,11 @@ func NewRegistry(lggr logger.Logger, config string) (Registry, error) {
 
 // GetAccessor creates an Accessor for the given chain selector using the registered AccessorFactory.
 // It returns an error if no factory is registered for the chain family.
-// Not concurrent safe.
+//
+// Safe for concurrent use: the factory map is immutable after NewRegistry, so concurrency is
+// safe exactly as far as the registered family factories are. The EVM factory qualifies — it
+// reads only config maps populated at construction and builds a fresh runtime per call (one
+// RPC dial per chain, which is why callers parallelize GetAccessor across chains).
 func (r *registry) GetAccessor(ctx context.Context, chainSelector protocol.ChainSelector) (Accessor, error) {
 	family, err := chainsel.GetSelectorFamily(uint64(chainSelector))
 	if err != nil {

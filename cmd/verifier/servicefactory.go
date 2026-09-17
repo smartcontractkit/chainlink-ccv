@@ -210,26 +210,16 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	// A failure to stand up one chain's reader (e.g. an unreachable RPC) must not stop the
 	// remaining chains from starting. Log and skip, then only reject the whole coordinator if no
 	// chain is usable.
+	//
+	// Chains are dialed in parallel: every GetAccessor runs a full EVM runtime startup (RPC dial,
+	// head tracker) under the startup deadline, so sequential dialing makes boot time the sum of
+	// all chains' dials. The EVM factory and its registry wrappers are safe for concurrent
+	// GetAccessor calls.
 	chainSelectors := chainaccess.Infos[string](config.OnRampAddresses).GetAllChainSelectors()
-	sourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
-	for _, selector := range chainSelectors {
-		accessor, err := deps.Registry.GetAccessor(ctx, selector)
-		if err != nil {
-			lggr.Errorw("Failed to get accessor, skipping chain", "error", err, "selector", selector)
-			continue
-		}
-		reader, err := accessor.SourceReader()
-		if err != nil {
-			lggr.Errorw("Failed to get source reader, skipping chain", "selector", selector, "error", err)
-			continue
-		}
-		observedReader, err := instrumentSourceReader(reader, config.VerifierID, selector, verifierMonitoring)
-		if err != nil {
-			lggr.Errorw("Failed to instrument source reader, skipping chain", "selector", selector, "error", err)
-			continue
-		}
-		sourceReaders[selector] = observedReader
-	}
+	sourceReaders := sourceReadersForChains(ctx, lggr, deps.Registry, chainSelectors,
+		func(selector protocol.ChainSelector, reader chainaccess.SourceReader) (chainaccess.SourceReader, error) {
+			return instrumentSourceReader(reader, config.VerifierID, selector, verifierMonitoring)
+		})
 	if len(sourceReaders) == 0 {
 		return fmt.Errorf("no source readers configured: ensure at least one chain has a working source reader")
 	}

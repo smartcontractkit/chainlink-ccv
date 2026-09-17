@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -650,6 +651,55 @@ func TestConfig_validate_LocalMode(t *testing.T) {
 		err := cfg.validate(AppConfigModeLocal)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "failed to validate 'monitoring' section")
+	})
+}
+
+func TestConfig_validate_StartupTimeout(t *testing.T) {
+	t.Parallel()
+
+	localPath := NonSecretConfig{LocalAppConfigPath: "/etc/app.toml"}
+
+	t.Run("unset is valid (default applies)", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{NonSecretConfig: localPath}
+		require.NoError(t, cfg.validate(AppConfigModeLocal))
+		require.Equal(t, defaultStartupTimeout, cfg.resolveStartupTimeout())
+	})
+
+	t.Run("positive is valid and resolves to itself", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{NonSecretConfig: NonSecretConfig{
+			LocalAppConfigPath: "/etc/app.toml",
+			StartupTimeout:     45 * time.Second,
+		}}
+		require.NoError(t, cfg.validate(AppConfigModeLocal))
+		require.Equal(t, 45*time.Second, cfg.resolveStartupTimeout())
+	})
+
+	t.Run("negative fails naming the field, in every mode", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{NonSecretConfig: NonSecretConfig{
+			LocalAppConfigPath: "/etc/app.toml",
+			StartupTimeout:     -time.Second,
+		}}
+		err := cfg.validate(AppConfigModeLocal)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "startup_timeout")
+	})
+
+	t.Run("decodes from TOML and passes validation", func(t *testing.T) {
+		dir := t.TempDir()
+		path := writeFile(t, dir, "config.toml", `
+app_config_mode = "local_app_config"
+local_app_config_path = "/etc/app.toml"
+startup_timeout = "30s"
+`)
+		cfg := &Config{}
+		mode, err := LoadAndValidateConfig([]string{path}, cfg)
+		require.NoError(t, err)
+		require.Equal(t, AppConfigModeLocal, mode)
+		require.Equal(t, 30*time.Second, cfg.StartupTimeout)
+		require.Equal(t, 30*time.Second, cfg.resolveStartupTimeout())
 	})
 }
 
