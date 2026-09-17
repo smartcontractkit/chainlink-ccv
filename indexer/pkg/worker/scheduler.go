@@ -125,10 +125,7 @@ func (s *Scheduler) shouldEnqueue(t *Task) (bool, time.Duration) {
 }
 
 func (s *Scheduler) backoff(t *Task) time.Duration {
-	attempt := t.attempt + 1
-	if attempt < 1 {
-		attempt = 1
-	}
+	attempt := max(t.attempt+1, 1)
 
 	d := s.config.BaseDelay << (attempt - 1)
 	if s.config.MaxDelay > 0 && d > s.config.MaxDelay {
