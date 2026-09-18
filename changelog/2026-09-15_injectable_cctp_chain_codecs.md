@@ -44,9 +44,9 @@
 
 ### A source chain accessor must implement CCTPCodec
 
-- **What changed:** `Fetch` looks up `h.cctpCodecs[message.SourceChainSelector]`.
+- **What changed:** the CCTP verifier requires a codec for every source chain it serves, and `Fetch` looks up `h.cctpCodecs[message.SourceChainSelector]`.
 - **Before:** the core package held the domain lookup and both codecs, so every family worked with no extra method.
-- **After:** an accessor whose `CCTPCodec()` returns an error is absent from the map, and `Fetch` returns `no CCTP chain codec for source chain selector`. The error occurs at `Fetch`, not at startup.
+- **After:** the token verifier builds the codec map from the accessors it resolves. Starting the verifier returns `no CCTP chain codec for source chain selector` when a CCTP source chain has no codec, so the process fails at startup instead of at the first message. `Fetch` keeps the same error as a runtime guard.
 - **Why:** a chain family owns its CCTP facts. The chain repository implements them on its own accessor.
 - **Who is affected:** a binary that verifies CCTP for a chain whose accessor lacks the three methods. The EVM accessor in `integration/pkg/accessors/evm` implements them. The Solana accessor in `chainlink-ccip-solana/pkg/accessors` implements them.
 

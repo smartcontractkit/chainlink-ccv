@@ -102,18 +102,14 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 	// details are supplied independently by each chain family's local config.
 	chainSelectors := chainaccess.Infos[string](cfg.OnRampAddresses).GetAllChainSelectors()
 	sourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
-	cctpCodecs := make(map[protocol.ChainSelector]chainaccess.CCTPCodec)
+	accessors := make(map[protocol.ChainSelector]chainaccess.Accessor)
 	for _, selector := range chainSelectors {
 		accessor, err := deps.Registry.GetAccessor(ctx, selector)
 		if err != nil {
 			tvf.lggr.Errorw("Skipping chain, failed to get accessor for chain selector", "error", err, "chainSelector", selector)
 			continue
 		}
-		// Only CCTP-capable chains carry a codec, so a miss is not an error here. A CCTP
-		// verifier that later reads a message from such a chain fails at Fetch.
-		if codec, err := accessor.CCTPCodec(); err == nil {
-			cctpCodecs[selector] = codec
-		}
+		accessors[selector] = accessor
 		reader, err := accessor.SourceReader()
 		if err != nil {
 			tvf.lggr.Warnw("Skipping chain, source reader not available", "chainSelector", selector, "error", err)
@@ -154,8 +150,9 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 		)
 
 		var coordinator *verifier.Coordinator
-		if verifierConfig.IsLombard() {
-			if coordinator, err = createLombardCoordinator(
+		switch {
+		case verifierConfig.IsLombard():
+			coordinator, err = createLombardCoordinator(
 				ctx,
 				verifierConfig.VerifierID,
 				verifierConfig.LombardConfig,
@@ -171,11 +168,13 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 				verifierMonitoring,
 				monitoredChainStatusManager,
 				db,
-			); err != nil {
-				return fmt.Errorf("failed to create verification coordinator for lombard: %w", err)
+			)
+		case verifierConfig.IsCCTP():
+			cctpCodecs, codecErr := cctpCodecsFor(accessors, verifierConfig.CCTPConfig)
+			if codecErr != nil {
+				return fmt.Errorf("failed to create verification coordinator for cctp: %w", codecErr)
 			}
-		} else if verifierConfig.IsCCTP() {
-			if coordinator, err = createCCTPCoordinator(
+			coordinator, err = createCCTPCoordinator(
 				ctx,
 				verifierConfig.VerifierID,
 				verifierConfig.CCTPConfig,
@@ -192,12 +191,13 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 				verifierMonitoring,
 				monitoredChainStatusManager,
 				db,
-			); err != nil {
-				return fmt.Errorf("failed to create verification coordinator for cctp: %w", err)
-			}
-		} else {
+			)
+		default:
 			tvf.lggr.Fatalw("Unknown verifier type", "type", verifierConfig.Type)
 			continue
+		}
+		if err != nil {
+			return fmt.Errorf("failed to create verification coordinator for %s: %w", verifierConfig.Type, err)
 		}
 
 		tvf.coordinators = append(tvf.coordinators, coordinator)
@@ -237,6 +237,27 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 
 func (tvf *tokenVerifierFactory) MetricViews() []sdkmetric.View {
 	return monitoring.MetricViews()
+}
+
+// cctpCodecsFor extracts the CCTP codec of every source chain this CCTP verifier serves.
+// A source chain with no resolved accessor or no codec fails the verifier at startup.
+func cctpCodecsFor(
+	accessors map[protocol.ChainSelector]chainaccess.Accessor,
+	cctpConfig *cctp.CCTPConfig,
+) (map[protocol.ChainSelector]chainaccess.CCTPCodec, error) {
+	cctpCodecs := make(map[protocol.ChainSelector]chainaccess.CCTPCodec, len(cctpConfig.ParsedVerifierResolvers))
+	for selector := range cctpConfig.ParsedVerifierResolvers {
+		accessor, ok := accessors[selector]
+		if !ok {
+			return nil, fmt.Errorf("no accessor resolved for CCTP source chain selector %d", selector)
+		}
+		codec, err := accessor.CCTPCodec()
+		if err != nil {
+			return nil, fmt.Errorf("no CCTP chain codec for source chain selector %d: %w", selector, err)
+		}
+		cctpCodecs[selector] = codec
+	}
+	return cctpCodecs, nil
 }
 
 func createCCTPCoordinator(
