@@ -376,6 +376,33 @@ FutureNodeSetting = true
 	}, got.Warnings)
 }
 
+// A dropped node takes its settings with it, and the migration guide promises every dropped
+// per-node setting is named at startup. The node-level drop carries them rather than emitting a
+// line per setting, which would read as though the node survived without them.
+func TestConvertChainlinkNodeConfigNamesSettingsDroppedWithASendOnlyNode(t *testing.T) {
+	t.Parallel()
+
+	got, err := convertChainlinkNodeConfig([]byte(`
+[[EVM]]
+ChainID = '` + sepoliaChainID + `'
+[[EVM.Nodes]]
+Name = 'primary'
+HTTPURL = 'https://sepolia.example.com'
+[[EVM.Nodes]]
+Name = 'broadcast'
+HTTPURL = 'https://sepolia-send.example.com'
+SendOnly = true
+HTTPURLExtraWrite = 'https://sepolia-extra.example.com'
+FutureNodeSetting = true
+`))
+	require.NoError(t, err)
+	require.Equal(t, []string{
+		"chain " + sepoliaChainID + " node broadcast: dropped, SendOnly nodes have no standalone " +
+			"equivalent (FutureNodeSetting, HTTPURLExtraWrite dropped with it)",
+	}, got.Warnings)
+	require.Len(t, got.Config.Chains[sepoliaSelector].Nodes, 1, "only the full node is carried")
+}
+
 // Everything outside [[EVM]] is ignored by design — but named, not silent: the conversion lists
 // the top-level sections it did not read so the pre-cutover review sees them.
 func TestConvertChainlinkNodeConfigNamesIgnoredTopLevelSections(t *testing.T) {

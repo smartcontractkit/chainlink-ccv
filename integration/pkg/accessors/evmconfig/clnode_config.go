@@ -447,8 +447,18 @@ func convertNodes(chainID string, nodes evmtoml.EVMNodes, rawNodes []map[string]
 		// carrying it over as an ordinary node would make it eligible for reads and head tracking —
 		// which is exactly what the operator marked it unfit for. Dropping it is the safe reading.
 		if node.SendOnly != nil && *node.SendOnly {
+			// The whole node goes, so its other settings go with it. They are named in this one
+			// warning rather than as separate per-setting lines: a node that is not carried has
+			// no setting that was individually dropped, and listing them as such reads as though
+			// the node survived without them.
+			dropped := ""
+			if i < len(rawNodes) {
+				if paths := droppedNodeSettingPaths(rawNodes[i]); len(paths) > 0 {
+					dropped = fmt.Sprintf(" (%s dropped with it)", strings.Join(paths, ", "))
+				}
+			}
 			warnings = append(warnings, fmt.Sprintf(
-				"chain %s node %s: dropped, SendOnly nodes have no standalone equivalent", chainID, label))
+				"chain %s node %s: dropped, SendOnly nodes have no standalone equivalent%s", chainID, label, dropped))
 			continue
 		}
 		if node.HTTPURL == nil {

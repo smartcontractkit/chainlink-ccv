@@ -15,6 +15,15 @@ const (
 	polygonSelector    = "4051577828743386545"
 )
 
+// standaloneChainTOML is a minimal servable [chains.<selector>] section: coverage now requires a
+// chain to be buildable, not merely present, so a fixture meaning "covered" needs an RPC node.
+func standaloneChainTOML(selector string) string {
+	return "[chains." + selector + "]\n" +
+		"[[chains." + selector + ".nodes]]\n" +
+		"name = 'primary'\n" +
+		"http_url = 'https://rpc.example.com'\n"
+}
+
 func writeEVMConfigFile(t *testing.T, body string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "evm.toml")
@@ -28,7 +37,7 @@ func writeEVMConfigFile(t *testing.T, body string) string {
 // sequentially: the checker reads the config path from EVM_CONFIG_PATH, set per subtest.
 func TestCheckDeclaredChainCoverage(t *testing.T) {
 	t.Run("declared chains covered by a standalone config", func(t *testing.T) {
-		path := writeEVMConfigFile(t, "[chains."+ethMainnetSelector+"]\n[chains."+polygonSelector+"]\n")
+		path := writeEVMConfigFile(t, standaloneChainTOML(ethMainnetSelector)+standaloneChainTOML(polygonSelector))
 		t.Setenv(EVMConfigPathEnv, path)
 		require.NoError(t, checkDeclaredChainCoverage([]string{"1", "137"}))
 	})
@@ -46,7 +55,7 @@ HTTPURL = 'https://eth.example.com'
 	})
 
 	t.Run("a declared chain missing from the config names the chain and its selector", func(t *testing.T) {
-		path := writeEVMConfigFile(t, "[chains."+ethMainnetSelector+"]\n")
+		path := writeEVMConfigFile(t, standaloneChainTOML(ethMainnetSelector))
 		t.Setenv(EVMConfigPathEnv, path)
 		err := checkDeclaredChainCoverage([]string{"1", "137"})
 		require.ErrorContains(t, err, "cannot serve")
@@ -78,7 +87,7 @@ WSURL = 'wss://eth.example.com'
 	})
 
 	t.Run("a declared id with no known chain selector is a config typo", func(t *testing.T) {
-		path := writeEVMConfigFile(t, "[chains."+ethMainnetSelector+"]\n")
+		path := writeEVMConfigFile(t, standaloneChainTOML(ethMainnetSelector))
 		t.Setenv(EVMConfigPathEnv, path)
 		err := checkDeclaredChainCoverage([]string{"88888888888888"})
 		require.ErrorContains(t, err, "chain 88888888888888")
@@ -93,8 +102,19 @@ WSURL = 'wss://eth.example.com'
 		require.ErrorContains(t, err, absent, "the wrapped error names the path that was read")
 	})
 
+	// Presence is not servability. A section with no nodes decodes fine and used to pass this
+	// guard, failing only when the first accessor was built at job start.
+	t.Run("a declared chain whose section cannot serve it fails the boot", func(t *testing.T) {
+		path := writeEVMConfigFile(t, "[chains."+ethMainnetSelector+"]\n")
+		t.Setenv(EVMConfigPathEnv, path)
+		err := checkDeclaredChainCoverage([]string{"1"})
+		require.ErrorContains(t, err, "chain 1 (selector "+ethMainnetSelector+")")
+		require.ErrorContains(t, err, "cannot serve it")
+		require.ErrorContains(t, err, "no RPC nodes")
+	})
+
 	t.Run("extra configured chains beyond the declaration are fine", func(t *testing.T) {
-		path := writeEVMConfigFile(t, "[chains."+ethMainnetSelector+"]\n[chains."+polygonSelector+"]\n")
+		path := writeEVMConfigFile(t, standaloneChainTOML(ethMainnetSelector)+standaloneChainTOML(polygonSelector))
 		t.Setenv(EVMConfigPathEnv, path)
 		require.NoError(t, checkDeclaredChainCoverage([]string{"1"}))
 	})

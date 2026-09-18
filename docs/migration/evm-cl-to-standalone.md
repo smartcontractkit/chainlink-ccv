@@ -424,17 +424,22 @@ that is actually slow wants an explicit value agreed with Chainlink Labs before 
 
 Send-only nodes and the per-node `HTTPURLExtraWrite` and `IsLoadBalancedRPC` settings have no
 standalone equivalent and are dropped, as is any other per-node setting beyond the endpoint URLs,
-the name, and the selection order. Each one is logged at startup. An operator relying on a
-send-only endpoint should add it as a full node.
+the name, and the selection order. Each one is named at startup: a setting dropped from a node that
+is otherwise carried gets its own line, and a send-only node's settings are named on the line that
+reports the node itself being dropped, since the node is not carried at all. An operator relying on
+a send-only endpoint should add it as a full node.
 
 ## A declared chain missing from the config fails the boot
 
 The bootstrap config's `[[chains]]` entries declare the chains the operator runs — they are what
 registers the signing key in JD. Every EVM entry is checked against the mounted EVM config at boot:
-a declared chain with no section in the config, or one whose section fails to convert (no usable
-RPC endpoint, an unknown chain ID), stops the startup with an error naming the chain, its selector,
-and the conversion reason when there is one. Without the check, that gap would surface only when
-the first message for the chain arrived.
+a declared chain with no section in the config, one whose section fails to convert (no usable RPC
+endpoint, an unknown chain ID), or one whose section is present but cannot serve the chain — no RPC
+nodes, or settings the chainlink-evm validator rejects — stops the startup with an error naming the
+chain, its selector, and the reason. The check builds each declared chain the same way the accessor
+factory does at job start, with no network calls, so a section that merely decodes is not mistaken
+for a working one. Without the check, that gap would surface only when the first message for the
+chain arrived.
 
 Inside the conversion itself an unservable chain is skipped, not fatal: the remaining chains still
 convert, and the skip is logged at warn and shown in the step 3 diff under `failed_chains`. That

@@ -33,13 +33,13 @@ func checkDeclaredChainCoverage(chainIDs []string) error {
 			strings.Join(chainIDs, ", "), err)
 	}
 
-	// Compare numerically rather than by map key: a selector written in a non-canonical form is
-	// ToInfos' error to report, not a coverage gap to invent.
-	covered := make(map[uint64]struct{}, len(cfg.Chains))
-	for key := range cfg.Chains {
-		if selector, err := strconv.ParseUint(key, 10, 64); err == nil {
-			covered[selector] = struct{}{}
-		}
+	// ToInfos is what resolves the map keys into the selectors the accessor factory looks chains
+	// up by, and it rejects a selector written in a non-canonical form. Letting it report that is
+	// better than inventing a coverage gap for it, and it fails the boot either way.
+	infos, err := cfg.ToInfos()
+	if err != nil {
+		return fmt.Errorf("bootstrap config declares EVM chains (%s) but the EVM config is invalid: %w",
+			strings.Join(chainIDs, ", "), err)
 	}
 	failed := make(map[string]string)
 	disabled := make(map[string]struct{})
@@ -59,7 +59,16 @@ func checkDeclaredChainCoverage(chainIDs []string) error {
 			missing = append(missing, fmt.Sprintf("chain %s: the id has no known EVM chain selector — check the [[chains]] entry", id))
 			continue
 		}
-		if _, ok := covered[details.ChainSelector]; ok {
+		if info, ok := infos[strconv.FormatUint(details.ChainSelector, 10)]; ok {
+			// A section being present is not the same as it being servable: one with no nodes, or
+			// one the chainlink-evm validator rejects, decodes fine and fails only when the first
+			// accessor is built at job start. Building it here is that same work — no network
+			// calls — so the boot names the declared chain instead of a job failing later.
+			if _, buildErr := evmconfig.BuildChainlinkEVMTOML(info); buildErr != nil {
+				missing = append(missing, fmt.Sprintf(
+					"chain %s (selector %d): the mounted EVM config has a section for it that cannot serve it: %v",
+					id, details.ChainSelector, buildErr))
+			}
 			continue
 		}
 		// A chain the operator disabled explicitly is a choice, not a gap: the node was not
