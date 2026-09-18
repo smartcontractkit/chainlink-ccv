@@ -90,8 +90,8 @@ func WithAttributes(kv ...string) SpanOption {
 // Tracing exposes span creation for the message pipeline.
 type Tracing interface {
 	// StartMessageSpan starts a span for messageID, parented off ctx's span, or a synthesized
-	// one otherwise (TraceID from messageID, SpanID random). Sampled only if AlwaysSampled is
-	// passed - any inherited sampled flag is cleared otherwise.
+	// one otherwise (TraceID from messageID, SpanID random). A real parent's sampled flag is
+	// forced to match AlwaysSampled, so it can neither suppress nor force-sample this span.
 	StartMessageSpan(ctx context.Context, name string, messageID protocol.Bytes32, opts ...SpanOption) (context.Context, oteltrace.Span)
 }
 
@@ -122,11 +122,16 @@ func (t *messageTracing) StartMessageSpan(ctx context.Context, name string, mess
 	case !oteltrace.SpanContextFromContext(tCtx).IsValid():
 		tCtx = oteltrace.ContextWithSpanContext(tCtx, spanContextForMessage(messageID, cfg.alwaysSampled))
 	default:
-		// A real parent (e.g. a persisted traceparent reused across every retry) may carry
-		// a sampled flag this call didn't ask for; clear it so the configured Sampler's
-		// ratio actually governs this span instead of blindly inheriting the parent's.
-		if sc := oteltrace.SpanContextFromContext(tCtx); !cfg.alwaysSampled && sc.IsSampled() {
-			tCtx = oteltrace.ContextWithSpanContext(tCtx, sc.WithTraceFlags(sc.TraceFlags()&^oteltrace.FlagsSampled))
+		// Force the parent's sampled flag to match cfg.alwaysSampled, so an inherited
+		// traceparent can neither suppress nor force-sample this span either way.
+		if sc := oteltrace.SpanContextFromContext(tCtx); sc.IsSampled() != cfg.alwaysSampled {
+			flags := sc.TraceFlags()
+			if cfg.alwaysSampled {
+				flags |= oteltrace.FlagsSampled
+			} else {
+				flags &^= oteltrace.FlagsSampled
+			}
+			tCtx = oteltrace.ContextWithSpanContext(tCtx, sc.WithTraceFlags(flags))
 		}
 	}
 	return t.tracer.Start(tCtx, name, oteltrace.WithAttributes(withMessageID(messageID.String(), cfg.attrs)...))
