@@ -307,11 +307,6 @@ func (p *Processor) processJobs(ctx context.Context, jobs []jobqueue.Job[verifie
 	jobIDMap := make(map[string]string)                   // messageID -> jobID
 	taskMap := make(map[string]verifier.VerificationTask) // messageID -> task (for accessing timestamps)
 	for i, job := range jobs {
-		carrier := propagation.MapCarrier{
-			"traceparent": job.Payload.TraceParent,
-		}
-		parentCtx := otel.GetTextMapPropagator().Extract(context.WithoutCancel(ctx), carrier)
-
 		payload := job.Payload
 		// Stamp the queue's attempt count onto the task: the persisted payload's own field is
 		// stale after a retry, and the policy gate grows its retry delay with each attempt.
@@ -321,15 +316,32 @@ func (p *Processor) processJobs(ctx context.Context, jobs []jobqueue.Job[verifie
 			p.lggr.Errorw("Failed to convert messageID to Bytes32", "error", err, "messageID", payload.MessageID)
 			messageID = protocol.Bytes32{}
 		}
+		spanOpts := []tracing.SpanOption{
+			tracing.WithAttributes(
+				tracing.VerifierIDKey, p.verifierID,
+				tracing.JobIDKey, job.ID,
+				tracing.SourceChainSelectorKey, job.Payload.Message.SourceChainSelector.String(),
+				tracing.SourceChainNameKey, job.Payload.Message.SourceChainSelector.ChainName(),
+				tracing.DestChainSelectorKey, job.Payload.Message.DestChainSelector.String(),
+				tracing.DestChainNameKey, job.Payload.Message.DestChainSelector.ChainName(),
+			),
+		}
+		// Always sample the 5 attempts so every task is visible at least once.
+		if job.AttemptCount <= 5 {
+			spanOpts = append(spanOpts, tracing.AlwaysSampled())
+		}
+
+		// Extract the discovery span's traceparent (persisted on the job since publish) so
+		// this attempt becomes a real child of it instead of a same-trace sibling.
+		spanCtx := context.WithoutCancel(ctx)
+		if payload.TraceParent != "" {
+			carrier := propagation.MapCarrier{"traceparent": payload.TraceParent}
+			spanCtx = otel.GetTextMapPropagator().Extract(spanCtx, carrier)
+		}
+
 		var span oteltrace.Span
 		payload.TraceContext, span = p.monitoring.Tracing().StartMessageSpan(
-			parentCtx, monitoring.TaskVerifierAttemptSpanName(p.verifierID), messageID,
-			attribute.String(tracing.VerifierIDKey, p.verifierID),
-			attribute.String(tracing.JobIDKey, job.ID),
-			attribute.String(tracing.SourceChainSelectorKey, job.Payload.Message.SourceChainSelector.String()),
-			attribute.String(tracing.SourceChainNameKey, job.Payload.Message.SourceChainSelector.ChainName()),
-			attribute.String(tracing.DestChainSelectorKey, job.Payload.Message.DestChainSelector.String()),
-			attribute.String(tracing.DestChainNameKey, job.Payload.Message.DestChainSelector.ChainName()),
+			spanCtx, monitoring.TaskVerifierAttemptSpanName(p.verifierID), messageID, spanOpts...,
 		)
 		span.AddEvent(monitoring.EventJobDiscovered,
 			oteltrace.WithAttributes(

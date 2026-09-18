@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -263,18 +264,18 @@ func (ec *Coordinator) runStorageStream(ctx context.Context) {
 				"readyTimestamp", readyTimestamp,
 			)
 
-			// Discovery span: marks the moment this instance observed the
-			// message. It ends right away rather than staying open across
-			// the delay/retry lifecycle (which can span minutes/hours) -
-			// each attempt gets its own fresh span (see processPayload),
-			// parented off this one via DiscoveryContext/TraceContext so it
-			// still lands in the same trace.
+			// Discovery span ends right away rather than spanning the delay/retry
+			// lifecycle (minutes/hours) - each attempt gets its own fresh span
+			// (see processPayload), parented off this one so it lands in the same trace.
 			discCtx, discSpan := ec.monitoring.Tracing().StartMessageSpan(
 				ctx, execmonitoring.DiscoverySpanName(ec.executorID), id,
-				attribute.String(tracing.DestChainSelectorKey, msg.DestChainSelector.String()),
-				attribute.String(tracing.SourceChainSelectorKey, msg.SourceChainSelector.String()),
-				attribute.String(tracing.IngestionTimestampKey, streamResult.Metadata.IngestionTimestamp.Format(time.RFC3339)),
-				attribute.String(tracing.ReadyTimestampKey, readyTimestamp.Format(time.RFC3339)))
+				tracing.AlwaysSampled(),
+				tracing.WithAttributes(
+					tracing.DestChainSelectorKey, msg.DestChainSelector.String(),
+					tracing.SourceChainSelectorKey, msg.SourceChainSelector.String(),
+					tracing.IngestionTimestampKey, streamResult.Metadata.IngestionTimestamp.Format(time.RFC3339),
+					tracing.ReadyTimestampKey, readyTimestamp.Format(time.RFC3339),
+				))
 			discSpan.AddEvent(execmonitoring.EventMessageDiscovered)
 			metrics.IncrementMessageTransition(
 				ctx,
@@ -373,11 +374,19 @@ func (ec *Coordinator) processPayload(ctx context.Context, payload message_heap.
 		traceCtx = ctx
 	}
 
+	spanOpts := []tracing.SpanOption{
+		tracing.WithAttributes(
+			tracing.DestChainSelectorKey, payload.Message.DestChainSelector.String(),
+			tracing.DestChainNameKey, payload.Message.DestChainSelector.ChainName(),
+			tracing.AttemptKey, strconv.Itoa(payload.Attempt),
+		),
+	}
+	// Always sample the first 5 attempts so every message is visible at least once.
+	if payload.Attempt <= 5 {
+		spanOpts = append(spanOpts, tracing.AlwaysSampled())
+	}
 	attemptCtx, attemptSpan := ec.monitoring.Tracing().StartMessageSpan(
-		traceCtx, execmonitoring.ProcessPayloadSpanName(ec.executorID), payload.MessageID,
-		attribute.String(tracing.DestChainSelectorKey, payload.Message.DestChainSelector.String()),
-		attribute.String(tracing.DestChainNameKey, payload.Message.DestChainSelector.ChainName()),
-		attribute.Int(tracing.AttemptKey, payload.Attempt),
+		traceCtx, execmonitoring.ProcessPayloadSpanName(ec.executorID), payload.MessageID, spanOpts...,
 	)
 	defer attemptSpan.End()
 
