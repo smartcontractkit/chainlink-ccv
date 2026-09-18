@@ -35,3 +35,11 @@ accessor, err := chainAccessRegistry.GetAccessor(ctx, chainsel.ETHEREUM_MAINNET)
 
 RPC endpoints and other operator-owned connection settings must not be placed in app/job config.
 
+# Declared-chain coverage
+A family whose operator-local config must cover the chains an operator declares in the bootstrap
+config's `[[chains]]` registers a `DeclaredChainCoverageChecker` next to its accessor constructor
+(same init). The bootstrapper groups the declaration by family at boot and runs each registered
+checker, so a declared-but-unservable chain fails startup with the chain and reason named instead
+of at the first message for it. The mechanism lives here precisely so bootstrap and other shared
+code stay free of family specifics; a family without a registered checker is skipped.
+

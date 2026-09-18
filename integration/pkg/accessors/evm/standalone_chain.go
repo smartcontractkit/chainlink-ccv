@@ -65,10 +65,11 @@ type standaloneChain struct {
 	headTracker     heads.Tracker
 	mailMonitor     *mailbox.Monitor
 
-	// txmBlockTimeIsDefault is kept from the operator's Info for the warning
-	// NewContractTransmitter emits: chainConfig carries the block time already defaulted, which
-	// cannot be told apart from one the operator set.
-	txmBlockTimeIsDefault bool
+	// txmBlockTime and txmBlockTimeSource are resolved from the operator's Info at construction
+	// for the logging NewContractTransmitter emits: chainConfig carries the block time already
+	// defaulted, which cannot be told apart from one the operator set.
+	txmBlockTime       time.Duration
+	txmBlockTimeSource evmconfig.TXMBlockTimeSource
 
 	sourceReaderHeaderFetchBatchSize int
 
@@ -127,6 +128,7 @@ func newStandaloneChain(ctx context.Context, info Info, lggr logger.Logger) (*st
 		"headTracker", headTracker.Name(),
 		"nodeCount", len(chainConfig.Nodes()),
 	)
+	txmBlockTime, txmBlockTimeSource := evmconfig.ResolveTXMBlockTime(info)
 	return &standaloneChain{
 		lggr:                             lggr,
 		chainClient:                      chainClient,
@@ -134,7 +136,8 @@ func newStandaloneChain(ctx context.Context, info Info, lggr logger.Logger) (*st
 		headBroadcaster:                  headBroadcaster,
 		headTracker:                      headTracker,
 		mailMonitor:                      mailMonitor,
-		txmBlockTimeIsDefault:            info.TXMBlockTime == 0,
+		txmBlockTime:                     txmBlockTime,
+		txmBlockTimeSource:               txmBlockTimeSource,
 		sourceReaderHeaderFetchBatchSize: sourceReaderHeaderFetchBatchSize(info.SourceReaderHeaderFetchBatchSize),
 		recoveryStop:                     make(services.StopChan),
 	}, nil
@@ -198,16 +201,25 @@ func (c *standaloneChain) NewContractTransmitter(
 		return nil, errors.New("EVM transaction manager requires an OffRamp address")
 	}
 
-	if c.txmBlockTimeIsDefault {
+	switch c.txmBlockTimeSource {
+	case evmconfig.TXMBlockTimeGenericFallback:
 		// Warned here rather than when the chain is built: a source-only chain, the verifier's for
 		// instance, never reaches this point and never runs a TXM, so the fallback does not apply to
-		// it. Loud because the fallback is a far steeper retry and fee-bump cadence than the node
-		// produced on a slow chain; set it explicitly per chain before a cutover. The inspect-config
-		// migration tooling flags the same fact offline.
-		c.lggr.Warnw("no txm_block_time configured for chain; TXM v2 falls back to a 2s block time "+
-			"(retry and fee-bump cadence). Set txm_block_time (standalone config) or "+
-			"Transactions.TransactionManagerV2.BlockTime (node config) explicitly per chain",
+		// it. Loud because this chain has no curated default and 2s is a far steeper retry and
+		// fee-bump cadence than the node produced on a slow chain; set it explicitly per chain before
+		// a cutover. The inspect-config migration tooling flags the same fact offline.
+		c.lggr.Warnw("no txm_block_time configured for chain and no curated default exists; TXM v2 "+
+			"falls back to a 2s block time (retry and fee-bump cadence). Set txm_block_time "+
+			"(standalone config) or Transactions.TransactionManagerV2.BlockTime (node config) "+
+			"explicitly per chain",
 			"chainID", c.chainConfig.EVM().ChainID().String())
+	case evmconfig.TXMBlockTimeCuratedDefault:
+		// Not a warning: the curated value tracks the chain's real block interval, so the cadence
+		// is right. Logged anyway so the source of the value is visible next to the TXM startup
+		// lines. An explicit txm_block_time still overrides it.
+		c.lggr.Infow("no txm_block_time configured for chain; using the curated per-chain default",
+			"chainID", c.chainConfig.EVM().ChainID().String(),
+			"blockTime", c.txmBlockTime.String())
 	}
 
 	coreKeystore := evmkeysv2.NewTxKeyCoreKeystore(
