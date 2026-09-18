@@ -99,6 +99,28 @@ WSURL = 'wss://eth.example.com'
 		require.NoError(t, checkDeclaredChainCoverage([]string{"1"}))
 	})
 
+	// A chain the operator disabled in the node config is an explicit choice, not a gap: CL mode
+	// was not serving it either, so the declaration stays (it registers the signing key) and the
+	// boot must not fail. Failing here would crash-loop a legitimate incident-remediation state.
+	t.Run("a declared chain the node disabled explicitly passes", func(t *testing.T) {
+		path := writeEVMConfigFile(t, `
+[[EVM]]
+ChainID = '137'
+[[EVM.Nodes]]
+Name = 'primary'
+HTTPURL = 'https://polygon.example.com'
+
+[[EVM]]
+ChainID = '1'
+Enabled = false
+[[EVM.Nodes]]
+Name = 'primary'
+HTTPURL = 'https://eth.example.com'
+`)
+		t.Setenv(EVMConfigPathEnv, path)
+		require.NoError(t, checkDeclaredChainCoverage([]string{"1", "137"}))
+	})
+
 	t.Run("no declared chains: nothing to check, the config need not exist", func(t *testing.T) {
 		t.Setenv(EVMConfigPathEnv, filepath.Join(t.TempDir(), "absent.toml"))
 		require.NoError(t, checkDeclaredChainCoverage(nil))

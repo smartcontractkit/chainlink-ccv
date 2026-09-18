@@ -137,3 +137,17 @@ func TestBuildChainlinkEVMTOMLAppliesTheResolvedBlockTime(t *testing.T) {
 	require.Equal(t, DefaultTXMBlockTime, fallback.Transactions.TransactionManagerV2.BlockTime.Duration(),
 		"a chain without a curated entry runs the generic fallback")
 }
+
+// A negative block time is a config error, not a panic: MustNewDuration panics on negatives, so
+// the guard must fire first. The standalone-format decode (a raw time.Duration) is the path that
+// can carry one in; the node-config decode rejects negatives already.
+func TestBuildChainlinkEVMTOMLRejectsANegativeBlockTime(t *testing.T) {
+	t.Parallel()
+
+	_, err := BuildChainlinkEVMTOML(Info{
+		ChainID:      "1337",
+		TXMBlockTime: -1 * time.Second,
+		Nodes:        []Node{{HTTPUrl: "http://node.internal:8545"}},
+	})
+	require.ErrorContains(t, err, "negative txm_block_time")
+}

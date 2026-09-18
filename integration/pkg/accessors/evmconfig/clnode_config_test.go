@@ -287,6 +287,9 @@ HTTPURL = 'https://arb.example.com'
 		assert.Contains(t, got.Config.Chains, arbSepSelector)
 		require.Len(t, got.Warnings, 1)
 		assert.Contains(t, got.Warnings[0], "disabled")
+		assert.Equal(t, []string{sepoliaChainID}, got.DisabledChains,
+			"a disabled chain is an explicit choice, reported apart from conversion failures")
+		assert.Empty(t, got.FailedChains)
 	})
 }
 
@@ -686,6 +689,7 @@ HTTPURL = 'https://arb.example.com'
 
 		require.Len(t, got.FailedChains, 1)
 		assert.Equal(t, "88888888888888", got.FailedChains[0].ChainID)
+		assert.Equal(t, []string{sepoliaChainID}, got.DisabledChains)
 
 		require.Len(t, got.Warnings, 2)
 		assert.Contains(t, got.Warnings[0], "chain "+sepoliaChainID+": skipped, the node has it disabled")

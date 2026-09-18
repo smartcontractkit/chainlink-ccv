@@ -50,6 +50,10 @@ type Conversion struct {
 	// declared in [[chains]], via the chain family's registered coverage checker — the EVM driver
 	// at integration/pkg/accessors/evm registers one against this conversion).
 	FailedChains []ChainFailure
+	// DisabledChains holds the chain IDs the node config disables explicitly, in file order. An
+	// explicit disable is a choice, not a gap: it passes the declared-chain coverage check (the
+	// declaration still registers the key), while FailedChains entries do not.
+	DisabledChains []string
 }
 
 // ChainFailure is one chain the conversion had to skip whole, with the reason in operator-facing
@@ -99,6 +103,7 @@ func convertChainlinkNodeConfig(nodeTOML []byte) (Conversion, error) {
 	var warnings []string
 	warningsByChainID := make(map[string][]string, len(merged))
 	var failedChains []ChainFailure
+	var disabledChains []string
 	chains := make(map[string]ChainConfig, len(merged))
 	// Every warning is attributable to the chain being converted, so each iteration collects its own
 	// and the flat list is built from those. The two views cannot drift.
@@ -116,6 +121,7 @@ func convertChainlinkNodeConfig(nodeTOML []byte) (Conversion, error) {
 		}
 
 		if !cfg.IsEnabled() {
+			disabledChains = append(disabledChains, chainID)
 			skipped := fmt.Sprintf("chain %s: skipped, the node has it disabled", chainID)
 			warnings = append(warnings, skipped)
 			warningsByChainID[chainID] = []string{skipped}
@@ -189,6 +195,7 @@ func convertChainlinkNodeConfig(nodeTOML []byte) (Conversion, error) {
 		WarningsByChainID: warningsByChainID,
 		IgnoredSections:   ignoredSections,
 		FailedChains:      failedChains,
+		DisabledChains:    disabledChains,
 	}, nil
 }
 

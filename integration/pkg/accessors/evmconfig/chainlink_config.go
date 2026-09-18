@@ -131,6 +131,15 @@ func BuildChainlinkEVMTOML(info Info) (*evmtoml.EVMConfig, error) {
 	// rather than only stuck ones. Restart-orphaned transactions are handled without
 	// it (see standaloneChain.recoverOrphanedTransactions).
 	blockTime, _ := ResolveTXMBlockTime(info)
+	// A negative operator value must be an error here, not later: MustNewDuration panics on
+	// negatives, and upstream validation would only see the value after it was built. The
+	// standalone-format decode (a raw time.Duration) accepts "-5s" where the node-config decode
+	// rejects it, so both paths funnel through this guard.
+	if blockTime < 0 {
+		return nil, fmt.Errorf(
+			"EVM chain %s has a negative txm_block_time %s: use zero for the chain default or a value of at least 2s",
+			info.ChainID, blockTime)
+	}
 	chain.Transactions.TransactionManagerV2.BlockTime = commonconfig.MustNewDuration(blockTime)
 
 	nodes := make(evmtoml.EVMNodes, 0, len(info.Nodes))

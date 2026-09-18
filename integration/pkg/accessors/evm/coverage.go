@@ -42,9 +42,13 @@ func checkDeclaredChainCoverage(chainIDs []string) error {
 		}
 	}
 	failed := make(map[string]string)
+	disabled := make(map[string]struct{})
 	if conversion != nil {
 		for _, f := range conversion.FailedChains {
 			failed[f.ChainID] = f.Reason
+		}
+		for _, id := range conversion.DisabledChains {
+			disabled[id] = struct{}{}
 		}
 	}
 
@@ -56,6 +60,13 @@ func checkDeclaredChainCoverage(chainIDs []string) error {
 			continue
 		}
 		if _, ok := covered[details.ChainSelector]; ok {
+			continue
+		}
+		// A chain the operator disabled explicitly is a choice, not a gap: the node was not
+		// serving it either. The conversion already logged the skip at warn, and the declaration
+		// still registers the signing key for it in JD — failing the boot here would crash-loop a
+		// legitimate state (e.g. a chain disabled after an incident, pending remediation).
+		if _, isDisabled := disabled[id]; isDisabled {
 			continue
 		}
 		if reason, wasSkipped := failed[id]; wasSkipped {
