@@ -1,0 +1,27 @@
+[package]
+name = "ccv-chainaccess-grpc"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "gRPC transport for ccv-chainaccess SourceReader (drop-in replacement for the Go chainaccess.SourceReader)"
+build = "build.rs"
+
+[dependencies]
+ccv-chainaccess = { path = "../ccv-chainaccess" }
+ccv-protocol = { path = "../ccv-protocol" }
+alloy = { workspace = true }
+tonic = "0.12"
+prost = "0.13"
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["signal", "net"] }
+tracing = { workspace = true }
+tracing-subscriber = "0.3"
+
+[build-dependencies]
+tonic-build = "0.12"
+
+[dev-dependencies]
+hex-literal = { workspace = true }
+tokio-stream = { version = "0.1", features = ["net"] }
+serde_json = "1"
+async-trait = { workspace = true }

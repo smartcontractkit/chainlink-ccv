@@ -1,0 +1,58 @@
+//! `ccv-evm-source-reader-server`: serves one EVM chain's `SourceReader` over gRPC
+//! (`ccv.chainaccess.v1.SourceReader`), as a drop-in replacement for the in-process
+//! Go implementation.
+//!
+//! Configuration via environment variables (see ServerConfig):
+//!   CCV_EVM_RPC_URL, CCV_ON_RAMP_ADDRESS, CCV_RMN_REMOTE_ADDRESS,
+//!   CCV_CHAIN_SELECTOR, CCV_LISTEN_ADDR (default 0.0.0.0:50051)
+//!
+//! The process is stateless: it can be killed at any point without getting into
+//! a bad state. SIGINT triggers a cooperative gRPC shutdown.
+
+use std::process::ExitCode;
+
+use alloy::providers::ProviderBuilder;
+use tracing::info;
+
+use ccv_chainaccess::evm::EvmSourceReader;
+use ccv_chainaccess_grpc::{ServerConfig, serve};
+
+fn main() -> ExitCode {
+    // Logs go to stderr; stdout stays clean for any piping.
+    tracing_subscriber::fmt()
+        .with_target(false)
+        .with_writer(std::io::stderr)
+        .init();
+
+    match run().map_err(|err| eprintln!("{err}")) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(()) => ExitCode::FAILURE,
+    }
+}
+
+/// All fallible startup work lives in `run`; `main` only maps the outcome onto
+/// the process exit code.
+fn run() -> Result<(), Box<dyn std::error::Error>> {
+    let config = ServerConfig::from_env()?;
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .map_err(|err| format!("failed to build tokio runtime: {err}"))?;
+
+    runtime.block_on(async move {
+        let provider = ProviderBuilder::new().connect_http(config.rpc_url.clone());
+        let reader =
+            EvmSourceReader::new(provider, config.on_ramp_address, config.rmn_remote_address, config.chain_selector)
+                .map_err(|err| format!("failed to construct source reader: {err}"))?;
+
+        info!(listen_addr = %config.listen_addr, chain_selector = config.chain_selector.0, "starting EVM source reader gRPC server");
+
+        let shutdown = async {
+            let _ = tokio::signal::ctrl_c().await;
+            info!("shutdown signal received, stopping gRPC server");
+        };
+
+        serve(reader, config.listen_addr, shutdown).await.map_err(|err| format!("gRPC server failed: {err}"))?;
+        Ok(())
+    })
+}
