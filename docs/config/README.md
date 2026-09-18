@@ -84,5 +84,5 @@ Doc comments come from source for a type that module declares, and from the
 `DocComments` method a dependency generated for one it does not — generation
 writes a `doccomments_gen.go` beside every documented type for exactly that
 reason, and those files are committed. A nested type from another module is
-therefore fine, as long as that module generates too; one that never has has no
+therefore fine, as long as that module generates too; one that has never generated has no
 comments to read, and the completeness gate fails on its fields.

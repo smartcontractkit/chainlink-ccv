@@ -7,7 +7,7 @@ import "github.com/smartcontractkit/chainlink-common/x/config/commentparsing"
 func (CCTPConfig) DocComments() map[string]commentparsing.FieldDoc {
 	return map[string]commentparsing.FieldDoc{
 		"AttestationAPICooldown":        {Comment: "AttestationAPICooldown defines in what time it is allowed to make next call to API.\nActivates when plugin hits API's rate limits"},
-		"AttestationAPIInterval":        {Comment: "AttestationAPIInterval defines the rate in requests per second that the attestation API can be called.\nDefault set according to the APIs documentated 10 requests per second rate limit."},
+		"AttestationAPIInterval":        {Comment: "AttestationAPIInterval defines the rate in requests per second that the attestation API can be called.\nDefault set according to the APIs documented 10 requests per second rate limit."},
 		"AttestationAPITimeout":         {Comment: "AttestationAPITimeout defines the timeout for the attestation API."},
 		"AttestationConcurrentFetchers": {Comment: "Number of concurrent workers to be used to fetch and verify attestations."},
 		"AttestationGenericErrorRetry":  {Comment: "Retry wait time for generic errors (all errors not due to attestation not being ready)"},
