@@ -65,6 +65,47 @@ type CriticalSourceInvariantCallbackSetter interface {
 	SetCriticalSourceInvariantCallback(callback func(context.Context))
 }
 
+// UnfinalizedRangeTracker is an optional SourceReader capability for chains whose block headers
+// prove which part of the unfinalized range is unchanged, letting the caller skip re-reading its
+// logs every poll. Readers for families without that property simply do not implement it.
+type UnfinalizedRangeTracker interface {
+	// UnfinalizedRangeChanged reports whether any block above finalized may have changed since
+	// the last call. False means only blocks above the previously observed head need reading;
+	// true, and any error, mean the caller must re-read the whole unfinalized range.
+	UnfinalizedRangeChanged(ctx context.Context, latest, finalized *protocol.BlockHeader) (bool, error)
+}
+
+// SourceReaderUnwrapper is implemented by decorators that wrap another SourceReader. Because a
+// decorator embedding the SourceReader interface only promotes that interface's methods, callers
+// need this to reach optional capabilities of the reader underneath.
+type SourceReaderUnwrapper interface {
+	// Unwrap returns the wrapped reader.
+	Unwrap() SourceReader
+}
+
+// maxSourceReaderUnwrapDepth bounds capability resolution so a self-referential Unwrap cannot
+// spin forever.
+const maxSourceReaderUnwrapDepth = 8
+
+// AsUnfinalizedRangeTracker resolves a reader's UnfinalizedRangeTracker capability, looking
+// through any decorators that implement SourceReaderUnwrapper.
+func AsUnfinalizedRangeTracker(reader SourceReader) (UnfinalizedRangeTracker, bool) {
+	for range maxSourceReaderUnwrapDepth {
+		if reader == nil {
+			return nil, false
+		}
+		if tracker, ok := reader.(UnfinalizedRangeTracker); ok {
+			return tracker, true
+		}
+		unwrapper, ok := reader.(SourceReaderUnwrapper)
+		if !ok {
+			return nil, false
+		}
+		reader = unwrapper.Unwrap()
+	}
+	return nil, false
+}
+
 // ExecutorMonitoringSetter is an optional capability of accessor-provided destination readers and
 // contract transmitters. Accessor factories build these components before the executor's
 // process-level monitoring exists, so they hold a no-op implementation; the executor attaches the

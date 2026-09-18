@@ -1,6 +1,7 @@
 package sourcereader
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -8,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 )
@@ -241,4 +243,45 @@ func TestObservedSourceReader_Labels(t *testing.T) {
 	_, _, err = rd2.LatestAndFinalizedBlock(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, []string{"source_chain", "2", "source_chain_name", "unknown:2", "verifier_id", "verifier2"}, monitor.Fake.Labels())
+}
+
+// rangeTrackingReader is a SourceReader that also implements the optional tracking capability.
+type rangeTrackingReader struct {
+	chainaccess.SourceReader
+}
+
+func (rangeTrackingReader) UnfinalizedRangeChanged(context.Context, *protocol.BlockHeader, *protocol.BlockHeader) (bool, error) {
+	return false, nil
+}
+
+// TestObservedSourceReader_ForwardsUnfinalizedRangeTracker guards the wiring the verifier relies
+// on: this decorator embeds the SourceReader interface, so without Unwrap the reader's tracking
+// capability would be invisible and the unfinalized range re-read on every poll.
+func TestObservedSourceReader_ForwardsUnfinalizedRangeTracker(t *testing.T) {
+	monitor := monitoring.NewFakeVerifierMonitoring()
+
+	observed, err := NewObservedSourceReader(
+		rangeTrackingReader{SourceReader: mocks.NewMockSourceReader(t)},
+		"v1", protocol.ChainSelector(1), monitor,
+	)
+	require.NoError(t, err)
+
+	tracker, ok := chainaccess.AsUnfinalizedRangeTracker(observed)
+	require.True(t, ok, "the tracking capability must survive the observed wrapper")
+
+	changed, err := tracker.UnfinalizedRangeChanged(context.Background(), nil, nil)
+	require.NoError(t, err)
+	require.False(t, changed)
+}
+
+// TestObservedSourceReader_PlainReaderHasNoTracker confirms a reader without the capability is
+// not misreported as having it.
+func TestObservedSourceReader_PlainReaderHasNoTracker(t *testing.T) {
+	monitor := monitoring.NewFakeVerifierMonitoring()
+
+	observed, err := NewObservedSourceReader(mocks.NewMockSourceReader(t), "v1", protocol.ChainSelector(1), monitor)
+	require.NoError(t, err)
+
+	_, ok := chainaccess.AsUnfinalizedRangeTracker(observed)
+	require.False(t, ok)
 }

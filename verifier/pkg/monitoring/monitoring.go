@@ -188,6 +188,9 @@ func (f *FakeVerifierMetricLabeler) SetSourceReaderLastSuccessfulPollTimestamp(c
 func (f *FakeVerifierMetricLabeler) SetSourceReaderLastProcessedFinalizedBlock(context.Context, int64) {
 }
 
+func (f *FakeVerifierMetricLabeler) IncrementUnfinalizedRangeRereads(context.Context) {
+}
+
 func (f *FakeVerifierMetricLabeler) SetVerifierFinalityViolated(ctx context.Context, selector protocol.ChainSelector, violated bool) {
 }
 

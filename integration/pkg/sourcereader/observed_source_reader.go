@@ -9,7 +9,10 @@ import (
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 )
 
-var _ chainaccess.SourceReader = (*observedSourceReader)(nil)
+var (
+	_ chainaccess.SourceReader          = (*observedSourceReader)(nil)
+	_ chainaccess.SourceReaderUnwrapper = (*observedSourceReader)(nil)
+)
 
 // observedSourceReader wraps a SourceReader and use a decorator pattern to track various metrics.
 // Currently, it tracks the latest and finalized block numbers observed from the source chain.
@@ -43,6 +46,12 @@ func NewObservedSourceReader(
 		chainName:     chainSelector.ChainName(),
 		monitoring:    monitoring,
 	}, nil
+}
+
+// Unwrap exposes the wrapped reader so callers can reach optional capabilities this decorator
+// does not implement itself, such as chainaccess.UnfinalizedRangeTracker.
+func (o observedSourceReader) Unwrap() chainaccess.SourceReader {
+	return o.SourceReader
 }
 
 func (o observedSourceReader) LatestAndFinalizedBlock(ctx context.Context) (latest, finalized *protocol.BlockHeader, err error) {

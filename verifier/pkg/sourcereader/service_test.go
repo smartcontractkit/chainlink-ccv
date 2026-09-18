@@ -4,6 +4,7 @@ import (
 	"context"
 	"math/big"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -278,7 +279,7 @@ func TestSRS_Reorg_DropsMissingPendingAndSent(t *testing.T) {
 	msgsD := createTestMessageSentEvents(t, 10, chain, defaultDestChain, []uint64{103})
 	taskD := verifier.VerificationTask{Message: msgsD[0].Message, BlockNumber: msgsD[0].BlockNumber, MessageID: msgsD[0].MessageID.String()}
 
-	srs.addToPendingQueueHandleReorg([]verifier.VerificationTask{taskA, taskD}, big.NewInt(100), big.NewInt(103))
+	srs.addToPendingQueueHandleReorg([]verifier.VerificationTask{taskA, taskD}, 100, 103)
 
 	srs.mu.RLock()
 	defer srs.mu.RUnlock()
@@ -371,7 +372,7 @@ func TestSRS_Curse_DropsAtSendTime(t *testing.T) {
 		{Message: events[0].Message, BlockNumber: events[0].BlockNumber, MessageID: events[0].MessageID.String()},
 		{Message: events[1].Message, BlockNumber: events[1].BlockNumber, MessageID: events[1].MessageID.String()},
 	}
-	srs.addToPendingQueueHandleReorg(tasks, big.NewInt(100), big.NewInt(101))
+	srs.addToPendingQueueHandleReorg(tasks, 100, 101)
 
 	latest := &protocol.BlockHeader{Number: 150}
 	finalized := &protocol.BlockHeader{Number: 120}
@@ -826,7 +827,7 @@ func TestSRS_Reorg_TracksSequenceNumbers(t *testing.T) {
 	srs.mu.Unlock()
 
 	// Reorg: only A survives; B is dropped
-	srs.addToPendingQueueHandleReorg([]verifier.VerificationTask{taskA}, big.NewInt(100), big.NewInt(101))
+	srs.addToPendingQueueHandleReorg([]verifier.VerificationTask{taskA}, 100, 101)
 
 	require.True(t, srs.reorgTracker.RequiresFinalization(defaultDestChain, taskB.Message.SequenceNumber),
 		"reorged message B should require finalization")
@@ -948,7 +949,7 @@ func TestSRS_Reorg_TracksSentTasksSequenceNumbers(t *testing.T) {
 	// New query results: A is gone (reorged after being sent)
 	newTasks := []verifier.VerificationTask{}
 
-	srs.addToPendingQueueHandleReorg(newTasks, big.NewInt(100), big.NewInt(100))
+	srs.addToPendingQueueHandleReorg(newTasks, 100, 100)
 
 	srs.mu.RLock()
 	defer srs.mu.RUnlock()
@@ -1137,9 +1138,8 @@ func TestSRS_MultiCycle_SmallRangeCompletesInOneTick(t *testing.T) {
 	events := createTestMessageSentEvents(t, 1, chain, defaultDestChain, []uint64{110, 120})
 
 	// Range fits in one chunk (< 5000 default), last chunk uses nil toBlock
-	nilBigInt := mock.MatchedBy(func(arg *big.Int) bool { return arg == nil })
 	reader.EXPECT().
-		FetchMessageSentEvents(mock.Anything, big.NewInt(99), nilBigInt).
+		FetchMessageSentEvents(mock.Anything, big.NewInt(99), big.NewInt(200)).
 		Return(events, nil).
 		Once()
 
@@ -1193,8 +1193,6 @@ func TestSRS_LargeRangeChunkedInSingleCycle(t *testing.T) {
 	events2 := createTestMessageSentEvents(t, 10, chain, defaultDestChain, []uint64{6000})
 	events3 := createTestMessageSentEvents(t, 20, chain, defaultDestChain, []uint64{11500})
 
-	nilBigInt := mock.MatchedBy(func(arg *big.Int) bool { return arg == nil })
-
 	// chunk 1: [99, 1599]  (99 + 1500 = 1599) — block 500 falls here
 	reader.EXPECT().
 		FetchMessageSentEvents(mock.Anything, big.NewInt(99), big.NewInt(1599)).
@@ -1232,7 +1230,7 @@ func TestSRS_LargeRangeChunkedInSingleCycle(t *testing.T) {
 		Once()
 	// chunk 8: [10606, nil]  (10606 + 1500 = 12106 >= 12000) — block 11500 falls here
 	reader.EXPECT().
-		FetchMessageSentEvents(mock.Anything, big.NewInt(10606), nilBigInt).
+		FetchMessageSentEvents(mock.Anything, big.NewInt(10606), big.NewInt(12000)).
 		Return(events3, nil).
 		Once()
 
@@ -1280,8 +1278,6 @@ func TestSRS_CustomMaxBlockRangeChunksCorrectly(t *testing.T) {
 		Return(latest, finalized, nil).
 		Maybe()
 
-	nilBigInt := mock.MatchedBy(func(arg *big.Int) bool { return arg == nil })
-
 	// All chunks processed in single cycle with maxBlockRange=100
 	// Chunk 1: [99, 199]
 	reader.EXPECT().
@@ -1295,7 +1291,7 @@ func TestSRS_CustomMaxBlockRangeChunksCorrectly(t *testing.T) {
 		Once()
 	// Chunk 3: [301, nil] - toBlock >= latest so use nil
 	reader.EXPECT().
-		FetchMessageSentEvents(mock.Anything, big.NewInt(301), nilBigInt).
+		FetchMessageSentEvents(mock.Anything, big.NewInt(301), big.NewInt(400)).
 		Return(nil, nil).
 		Once()
 
@@ -1338,11 +1334,9 @@ func TestSRS_OneBlockChunkAdvancesProgress(t *testing.T) {
 		Return(latest, finalized, nil).
 		Maybe()
 
-	nilBigInt := mock.MatchedBy(func(arg *big.Int) bool { return arg == nil })
-
 	// Single block query with maxBlockRange=1
 	reader.EXPECT().
-		FetchMessageSentEvents(mock.Anything, big.NewInt(99), nilBigInt).
+		FetchMessageSentEvents(mock.Anything, big.NewInt(99), big.NewInt(100)).
 		Return(nil, nil).
 		Once()
 
@@ -1391,16 +1385,14 @@ func TestSRS_FailureRetriesNextTick(t *testing.T) {
 
 	events := createTestMessageSentEvents(t, 1, chain, defaultDestChain, []uint64{500})
 
-	nilBigInt := mock.MatchedBy(func(arg *big.Int) bool { return arg == nil })
-
 	// First cycle fails
 	reader.EXPECT().
-		FetchMessageSentEvents(mock.Anything, big.NewInt(99), nilBigInt).
+		FetchMessageSentEvents(mock.Anything, big.NewInt(99), big.NewInt(1000)).
 		Return(nil, assert.AnError).
 		Once()
 	// Second cycle retries from same position since no progress was made
 	reader.EXPECT().
-		FetchMessageSentEvents(mock.Anything, big.NewInt(99), nilBigInt).
+		FetchMessageSentEvents(mock.Anything, big.NewInt(99), big.NewInt(1000)).
 		Return(events, nil).
 		Once()
 
@@ -1473,11 +1465,9 @@ func TestSRS_NoNewBlocksStaysAtSameProgress(t *testing.T) {
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
-	nilBigInt := mock.MatchedBy(func(arg *big.Int) bool { return arg == nil })
-
 	// Query still happens but returns error (simulating edge case)
 	reader.EXPECT().
-		FetchMessageSentEvents(mock.Anything, big.NewInt(100), nilBigInt).
+		FetchMessageSentEvents(mock.Anything, big.NewInt(100), big.NewInt(100)).
 		Return(nil, assert.AnError).
 		Once()
 
@@ -1508,10 +1498,8 @@ func TestSRS_FailureDoesNotDeleteExistingTasks(t *testing.T) {
 		Return(latest, finalized, nil).
 		Maybe()
 
-	nilBigInt := mock.MatchedBy(func(arg *big.Int) bool { return arg == nil })
-
 	reader.EXPECT().
-		FetchMessageSentEvents(mock.Anything, big.NewInt(99), nilBigInt).
+		FetchMessageSentEvents(mock.Anything, big.NewInt(99), big.NewInt(1000)).
 		Return(nil, assert.AnError).
 		Once()
 
@@ -1576,11 +1564,9 @@ func TestSRS_FromBlockAheadOfLatestResetsToFinalized(t *testing.T) {
 		Return(latest, finalized, nil).
 		Maybe()
 
-	nilBigInt := mock.MatchedBy(func(arg *big.Int) bool { return arg == nil })
-
-	// Query still happens with lastProcessed as fromBlock
+	// The checkpoint is ahead of latest, so the reseed re-reads from finalized instead.
 	reader.EXPECT().
-		FetchMessageSentEvents(mock.Anything, big.NewInt(1000), nilBigInt).
+		FetchMessageSentEvents(mock.Anything, big.NewInt(400), big.NewInt(500)).
 		Return(nil, nil).
 		Once()
 
@@ -1628,15 +1614,13 @@ func TestSRS_FinalizedBehindLastProcessed_QueriesAndUpdatesToFinalized(t *testin
 		Return(latest, finalized, nil).
 		Maybe()
 
-	nilBigInt := mock.MatchedBy(func(arg *big.Int) bool { return arg == nil })
-
-	// Queries all chunks up to latest
+	// Queries all chunks up to latest, starting from finalized since it is behind the checkpoint
 	reader.EXPECT().
-		FetchMessageSentEvents(mock.Anything, big.NewInt(100), big.NewInt(5100)).
+		FetchMessageSentEvents(mock.Anything, big.NewInt(50), big.NewInt(5050)).
 		Return(nil, nil).
 		Once()
 	reader.EXPECT().
-		FetchMessageSentEvents(mock.Anything, big.NewInt(5101), nilBigInt).
+		FetchMessageSentEvents(mock.Anything, big.NewInt(5051), big.NewInt(10000)).
 		Return(nil, nil).
 		Once()
 
@@ -1769,12 +1753,17 @@ func TestSRS_EventMonitoringLoop_PanicInProcessEventCycle(t *testing.T) {
 		}, nil).
 		Maybe()
 
-	latest := &protocol.BlockHeader{Number: 200}
+	// The head advances every poll so each cycle has new blocks to read; a static head would
+	// be served from the chain tail cache without a log query.
+	var head atomic.Uint64
+	head.Store(200)
 	finalized := &protocol.BlockHeader{Number: 150}
 
 	reader.EXPECT().
 		LatestAndFinalizedBlock(mock.Anything).
-		Return(latest, finalized, nil).
+		RunAndReturn(func(_ context.Context) (*protocol.BlockHeader, *protocol.BlockHeader, error) {
+			return &protocol.BlockHeader{Number: head.Add(1)}, finalized, nil
+		}).
 		Maybe()
 	reader.EXPECT().LatestSafeBlock(mock.Anything).Return(nil, nil).Maybe()
 
@@ -1862,9 +1851,8 @@ func TestSRS_PartialRead_EventsFromSuccessfulChunksQueued(t *testing.T) {
 		Return(eventsChunk1, nil).
 		Once()
 
-	nilBigInt := mock.MatchedBy(func(b *big.Int) bool { return b == nil })
 	reader.EXPECT().
-		FetchMessageSentEvents(mock.Anything, big.NewInt(601), nilBigInt).
+		FetchMessageSentEvents(mock.Anything, big.NewInt(601), big.NewInt(700)).
 		Return(nil, assert.AnError).
 		Once()
 
@@ -1915,9 +1903,8 @@ func TestSRS_PartialRead_ProgressAdvancesToLastSuccessfulChunkBound(t *testing.T
 		Return(eventsChunk1, nil).
 		Once()
 
-	nilBigInt := mock.MatchedBy(func(b *big.Int) bool { return b == nil })
 	reader.EXPECT().
-		FetchMessageSentEvents(mock.Anything, big.NewInt(601), nilBigInt).
+		FetchMessageSentEvents(mock.Anything, big.NewInt(601), big.NewInt(700)).
 		Return(nil, assert.AnError).
 		Once()
 
@@ -1959,7 +1946,6 @@ func TestSRS_PartialRead_MultipleChunksSucceedBeforeFailure(t *testing.T) {
 
 	eventsChunk1 := createTestMessageSentEvents(t, 1, chain, defaultDestChain, []uint64{150, 300})
 	eventsChunk2 := createTestMessageSentEvents(t, 10, chain, defaultDestChain, []uint64{500, 650})
-	nilBigInt := mock.MatchedBy(func(b *big.Int) bool { return b == nil })
 
 	reader.EXPECT().
 		FetchMessageSentEvents(mock.Anything, big.NewInt(100), big.NewInt(400)).
@@ -1971,7 +1957,7 @@ func TestSRS_PartialRead_MultipleChunksSucceedBeforeFailure(t *testing.T) {
 		Once()
 	// Third chunk fails — no further chunks should be fetched.
 	reader.EXPECT().
-		FetchMessageSentEvents(mock.Anything, big.NewInt(702), nilBigInt).
+		FetchMessageSentEvents(mock.Anything, big.NewInt(702), big.NewInt(1000)).
 		Return(nil, assert.AnError).
 		Once()
 
@@ -2063,9 +2049,8 @@ func TestSRS_PartialRead_SuccessfulReadAlwaysAdvancesToFinalized(t *testing.T) {
 
 	// Single chunk [100, nil]; event at block 120 — well below finalized (200).
 	events := createTestMessageSentEvents(t, 1, chain, defaultDestChain, []uint64{120})
-	nilBigInt := mock.MatchedBy(func(b *big.Int) bool { return b == nil })
 	reader.EXPECT().
-		FetchMessageSentEvents(mock.Anything, big.NewInt(100), nilBigInt).
+		FetchMessageSentEvents(mock.Anything, big.NewInt(100), big.NewInt(300)).
 		Return(events, nil).
 		Once()
 
@@ -2110,7 +2095,6 @@ func TestSRS_PartialRead_ProgressCapsAtFinalizedWhenChunkBoundExceedsIt(t *testi
 
 	eventsChunk1 := createTestMessageSentEvents(t, 1, chain, defaultDestChain, []uint64{200})
 	eventsChunk2 := createTestMessageSentEvents(t, 10, chain, defaultDestChain, []uint64{700})
-	nilBigInt := mock.MatchedBy(func(b *big.Int) bool { return b == nil })
 
 	reader.EXPECT().
 		FetchMessageSentEvents(mock.Anything, big.NewInt(100), big.NewInt(500)).
@@ -2120,7 +2104,7 @@ func TestSRS_PartialRead_ProgressCapsAtFinalizedWhenChunkBoundExceedsIt(t *testi
 		Return(eventsChunk2, nil).Once()
 	// Third chunk fails — lastQueriedBlock lands at 901, which is > finalized (600).
 	reader.EXPECT().
-		FetchMessageSentEvents(mock.Anything, big.NewInt(902), nilBigInt).
+		FetchMessageSentEvents(mock.Anything, big.NewInt(902), big.NewInt(1000)).
 		Return(nil, assert.AnError).Once()
 
 	chainStatusMgr := mocks.NewMockChainStatusManager(t)
@@ -2153,10 +2137,9 @@ func TestSRS_PartialRead_ProgressCapsAtFinalizedWhenChunkBoundExceedsIt(t *testi
 // ----------------------
 // Bounded Reorg Window Tests
 //
-// These tests cover the toBlock guard introduced in addToPendingQueueHandleReorg:
-// a task is only considered for reorg removal when its block falls within
-// [fromBlock, toBlock]. Tasks at blocks strictly above toBlock are left untouched,
-// and a nil toBlock is treated as unbounded (covers any block ≥ fromBlock).
+// These tests cover the toBlock guard in addToPendingQueueHandleReorg: a task is only
+// considered for reorg removal when its block falls within [fromBlock, toBlock]. Tasks at
+// blocks strictly above toBlock are left untouched.
 // ----------------------
 
 // TestSRS_Reorg_TasksBeyondToBlockNotDropped verifies that an existing pending
@@ -2186,7 +2169,7 @@ func TestSRS_Reorg_TasksBeyondToBlockNotDropped(t *testing.T) {
 	srs.mu.Unlock()
 
 	// New query over [100, 150] returns nothing — taskFuture was NOT in this range.
-	srs.addToPendingQueueHandleReorg([]verifier.VerificationTask{}, big.NewInt(100), big.NewInt(150))
+	srs.addToPendingQueueHandleReorg([]verifier.VerificationTask{}, 100, 150)
 
 	srs.mu.RLock()
 	defer srs.mu.RUnlock()
@@ -2195,42 +2178,4 @@ func TestSRS_Reorg_TasksBeyondToBlockNotDropped(t *testing.T) {
 		"task at block 200 must not be dropped when queried window only covers [100, 150]")
 	_, ok := srs.pendingTasks[taskFuture.MessageID]
 	require.True(t, ok, "task at block 200 should still be in pending queue")
-}
-
-// TestSRS_Reorg_NilToBlock_UnboundedWindow verifies that passing nil as toBlock
-// is treated as an unbounded upper end: any existing task at block ≥ fromBlock
-// that is absent from the new event set is removed, matching the pre-bound behavior.
-func TestSRS_Reorg_NilToBlock_UnboundedWindow(t *testing.T) {
-	chain := protocol.ChainSelector(1337)
-	reader := mocks.NewMockSourceReader(t)
-	chainStatusMgr := mocks.NewMockChainStatusManager(t)
-
-	curseDetector := mocks.NewMockCurseCheckerService(t)
-	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
-	curseDetector.EXPECT().Close().Return(nil).Maybe()
-
-	srs, _, _ := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
-
-	// Task at block 200 — far above fromBlock (100), but toBlock is nil (unbounded).
-	msgs := createTestMessageSentEvents(t, 1, chain, defaultDestChain, []uint64{200})
-	taskFuture := verifier.VerificationTask{
-		Message:     msgs[0].Message,
-		BlockNumber: msgs[0].BlockNumber,
-		MessageID:   msgs[0].MessageID.String(),
-	}
-
-	srs.mu.Lock()
-	srs.pendingTasks = map[string]verifier.VerificationTask{taskFuture.MessageID: taskFuture}
-	srs.mu.Unlock()
-
-	// nil toBlock → window is [100, ∞) → taskFuture (200) is inside → should be dropped.
-	srs.addToPendingQueueHandleReorg([]verifier.VerificationTask{}, big.NewInt(100), nil)
-
-	srs.mu.RLock()
-	defer srs.mu.RUnlock()
-
-	require.Len(t, srs.pendingTasks, 0,
-		"task at block 200 must be dropped when toBlock is nil (unbounded window)")
-	require.True(t, srs.reorgTracker.RequiresFinalization(defaultDestChain, taskFuture.Message.SequenceNumber),
-		"reorged task's seqNum should be tracked for finalization when using nil toBlock")
 }

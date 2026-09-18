@@ -564,6 +564,39 @@ func (_c *MockMetricLabeler_IncrementTokenHTTPRateLimited_Call) RunAndReturn(run
 	return _c
 }
 
+// IncrementUnfinalizedRangeRereads provides a mock function with given fields: ctx
+func (_m *MockMetricLabeler) IncrementUnfinalizedRangeRereads(ctx context.Context) {
+	_m.Called(ctx)
+}
+
+// MockMetricLabeler_IncrementUnfinalizedRangeRereads_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IncrementUnfinalizedRangeRereads'
+type MockMetricLabeler_IncrementUnfinalizedRangeRereads_Call struct {
+	*mock.Call
+}
+
+// IncrementUnfinalizedRangeRereads is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *MockMetricLabeler_Expecter) IncrementUnfinalizedRangeRereads(ctx interface{}) *MockMetricLabeler_IncrementUnfinalizedRangeRereads_Call {
+	return &MockMetricLabeler_IncrementUnfinalizedRangeRereads_Call{Call: _e.mock.On("IncrementUnfinalizedRangeRereads", ctx)}
+}
+
+func (_c *MockMetricLabeler_IncrementUnfinalizedRangeRereads_Call) Run(run func(ctx context.Context)) *MockMetricLabeler_IncrementUnfinalizedRangeRereads_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *MockMetricLabeler_IncrementUnfinalizedRangeRereads_Call) Return() *MockMetricLabeler_IncrementUnfinalizedRangeRereads_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockMetricLabeler_IncrementUnfinalizedRangeRereads_Call) RunAndReturn(run func(context.Context)) *MockMetricLabeler_IncrementUnfinalizedRangeRereads_Call {
+	_c.Run(run)
+	return _c
+}
+
 // RecordHTTPRequestDuration provides a mock function with given fields: ctx, duration, path, method, status
 func (_m *MockMetricLabeler) RecordHTTPRequestDuration(ctx context.Context, duration time.Duration, path string, method string, status int) {
 	_m.Called(ctx, duration, path, method, status)

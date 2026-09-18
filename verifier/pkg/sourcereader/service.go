@@ -66,13 +66,20 @@ type Service struct {
 	// mutable per-chain state
 	mu                          sync.RWMutex
 	lastProcessedFinalizedBlock atomic.Pointer[big.Int]
-	pendingTasks                map[string]verifier.VerificationTask
-	pendingSince                map[string]time.Time
-	pendingMetricDestinations   map[protocol.ChainSelector]struct{}
-	sentTasks                   map[string]verifier.VerificationTask
-	reorgTracker                *ReorgTracker
-	disabled                    atomic.Bool
-	finalityBlocked             atomic.Bool
+	// lastReadBlock is the highest block whose logs have been read on the chain as currently
+	// observed. A reorg that rewinds the head moves it backwards, so blocks re-mined at
+	// heights already read are queried again.
+	lastReadBlock atomic.Uint64
+	// rangeTracker is nil for chain families whose readers cannot prove the unfinalized range
+	// is unchanged; those fall back to re-reading it every poll.
+	rangeTracker              chainaccess.UnfinalizedRangeTracker
+	pendingTasks              map[string]verifier.VerificationTask
+	pendingSince              map[string]time.Time
+	pendingMetricDestinations map[protocol.ChainSelector]struct{}
+	sentTasks                 map[string]verifier.VerificationTask
+	reorgTracker              *ReorgTracker
+	disabled                  atomic.Bool
+	finalityBlocked           atomic.Bool
 
 	// ChainStatus management
 	chainStatusManager protocol.ChainStatusManager
@@ -136,6 +143,12 @@ func NewService(
 		}
 	}
 
+	rangeTracker, _ := chainaccess.AsUnfinalizedRangeTracker(sourceReader)
+	if rangeTracker == nil {
+		lggr.Infow("Source reader cannot track the unfinalized range; it will be re-read every poll",
+			"chainSelector", chainSelector)
+	}
+
 	interval := sourceCfg.PollInterval
 	if interval <= 0 {
 		interval = DefaultPollInterval
@@ -161,6 +174,7 @@ func NewService(
 		curseDetector:      curseDetector,
 		messageRules:       messageRules,
 		finalityChecker:    finalityChecker,
+		rangeTracker:       rangeTracker,
 		pollInterval:       interval,
 		pollTimeout:        pollTimeout,
 		sourceCfg:          sourceCfg,
@@ -188,6 +202,10 @@ func (r *Service) Start(ctx context.Context) error {
 			return err
 		}
 		r.lastProcessedFinalizedBlock.Store(startBlock)
+		// Nothing has been read yet this run, so the first cycle queries from startBlock.
+		if startBlock.Sign() > 0 {
+			r.lastReadBlock.Store(startBlock.Uint64() - 1)
+		}
 		r.metrics().SetSourceReaderLastProcessedFinalizedBlock(ctx, int64(startBlock.Uint64())) // #nosec G115 -- chain block heights are within int64 range
 		r.logger.Infow("Initialized start block", "block", startBlock.String())
 
@@ -292,46 +310,42 @@ func (r *Service) readyToQuery(ctx context.Context) (bool, *protocol.BlockHeader
 	return true, latest, safe, finalized
 }
 
-func (r *Service) getBlockRanges(fromBlock, latest uint64) []blockRange {
-	if fromBlock >= latest {
-		return []blockRange{{fromBlock: new(big.Int).SetUint64(fromBlock), toBlock: nil}}
+// getBlockRanges splits [fromBlock, toBlock] into chunks spanning maxBlockRange blocks each.
+// The upper bound is always explicit so the log query covers exactly the blocks the reader
+// vouched for, rather than whatever "latest" the answering RPC node happens to hold.
+func (r *Service) getBlockRanges(fromBlock, toBlock uint64) []blockRange {
+	if fromBlock > toBlock {
+		return nil
 	}
 
 	var blockRanges []blockRange
-	for fromBlock <= latest {
-		toBlock := fromBlock + r.maxBlockRange
-		if toBlock >= latest {
-			blockRanges = append(blockRanges, blockRange{
-				fromBlock: new(big.Int).SetUint64(fromBlock),
-				toBlock:   nil,
-			})
-			break
-		}
+	for fromBlock <= toBlock {
+		chunkEnd := min(fromBlock+r.maxBlockRange, toBlock)
 		blockRanges = append(blockRanges, blockRange{
 			fromBlock: new(big.Int).SetUint64(fromBlock),
-			toBlock:   new(big.Int).SetUint64(toBlock),
+			toBlock:   new(big.Int).SetUint64(chunkEnd),
 		})
-		fromBlock = toBlock + 1
+		fromBlock = chunkEnd + 1
 	}
 
 	return blockRanges
 }
 
-func (r *Service) loadEvents(ctx context.Context, fromBlock *big.Int, latest *protocol.BlockHeader) ([]protocol.MessageSentEvent, *big.Int, error) {
-	blockRanges := r.getBlockRanges(fromBlock.Uint64(), latest.Number)
-
+// loadEvents reads logs over [fromBlock, toBlock] in chunks, returning the events found and the
+// last block actually covered, which equals fromBlock when the first chunk fails.
+func (r *Service) loadEvents(ctx context.Context, fromBlock, toBlock uint64) ([]protocol.MessageSentEvent, uint64, error) {
 	allEvents := make([]protocol.MessageSentEvent, 0)
-	finalQueriedBlock := fromBlock
-	for _, br := range blockRanges {
+	lastQueried := fromBlock
+	for _, br := range r.getBlockRanges(fromBlock, toBlock) {
 		events, err := r.sourceReader.FetchMessageSentEvents(ctx, br.fromBlock, br.toBlock)
 		if err != nil {
 			// Return all events so far to avoid losing progress
-			return allEvents, finalQueriedBlock, err
+			return allEvents, lastQueried, err
 		}
 		allEvents = append(allEvents, events...)
-		finalQueriedBlock = br.toBlock
+		lastQueried = br.toBlock.Uint64()
 	}
-	return allEvents, finalQueriedBlock, nil
+	return allEvents, lastQueried, nil
 }
 
 func (r *Service) processEventCycle(ctx context.Context, latest, finalized *protocol.BlockHeader) bool {
@@ -342,20 +356,32 @@ func (r *Service) processEventCycle(ctx context.Context, latest, finalized *prot
 	logsCtx, cancel := context.WithTimeout(ctx, r.pollTimeout)
 	defer cancel()
 
-	fromBlock := r.lastProcessedFinalizedBlock.Load()
+	queryFrom, queryTo := r.queryWindow(ctx, latest, finalized)
+	if queryFrom > queryTo {
+		// Head has not moved and nothing is unread. Still checkpoint so finality progress is
+		// persisted while the head is stalled.
+		r.advanceCheckpoint(ctx, finalized.Number)
+		r.logger.Debugw("No new blocks to read", "lastReadBlock", r.lastReadBlock.Load(), "latest", latest.Number)
+		return true
+	}
 
-	r.logger.Debugw("Querying from block", "fromBlock", fromBlock.String())
-	events, lastQueriedBlock, err := r.loadEvents(logsCtx, fromBlock, latest)
+	r.logger.Debugw("Querying block range", "fromBlock", queryFrom, "toBlock", queryTo)
+	events, lastQueried, err := r.loadEvents(logsCtx, queryFrom, queryTo)
 	if err != nil {
 		r.logger.Warnw("Error when querying logs", "error", err,
-			"fromBlock", fromBlock.String(),
-			"toBlock", "latest")
+			"fromBlock", queryFrom,
+			"toBlock", queryTo)
 
 		// Only return early when no progress was made
-		if lastQueriedBlock.Cmp(fromBlock) == 0 {
+		if lastQueried == queryFrom {
 			return false
 		}
 	}
+
+	// Record how far logs have been read on the chain as currently observed. This is not a
+	// high water mark: a reorg re-reads from finalized, and storing that lower extent is what
+	// makes blocks re-mined below the old head get queried again.
+	r.lastReadBlock.Store(lastQueried)
 
 	tasks := make([]verifier.VerificationTask, 0, len(events))
 	for _, event := range events {
@@ -433,7 +459,7 @@ func (r *Service) processEventCycle(ctx context.Context, latest, finalized *prot
 			monitoring.MessageTransitionReasonNone)
 	}
 
-	r.addToPendingQueueHandleReorg(tasks, fromBlock, lastQueriedBlock)
+	r.addToPendingQueueHandleReorg(tasks, queryFrom, lastQueried)
 
 	// Spans for pending tasks stay open here - sendReadyMessages reuses them
 	// instead of opening a new one per poll. Dropped tasks' spans are ended in
@@ -441,26 +467,60 @@ func (r *Service) processEventCycle(ctx context.Context, latest, finalized *prot
 
 	if len(events) == 0 {
 		r.logger.Debugw("No events found in range",
-			"fromBlock", fromBlock.String(),
-			"toBlock", lastQueriedBlock)
+			"fromBlock", queryFrom,
+			"toBlock", lastQueried)
 	}
 
-	// Advance to min(lastQueriedBlock, finalized). A nil lastQueriedBlock means
-	// the last chunk had no explicit upper bound (queried up to latest), so we
-	// treat it as ∞ and always take finalized.
-	newBlock := new(big.Int).SetUint64(finalized.Number)
-	if lastQueriedBlock != nil && lastQueriedBlock.Cmp(newBlock) < 0 {
-		newBlock = lastQueriedBlock
-	}
-	r.lastProcessedFinalizedBlock.Store(newBlock)
-	r.metrics().SetSourceReaderLastProcessedFinalizedBlock(ctx, int64(newBlock.Uint64())) // #nosec G115 -- chain block heights are within int64 range
+	// The checkpoint is a restart point, so it must not pass either the blocks actually read or
+	// finality.
+	advancedTo := r.advanceCheckpoint(ctx, min(lastQueried, finalized.Number))
 
 	r.logger.Debugw("Processed block range",
-		"fromBlock", fromBlock.String(),
-		"toBlock", "latest",
-		"advancedTo", newBlock.String(),
+		"fromBlock", queryFrom,
+		"toBlock", queryTo,
+		"advancedTo", advancedTo,
 		"eventsFound", len(events))
 	return err == nil
+}
+
+// queryWindow returns the block range whose logs must be read this cycle. When the reader can
+// prove the unfinalized blocks already read are unchanged, only new blocks are read; a reorg,
+// a tracker error, or a reader without the capability widens the window back to finalized.
+func (r *Service) queryWindow(ctx context.Context, latest, finalized *protocol.BlockHeader) (from, to uint64) {
+	to = latest.Number
+	checkpoint := r.lastProcessedFinalizedBlock.Load().Uint64()
+
+	// Re-reading the whole range starts at finalized rather than the checkpoint, which matters
+	// when the checkpoint is ahead of latest, i.e. the chain rolled back.
+	full := min(checkpoint, finalized.Number)
+	if r.rangeTracker == nil {
+		return full, to
+	}
+
+	// The tracker gets its own budget; a slow header fetch must not eat the log query's timeout.
+	trackerCtx, cancel := context.WithTimeout(ctx, r.pollTimeout)
+	defer cancel()
+
+	changed, err := r.rangeTracker.UnfinalizedRangeChanged(trackerCtx, latest, finalized)
+	if err != nil {
+		r.metrics().IncrementUnfinalizedRangeRereads(ctx)
+		r.logger.Warnw("Unfinalized range tracker failed, re-reading the full range",
+			"error", err, "from", full, "latest", latest.Number)
+		return full, to
+	}
+	if changed {
+		r.metrics().IncrementUnfinalizedRangeRereads(ctx)
+		return full, to
+	}
+
+	return max(r.lastReadBlock.Load()+1, checkpoint), to
+}
+
+// advanceCheckpoint persists blockNum as the restart point and returns it.
+func (r *Service) advanceCheckpoint(ctx context.Context, blockNum uint64) uint64 {
+	r.lastProcessedFinalizedBlock.Store(new(big.Int).SetUint64(blockNum))
+	r.metrics().SetSourceReaderLastProcessedFinalizedBlock(ctx, int64(blockNum)) // #nosec G115 -- chain block heights are within int64 range
+	return blockNum
 }
 
 // sourceBlockTimestamp reuses a header already fetched for this poll only if it is the
@@ -520,7 +580,9 @@ func (r *Service) fallbackBlockEstimate(currentBlock uint64, lookbackBlocks int6
 	return fallBackBlock
 }
 
-func (r *Service) addToPendingQueueHandleReorg(tasks []verifier.VerificationTask, fromBlock, toBlock *big.Int) {
+// addToPendingQueueHandleReorg queues the tasks just read and drops any pending or sent task
+// inside [fromBlock, toBlock] that did not reappear, which means a reorg removed it.
+func (r *Service) addToPendingQueueHandleReorg(tasks []verifier.VerificationTask, fromBlock, toBlock uint64) {
 	tasksMap := make(map[string]verifier.VerificationTask)
 	for _, task := range tasks {
 		tasksMap[task.MessageID] = task
@@ -534,8 +596,7 @@ func (r *Service) addToPendingQueueHandleReorg(tasks []verifier.VerificationTask
 	}
 
 	for msgID, existing := range r.pendingTasks {
-		existingBlock := new(big.Int).SetUint64(existing.BlockNumber)
-		if existingBlock.Cmp(fromBlock) >= 0 && (toBlock == nil || existingBlock.Cmp(toBlock) <= 0) {
+		if existing.BlockNumber >= fromBlock && existing.BlockNumber <= toBlock {
 			if _, exists := tasksMap[msgID]; !exists {
 				span := tracing.SpanFromContext(existing.TraceContext)
 				span.AddEvent(monitoring.EventReorgRemovedPending,
@@ -553,7 +614,7 @@ func (r *Service) addToPendingQueueHandleReorg(tasks []verifier.VerificationTask
 					"blockNumber", existing.BlockNumber,
 					protocol.LogKeySeqNum, existing.Message.SequenceNumber,
 					protocol.LogKeyDestChain, existing.Message.DestChainSelector,
-					"fromBlock", fromBlock.String(),
+					"fromBlock", fromBlock,
 				)
 				r.reorgTracker.Track(existing.Message.DestChainSelector, existing.Message.SequenceNumber)
 				delete(r.pendingSince, msgID)
@@ -563,8 +624,7 @@ func (r *Service) addToPendingQueueHandleReorg(tasks []verifier.VerificationTask
 	}
 
 	for msgID, task := range r.sentTasks {
-		taskBlock := new(big.Int).SetUint64(task.BlockNumber)
-		if taskBlock.Cmp(fromBlock) >= 0 && (toBlock == nil || taskBlock.Cmp(toBlock) <= 0) {
+		if task.BlockNumber >= fromBlock && task.BlockNumber <= toBlock {
 			if _, exists := tasksMap[msgID]; !exists {
 				span := tracing.SpanFromContext(task.TraceContext)
 				span.AddEvent(monitoring.EventReorgRemovedSent,

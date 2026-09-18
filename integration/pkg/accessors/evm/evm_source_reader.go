@@ -32,6 +32,7 @@ import (
 var (
 	_ chainaccess.SourceReader                          = (*SourceReader)(nil)
 	_ chainaccess.CriticalSourceInvariantCallbackSetter = (*SourceReader)(nil)
+	_ chainaccess.UnfinalizedRangeTracker               = (*SourceReader)(nil)
 )
 
 type SourceReader struct {
@@ -48,6 +49,8 @@ type SourceReader struct {
 	onRampABI                        *abi.ABI // Cached ABI to avoid re-parsing
 	onCriticalInvariant              func(context.Context)
 	sourceReaderHeaderFetchBatchSize int
+	// chainTail caches the hash-linked unfinalized headers backing UnfinalizedRangeChanged.
+	chainTail *chainTail
 }
 
 func NewEVMSourceReader(
@@ -146,8 +149,24 @@ func NewEVMSourceReader(
 		onRampABI:                        onRampABI,
 		sourceReaderHeaderFetchBatchSize: sourceReaderHeaderFetchBatchSize(headerFetchBatchSize),
 	}
+
+	// The tail reads headers back through the reader so it inherits the batching above.
+	tail, err := newChainTail(reader,
+		logger.With(lggr, "component", "ChainTail", "chainSelector", chainSelector))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create chain tail: %w", err)
+	}
+	reader.chainTail = tail
+
 	reader.SetCriticalSourceInvariantCallback(onCriticalInvariant)
 	return reader, nil
+}
+
+// UnfinalizedRangeChanged reports whether any block above finalized may have changed since the
+// last call. It costs one header link check per poll while the chain extends normally, and a
+// rebuild of the cached range on a reorg. Implements chainaccess.UnfinalizedRangeTracker.
+func (r *SourceReader) UnfinalizedRangeChanged(ctx context.Context, latest, finalized *protocol.BlockHeader) (bool, error) {
+	return r.chainTail.advance(ctx, latest, finalized)
 }
 
 // onRampStaticConfigGetter is the slice of the OnRamp binding the source reader needs, defined
