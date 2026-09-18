@@ -38,6 +38,7 @@ func (n *NoopMetricLabeler) RecordSourceChainLatestBlock(_ context.Context, _ in
 func (n *NoopMetricLabeler) RecordSourceChainFinalizedBlock(_ context.Context, _ int64)            {}
 func (n *NoopMetricLabeler) RecordSourceChainSafeBlock(_ context.Context, _ int64)                 {}
 func (n *NoopMetricLabeler) RecordReorgTrackedSeqNums(_ context.Context, _ int64)                  {}
+func (n *NoopMetricLabeler) IncrementUnfinalizedRangeRereads(_ context.Context)                    {}
 func (n *NoopMetricLabeler) SetSourceReaderState(_ context.Context, _ string)                      {}
 func (n *NoopMetricLabeler) SetSourceReaderLastSuccessfulPollTimestamp(_ context.Context, _ int64) {}
 func (n *NoopMetricLabeler) SetSourceReaderLastProcessedFinalizedBlock(_ context.Context, _ int64) {}

@@ -139,6 +139,7 @@ func (m *noopMetricLabeler) RecordSourceChainLatestBlock(ctx context.Context, bl
 func (m *noopMetricLabeler) RecordSourceChainFinalizedBlock(ctx context.Context, blockNum int64) {}
 func (m *noopMetricLabeler) RecordSourceChainSafeBlock(ctx context.Context, blockNum int64)      {}
 func (m *noopMetricLabeler) RecordReorgTrackedSeqNums(ctx context.Context, count int64)          {}
+func (m *noopMetricLabeler) IncrementUnfinalizedRangeRereads(ctx context.Context)                {}
 func (m *noopMetricLabeler) SetSourceReaderState(context.Context, string)                        {}
 func (m *noopMetricLabeler) SetSourceReaderLastSuccessfulPollTimestamp(context.Context, int64)   {}
 func (m *noopMetricLabeler) SetSourceReaderLastProcessedFinalizedBlock(context.Context, int64)   {}

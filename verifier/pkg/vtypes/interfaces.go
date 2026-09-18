@@ -166,6 +166,9 @@ type MetricLabeler interface {
 	SetSourceReaderLastSuccessfulPollTimestamp(ctx context.Context, timestamp int64)
 	// SetSourceReaderLastProcessedFinalizedBlock records the last finalized block processed by the source reader.
 	SetSourceReaderLastProcessedFinalizedBlock(ctx context.Context, blockNum int64)
+	// IncrementUnfinalizedRangeRereads counts rebuilds of the cached unfinalized block range. A rate
+	// above roughly the chain's reorg rate means the cache is not saving any RPC calls.
+	IncrementUnfinalizedRangeRereads(ctx context.Context)
 
 	// HTTP API metrics
 

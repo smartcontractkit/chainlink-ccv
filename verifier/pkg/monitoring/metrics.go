@@ -145,6 +145,7 @@ type VerifierMetrics struct {
 	reorgTrackedSeqNumsGauge                metric.Int64Gauge
 	sourceReaderLastSuccessfulPollTimestamp metric.Float64Gauge
 	sourceReaderLastProcessedFinalizedBlock metric.Int64Gauge
+	unfinalizedRangeRereads                 metric.Int64Counter
 	sourceReaderState                       metric.Int64Gauge
 
 	// HTTP API Metrics
@@ -412,6 +413,13 @@ func InitMetrics() (*VerifierMetrics, error) {
 	vm.sourceReaderLastProcessedFinalizedBlock, err = beholder.GetMeter().Int64Gauge("verifier_source_reader_last_processed_finalized_block", metric.WithDescription("Last finalized block processed by the source reader"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to register source reader processed block gauge: %w", err)
+	}
+	vm.unfinalizedRangeRereads, err = beholder.GetMeter().Int64Counter(
+		"verifier_source_reader_unfinalized_range_rereads",
+		metric.WithDescription("Polls that had to re-read the whole unfinalized block range, from a reorg or an unusable reader cache"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register unfinalized range reread counter: %w", err)
 	}
 	vm.sourceReaderState, err = beholder.GetMeter().Int64Gauge("verifier_source_reader_state", metric.WithDescription("One-hot source reader state"))
 	if err != nil {
@@ -784,6 +792,10 @@ func (v *VerifierMetricLabeler) SetSourceReaderLastSuccessfulPollTimestamp(ctx c
 
 func (v *VerifierMetricLabeler) SetSourceReaderLastProcessedFinalizedBlock(ctx context.Context, blockNum int64) {
 	v.vm.sourceReaderLastProcessedFinalizedBlock.Record(ctx, blockNum, metric.WithAttributes(beholder.OtelAttributes(v.Labels).AsStringAttributes()...))
+}
+
+func (v *VerifierMetricLabeler) IncrementUnfinalizedRangeRereads(ctx context.Context) {
+	v.vm.unfinalizedRangeRereads.Add(ctx, 1, metric.WithAttributes(beholder.OtelAttributes(v.Labels).AsStringAttributes()...))
 }
 
 // ClassifyError maps known operational failures to a bounded Prometheus label value.
