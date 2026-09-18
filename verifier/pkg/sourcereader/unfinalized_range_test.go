@@ -47,9 +47,9 @@ func TestSRS_RangeTracker_ReadsOnlyNewBlocks(t *testing.T) {
 	srs := newRangeTrackerSRS(t, chain, reader, &fakeRangeTracker{verdicts: []bool{true, false}}, 100)
 
 	require.True(t, srs.processEventCycle(ctx, head200, finalized))
-	require.Equal(t, uint64(200), srs.logHighWater.Load())
+	require.Equal(t, uint64(200), srs.lastReadBlock.Load())
 	require.True(t, srs.processEventCycle(ctx, head205, finalized))
-	require.Equal(t, uint64(205), srs.logHighWater.Load())
+	require.Equal(t, uint64(205), srs.lastReadBlock.Load())
 }
 
 // TestSRS_RangeTracker_StalledHeadReadsNothing verifies an unmoved head costs no log query.
@@ -156,4 +156,47 @@ func newRangeTrackerSRS(
 	}
 	srs.lastProcessedFinalizedBlock.Store(big.NewInt(checkpoint))
 	return srs
+}
+
+// TestSRS_Reorg_HeadRewindReReadsRemined covers a reorg that rewinds the head below blocks
+// already read, as a snapshot revert does. Blocks re-mined at those heights carry different
+// content, so the read extent has to move backwards or they are never queried again.
+func TestSRS_Reorg_HeadRewindReReadsRemined(t *testing.T) {
+	ctx := context.Background()
+	chain := protocol.ChainSelector(1337)
+
+	finalized := &protocol.BlockHeader{Number: 100}
+
+	reader := mocks.NewMockSourceReader(t)
+	// Cycle 1 seeds and reads the whole range up to head 200.
+	reader.EXPECT().
+		FetchMessageSentEvents(mock.Anything, big.NewInt(100), big.NewInt(200)).
+		Return(nil, nil).Once()
+	// Cycle 3: the rewound chain re-mines 191 with different content, so the range is re-read.
+	reader.EXPECT().
+		FetchMessageSentEvents(mock.Anything, big.NewInt(100), big.NewInt(191)).
+		Return(nil, nil).Once()
+	// Cycle 4: 192 links onto the rebuilt tail and must still be read, even though a block at
+	// that height was read before the rewind.
+	reader.EXPECT().
+		FetchMessageSentEvents(mock.Anything, big.NewInt(192), big.NewInt(192)).
+		Return(nil, nil).Once()
+
+	tracker := &fakeRangeTracker{verdicts: []bool{true, false, true, false}}
+	srs := newRangeTrackerSRS(t, chain, reader, tracker, 100)
+
+	// Cycle 1: head 200.
+	require.True(t, srs.processEventCycle(ctx, &protocol.BlockHeader{Number: 200}, finalized))
+	require.Equal(t, uint64(200), srs.lastReadBlock.Load())
+
+	// Cycle 2: reverted to 190, whose hash is unchanged, so nothing to read.
+	require.True(t, srs.processEventCycle(ctx, &protocol.BlockHeader{Number: 190}, finalized))
+
+	// Cycle 3: 191 re-mined with different content - the reorg is detected here.
+	require.True(t, srs.processEventCycle(ctx, &protocol.BlockHeader{Number: 191}, finalized))
+	require.Equal(t, uint64(191), srs.lastReadBlock.Load(),
+		"the read extent must follow the rewound chain, not stay at the pre-reorg high water mark")
+
+	// Cycle 4: 192 on the new chain.
+	require.True(t, srs.processEventCycle(ctx, &protocol.BlockHeader{Number: 192}, finalized))
 }

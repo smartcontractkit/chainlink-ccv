@@ -66,9 +66,10 @@ type Service struct {
 	// mutable per-chain state
 	mu                          sync.RWMutex
 	lastProcessedFinalizedBlock atomic.Pointer[big.Int]
-	// logHighWater is the highest block whose logs have been read. Blocks at or below it are
-	// re-read only when rangeTracker reports a reorg.
-	logHighWater atomic.Uint64
+	// lastReadBlock is the highest block whose logs have been read on the chain as currently
+	// observed. A reorg that rewinds the head moves it backwards, so blocks re-mined at
+	// heights already read are queried again.
+	lastReadBlock atomic.Uint64
 	// rangeTracker is nil for chain families whose readers cannot prove the unfinalized range
 	// is unchanged; those fall back to re-reading it every poll.
 	rangeTracker              chainaccess.UnfinalizedRangeTracker
@@ -203,7 +204,7 @@ func (r *Service) Start(ctx context.Context) error {
 		r.lastProcessedFinalizedBlock.Store(startBlock)
 		// Nothing has been read yet this run, so the first cycle queries from startBlock.
 		if startBlock.Sign() > 0 {
-			r.logHighWater.Store(startBlock.Uint64() - 1)
+			r.lastReadBlock.Store(startBlock.Uint64() - 1)
 		}
 		r.metrics().SetSourceReaderLastProcessedFinalizedBlock(ctx, int64(startBlock.Uint64())) // #nosec G115 -- chain block heights are within int64 range
 		r.logger.Infow("Initialized start block", "block", startBlock.String())
@@ -360,7 +361,7 @@ func (r *Service) processEventCycle(ctx context.Context, latest, finalized *prot
 		// Head has not moved and nothing is unread. Still checkpoint so finality progress is
 		// persisted while the head is stalled.
 		r.advanceCheckpoint(ctx, finalized.Number)
-		r.logger.Debugw("No new blocks to read", "logHighWater", r.logHighWater.Load(), "latest", latest.Number)
+		r.logger.Debugw("No new blocks to read", "lastReadBlock", r.lastReadBlock.Load(), "latest", latest.Number)
 		return true
 	}
 
@@ -377,11 +378,10 @@ func (r *Service) processEventCycle(ctx context.Context, latest, finalized *prot
 		}
 	}
 
-	// Record how far logs have actually been read, which lags the tracked range when a chunk
-	// fails. The next cycle re-reads from here so a partial read never leaves a gap.
-	if lastQueried > r.logHighWater.Load() {
-		r.logHighWater.Store(lastQueried)
-	}
+	// Record how far logs have been read on the chain as currently observed. This is not a
+	// high water mark: a reorg re-reads from finalized, and storing that lower extent is what
+	// makes blocks re-mined below the old head get queried again.
+	r.lastReadBlock.Store(lastQueried)
 
 	tasks := make([]verifier.VerificationTask, 0, len(events))
 	for _, event := range events {
@@ -513,7 +513,7 @@ func (r *Service) queryWindow(ctx context.Context, latest, finalized *protocol.B
 		return full, to
 	}
 
-	return max(r.logHighWater.Load()+1, checkpoint), to
+	return max(r.lastReadBlock.Load()+1, checkpoint), to
 }
 
 // advanceCheckpoint persists blockNum as the restart point and returns it.

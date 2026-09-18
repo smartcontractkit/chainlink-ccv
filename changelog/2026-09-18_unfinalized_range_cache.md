@@ -107,11 +107,13 @@ not a reorg, and the cache is kept.
 
 | Reader verdict | Range read |
 |---|---|
-| unchanged | `(logHighWater, latest]` |
+| unchanged | `(lastReadBlock, latest]` |
 | changed, or tracker error, or no tracker | `[min(checkpoint, finalized), latest]` |
 
-`Service.logHighWater` tracks how far logs have actually been read, which lags the verified range
-when a log chunk fails mid-poll, so a partial read is re-read on the next poll rather than skipped.
+`Service.lastReadBlock` tracks how far logs have been read on the chain as currently observed. It
+lags the verified range when a log chunk fails mid-poll, so a partial read is retried rather than
+skipped, and it moves *backwards* when a reorg rewinds the head — otherwise blocks re-mined at
+heights already read would never be queried again.
 
 Reorg reconciliation is unchanged in substance but now runs against the actually-queried window:
 `addToPendingQueueHandleReorg` drops pending and sent tasks inside `[fromBlock, toBlock]` that did
