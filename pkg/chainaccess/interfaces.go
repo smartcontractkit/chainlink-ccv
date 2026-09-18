@@ -92,6 +92,22 @@ type MessageFilter interface {
 	Filter(msg protocol.MessageSentEvent) bool
 }
 
+// CCTPCodec holds the chain-specific CCTP knowledge the token verifier needs: the Circle
+// domain of a source chain, and the codecs for that chain's native transaction hash and
+// address encodings.
+//
+// A chain family implements CCTPCodec on its chain accessor, so the accessor resolved for
+// a source chain is also the codec for that chain. The verifier reads the codecs it was
+// given and never branches on a chain family.
+type CCTPCodec interface {
+	// Domain returns the Circle CCTP domain for the source chain selector.
+	Domain(selector protocol.ChainSelector) (uint32, bool)
+	// EncodeTxHash renders a source transaction hash in the format Circle's API expects.
+	EncodeTxHash(txHash protocol.ByteSlice) string
+	// DecodeAddress parses an address Circle returned for the source chain.
+	DecodeAddress(address string) (protocol.UnknownAddress, error)
+}
+
 // Accessor provides objects that in turn provide specific kinds of blockchain access.
 // It is scoped to a particular chain selector. All methods are optional: implementations
 // return an error for capabilities they do not support.
@@ -105,6 +121,8 @@ type Accessor interface {
 	DestinationReader() (DestinationReader, error)
 	// ContractTransmitter returns the ContractTransmitter for this chain, or an error if not available.
 	ContractTransmitter() (ContractTransmitter, error)
+	// CCTPCodec returns the CCTPCodec for this chain, or an error if not available.
+	CCTPCodec() (CCTPCodec, error)
 	// Close releases any background services the accessor started. Stateless accessors return nil.
 	Close() error
 
