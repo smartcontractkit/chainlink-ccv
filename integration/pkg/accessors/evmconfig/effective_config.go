@@ -22,8 +22,8 @@ type EffectiveChain struct {
 	// TXMBlockTimeIsDefault is true when the operator set no block time — the value to check
 	// first on a slow chain before a cutover. TXMBlockTimeSource says which default fired:
 	// the chain's curated value or the generic 2s fallback.
-	TXMBlockTimeIsDefault bool            `json:"txm_block_time_is_default"`
-	TXMBlockTimeSource    string          `json:"txm_block_time_source"`
+	TXMBlockTimeIsDefault  bool            `json:"txm_block_time_is_default"`
+	TXMBlockTimeSource     string          `json:"txm_block_time_source"`
 	HeadTrackerPersistence bool            `json:"head_tracker_persistence"`
 	NewHeadsPollInterval   string          `json:"new_heads_poll_interval,omitempty"`
 	Nodes                  []EffectiveNode `json:"nodes"`

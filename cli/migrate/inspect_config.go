@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"strconv"
 
-	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/urfave/cli"
+
+	chainsel "github.com/smartcontractkit/chain-selectors"
 
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
 )
@@ -78,43 +79,72 @@ func buildConfigReport(configPath, chainSelector string) (*configReport, error) 
 	}
 
 	if chainSelector != "" {
-		selector, err := strconv.ParseUint(chainSelector, 10, 64)
-		if err != nil {
-			return nil, fmt.Errorf("--chain-selector must be a decimal chain selector: %w", err)
-		}
-		chain, ok := chains[chainSelector]
-		if !ok {
-			// A chain the conversion skipped is not in the projection, but it is the chain an
-			// operator narrowing to it most needs to see: report the failure instead of a bare
-			// "not in config" error.
-			if conversion != nil {
-				if chainID, idErr := chainsel.GetChainIDFromSelector(selector); idErr == nil {
-					for _, failure := range conversion.FailedChains {
-						if failure.ChainID == chainID {
-							report.Chains = map[string]evmconfig.EffectiveChain{}
-							report.Warnings = conversion.WarningsByChainID[chainID]
-							report.FailedChains = []evmconfig.ChainFailure{failure}
-							return report, nil
-						}
-					}
-				}
-			}
-			return nil, fmt.Errorf("chain selector %s is not in %s", chainSelector, configPath)
-		}
-		report.Chains = map[string]evmconfig.EffectiveChain{chainSelector: chain}
-		// The warnings and failures narrow with the chains: a multi-chain node config would
-		// otherwise print every other chain's dropped settings next to this one chain's settings,
-		// which reads as this chain's deviations. IgnoredSections does not narrow: it is
-		// file-level.
-		if conversion != nil {
-			report.Warnings = conversion.WarningsByChainID[chain.ChainID]
-			report.FailedChains = nil
-			for _, failure := range conversion.FailedChains {
-				if failure.ChainID == chain.ChainID {
-					report.FailedChains = []evmconfig.ChainFailure{failure}
-				}
-			}
+		if err := narrowReportToChain(report, conversion, chains, chainSelector, configPath); err != nil {
+			return nil, err
 		}
 	}
 	return report, nil
+}
+
+// narrowReportToChain restricts the report to one chain selector, in place.
+//
+// Warnings and failures narrow with the chains: a multi-chain node config would otherwise print
+// every other chain's dropped settings next to this one chain's settings, which reads as this
+// chain's deviations. IgnoredSections does not narrow; it is file-level.
+func narrowReportToChain(
+	report *configReport,
+	conversion *evmconfig.Conversion,
+	chains map[string]evmconfig.EffectiveChain,
+	chainSelector, configPath string,
+) error {
+	selector, err := strconv.ParseUint(chainSelector, 10, 64)
+	if err != nil {
+		return fmt.Errorf("--chain-selector must be a decimal chain selector: %w", err)
+	}
+	chain, ok := chains[chainSelector]
+	if !ok {
+		return narrowToSkippedChain(report, conversion, selector, chainSelector, configPath)
+	}
+
+	report.Chains = map[string]evmconfig.EffectiveChain{chainSelector: chain}
+	if conversion == nil {
+		return nil
+	}
+	report.Warnings = conversion.WarningsByChainID[chain.ChainID]
+	report.FailedChains = nil
+	for _, failure := range conversion.FailedChains {
+		if failure.ChainID == chain.ChainID {
+			report.FailedChains = []evmconfig.ChainFailure{failure}
+		}
+	}
+	return nil
+}
+
+// narrowToSkippedChain handles a selector the conversion skipped whole. Such a chain is absent
+// from the projection, yet it is the one an operator narrowing to it most needs to see, so the
+// report carries its failure and warnings rather than a bare "not in config" error.
+func narrowToSkippedChain(
+	report *configReport,
+	conversion *evmconfig.Conversion,
+	selector uint64,
+	chainSelector, configPath string,
+) error {
+	notFound := fmt.Errorf("chain selector %s is not in %s", chainSelector, configPath)
+	if conversion == nil {
+		return notFound
+	}
+	chainID, err := chainsel.GetChainIDFromSelector(selector)
+	if err != nil {
+		return notFound
+	}
+	for _, failure := range conversion.FailedChains {
+		if failure.ChainID != chainID {
+			continue
+		}
+		report.Chains = make(map[string]evmconfig.EffectiveChain)
+		report.Warnings = conversion.WarningsByChainID[chainID]
+		report.FailedChains = []evmconfig.ChainFailure{failure}
+		return nil
+	}
+	return notFound
 }

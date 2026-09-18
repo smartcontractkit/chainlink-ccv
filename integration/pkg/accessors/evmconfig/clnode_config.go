@@ -285,18 +285,40 @@ type rawChainConfig struct {
 	nodes  []map[string]any
 }
 
+// rawTables normalizes a decoded TOML array of tables. go-toml yields []any of map[string]any
+// for [[Section]] and a bare map[string]any when the operator wrote [Section] instead, so both
+// spellings are accepted; anything else yields no tables rather than an error, because these
+// warnings degrade rather than failing a config that already decoded.
+func rawTables(value any) []map[string]any {
+	switch typed := value.(type) {
+	case []map[string]any:
+		return typed
+	case map[string]any:
+		return []map[string]any{typed}
+	case []any:
+		tables := make([]map[string]any, 0, len(typed))
+		for _, entry := range typed {
+			if table, ok := entry.(map[string]any); ok {
+				tables = append(tables, table)
+			}
+		}
+		return tables
+	default:
+		return nil
+	}
+}
+
 // rawChainsByChainID groups the raw [[EVM]] blocks by chain ID so each merged chain's
 // set-detection reads exactly what the operator wrote for it. A block whose chain ID cannot be
 // read is skipped: mergeByChainID has already rejected a missing one, and a warning lost here
 // changes no behavior.
 func rawChainsByChainID(raw map[string]any) map[string]*rawChainConfig {
-	blocks, ok := raw["EVM"].([]map[string]any)
-	if !ok {
-		if single, isTable := raw["EVM"].(map[string]any); isTable {
-			blocks = []map[string]any{single}
-		} else {
-			return nil
-		}
+	// go-toml decodes an array of tables into []any of map[string]any, never []map[string]any,
+	// so the element type has to be asserted per entry. Asserting the slice type directly always
+	// fails and silently disables set-detection.
+	blocks := rawTables(raw["EVM"])
+	if len(blocks) == 0 {
+		return nil
 	}
 	chains := make(map[string]*rawChainConfig, len(blocks))
 	for _, block := range blocks {
@@ -310,7 +332,7 @@ func rawChainsByChainID(raw map[string]any) map[string]*rawChainConfig {
 			chains[chainID] = chain
 		}
 		chain.blocks = append(chain.blocks, block)
-		if nodes, ok := block["Nodes"].([]map[string]any); ok {
+		if nodes := rawTables(block["Nodes"]); len(nodes) > 0 {
 			chain.nodes = nodes
 		}
 	}
@@ -330,14 +352,20 @@ func rawChainID(block map[string]any) string {
 
 // flattenSettingPaths walks a raw TOML table and appends the dotted path of every leaf it holds:
 // a nested table recurses, anything else — a scalar, an array, an array of tables — is one leaf.
+// joinSettingPath renders a setting's dotted path, so a nested key reports as
+// "GasEstimator.Mode" rather than a bare "Mode" an operator cannot locate in their file.
+func joinSettingPath(prefix, key string) string {
+	if prefix == "" {
+		return key
+	}
+	return prefix + "." + key
+}
+
 // Reading the file rather than the decoded struct is what makes "set" exact: there is no
 // set-vs-unset ambiguity to work around, and a key the typed config has no field for still shows.
 func flattenSettingPaths(table map[string]any, prefix string, paths *[]string) {
 	for key, value := range table {
-		path := key
-		if prefix != "" {
-			path = prefix + "." + key
-		}
+		path := joinSettingPath(prefix, key)
 		if nested, ok := value.(map[string]any); ok {
 			flattenSettingPaths(nested, path, paths)
 			continue
