@@ -23,7 +23,8 @@ func TestBeholderConfigValidate(t *testing.T) {
 
 	t.Run("valid", func(t *testing.T) {
 		t.Parallel()
-		require.NoError(t, validBeholderConfig().Validate())
+		cfg := validBeholderConfig()
+		require.NoError(t, cfg.Validate())
 	})
 
 	t.Run("chip ingress endpoint with gRPC exporter", func(t *testing.T) {

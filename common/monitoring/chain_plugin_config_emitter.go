@@ -205,8 +205,8 @@ func normalizeEndpoint(raw string) string {
 }
 
 // parseOriginURL is based on go-ethereum's parseOriginURL, adapted for our needs:
-// - returns only scheme and hostname (port is discarded)
-// - handles schemeless inputs with userinfo/port/path
+// it returns only scheme and hostname (port is discarded), and handles schemeless
+// inputs with userinfo/port/path.
 func parseOriginURL(origin string) (string, string, error) {
 	parsedURL, err := url.Parse(strings.ToLower(origin))
 	if err != nil {
