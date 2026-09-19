@@ -51,3 +51,41 @@ jobs:
           just "$MODULE"/build-rc
           echo "Publishing image.."
           just "$MODULE"/publish-rc "$ECR_REGISTRY" "$TAG"
+
+  # Builds the ZK verifier image from cmd/verifier/zk and publishes it into the token verifier repository under a
+  # zk-poc- tag. Run this workflow from the zk-verifier-poc branch, with that branch as the git ref.
+  build-zk:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.git-ref }}
+
+      - name: Install Just
+        uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # v3
+        with:
+          just-version: '1.40.0'
+
+      - name: Authenticate to AWS ECR
+        uses: ./.github/actions/aws-ecr-auth
+        with:
+          role-to-assume: ${{ secrets.CCV_IAM_ROLE }}
+          aws-region: us-west-2
+          registry-type: private
+
+      - name: Build & Publish ZK verifier
+        env:
+          COMMIT_SHA: ${{ inputs.git-ref }}
+          ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}
+        run: |
+          echo "Git Ref: $COMMIT_SHA"
+          echo "Full Tag: zk-poc-$COMMIT_SHA"
+          echo "Building ZK verifier image.."
+          just verifier/build-zk
+          echo "Publishing image.."
+          just verifier/publish-zk "$ECR_REGISTRY" "$COMMIT_SHA"

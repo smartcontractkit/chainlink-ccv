@@ -6,6 +6,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/cctp"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/lombard"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/zk"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 )
 
@@ -75,6 +76,7 @@ type VerifierConfig struct {
 
 	*cctp.CCTPConfig       `json:"cctp_config,omitempty"`
 	*lombard.LombardConfig `json:"lombard_config,omitempty"`
+	*zk.ZKConfig           `json:"zk_config,omitempty"`
 }
 
 func (o *VerifierConfig) IsLombard() bool {
@@ -83,6 +85,10 @@ func (o *VerifierConfig) IsLombard() bool {
 
 func (o *VerifierConfig) IsCCTP() bool {
 	return o.CCTPConfig != nil
+}
+
+func (o *VerifierConfig) IsZK() bool {
+	return o.ZKConfig != nil
 }
 
 func (o *VerifierConfig) UnmarshalTOML(data any) error {
@@ -113,6 +119,11 @@ func (o *VerifierConfig) UnmarshalTOML(data any) error {
 	}
 
 	o.LombardConfig, err = lombard.TryParsing(o.Type, o.Version, castedData)
+	if err == nil {
+		return nil
+	}
+
+	o.ZKConfig, err = zk.TryParsing(o.Type, o.Version, castedData)
 	if err == nil {
 		return nil
 	}

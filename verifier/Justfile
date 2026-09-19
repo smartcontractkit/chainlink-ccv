@@ -14,6 +14,15 @@ build-rc:
     docker build -f Dockerfile -t verifier:rc ..
     docker build -f Dockerfile --build-arg VERIFIER_TYPE=token -t token-verifier:rc ..
 
+# The ZK verifier is the token verifier binary built from cmd/verifier/zk. It is published into the token verifier
+# repository under a zk-poc- tag so the proof of concept needs no new repository.
+build-zk:
+    docker build -f Dockerfile --build-arg VERIFIER_TYPE=zk -t zk-verifier:latest ..
+
+publish-zk registry version:
+    docker tag zk-verifier:latest {{registry}}/containers/chainlink-ccv-token-verifier:zk-poc-{{version}}
+    docker push {{registry}}/containers/chainlink-ccv-token-verifier:zk-poc-{{version}}
+
 build-dev:
     docker build -f Dockerfile.dev -t verifier:dev ..
     docker build -f Dockerfile.dev --build-arg VERIFIER_TYPE=token -t token-verifier:dev ..

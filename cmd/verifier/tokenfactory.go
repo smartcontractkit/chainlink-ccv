@@ -14,6 +14,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
@@ -26,6 +27,7 @@ import (
 	tokenapi "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/api"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/cctp"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/lombard"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/zk"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vsecrets"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -148,8 +150,9 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 		)
 
 		var coordinator *verifier.Coordinator
-		if verifierConfig.IsLombard() {
-			if coordinator, err = createLombardCoordinator(
+		switch {
+		case verifierConfig.IsLombard():
+			coordinator, err = createLombardCoordinator(
 				ctx,
 				verifierConfig.VerifierID,
 				verifierConfig.LombardConfig,
@@ -165,11 +168,12 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 				verifierMonitoring,
 				monitoredChainStatusManager,
 				db,
-			); err != nil {
+			)
+			if err != nil {
 				return fmt.Errorf("failed to create verification coordinator for lombard: %w", err)
 			}
-		} else if verifierConfig.IsCCTP() {
-			if coordinator, err = createCCTPCoordinator(
+		case verifierConfig.IsCCTP():
+			coordinator, err = createCCTPCoordinator(
 				ctx,
 				verifierConfig.VerifierID,
 				verifierConfig.CCTPConfig,
@@ -185,10 +189,32 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 				verifierMonitoring,
 				monitoredChainStatusManager,
 				db,
-			); err != nil {
+			)
+			if err != nil {
 				return fmt.Errorf("failed to create verification coordinator for cctp: %w", err)
 			}
-		} else {
+		case verifierConfig.IsZK():
+			coordinator, err = createZKCoordinator(
+				ctx,
+				verifierConfig.VerifierID,
+				verifierConfig.ZKConfig,
+				cfg.DisableFinalityCheckers,
+				tvf.lggr,
+				sourceReaders,
+				storage.NewCCVWriter(
+					tvf.lggr,
+					verifierConfig.ZKConfig.ParsedVerifierResolvers,
+					monitoredStorage,
+				),
+				messageTracker,
+				verifierMonitoring,
+				monitoredChainStatusManager,
+				db,
+			)
+			if err != nil {
+				return fmt.Errorf("failed to create verification coordinator for zk: %w", err)
+			}
+		default:
 			tvf.lggr.Fatalw("Unknown verifier type", "type", verifierConfig.Type)
 			continue
 		}
@@ -336,6 +362,83 @@ func createLombardCoordinator(
 	}
 
 	return coordinator, nil
+}
+
+func createZKCoordinator(
+	ctx context.Context,
+	verifierID string,
+	zkConfig *zk.ZKConfig,
+	disableFinalityCheckers []string,
+	lggr logger.Logger,
+	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
+	ccvStorage protocol.CCVNodeDataWriter,
+	messageTracker verifier.MessageLatencyTracker,
+	verifierMonitoring verifier.Monitoring,
+	chainStatusManager protocol.ChainStatusManager,
+	db sqlutil.DataSource,
+) (*verifier.Coordinator, error) {
+	sourceConfigs := createSourceConfigs(zkConfig.ParsedVerifierResolvers, disableFinalityCheckers)
+
+	// The witness needs raw block data from the source chain and light client reads on the destination chain.
+	// Neither comes from the accessor, so the lanes dial the endpoints of the same EVM config directly.
+	rpcURLs, err := evmRPCURLs()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load EVM RPC endpoints: %w", err)
+	}
+	lanes, err := zk.DialLanes(ctx, zkConfig.ParsedLanes, rpcURLs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to dial ZK lanes: %w", err)
+	}
+
+	coordinator, err := verifier.NewCoordinator(
+		lggr,
+		zk.NewVerifier(lggr, verifierMonitoring, verifierID, *zkConfig, lanes),
+		sourceReaders,
+		ccvStorage,
+		verifier.CoordinatorConfig{
+			VerifierID:          verifierID,
+			SourceConfigs:       sourceConfigs,
+			StorageBatchSize:    50,
+			StorageBatchTimeout: 100 * time.Millisecond,
+			// In this case it's a database so we can do more aggressive retries
+			StorageRetryDelay: 500 * time.Millisecond,
+			CursePollInterval: cursechecker.DEFAULT_POLL_INTERVAL,
+			// How often buffered chain statuses are written. A disabled status is written immediately.
+			ChainStatusFlushInterval:  chainstatus.DefaultFlushInterval,
+			ChainStatusFlushThreshold: chainstatus.DefaultFlushThreshold,
+		},
+		messageTracker,
+		verifierMonitoring,
+		chainStatusManager,
+		heartbeatclient.NewNoopHeartbeatClient(),
+		nil,
+		db,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create verification coordinator for zk: %w", err)
+	}
+	return coordinator, nil
+}
+
+// evmRPCURLs returns the first HTTP endpoint of every chain in the mounted EVM config.
+func evmRPCURLs() (map[protocol.ChainSelector]string, error) {
+	evmConfig, _, err := evmconfig.LoadConfigFile(evmconfig.ResolveConfigPath())
+	if err != nil {
+		return nil, err
+	}
+	infos, err := evmConfig.ToInfos()
+	if err != nil {
+		return nil, err
+	}
+	rpcURLs := make(map[protocol.ChainSelector]string, len(infos))
+	for selector, info := range infos.GetAllInfos() {
+		node, err := info.GetFirstNode()
+		if err != nil {
+			return nil, err
+		}
+		rpcURLs[selector] = node.HTTPUrl
+	}
+	return rpcURLs, nil
 }
 
 func createSourceConfigs(

@@ -11,6 +11,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/cctp"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/lombard"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/zk"
 )
 
 func Test_Config_Deserialization(t *testing.T) {
@@ -46,6 +47,21 @@ func Test_Config_Deserialization(t *testing.T) {
 		[token_verifiers.verifier_resolver_addresses]
 		1 = "0x2222222222222222222222222222222222222222"
 		2 = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+
+		[[token_verifiers]]
+		verifier_id = "zk-verifier-1"
+		type = "zk"
+		version = "1.0"
+		not_proven_retry = "90s"
+
+		[token_verifiers.verifier_resolver_addresses]
+		1 = "0x3333333333333333333333333333333333333333"
+		2 = "0xcccccccccccccccccccccccccccccccccccccccc"
+
+		[[token_verifiers.lanes]]
+		source_chain_selector = "1"
+		dest_chain_selector = "2"
+		light_client = "0xf66AB2b4C1B7045ea51e4d905F91c40EAB31304E"
 	`
 
 	assertContent := func(config Config) {
@@ -55,7 +71,7 @@ func Test_Config_Deserialization(t *testing.T) {
 		assert.Equal(t, "0xRMN1", config.RMNRemoteAddresses["1"])
 		assert.Equal(t, "0xRMN2", config.RMNRemoteAddresses["2"])
 
-		require.Len(t, config.TokenVerifiers, 2)
+		require.Len(t, config.TokenVerifiers, 3)
 		cctpVerifier := config.TokenVerifiers[0]
 		assert.Equal(t, "cctp-verifier-1", cctpVerifier.VerifierID)
 		assert.Equal(t, "cctp", cctpVerifier.Type)
@@ -82,6 +98,19 @@ func Test_Config_Deserialization(t *testing.T) {
 		expectedAddr4, err := protocol.NewUnknownAddressFromHex("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
 		require.NoError(t, err)
 		assert.Equal(t, expectedAddr4, lombardVerifier.LombardConfig.ParsedVerifierResolvers[2])
+
+		zkVerifier := config.TokenVerifiers[2]
+		assert.Equal(t, "zk-verifier-1", zkVerifier.VerifierID)
+		assert.Equal(t, "zk", zkVerifier.Type)
+		assert.Equal(t, "1.0", zkVerifier.Version)
+		assert.Equal(t, 90*time.Second, zkVerifier.NotProvenRetry)
+		assert.Equal(t, zk.DefaultVerifierVersion, zkVerifier.ZKConfig.VerifierVersion)
+		expectedAddr5, err := protocol.NewUnknownAddressFromHex("0x3333333333333333333333333333333333333333")
+		require.NoError(t, err)
+		assert.Equal(t, expectedAddr5, zkVerifier.ZKConfig.ParsedVerifierResolvers[1])
+		lightClient, err := protocol.NewUnknownAddressFromHex("0xf66AB2b4C1B7045ea51e4d905F91c40EAB31304E")
+		require.NoError(t, err)
+		assert.Equal(t, []zk.Lane{{SourceChainSelector: 1, DestChainSelector: 2, LightClient: lightClient}}, zkVerifier.ParsedLanes)
 	}
 
 	var config Config
@@ -258,6 +287,58 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 			}(),
 		},
 		{
+			name: "valid zk config",
+			toml: `
+				verifier_id = "zk-test-1"
+				type = "zk"
+				version = "1.0"
+				not_proven_retry = "2m"
+
+				[verifier_resolver_addresses]
+				1 = "0x3333333333333333333333333333333333333333"
+				2 = "0xcccccccccccccccccccccccccccccccccccccccc"
+
+				[[lanes]]
+				source_chain_selector = "1"
+				dest_chain_selector = "2"
+				light_client = "0xf66AB2b4C1B7045ea51e4d905F91c40EAB31304E"
+			`,
+			expected: func() VerifierConfig {
+				addr1, err := protocol.NewUnknownAddressFromHex("0x3333333333333333333333333333333333333333")
+				require.NoError(t, err)
+				addr2, err := protocol.NewUnknownAddressFromHex("0xcccccccccccccccccccccccccccccccccccccccc")
+				require.NoError(t, err)
+				lightClient, err := protocol.NewUnknownAddressFromHex("0xf66AB2b4C1B7045ea51e4d905F91c40EAB31304E")
+				require.NoError(t, err)
+				return VerifierConfig{
+					VerifierID: "zk-test-1",
+					Type:       "zk",
+					Version:    "1.0",
+					ZKConfig: &zk.ZKConfig{
+						NotProvenRetry:  2 * time.Minute,
+						VerifierVersion: zk.DefaultVerifierVersion,
+						ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{
+							1: addr1,
+							2: addr2,
+						},
+						ParsedLanes: []zk.Lane{{SourceChainSelector: 1, DestChainSelector: 2, LightClient: lightClient}},
+					},
+				}
+			}(),
+		},
+		{
+			name: "zk config without lanes returns error",
+			toml: `
+				verifier_id = "zk-test-bad"
+				type = "zk"
+				version = "1.0"
+
+				[verifier_resolver_addresses]
+				1 = "0x3333333333333333333333333333333333333333"
+			`,
+			wantErr: true,
+		},
+		{
 			name: "malformed lombard config returns error",
 			toml: `
 				verifier_id = "lombard-test-bad"
@@ -304,6 +385,16 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 				assert.Equal(t, tt.expected.LombardConfig.ParsedVerifierResolvers, result.LombardConfig.ParsedVerifierResolvers)
 			} else {
 				assert.Nil(t, result.LombardConfig)
+			}
+
+			if tt.expected.ZKConfig != nil {
+				require.NotNil(t, result.ZKConfig)
+				assert.Equal(t, tt.expected.NotProvenRetry, result.NotProvenRetry)
+				assert.Equal(t, tt.expected.ZKConfig.VerifierVersion, result.ZKConfig.VerifierVersion)
+				assert.Equal(t, tt.expected.ZKConfig.ParsedVerifierResolvers, result.ZKConfig.ParsedVerifierResolvers)
+				assert.Equal(t, tt.expected.ParsedLanes, result.ParsedLanes)
+			} else {
+				assert.Nil(t, result.ZKConfig)
 			}
 		})
 	}

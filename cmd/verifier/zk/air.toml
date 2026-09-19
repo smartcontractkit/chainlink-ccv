@@ -1,0 +1,9 @@
+root = ".."
+
+[build]
+cmd = "go build -o ./tmp/zk /app/cmd/verifier/zk"
+bin = "tmp/zk"
+include_dir = ["app"]
+include_ext = ["go", "mod", "sum"]
+exclude_dir = ["tmp", "vendor", "testdata", ".git"]
+
