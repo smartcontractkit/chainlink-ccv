@@ -10,6 +10,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/jobqueue/archivecategory"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 )
 
@@ -18,39 +19,6 @@ const (
 	ArchiveWarningLead        = 7 * 24 * time.Hour
 	ArchiveCollectionInterval = time.Minute
 )
-
-// failureCategorySQL maps an archived row onto the bounded failure vocabulary at read time.
-//
-// R1 allows either persisting a category or defining a stable mapping; this is the mapping, so
-// the inventory needs no schema change. Every input it reads (last_error, retry_deadline,
-// completed_at) already exists on the archive tables.
-//
-// Retry-window expiry is decided by the timestamps rather than the error text: a job archived
-// because its deadline passed carries whatever error last failed it, which on its own is
-// indistinguishable from the same error on a job archived for another reason.
-//
-// The vocabulary is closed. Anything unmatched is "unknown" rather than a new label, so the
-// metric's cardinality is fixed no matter what an error string says. TestArchiveFailureCategory
-// pins each branch against seeded rows.
-const failureCategorySQL = `CASE
-	WHEN completed_at >= retry_deadline THEN 'retry_window_expired'
-	WHEN last_error ILIKE '%%policy hook rejected%%' THEN 'policy_rejected'
-	WHEN last_error ILIKE '%%unmarshal%%'
-	  OR last_error ILIKE '%%deserialize%%'
-	  OR last_error ILIKE '%%unsupported message version%%'
-	  OR last_error ILIKE '%%receipt blobs list is empty%%'
-	  OR last_error ILIKE '%%verification task is nil%%'
-	  OR last_error ILIKE '%%sender cannot be empty or zero%%'
-	  OR last_error ILIKE '%%receiver cannot be empty%%'
-	  OR last_error ILIKE '%%invalid receipt structure%%'
-	  OR last_error ILIKE '%%failed to parse receipt structure%%'
-	  OR last_error ILIKE '%%failed to convert messageid to bytes32%%'
-	  OR last_error ILIKE '%%neither verifier nor default executor blob found%%'
-	  OR (last_error ILIKE '%%source chain selector%%' AND last_error ILIKE '%%not configured%%')
-	  THEN 'validation_error'
-	WHEN '%s' = 'ccv_storage_writer_jobs' THEN 'storage_failure'
-	ELSE 'unknown'
-END`
 
 type archiveKey struct{ chain, category string }
 
@@ -93,7 +61,7 @@ func newArchiveMetrics() (*archiveMetrics, error) {
 }
 
 func (q *PostgresJobQueue[T]) archiveSnapshot(ctx context.Context) (map[archiveKey]archiveSnapshot, error) {
-	category := fmt.Sprintf(failureCategorySQL, q.tableName)
+	category := archivecategory.SQL(q.tableName)
 	query := fmt.Sprintf(`SELECT chain_selector::text, %s AS failure_category, COUNT(*),
 		COUNT(*) FILTER (WHERE completed_at <= NOW() - $2::interval),
 		GREATEST(0, EXTRACT(EPOCH FROM NOW() - MIN(completed_at)))::double precision

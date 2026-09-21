@@ -86,14 +86,17 @@ func TestRecoveryRereadsAdmissionWithoutChangingNormalProgress(t *testing.T) {
 			require.Equal(t, uint64(101), o.NextBlock)
 			require.Equal(t, uint64(500), r.lastProcessedFinalizedBlock.Load().Uint64())
 			require.Empty(t, r.pendingTasks)
-			require.Empty(t, r.sentTasks)
 			page, err := r.recovery.store.ListEvents(t.Context(), recovery.EventFilter{OwnerID: "owner", Limit: 50})
 			require.NoError(t, err)
 			if tc.wantReason == "" {
 				require.Equal(t, int64(1), o.Admitted)
+				require.Empty(t, r.sentTasks)
 				require.Empty(t, page.Events)
 			} else {
 				require.Equal(t, int64(1), o.Dropped)
+				// Terminal-drop marker: an overlapping normal scan must not
+				// rediscover and re-admit the message after the curse/rule clears.
+				require.Contains(t, r.sentTasks, events[0].MessageID.String())
 				require.Len(t, page.Events, 1)
 				require.Equal(t, tc.wantReason, page.Events[0].Reason)
 			}

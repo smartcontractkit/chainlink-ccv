@@ -260,16 +260,17 @@ func ParseMessageIDs(values []string) ([][]byte, error) {
 
 func renderJobsJSON(jobs []ArchivedJob) error {
 	type row struct {
-		Queue         QueueType  `json:"queue"`
-		JobID         string     `json:"job_id"`
-		MessageID     string     `json:"message_id"`
-		OwnerID       string     `json:"owner_id"`
-		ChainSelector string     `json:"source_chain_selector"`
-		Attempts      int        `json:"attempts"`
-		LastError     string     `json:"last_error"`
-		CreatedAt     time.Time  `json:"created_at"`
-		ArchivedAt    *time.Time `json:"archived_at"`
-		RetryDeadline time.Time  `json:"retry_deadline"`
+		Queue           QueueType  `json:"queue"`
+		JobID           string     `json:"job_id"`
+		MessageID       string     `json:"message_id"`
+		OwnerID         string     `json:"owner_id"`
+		ChainSelector   string     `json:"source_chain_selector"`
+		Attempts        int        `json:"attempts"`
+		LastError       string     `json:"last_error"`
+		CreatedAt       time.Time  `json:"created_at"`
+		ArchivedAt      *time.Time `json:"archived_at"`
+		RetryDeadline   time.Time  `json:"retry_deadline"`
+		FailureCategory string     `json:"failure_category"`
 	}
 	result := make([]row, 0, len(jobs))
 	for _, j := range jobs {
@@ -278,6 +279,7 @@ func renderJobsJSON(jobs []ArchivedJob) error {
 			OwnerID: j.OwnerID, ChainSelector: fmt.Sprintf("%d", j.ChainSelector),
 			Attempts: j.AttemptCount, LastError: j.LastError,
 			CreatedAt: j.CreatedAt, ArchivedAt: j.ArchivedAt, RetryDeadline: j.RetryDeadline,
+			FailureCategory: j.FailureCategory,
 		})
 	}
 	return json.NewEncoder(os.Stdout).Encode(result)

@@ -20,7 +20,7 @@ verifier ccv job-queue list --message-id 0x<FULL_ID_1>,0x<FULL_ID_2> \
 
 Without a message filter, listing retains its previous behavior. Ordering is by original `created_at` descending, then job ID. A filtered lookup can find a matching row older than the newest 50 unfiltered rows.
 
-JSON includes `queue`, `job_id`, full `message_id`, `owner_id`, decimal-string `source_chain_selector`, `attempts`, full `last_error`, persisted `failure_category`, `created_at`, `archived_at`, and `retry_deadline`. Timestamps are RFC3339; an absent archive timestamp is null and an absent error is an empty string. Diagnostics go to stderr, leaving stdout suitable for JSON consumers. Large selectors retain their exact value in JavaScript clients. The table can shorten diagnostic text; use JSON for complete errors.
+JSON includes `queue`, `job_id`, full `message_id`, `owner_id`, decimal-string `source_chain_selector`, `attempts`, full `last_error`, `failure_category`, `created_at`, `archived_at`, and `retry_deadline`. Timestamps are RFC3339; an absent archive timestamp is null and an absent error is an empty string. Diagnostics go to stderr, leaving stdout suitable for JSON consumers. Large selectors retain their exact value in JavaScript clients. The table can shorten diagnostic text; use JSON for complete errors.
 
 ## Restore a saved job
 
@@ -48,6 +48,6 @@ For changed canonical source data, pre-admission drops or expired archives, use 
 
 Automatic retry remains 7 days. Non-retryable failures archive immediately. Archive cleanup remains 30 days after `archived_at` (`completed_at` in SQL), swept every 4 hours.
 
-Both queues now export retained failed inventory once per minute, with a 7-day warning lead (archive age at least 23 days). Categories are persisted when archiving: `policy_rejected`, `retry_window_expired`, `validation_error`, `storage_failure`, and `unknown`. Known validation/deserialization errors take precedence over generic storage failures; expired retries use `retry_window_expired`. Pre-upgrade rows retain `unknown`. Classification is advisory and never determines whether a replay is safe.
+Both queues now export retained failed inventory once per minute, with a 7-day warning lead (archive age at least 23 days). Categories are derived at read time from a bounded vocabulary: `policy_rejected`, `retry_window_expired`, `validation_error`, `storage_failure`, and `unknown`. Known validation/deserialization errors take precedence over generic storage failures; expired retries use `retry_window_expired`. Rows matching nothing known classify as `unknown`. Classification is advisory and never determines whether a replay is safe.
 
 See [archive inventory monitoring](../../docs/monitoring/verifier-archive-inventory.md), [recovery monitoring](../../docs/monitoring/verifier-recovery.md) and the [remediation runbook](../../docs/runbooks/remediating-stuck-or-dropped-messages.md). Inventory counts retained failed **jobs**, which may contain repeated or already recovered messages; it does not count distinct affected messages.

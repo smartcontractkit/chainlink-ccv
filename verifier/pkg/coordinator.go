@@ -67,6 +67,20 @@ type Coordinator struct {
 	messageRulesSvc common.MessageRulesCheckerService
 }
 
+// CoordinatorOption customizes coordinator construction.
+type CoordinatorOption func(*coordinatorOptions)
+
+type coordinatorOptions struct {
+	sourceRecovery bool
+}
+
+// WithSourceRecovery enables durable source-range recovery on the source readers. Standalone
+// verifiers only: the Chainlink-node integration does not apply the ccv_recovery_* migrations,
+// so enabling this there would break its event loop.
+func WithSourceRecovery() CoordinatorOption {
+	return func(o *coordinatorOptions) { o.sourceRecovery = true }
+}
+
 func NewCoordinator(
 	lggr logger.Logger,
 	verifier Verifier,
@@ -79,13 +93,14 @@ func NewCoordinator(
 	heartbeatClient heartbeatclient.HeartbeatSender,
 	messageRulesSvc common.MessageRulesCheckerService,
 	ds sqlutil.DataSource,
+	opts ...CoordinatorOption,
 ) (*Coordinator, error) {
 	if ds == nil {
 		return nil, errors.New("db is required; in-memory implementations are no longer supported")
 	}
 	return NewCoordinatorWithDetector(
 		lggr, verifier, sourceReaders, storage, config,
-		messageTracker, monitoring, chainStatusManager, nil, heartbeatClient, messageRulesSvc, ds,
+		messageTracker, monitoring, chainStatusManager, nil, heartbeatClient, messageRulesSvc, ds, opts...,
 	)
 }
 
@@ -102,12 +117,17 @@ func NewCoordinatorWithDetector(
 	heartbeatClient heartbeatclient.HeartbeatSender,
 	messageRulesSvc common.MessageRulesCheckerService,
 	ds sqlutil.DataSource,
+	opts ...CoordinatorOption,
 ) (*Coordinator, error) {
 	if ds == nil {
 		return nil, errors.New("db is required; in-memory implementations are no longer supported")
 	}
 	if verifier == nil {
 		return nil, errors.New("verifier is required")
+	}
+	var options coordinatorOptions
+	for _, opt := range opts {
+		opt(&options)
 	}
 	lggr = logger.With(lggr, "verifierID", config.VerifierID)
 	vc := &Coordinator{
@@ -154,7 +174,7 @@ func NewCoordinatorWithDetector(
 		}
 
 		processors, err := createDurableProcessors(
-			lggr, ds, config, verifier, monitoring, configuredSourceReaders, batchedChainStatusManager, vc.curseDetector, messageTracker, storage, messageRulesChecker,
+			lggr, ds, config, verifier, monitoring, configuredSourceReaders, batchedChainStatusManager, vc.curseDetector, messageTracker, storage, messageRulesChecker, options.sourceRecovery,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to create durable processors: %w", err)
@@ -209,6 +229,7 @@ func createDurableProcessors(
 	messageTracker MessageLatencyTracker,
 	storage protocol.CCVNodeDataWriter,
 	messageRulesChecker common.MessageRulesChecker,
+	sourceRecovery bool,
 ) (*durableProcessors, error) {
 	taskQueue, err := jobqueue.NewPostgresJobQueue[VerificationTask](
 		ds,
@@ -267,11 +288,13 @@ func createDurableProcessors(
 		return nil, fmt.Errorf("failed to create DB source reader services: %w", err)
 	}
 
-	recoveryStore := recovery.NewStore(ds)
-	recoverySlots := make(chan struct{}, 1)
-	for _, reader := range sourceReadersDB {
-		if err := reader.ConfigureRecovery(recoveryStore, taskQueue, recoverySlots); err != nil {
-			return nil, fmt.Errorf("configure source recovery: %w", err)
+	if sourceRecovery {
+		recoveryStore := recovery.NewStore(ds)
+		recoverySlots := make(chan struct{}, 1)
+		for _, reader := range sourceReadersDB {
+			if err := reader.ConfigureRecovery(recoveryStore, taskQueue, recoverySlots); err != nil {
+				return nil, fmt.Errorf("configure source recovery: %w", err)
+			}
 		}
 	}
 

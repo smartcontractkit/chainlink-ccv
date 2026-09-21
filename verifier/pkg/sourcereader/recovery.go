@@ -23,8 +23,8 @@ type recoveryResetter interface {
 }
 
 type recoveryChunkResult struct {
-	ready      []verifier.VerificationTask
-	droppedIDs []string
+	ready   []verifier.VerificationTask
+	dropped []verifier.VerificationTask
 }
 
 type recoveryRuntime struct {
@@ -288,9 +288,13 @@ func (r *Service) recoverRange(ctx context.Context, latest, safe, finalized *pro
 	// reader's sent tracking so its overlapping scans do not republish them.
 	r.mu.Lock()
 	if committedChunk != nil {
-		for _, id := range committedChunk.droppedIDs {
-			delete(r.pendingTasks, id)
-			delete(r.pendingSince, id)
+		for _, task := range committedChunk.dropped {
+			delete(r.pendingTasks, task.MessageID)
+			delete(r.pendingSince, task.MessageID)
+			// Terminal-drop marker, same as the normal drop path: replay leaves the
+			// checkpoint unchanged, so an overlapping scan would otherwise rediscover
+			// and re-admit the message after its curse or rule clears.
+			r.sentTasks[task.MessageID] = task
 		}
 		for _, task := range committedChunk.ready {
 			delete(r.pendingTasks, task.MessageID)
@@ -360,7 +364,7 @@ func (r *Service) recoverChunk(ctx context.Context, tx *recovery.Store, o *recov
 	}
 	ready := make([]verifier.VerificationTask, 0, len(tasks))
 	drops := make([]recovery.Event, 0)
-	droppedIDs := make([]string, 0)
+	dropped := make([]verifier.VerificationTask, 0)
 	for _, task := range tasks {
 		decision, reason, err := r.admission(ctx, task, new(big.Int).SetUint64(latest.Number), safeBlock, new(big.Int).SetUint64(finalized.Number))
 		if err != nil || decision == admissionWait {
@@ -373,7 +377,7 @@ func (r *Service) recoverChunk(ctx context.Context, tx *recovery.Store, o *recov
 		}
 		if decision == admissionDrop {
 			drops = append(drops, r.dropEvent(task, reason, ""))
-			droppedIDs = append(droppedIDs, task.MessageID)
+			dropped = append(dropped, task)
 			continue
 		}
 		task.SourceBlockTimestamp = sourceBlockTimestamp(task.BlockNumber, task.SourceBlockTimestamp, latest, safe, finalized)
@@ -408,19 +412,12 @@ func (r *Service) recoverChunk(ctx context.Context, tx *recovery.Store, o *recov
 			}
 		}
 	}
-	return &recoveryChunkResult{ready: ready, droppedIDs: droppedIDs}, nil
+	return &recoveryChunkResult{ready: ready, dropped: dropped}, nil
 }
 
 // completeReset lands an investigated reset: it advances the durable checkpoint and releases the
-// reservation that has been holding normal polling back.
-//
-// checkpoint is already clamped to the finalized head by the caller. Anything above it can still
-// reorg, so persisting it would let a restart resume past blocks whose canonical events were
-// never read.
-//
-// The update requires the row to still be enabled. A reader an operator disabled again while the
-// reset was running is left alone rather than advanced, which is why a raced reset is safe to
-// investigate and retry rather than something that has already moved the checkpoint.
+// reservation holding normal polling back. The checkpoint is pre-clamped to the finalized head and
+// the update requires an enabled row, so a raced re-disablement is safe to investigate and retry.
 func (r *Service) completeReset(ctx context.Context, tx *recovery.Store, o *recovery.Operation, checkpoint uint64) error {
 	result, err := tx.DataSource().ExecContext(ctx,
 		"UPDATE ccv_chain_statuses SET finalized_block_height=$3,updated_at=NOW() WHERE verifier_id=$1 AND chain_selector=$2 AND NOT disabled",

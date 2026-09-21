@@ -13,6 +13,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 
 	cliqueue "github.com/smartcontractkit/chainlink-ccv/cli/jobqueue"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/jobqueue/archivecategory"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
@@ -126,7 +127,7 @@ func TestArchiveFailureCategory(t *testing.T) {
 
 			var got string
 			require.NoError(t, db.QueryRowxContext(ctx, fmt.Sprintf(
-				"SELECT %s FROM %s WHERE id = $1::bigint", fmt.Sprintf(failureCategorySQL, tc.table), archive), i+1).Scan(&got))
+				"SELECT %s FROM %s WHERE id = $1::bigint", archivecategory.SQL(tc.table), archive), i+1).Scan(&got))
 			require.Equal(t, tc.want, got)
 		})
 	}
@@ -144,7 +145,7 @@ func TestArchiveInventoryRepresentativePlan(t *testing.T) {
 	require.NoError(t, err)
 	_, err = db.ExecContext(ctx, "VACUUM (ANALYZE) ccv_task_verifier_jobs_archive")
 	require.NoError(t, err)
-	category := fmt.Sprintf(failureCategorySQL, "ccv_task_verifier_jobs")
+	category := archivecategory.SQL("ccv_task_verifier_jobs")
 	rows, err := db.QueryContext(ctx, fmt.Sprintf(`EXPLAIN (ANALYZE, BUFFERS) SELECT chain_selector, %s, COUNT(*),
 		COUNT(*) FILTER (WHERE completed_at <= NOW()-INTERVAL '23 days'), MIN(completed_at)
 		FROM ccv_task_verifier_jobs_archive WHERE owner_id='owner-1' AND status='failed' GROUP BY chain_selector,%s`,

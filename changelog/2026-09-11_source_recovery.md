@@ -10,7 +10,8 @@
   coordination, the standalone CLI and devenv coverage. Admin UI and Chainlink core command
   wiring are outside this change.
 - Recovery is standalone-verifier only. The Chainlink-node deployment neither applies these
-  migrations nor exposes the CLI, so its wiring must stay conditional; see Compatibility.
+  migrations nor exposes the CLI, so recovery wiring is gated behind `verifier.WithSourceRecovery()`;
+  see Compatibility.
 - Adds methods to the CLI store interface and optional reader metadata; consumers implementing that interface must adapt. No chain-family dependency is added to recovery or policy.
 
 ## AI Adapter Index
@@ -27,9 +28,10 @@ Read each matching row's section when adapting a downstream consumer. Unlisted s
 | `jobqueue.PostgresJobQueue.Fail / Retry` | behavior-changed | `\.Fail\(|\.Retry\(` | `verifier/pkg/jobqueue/postgres_queue.go:545` | [#archive-inventory](#archive-inventory) |
 | `jobqueue.ObservabilityDecorator` | behavior-changed | `NewObservabilityDecorator` | `verifier/pkg/jobqueue/observability_decorator.go:111` | [#archive-inventory](#archive-inventory) |
 | `verifier.NewCoordinatorWithDetector disabled-reader startup` | behavior-changed | `NewCoordinator(WithDetector)?\(` | `verifier/pkg/coordinator.go:92` | [#live-source-recovery](#live-source-recovery) |
+| `verifier.WithSourceRecovery` / `jobqueue.FailureCategory` CLI exposure | added | `WithSourceRecovery|failure_category` | `verifier/pkg/coordinator.go:70` | [#live-source-recovery](#live-source-recovery) |
 | `sourcereader.Service admission and finality audit` | behavior-changed | `sourcereader\.NewService` | `verifier/pkg/sourcereader/service.go:647` | [#drop-and-incident-history](#drop-and-incident-history) |
 | `sourcereader.FinalityViolationCheckerService.UpdateFinalized` | behavior-changed | `\.UpdateFinalized\(` | `verifier/pkg/sourcereader/finality_checker.go:86` | [#live-source-recovery](#live-source-recovery) |
-| `ccv_task_verifier_jobs_archive / ccv_storage_writer_jobs_archive schema` | behavior-changed | `ccv_(task_verifier|storage_writer)_jobs_archive` | `verifier/migrations/postgres/00009_recovery.sql:1` | [#schema-and-rollout](#schema-and-rollout) |
+| `ccv_task_verifier_jobs_archive / ccv_storage_writer_jobs_archive schema` | unchanged | `failureCategorySQL` | no migration; classification is read-time in `verifier/pkg/jobqueue/archive.go` | [#archive-inventory](#archive-inventory) |
 | `protocol.MessageSentEvent.BlockHash` | added | `MessageSentEvent\s*\{` | `protocol/common_types.go:357` | [#reader-metadata](#reader-metadata) |
 | `vtypes.VerificationTask.SourceBlockHash` | added | `VerificationTask\s*\{` | `verifier/pkg/vtypes/types.go:17` | [#reader-metadata](#reader-metadata) |
 | `jobqueue.ArchivedJob.FailureCategory` | added | `ArchivedJob\b` | `cli/jobqueue/store.go:44` | [#archive-inventory](#archive-inventory) |
@@ -64,7 +66,7 @@ Implementations and mocks must support exact filtering before limiting and trans
 1. Upgrade the database through the existing verifier migration mechanism to include 00009 before using new code. Both Up and Down definitions are included.
 2. Add the two CLI store methods to custom implementations/mocks, retaining the old signatures. The checked-in mock has been updated manually because Go generation was prohibited during this task.
 3. Preserve optional block hashes from your reader when available. Omission remains supported and is represented as absent evidence; do not derive chain-specific values in policy or recovery.
-4. Standalone command wiring is included in `cmd/verifier/run_ccv_cli.go`. A downstream Chainlink core CLI must add the command group itself. The backend is configured by the shared coordinator.
+4. Standalone command wiring is included in `cmd/verifier/run_ccv_cli.go`. A downstream Chainlink core CLI must add the command group itself. The backend is configured by the shared coordinator only when the caller passes `verifier.WithSourceRecovery()`; the standalone factories pass it and the Chainlink-node integration does not.
 5. Import the dashboard and provision alert rules through your deployment's Grafana workflow. The files use datasource UID `victoriametrics`; adjust organization/routing for your installation.
 
 ## Archive CLI
@@ -77,7 +79,7 @@ A task-verifier restore repeats normal verification/policy on the saved payload.
 
 ## Archive Inventory
 
-R1: migration 00009 adds bounded persisted `failure_category` values to both archives and partial indexes for failed-inventory aggregation and message lookup. New archival classification distinguishes policy rejection, retry expiry, known validation/deserialization failure, storage failure and unknown. Pre-upgrade rows retain unknown; classification is advisory and does not change retry/policy decisions.
+R1: no migration. `failureCategorySQL` maps archived rows onto a bounded failure vocabulary at read time — policy rejection, retry expiry, known validation/deserialization failure, storage failure and unknown — so the archive schema is unchanged. The same expression backs the inventory metrics and the `failure_category` field emitted by `ccv job-queue list --json`. Rows matching nothing known classify as unknown; classification is advisory and does not change retry/policy decisions.
 
 Both queue observers collect retained failed inventory at startup and every minute, separately from ten-second active queue-size collection. The query has a two-second timeout and avoids JSON/error-text decoding. Metrics expose failed count, count within seven days of the unchanged 30-day retention cutoff, oldest archive age, collection success and last successful timestamp. Removed groups emit zero after successful collection; query failure leaves last-good inventory and exposes stale/failed collection. Empty startup groups have no series until observed; use collection health to interpret absence. No message IDs or raw errors are labels.
 
