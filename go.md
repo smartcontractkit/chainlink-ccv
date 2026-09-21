@@ -47,6 +47,7 @@ flowchart LR
 	chainlink-ccv --> chainlink-protos/chainlink-ccv/heartbeat
 	chainlink-ccv --> chainlink-protos/chainlink-ccv/message-discovery
 	chainlink-ccv --> chainlink-protos/chainlink-ccv/message-rules
+	chainlink-ccv --> chainlink-protos/node-platform
 	chainlink-ccv --> chainlink-protos/orchestrator
 	chainlink-ccv --> chainlink-solana
 	click chainlink-ccv href "https://github.com/smartcontractkit/chainlink-ccv"
@@ -273,6 +274,7 @@ flowchart LR
 	chainlink-ccv --> chainlink-protos/chainlink-ccv/heartbeat
 	chainlink-ccv --> chainlink-protos/chainlink-ccv/message-discovery
 	chainlink-ccv --> chainlink-protos/chainlink-ccv/message-rules
+	chainlink-ccv --> chainlink-protos/node-platform
 	chainlink-ccv --> chainlink-protos/orchestrator
 	chainlink-ccv --> chainlink-solana
 	chainlink-ccv --> chainlink-testing-framework/framework
