@@ -16,17 +16,17 @@ type ZKConfig struct {
 	// VerifierVersion is the parsed verifier version of the SuccinctZKVerifier contract.
 	// Defaults to DefaultVerifierVersion if not specified.
 	VerifierVersion protocol.ByteSlice `json:"verifier_version" toml:"verifier_version"`
-	// VerifierResolvers is a map of chain selectors to verifier resolver addresses. It's only used for TOML marshall/unmarshall and then
-	// final values, properly cast to domain values are stored in ParsedVerifierResolvers
+	// VerifierResolvers maps chain selectors to verifier resolver addresses as written in TOML.
+	// ParsedVerifierResolvers holds the same values as domain types.
 	VerifierResolvers       map[string]any                                     `json:"verifier_resolver_addresses" toml:"verifier_resolver_addresses"`
 	ParsedVerifierResolvers map[protocol.ChainSelector]protocol.UnknownAddress `json:"-"                           toml:"-"`
-	// Lanes lists the source and destination chain pairs the verifier serves. It's only used for TOML marshall/unmarshall and then
-	// final values, properly cast to domain values are stored in ParsedLanes
+	// Lanes lists the source and destination chain pairs the verifier serves as written in TOML.
+	// ParsedLanes holds the same values as domain types.
 	Lanes       []LaneConfig `json:"lanes" toml:"lanes"`
 	ParsedLanes []Lane       `json:"-"     toml:"-"`
 }
 
-// LaneConfig is the TOML shape of one lane. Chain selectors are strings because they exceed the TOML integer range.
+// LaneConfig is the TOML shape of one lane. Chain selectors are strings because they can exceed the TOML integer range.
 type LaneConfig struct {
 	SourceChainSelector string `json:"source_chain_selector" toml:"source_chain_selector"`
 	DestChainSelector   string `json:"dest_chain_selector"   toml:"dest_chain_selector"`

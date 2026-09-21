@@ -22,7 +22,7 @@ import (
 const provider = "zk"
 
 // There is a distinction for the message block not being proven yet and RPC/any other errors.
-// The not proven retry follows the light client cadence and is configured, the other retry is fixed.
+// Waiting for the light client takes longer than a transient RPC failure, so the not proven retry is configured.
 const (
 	anyErrorRetry = 30 * time.Second
 	// witnessTimeout bounds one witness attempt with all its RPC requests. Tasks are verified one after the other,
@@ -78,13 +78,8 @@ func (v *Verifier) processVerificationTask(ctx context.Context, task verifier.Ve
 	lggr := logger.With(v.lggr, protocol.LogKeyMessageID, task.MessageID, "txHash", task.TxHash)
 	lggr.Debugw("Verifying ZK task")
 
-	// Open a child span under the task-verifier attempt span so this witness
-	// build extends the base message trace opened by the source reader. The attempt
-	// span is carried by the task's TraceContext (the batch ctx passed to
-	// VerifyMessages carries no live span), so parent off that span context.
-	//
-	// IMPORTANT: task.TraceContext is derived from context.WithoutCancel, so inject the attempt
-	// span context into ctx to keep its deadline/cancellation for the actual build.
+	// Parent the span off the attempt span in task.TraceContext, but keep ctx as the context: task.TraceContext is
+	// derived from context.WithoutCancel, so cancellation must come from the caller.
 	parentCtx := ctx
 	if task.TraceContext != nil {
 		if attemptSC := oteltrace.SpanContextFromContext(task.TraceContext); attemptSC.IsValid() {
@@ -121,7 +116,7 @@ func (v *Verifier) processVerificationTask(ctx context.Context, task verifier.Ve
 		return verifier.VerificationResult{Error: &verificationError}
 	}
 
-	// 1. Build the witness. Run under the span with a deadline so one stuck RPC request cannot stop the coordinator.
+	// One stuck RPC request must not stop the coordinator.
 	buildCtx, cancel := context.WithTimeout(buildCtx, witnessTimeout)
 	defer cancel()
 	message := SentMessage{
@@ -167,7 +162,6 @@ func (v *Verifier) processVerificationTask(ctx context.Context, task verifier.Ve
 	span.AddEvent(monitoring.EventAttestationFetchSucceeded, oteltrace.WithAttributes(attribute.String(tracing.TokenProviderKey, provider)))
 	recordOutcome(monitoring.TokenAttestationFetchOutcomeSuccess)
 
-	// 2. Create VerifierNodeResult
 	result, err := commit.CreateVerifierNodeResult(
 		&task,
 		verifierResults,
@@ -184,7 +178,6 @@ func (v *Verifier) processVerificationTask(ctx context.Context, task verifier.Ve
 
 	span.SetStatus(codes.Ok, "")
 
-	// 3. Return successful result
 	// PER-MESSAGE LOG (status): witness complete; storage write is the terminal success.
 	lggr.Infow("VerifierResults: Successfully verified message", protocol.LogTypeKey, protocol.LogTypeMessageStatus, "provenBlockNumber", witness.ProvenBlockNumber, "headers", len(witness.Headers))
 	return verifier.VerificationResult{Result: result}

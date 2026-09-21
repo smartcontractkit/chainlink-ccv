@@ -14,8 +14,8 @@ import (
 	"github.com/ethereum/go-ethereum/trie"
 )
 
-// provenBlockScanBatch is how many light client entries one batched RPC call reads. Public RPC endpoints reject
-// larger batches, and the operator proves a block about every 32 source blocks, so most scans need one call.
+// provenBlockScanBatch is how many light client entries one batched RPC call reads. Some public RPC endpoints
+// reject larger batches.
 const provenBlockScanBatch = 16
 
 var (
