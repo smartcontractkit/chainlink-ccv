@@ -68,6 +68,7 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 		sink := mocks.NewMockSink(t)
 		quorum := mocks.NewMockQuorumValidator(t)
 		monitoring := mocks.NewMockAggregatorMonitoring(t)
+		testutil.StubTracing(monitoring)
 		metricLabeler := mocks.NewMockAggregatorMetricLabeler(t)
 
 		monitoring.EXPECT().Metrics().Return(metricLabeler).Maybe()
@@ -102,6 +103,7 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 		sink := mocks.NewMockSink(t)
 		quorum := mocks.NewMockQuorumValidator(t)
 		monitoring := mocks.NewMockAggregatorMonitoring(t)
+		testutil.StubTracing(monitoring)
 		metricLabeler := mocks.NewMockAggregatorMetricLabeler(t)
 
 		monitoring.EXPECT().Metrics().Return(metricLabeler).Maybe()
@@ -137,6 +139,7 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 		sink := mocks.NewMockSink(t)
 		quorum := mocks.NewMockQuorumValidator(t)
 		monitoring := mocks.NewMockAggregatorMonitoring(t)
+		testutil.StubTracing(monitoring)
 		metricLabeler := mocks.NewMockAggregatorMetricLabeler(t)
 
 		monitoring.EXPECT().Metrics().Return(metricLabeler).Maybe()
@@ -181,6 +184,7 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 		sink := mocks.NewMockSink(t)
 		quorum := mocks.NewMockQuorumValidator(t)
 		monitoring := mocks.NewMockAggregatorMonitoring(t)
+		testutil.StubTracing(monitoring)
 		metricLabeler := mocks.NewMockAggregatorMetricLabeler(t)
 
 		monitoring.EXPECT().Metrics().Return(metricLabeler).Maybe()
@@ -224,6 +228,7 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 		sink := mocks.NewMockSink(t)
 		quorum := mocks.NewMockQuorumValidator(t)
 		monitoring := mocks.NewMockAggregatorMonitoring(t)
+		testutil.StubTracing(monitoring)
 		metricLabeler := mocks.NewMockAggregatorMetricLabeler(t)
 
 		monitoring.EXPECT().Metrics().Return(metricLabeler).Maybe()
@@ -243,6 +248,7 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 		sink := mocks.NewMockSink(t)
 		quorum := mocks.NewMockQuorumValidator(t)
 		monitoring := mocks.NewMockAggregatorMonitoring(t)
+		testutil.StubTracing(monitoring)
 		metricLabeler := mocks.NewMockAggregatorMetricLabeler(t)
 
 		monitoring.EXPECT().Metrics().Return(metricLabeler).Maybe()
@@ -265,6 +271,7 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 		sink := mocks.NewMockSink(t)
 		quorum := mocks.NewMockQuorumValidator(t)
 		monitoring := mocks.NewMockAggregatorMonitoring(t)
+		testutil.StubTracing(monitoring)
 		metricLabeler := mocks.NewMockAggregatorMetricLabeler(t)
 
 		monitoring.EXPECT().Metrics().Return(metricLabeler).Maybe()
@@ -300,6 +307,7 @@ func TestHealthCheck(t *testing.T) {
 			store := mocks.NewMockCommitVerificationStore(t)
 			sink := mocks.NewMockSink(t)
 			monitoring := mocks.NewMockAggregatorMonitoring(t)
+			testutil.StubTracing(monitoring)
 			metric := mocks.NewMockAggregatorMetricLabeler(t)
 			monitoring.EXPECT().Metrics().Return(metric).Maybe()
 
@@ -331,6 +339,7 @@ func TestCheckAggregation_EnqueueAndFull(t *testing.T) {
 		store := mocks.NewMockCommitVerificationStore(t)
 		sink := mocks.NewMockSink(t)
 		monitoring := mocks.NewMockAggregatorMonitoring(t)
+		testutil.StubTracing(monitoring)
 		metric := mocks.NewMockAggregatorMetricLabeler(t)
 		monitoring.EXPECT().Metrics().Return(metric).Maybe()
 		metric.EXPECT().With(mock.Anything, mock.Anything).Return(metric).Maybe()
@@ -348,6 +357,7 @@ func TestCheckAggregation_EnqueueAndFull(t *testing.T) {
 		store := mocks.NewMockCommitVerificationStore(t)
 		sink := mocks.NewMockSink(t)
 		monitoring := mocks.NewMockAggregatorMonitoring(t)
+		testutil.StubTracing(monitoring)
 		metric := mocks.NewMockAggregatorMetricLabeler(t)
 		monitoring.EXPECT().Metrics().Return(metric).Maybe()
 
@@ -381,9 +391,10 @@ func TestCheckAggregationAndSubmitComplete(t *testing.T) {
 
 	t.Run("list error", func(t *testing.T) {
 		storage := mocks.NewMockCommitVerificationStore(t)
-		storage.EXPECT().ListCommitVerificationByAggregationKey(ctx, msgID, aggregationKey).Return(nil, errors.New("boom"))
+		storage.EXPECT().ListCommitVerificationByAggregationKey(mock.Anything, msgID, aggregationKey).Return(nil, errors.New("boom"))
 
 		monitoring := mocks.NewMockAggregatorMonitoring(t)
+		testutil.StubTracing(monitoring)
 		metric := mocks.NewMockAggregatorMetricLabeler(t)
 		monitoring.EXPECT().Metrics().Return(metric).Maybe()
 
@@ -396,11 +407,12 @@ func TestCheckAggregationAndSubmitComplete(t *testing.T) {
 
 	t.Run("quorum error", func(t *testing.T) {
 		storage := mocks.NewMockCommitVerificationStore(t)
-		storage.EXPECT().ListCommitVerificationByAggregationKey(ctx, msgID, aggregationKey).Return([]*model.CommitVerificationRecord{}, nil)
+		storage.EXPECT().ListCommitVerificationByAggregationKey(mock.Anything, msgID, aggregationKey).Return([]*model.CommitVerificationRecord{}, nil)
 		quorum := mocks.NewMockQuorumValidator(t)
-		quorum.EXPECT().CheckQuorum(ctx, mock.Anything).Return(false, errors.New("boom")).Maybe()
+		quorum.EXPECT().CheckQuorum(mock.Anything, mock.Anything).Return(false, errors.New("boom")).Maybe()
 
 		monitoring := mocks.NewMockAggregatorMonitoring(t)
+		testutil.StubTracing(monitoring)
 		metric := mocks.NewMockAggregatorMetricLabeler(t)
 		monitoring.EXPECT().Metrics().Return(metric).Maybe()
 
@@ -413,18 +425,19 @@ func TestCheckAggregationAndSubmitComplete(t *testing.T) {
 
 	t.Run("quorum met submits and records metrics", func(t *testing.T) {
 		storage := mocks.NewMockCommitVerificationStore(t)
-		storage.EXPECT().ListCommitVerificationByAggregationKey(ctx, exportMsgID, exportAggKey).Return(exportRecords, nil)
+		storage.EXPECT().ListCommitVerificationByAggregationKey(mock.Anything, exportMsgID, exportAggKey).Return(exportRecords, nil)
 		quorum := mocks.NewMockQuorumValidator(t)
-		quorum.EXPECT().CheckQuorum(ctx, mock.Anything).Return(true, nil).Maybe()
+		quorum.EXPECT().CheckQuorum(mock.Anything, mock.Anything).Return(true, nil).Maybe()
 		sink := mocks.NewMockSink(t)
-		sink.EXPECT().SubmitAggregatedReport(ctx, mock.Anything).Return(nil)
+		sink.EXPECT().SubmitAggregatedReport(mock.Anything, mock.Anything).Return(true, nil)
 
 		monitoring := mocks.NewMockAggregatorMonitoring(t)
+		testutil.StubTracing(monitoring)
 		metric := mocks.NewMockAggregatorMetricLabeler(t)
 		monitoring.EXPECT().Metrics().Return(metric).Maybe()
 		metric.EXPECT().With("component", "aggregator_worker").Return(metric).Maybe()
-		metric.EXPECT().IncrementCompletedAggregations(ctx)
-		metric.EXPECT().RecordTimeToAggregation(ctx, mock.Anything)
+		metric.EXPECT().IncrementCompletedAggregations(mock.Anything)
+		metric.EXPECT().RecordTimeToAggregation(mock.Anything, mock.Anything)
 
 		channelManager := NewChannelManager([]model.ChannelKey{}, exportConfig.Aggregation.ChannelBufferSize)
 		a := NewCommitReportAggregator(storage, nil, sink, quorum, exportConfig, logger.Sugared(logger.Test(t)), monitoring, channelManager)
@@ -434,13 +447,14 @@ func TestCheckAggregationAndSubmitComplete(t *testing.T) {
 
 	t.Run("quorum met submit error", func(t *testing.T) {
 		storage := mocks.NewMockCommitVerificationStore(t)
-		storage.EXPECT().ListCommitVerificationByAggregationKey(ctx, exportMsgID, exportAggKey).Return(exportRecords, nil)
+		storage.EXPECT().ListCommitVerificationByAggregationKey(mock.Anything, exportMsgID, exportAggKey).Return(exportRecords, nil)
 		quorum := mocks.NewMockQuorumValidator(t)
-		quorum.EXPECT().CheckQuorum(ctx, mock.Anything).Return(true, nil).Maybe()
+		quorum.EXPECT().CheckQuorum(mock.Anything, mock.Anything).Return(true, nil).Maybe()
 		sink := mocks.NewMockSink(t)
-		sink.EXPECT().SubmitAggregatedReport(ctx, mock.Anything).Return(errors.New("boom"))
+		sink.EXPECT().SubmitAggregatedReport(mock.Anything, mock.Anything).Return(false, errors.New("boom"))
 
 		monitoring := mocks.NewMockAggregatorMonitoring(t)
+		testutil.StubTracing(monitoring)
 		metric := mocks.NewMockAggregatorMetricLabeler(t)
 		monitoring.EXPECT().Metrics().Return(metric).Maybe()
 		metric.EXPECT().With("component", "aggregator_worker").Return(metric).Maybe()
@@ -453,16 +467,17 @@ func TestCheckAggregationAndSubmitComplete(t *testing.T) {
 
 	t.Run("quorum met_missing_destination_increments_blocked_unexportable_and_does_not_submit", func(t *testing.T) {
 		storage := mocks.NewMockCommitVerificationStore(t)
-		storage.EXPECT().ListCommitVerificationByAggregationKey(ctx, exportMsgID, exportAggKey).Return(exportRecords, nil)
+		storage.EXPECT().ListCommitVerificationByAggregationKey(mock.Anything, exportMsgID, exportAggKey).Return(exportRecords, nil)
 		quorum := mocks.NewMockQuorumValidator(t)
-		quorum.EXPECT().CheckQuorum(ctx, mock.Anything).Return(true, nil).Maybe()
+		quorum.EXPECT().CheckQuorum(mock.Anything, mock.Anything).Return(true, nil).Maybe()
 		sink := mocks.NewMockSink(t)
 
 		monitoring := mocks.NewMockAggregatorMonitoring(t)
+		testutil.StubTracing(monitoring)
 		metric := mocks.NewMockAggregatorMetricLabeler(t)
 		monitoring.EXPECT().Metrics().Return(metric).Maybe()
 		metric.EXPECT().With("component", "aggregator_worker").Return(metric).Maybe()
-		metric.EXPECT().IncrementAggregationsBlockedUnexportable(ctx)
+		metric.EXPECT().IncrementAggregationsBlockedUnexportable(mock.Anything)
 
 		channelManager := NewChannelManager([]model.ChannelKey{}, blockedConfig.Aggregation.ChannelBufferSize)
 		a := NewCommitReportAggregator(storage, nil, sink, quorum, blockedConfig, logger.Sugared(logger.Test(t)), monitoring, channelManager)
@@ -472,16 +487,17 @@ func TestCheckAggregationAndSubmitComplete(t *testing.T) {
 
 	t.Run("quorum met_nil_committee_increments_blocked_unexportable_and_does_not_submit", func(t *testing.T) {
 		storage := mocks.NewMockCommitVerificationStore(t)
-		storage.EXPECT().ListCommitVerificationByAggregationKey(ctx, exportMsgID, exportAggKey).Return(exportRecords, nil)
+		storage.EXPECT().ListCommitVerificationByAggregationKey(mock.Anything, exportMsgID, exportAggKey).Return(exportRecords, nil)
 		quorum := mocks.NewMockQuorumValidator(t)
-		quorum.EXPECT().CheckQuorum(ctx, mock.Anything).Return(true, nil).Maybe()
+		quorum.EXPECT().CheckQuorum(mock.Anything, mock.Anything).Return(true, nil).Maybe()
 		sink := mocks.NewMockSink(t)
 
 		monitoring := mocks.NewMockAggregatorMonitoring(t)
+		testutil.StubTracing(monitoring)
 		metric := mocks.NewMockAggregatorMetricLabeler(t)
 		monitoring.EXPECT().Metrics().Return(metric).Maybe()
 		metric.EXPECT().With("component", "aggregator_worker").Return(metric).Maybe()
-		metric.EXPECT().IncrementAggregationsBlockedUnexportable(ctx)
+		metric.EXPECT().IncrementAggregationsBlockedUnexportable(mock.Anything)
 
 		config := &model.AggregatorConfig{Aggregation: exportConfig.Aggregation}
 		channelManager := NewChannelManager([]model.ChannelKey{}, config.Aggregation.ChannelBufferSize)
@@ -492,11 +508,12 @@ func TestCheckAggregationAndSubmitComplete(t *testing.T) {
 
 	t.Run("quorum not met", func(t *testing.T) {
 		storage := mocks.NewMockCommitVerificationStore(t)
-		storage.EXPECT().ListCommitVerificationByAggregationKey(ctx, msgID, aggregationKey).Return([]*model.CommitVerificationRecord{}, nil)
+		storage.EXPECT().ListCommitVerificationByAggregationKey(mock.Anything, msgID, aggregationKey).Return([]*model.CommitVerificationRecord{}, nil)
 		quorum := mocks.NewMockQuorumValidator(t)
-		quorum.EXPECT().CheckQuorum(ctx, mock.Anything).Return(false, nil).Maybe()
+		quorum.EXPECT().CheckQuorum(mock.Anything, mock.Anything).Return(false, nil).Maybe()
 
 		monitoring := mocks.NewMockAggregatorMonitoring(t)
+		testutil.StubTracing(monitoring)
 		metric := mocks.NewMockAggregatorMetricLabeler(t)
 		monitoring.EXPECT().Metrics().Return(metric).Maybe()
 
@@ -512,6 +529,7 @@ func TestHealthCheck_ReportsStoppedAfterContextCancellation(t *testing.T) {
 	store := mocks.NewMockCommitVerificationStore(t)
 	sink := mocks.NewMockSink(t)
 	monitoring := mocks.NewMockAggregatorMonitoring(t)
+	testutil.StubTracing(monitoring)
 	metric := mocks.NewMockAggregatorMetricLabeler(t)
 	monitoring.EXPECT().Metrics().Return(metric).Maybe()
 
@@ -538,6 +556,7 @@ func TestHealthCheck_RecoversPanicEmitsMetricAndKeepsRunning(t *testing.T) {
 	store := mocks.NewMockCommitVerificationStore(t)
 	sink := mocks.NewMockSink(t)
 	monitoring := mocks.NewMockAggregatorMonitoring(t)
+	testutil.StubTracing(monitoring)
 	metric := mocks.NewMockAggregatorMetricLabeler(t)
 	monitoring.EXPECT().Metrics().Return(metric).Maybe()
 	metric.EXPECT().IncrementPendingAggregationsChannelBuffer(mock.Anything, 1).Maybe()
@@ -589,6 +608,7 @@ func TestHealthCheck_ReturnsErrorAfterConsecutiveWorkerFailures(t *testing.T) {
 	store := mocks.NewMockCommitVerificationStore(t)
 	sink := mocks.NewMockSink(t)
 	monitoring := mocks.NewMockAggregatorMonitoring(t)
+	testutil.StubTracing(monitoring)
 	metric := mocks.NewMockAggregatorMetricLabeler(t)
 	monitoring.EXPECT().Metrics().Return(metric).Maybe()
 	metric.EXPECT().IncrementPendingAggregationsChannelBuffer(mock.Anything, 1).Maybe()
@@ -655,6 +675,7 @@ func TestStartBackground_Shutdown(t *testing.T) {
 		store := mocks.NewMockCommitVerificationStore(t)
 		sink := mocks.NewMockSink(t)
 		monitoring := mocks.NewMockAggregatorMonitoring(t)
+		testutil.StubTracing(monitoring)
 		metric := mocks.NewMockAggregatorMetricLabeler(t)
 		monitoring.EXPECT().Metrics().Return(metric).Maybe()
 		metric.EXPECT().With(mock.Anything, mock.Anything).Return(metric).Maybe()
@@ -702,6 +723,7 @@ func TestStartBackground_Shutdown(t *testing.T) {
 		store := mocks.NewMockCommitVerificationStore(t)
 		sink := mocks.NewMockSink(t)
 		monitoring := mocks.NewMockAggregatorMonitoring(t)
+		testutil.StubTracing(monitoring)
 		metric := mocks.NewMockAggregatorMetricLabeler(t)
 		monitoring.EXPECT().Metrics().Return(metric).Maybe()
 		metric.EXPECT().With(mock.Anything, mock.Anything).Return(metric).Maybe()
@@ -744,6 +766,7 @@ func TestStartBackground_Shutdown(t *testing.T) {
 		store := mocks.NewMockCommitVerificationStore(t)
 		sink := mocks.NewMockSink(t)
 		monitoring := mocks.NewMockAggregatorMonitoring(t)
+		testutil.StubTracing(monitoring)
 		metric := mocks.NewMockAggregatorMetricLabeler(t)
 		monitoring.EXPECT().Metrics().Return(metric).Maybe()
 		metric.EXPECT().With(mock.Anything, mock.Anything).Return(metric).Maybe()
@@ -788,6 +811,7 @@ func TestStartBackground_Shutdown(t *testing.T) {
 		store := mocks.NewMockCommitVerificationStore(t)
 		sink := mocks.NewMockSink(t)
 		monitoring := mocks.NewMockAggregatorMonitoring(t)
+		testutil.StubTracing(monitoring)
 		metric := mocks.NewMockAggregatorMetricLabeler(t)
 		monitoring.EXPECT().Metrics().Return(metric).Maybe()
 		metric.EXPECT().With(mock.Anything, mock.Anything).Return(metric).Maybe()

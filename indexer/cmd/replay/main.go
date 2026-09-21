@@ -337,7 +337,7 @@ func mustBuildEngine(ctx context.Context, needsDiscoveryReader bool) (*replay.En
 	verifierRegistry := registry.NewVerifierRegistry()
 	verifierCleanups := make([]func(), 0, len(cfg.Verifiers))
 	for _, vc := range cfg.Verifiers {
-		vr, cleanup, err := createVerifierReader(ctx, lggr, &vc, monitoring)
+		vr, cleanup, err := createVerifierReader(ctx, lggr, &vc, monitoring, cfg.Resilience)
 		if err != nil {
 			lggr.Fatalf("Failed to create verifier reader: %v", err)
 		}
@@ -362,7 +362,7 @@ func mustBuildEngine(ctx context.Context, needsDiscoveryReader bool) (*replay.En
 			return readers.NewAggregatorReader(disc.Address, lggr, since, hmac.ClientConfig{
 				APIKey: disc.APIKey,
 				Secret: disc.Secret,
-			}, disc.InsecureConnection, config.EffectiveMaxResponseBytes(disc.MaxResponseBytes), metrics)
+			}, disc.InsecureConnection, config.EffectiveMaxResponseBytes(disc.MaxResponseBytes), metrics, readers.NewResilienceConfig(cfg.Resilience))
 		}
 	}
 
@@ -418,7 +418,7 @@ func mustCreateLogger(cfg *config.Config) logger.Logger {
 	return logger.Named(logger.Sugared(lggr), "indexer-replay")
 }
 
-func createVerifierReader(ctx context.Context, lggr logger.Logger, vc *config.VerifierConfig, mon common.IndexerMonitoring) (*readers.VerifierReader, func(), error) {
+func createVerifierReader(ctx context.Context, lggr logger.Logger, vc *config.VerifierConfig, mon common.IndexerMonitoring, resilience config.ResilienceConfig) (*readers.VerifierReader, func(), error) {
 	var resilientReader *readers.ResilientReader
 	var err error
 
@@ -428,7 +428,7 @@ func createVerifierReader(ctx context.Context, lggr logger.Logger, vc *config.Ve
 		resilientReader, err = readers.NewAggregatorReader(vc.Address, lggr, vc.Since, hmac.ClientConfig{
 			APIKey: vc.APIKey,
 			Secret: vc.Secret,
-		}, vc.InsecureConnection, config.EffectiveMaxResponseBytes(vc.MaxResponseBytes), metrics)
+		}, vc.InsecureConnection, config.EffectiveMaxResponseBytes(vc.MaxResponseBytes), metrics, readers.NewResilienceConfig(resilience))
 	case config.ReaderTypeRest:
 		resilientReader = readers.NewRestReader(readers.RestReaderConfig{
 			BaseURL:          vc.BaseURL,
@@ -436,6 +436,7 @@ func createVerifierReader(ctx context.Context, lggr logger.Logger, vc *config.Ve
 			MaxResponseBytes: config.EffectiveMaxResponseBytes(vc.MaxResponseBytes),
 			Logger:           lggr,
 			Metrics:          metrics,
+			Resilience:       readers.NewResilienceConfig(resilience),
 		})
 	default:
 		return nil, nil, errors.New("unknown verifier type: " + string(vc.Type))

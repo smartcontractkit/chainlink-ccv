@@ -42,7 +42,7 @@ Read each matching row's section when adapting a downstream consumer. Unlisted s
 | `sourcereader.Service.ConfigureRecovery` | added | `sourcereader\.NewService` | `verifier/pkg/sourcereader/recovery.go:46` | [#live-source-recovery](#live-source-recovery) |
 | `chainstatus.Batcher.ApplyRecoveryReset` | added | `NewChainStatusBatcher` | `verifier/pkg/chainstatus/batcher.go:291` | [#live-source-recovery](#live-source-recovery) |
 | `sourcereader.FinalityEvidence / Evidence` | added | `FinalityViolationCheckerService` | `verifier/pkg/sourcereader/finality_checker.go:311` | [#drop-and-incident-history](#drop-and-incident-history) |
-| `ccv_recovery_readers / events / operations` | added | `ccv_chain_statuses` | `verifier/migrations/postgres/00010_source_recovery.sql:1` | [#schema-and-rollout](#schema-and-rollout) |
+| `ccv_recovery_readers / events / operations` | added | `ccv_chain_statuses` | `verifier/migrations/postgres/00009_source_recovery.sql:1` | [#schema-and-rollout](#schema-and-rollout) |
 | `verifiercli.Client recovery and JSON helpers` | added | `verifiercli\.NewClient` | `build/devenv/tests/e2e/verifiercli/recovery.go:16` | [#validation](#validation) |
 | `Verifier Recovery dashboard and alert provisioning` | added | `verifier_archive_|verifier_recovery_` | `docs/monitoring/verifier-recovery.md:1` | [#archive-inventory](#archive-inventory) |
 
@@ -61,7 +61,7 @@ Implementations and mocks must support exact filtering before limiting and trans
 
 ## Migration Guide
 
-1. Upgrade the database through the existing verifier migration mechanism to include 00009 and 00010 before using new code. Both Up and Down definitions are included.
+1. Upgrade the database through the existing verifier migration mechanism to include 00009 before using new code. Both Up and Down definitions are included.
 2. Add the two CLI store methods to custom implementations/mocks, retaining the old signatures. The checked-in mock has been updated manually because Go generation was prohibited during this task.
 3. Preserve optional block hashes from your reader when available. Omission remains supported and is represented as absent evidence; do not derive chain-specific values in policy or recovery.
 4. Standalone command wiring is included in `cmd/verifier/run_ccv_cli.go`. A downstream Chainlink core CLI must add the command group itself. The backend is configured by the shared coordinator.
@@ -109,7 +109,7 @@ Normal polling retains its existing single-owner deployment contract. The new ad
 
 ## Schema and Rollout
 
-Migration 00009 adds archive categories plus inventory/message indexes. Migration 00010 adds reader registration/coverage, drop/incident/reset evidence and durable recovery operations with owner/source linkage and pending/retention indexes. Existing automatic retry and archive cleanup durations are unchanged. Event evidence and terminal operation history have separate 30-day cleanup; active/blocked requests and an applied reset retaining polling ownership are not deleted.
+Migration 00009 adds reader registration/coverage, drop/incident/reset evidence and durable recovery operations with owner/source linkage and pending/retention indexes. Archive categories are computed at query time and need no migration (see the archive inventory change). Existing automatic retry and archive cleanup durations are unchanged. Event evidence and terminal operation history have separate 30-day cleanup; active/blocked requests and an applied reset retaining polling ownership are not deleted.
 
 There is no dependency bump, protocol message encoding change, new policy bypass, admin UI or external publication in this change. Operation IDs are local to the member database; cross-node fan-out remains outside the verifier.
 

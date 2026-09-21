@@ -42,7 +42,7 @@ An explicit owner is always honored; a wrong owner never falls back to another o
 
 The restored job is pending with attempts reset and a new positive retry duration (default 1 hour). The running verifier normally picks it up on its queue fallback poll within about 30 seconds. `task-verifier` runs verification and policy again. `storage-writer` retries writing the saved result. Neither path re-reads source events or repeats source-reader finality, curse or disablement admission checks.
 
-For changed canonical source data, pre-admission drops or expired archives, use [live source recovery](../recovery/README.md). Replayed and already attested messages are not reconciled against old archive rows; verify the aggregator/indexer result before restoring a candidate.
+For changed canonical source data, pre-admission drops or expired archives, use [live source recovery](../recovery/README.md); the [remediation runbook](../../docs/runbooks/remediating-stuck-or-dropped-messages.md#4-rewind-the-checkpoint-for-a-range) describes the manual checkpoint-rewind fallback. Replayed and already attested messages are not reconciled against old archive rows; verify the aggregator/indexer result before restoring a candidate.
 
 ## Retention and monitoring
 

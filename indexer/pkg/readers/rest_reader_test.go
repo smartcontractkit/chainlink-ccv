@@ -116,6 +116,7 @@ func TestRestReader_GetVerifications_404_ReturnsEmptyMapAndNoError(t *testing.T)
 		HTTPClient:       server.Client(),
 		Logger:           lggr,
 		Metrics:          monitoring.NewNoopIndexerMetricLabeler(),
+		Resilience:       DefaultResilienceConfig(),
 	})
 
 	result, err := rr.GetVerifications(context.Background(), []protocol.Bytes32{messageID})
@@ -140,6 +141,7 @@ func TestRestReader_GetVerifications_404_MalformedBody_ReturnsEmptyMapAndNoError
 		HTTPClient:       server.Client(),
 		Logger:           lggr,
 		Metrics:          monitoring.NewNoopIndexerMetricLabeler(),
+		Resilience:       DefaultResilienceConfig(),
 	})
 
 	messageID := protocol.Bytes32{1, 2, 3}
@@ -169,6 +171,7 @@ func TestRestReader_GetVerifications_404_DoesNotOpenCircuitBreaker(t *testing.T)
 		HTTPClient:       server.Client(),
 		Logger:           lggr,
 		Metrics:          monitoring.NewNoopIndexerMetricLabeler(),
+		Resilience:       DefaultResilienceConfig(),
 	})
 
 	ctx := context.Background()

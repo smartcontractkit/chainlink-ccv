@@ -1,6 +1,6 @@
 # CCV live recovery CLI
 
-The standalone verifier accepts durable recovery requests through its existing PostgreSQL database. The running source reader performs the work on its event loop. There is no admin HTTP endpoint or UI in this change. These commands require a binary and schema containing migrations 00009 and 00010; the existing verifier migration mechanism applies them during upgrade. Chainlink core must separately expose this command group before it is available through `chainlink node`.
+The standalone verifier accepts durable recovery requests through its existing PostgreSQL database. The running source reader performs the work on its event loop. There is no admin HTTP endpoint or UI in this change. These commands require a binary and schema containing migration 00009; the existing verifier migration mechanism applies it during upgrade. Chainlink core must separately expose this command group before it is available through `chainlink node`.
 
 ## Submit and control a range
 

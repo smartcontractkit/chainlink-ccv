@@ -5,6 +5,8 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"fmt"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -502,7 +504,7 @@ func TestQueryAggregatedReports_Pagination(t *testing.T) {
 			Verifications:  []*model.CommitVerificationRecord{record},
 		}
 
-		err = storage.SubmitAggregatedReport(ctx, report)
+		_, err = storage.SubmitAggregatedReport(ctx, report)
 		require.NoError(t, err)
 
 		time.Sleep(5 * time.Millisecond)
@@ -551,7 +553,7 @@ func TestGetCCVData_Found(t *testing.T) {
 		Verifications:  []*model.CommitVerificationRecord{record},
 	}
 
-	err = storage.SubmitAggregatedReport(ctx, report)
+	_, err = storage.SubmitAggregatedReport(ctx, report)
 	require.NoError(t, err)
 
 	retrieved, err := storage.GetCommitAggregatedReportByAggregationKey(ctx, messageID[:], aggregationKey)
@@ -594,7 +596,7 @@ func TestSubmitReport_HappyPath(t *testing.T) {
 		Verifications:  []*model.CommitVerificationRecord{record},
 	}
 
-	err = storage.SubmitAggregatedReport(ctx, report)
+	_, err = storage.SubmitAggregatedReport(ctx, report)
 	require.NoError(t, err)
 
 	retrieved, err := storage.GetCommitAggregatedReportByAggregationKey(ctx, messageID[:], aggregationKey)
@@ -626,10 +628,10 @@ func TestSubmitReport_DuplicateSubmissionCreatesOnlyOneRow(t *testing.T) {
 		Verifications:  []*model.CommitVerificationRecord{record},
 	}
 
-	err = storage.SubmitAggregatedReport(ctx, report)
+	_, err = storage.SubmitAggregatedReport(ctx, report)
 	require.NoError(t, err)
 
-	err = storage.SubmitAggregatedReport(ctx, report)
+	_, err = storage.SubmitAggregatedReport(ctx, report)
 	require.NoError(t, err)
 
 	result, err := storage.QueryAggregatedReports(ctx, 0)
@@ -677,7 +679,7 @@ func TestListOrphanedKeys(t *testing.T) {
 		AggregationKey: aggregationKey2,
 		Verifications:  []*model.CommitVerificationRecord{aggregatedRecord},
 	}
-	err = storage.SubmitAggregatedReport(ctx, report)
+	_, err = storage.SubmitAggregatedReport(ctx, report)
 	require.NoError(t, err)
 
 	orphanKeysCh, errCh := storage.ListOrphanedKeys(ctx, time.Time{}, 100)
@@ -855,7 +857,7 @@ func TestBatchOperations_MultipleSigners(t *testing.T) {
 		Verifications:  records,
 	}
 
-	err := storage.SubmitAggregatedReport(ctx, report)
+	_, err := storage.SubmitAggregatedReport(ctx, report)
 	require.NoError(t, err)
 
 	retrieved, err := storage.GetCommitAggregatedReportByAggregationKey(ctx, messageID, aggKey)
@@ -888,9 +890,55 @@ func TestSubmitReport_NilReport(t *testing.T) {
 
 	ctx := context.Background()
 
-	err := storage.SubmitAggregatedReport(ctx, nil)
+	_, err := storage.SubmitAggregatedReport(ctx, nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "aggregated report cannot be nil")
+}
+
+// TestSubmitAggregatedReport_ConcurrentIdenticalSubmissionsOnlyOneInserts covers the race two
+// aggregation workers hit when they both pass shouldSkipAggregationDueToExistingQuorum's read
+// before either has written: only one submission should report inserted=true, the DB should end
+// up with exactly one row, and the loser must not be treated as an error.
+func TestSubmitAggregatedReport_ConcurrentIdenticalSubmissionsOnlyOneInserts(t *testing.T) {
+	storage, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	message := createTestProtocolMessage()
+	signer := newTestSigner(t)
+	msgWithCCV := createTestMessageWithCCV(t, message, signer)
+	messageID := getMessageIDFromProto(t, msgWithCCV)
+	aggKey := protocol.ByteSlice(messageID).String()
+
+	record := createTestCommitVerificationRecord(t, msgWithCCV, signer)
+	require.NoError(t, storage.SaveCommitVerification(ctx, record, aggKey))
+
+	report := &model.CommitAggregatedReport{
+		MessageID:      messageID,
+		AggregationKey: aggKey,
+		Verifications:  []*model.CommitVerificationRecord{record},
+	}
+
+	const concurrentWorkers = 8
+	var wg sync.WaitGroup
+	insertedCount := atomic.Int32{}
+	for range concurrentWorkers {
+		wg.Go(func() {
+			inserted, err := storage.SubmitAggregatedReport(ctx, report)
+			require.NoError(t, err)
+			if inserted {
+				insertedCount.Add(1)
+			}
+		})
+	}
+	wg.Wait()
+
+	require.Equal(t, int32(1), insertedCount.Load(), "exactly one concurrent submission should win the race")
+
+	retrieved, err := storage.GetCommitAggregatedReportByAggregationKey(ctx, messageID, aggKey)
+	require.NoError(t, err)
+	require.NotNil(t, retrieved)
+	require.Len(t, retrieved.Verifications, 1, "only one report row should exist despite the concurrent duplicate submissions")
 }
 
 func TestQueryAggregatedReports_SinceSequence(t *testing.T) {
@@ -923,7 +971,7 @@ func TestQueryAggregatedReports_SinceSequence(t *testing.T) {
 			Verifications:  []*model.CommitVerificationRecord{record},
 		}
 
-		err = storage.SubmitAggregatedReport(ctx, report)
+		_, err = storage.SubmitAggregatedReport(ctx, report)
 		require.NoError(t, err)
 
 		if i == 0 {
@@ -1011,7 +1059,7 @@ func TestSubmitAggregatedReport_FiltersByAggregationKey(t *testing.T) {
 		AggregationKey: aggregationKey1,
 		Verifications:  []*model.CommitVerificationRecord{record1v1, record2v1, record3v1},
 	}
-	err = storage.SubmitAggregatedReport(ctx, report)
+	_, err = storage.SubmitAggregatedReport(ctx, report)
 	require.NoError(t, err)
 
 	retrieved, err := storage.GetCommitAggregatedReportByAggregationKey(ctx, messageID, aggregationKey1)
@@ -1059,7 +1107,7 @@ func TestSubmitAggregatedReport_FailsWhenAggregationKeyMismatch(t *testing.T) {
 		Verifications:  []*model.CommitVerificationRecord{record},
 	}
 
-	err = storage.SubmitAggregatedReport(ctx, aggregatedReport)
+	_, err = storage.SubmitAggregatedReport(ctx, aggregatedReport)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "failed to find verification record ID")
 }
@@ -1097,7 +1145,8 @@ func TestGetCommitAggregatedReportByAggregationKey_ReturnsOnlyLatestReport(t *te
 		AggregationKey: aggregationKey,
 		Verifications:  []*model.CommitVerificationRecord{record1, record2, record3},
 	}
-	require.NoError(t, storage.SubmitAggregatedReport(ctx, oldReport))
+	_, submitErr := storage.SubmitAggregatedReport(ctx, oldReport)
+	require.NoError(t, submitErr)
 
 	retrieved, err := storage.GetCommitAggregatedReportByAggregationKey(ctx, messageID, aggregationKey)
 	require.NoError(t, err)
@@ -1109,7 +1158,8 @@ func TestGetCommitAggregatedReportByAggregationKey_ReturnsOnlyLatestReport(t *te
 		AggregationKey: aggregationKey,
 		Verifications:  []*model.CommitVerificationRecord{record2, record3},
 	}
-	require.NoError(t, storage.SubmitAggregatedReport(ctx, newReport))
+	_, submitErr = storage.SubmitAggregatedReport(ctx, newReport)
+	require.NoError(t, submitErr)
 
 	retrieved, err = storage.GetCommitAggregatedReportByAggregationKey(ctx, messageID, aggregationKey)
 	require.NoError(t, err)
@@ -1162,14 +1212,16 @@ func TestGetBatchAggregatedReportByMessageIDs_ReturnsOnlyLatestReportPerMessage(
 		AggregationKey: aggKey1,
 		Verifications:  []*model.CommitVerificationRecord{r1s1, r1s2, r1s3},
 	}
-	require.NoError(t, storage.SubmitAggregatedReport(ctx, oldReport1))
+	_, submitErr := storage.SubmitAggregatedReport(ctx, oldReport1)
+	require.NoError(t, submitErr)
 
 	newReport1 := &model.CommitAggregatedReport{
 		MessageID:      messageID1,
 		AggregationKey: aggKey1,
 		Verifications:  []*model.CommitVerificationRecord{r1s2, r1s3},
 	}
-	require.NoError(t, storage.SubmitAggregatedReport(ctx, newReport1))
+	_, submitErr = storage.SubmitAggregatedReport(ctx, newReport1)
+	require.NoError(t, submitErr)
 
 	msg2 := createTestProtocolMessage()
 	msg2.SequenceNumber = 200
@@ -1191,7 +1243,8 @@ func TestGetBatchAggregatedReportByMessageIDs_ReturnsOnlyLatestReportPerMessage(
 		AggregationKey: aggKey2,
 		Verifications:  []*model.CommitVerificationRecord{r2s1, r2s2},
 	}
-	require.NoError(t, storage.SubmitAggregatedReport(ctx, singleReport2))
+	_, submitErr = storage.SubmitAggregatedReport(ctx, singleReport2)
+	require.NoError(t, submitErr)
 
 	results, err := storage.GetBatchAggregatedReportByMessageIDs(ctx, []model.MessageID{messageID1, messageID2})
 	require.NoError(t, err)
@@ -1238,7 +1291,8 @@ func TestGetCommitAggregatedReportByAggregationKey_DisjointVerifications_Returns
 		AggregationKey: aggregationKey,
 		Verifications:  []*model.CommitVerificationRecord{record1, record2},
 	}
-	require.NoError(t, storage.SubmitAggregatedReport(ctx, firstReport))
+	_, submitErr := storage.SubmitAggregatedReport(ctx, firstReport)
+	require.NoError(t, submitErr)
 
 	msgWithCCV3 := createTestMessageWithCCV(t, message, signer3)
 	record3 := createTestCommitVerificationRecord(t, msgWithCCV3, signer3)
@@ -1260,7 +1314,8 @@ func TestGetCommitAggregatedReportByAggregationKey_DisjointVerifications_Returns
 		AggregationKey: aggregationKey,
 		Verifications:  []*model.CommitVerificationRecord{record3, record4, record5},
 	}
-	require.NoError(t, storage.SubmitAggregatedReport(ctx, secondReport))
+	_, submitErr = storage.SubmitAggregatedReport(ctx, secondReport)
+	require.NoError(t, submitErr)
 
 	retrieved, err := storage.GetCommitAggregatedReportByAggregationKey(ctx, messageID, aggregationKey)
 	require.NoError(t, err)
@@ -1316,7 +1371,8 @@ func TestGetBatchAggregatedReportByMessageIDs_DisjointVerifications_ReturnsOnlyL
 		AggregationKey: aggKey1,
 		Verifications:  []*model.CommitVerificationRecord{r1s1, r1s2},
 	}
-	require.NoError(t, storage.SubmitAggregatedReport(ctx, oldReport1))
+	_, submitErr := storage.SubmitAggregatedReport(ctx, oldReport1)
+	require.NoError(t, submitErr)
 
 	msgWithCCV1s3 := createTestMessageWithCCV(t, msg1, signer3)
 	r1s3 := createTestCommitVerificationRecord(t, msgWithCCV1s3, signer3)
@@ -1338,7 +1394,8 @@ func TestGetBatchAggregatedReportByMessageIDs_DisjointVerifications_ReturnsOnlyL
 		AggregationKey: aggKey1,
 		Verifications:  []*model.CommitVerificationRecord{r1s3, r1s4, r1s5},
 	}
-	require.NoError(t, storage.SubmitAggregatedReport(ctx, newReport1))
+	_, submitErr = storage.SubmitAggregatedReport(ctx, newReport1)
+	require.NoError(t, submitErr)
 
 	msg2 := createTestProtocolMessage()
 	msg2.SequenceNumber = 400
@@ -1360,7 +1417,8 @@ func TestGetBatchAggregatedReportByMessageIDs_DisjointVerifications_ReturnsOnlyL
 		AggregationKey: aggKey2,
 		Verifications:  []*model.CommitVerificationRecord{r2s1, r2s2},
 	}
-	require.NoError(t, storage.SubmitAggregatedReport(ctx, singleReport2))
+	_, submitErr = storage.SubmitAggregatedReport(ctx, singleReport2)
+	require.NoError(t, submitErr)
 
 	results, err := storage.GetBatchAggregatedReportByMessageIDs(ctx, []model.MessageID{messageID1, messageID2})
 	require.NoError(t, err)
@@ -1415,7 +1473,7 @@ func TestOnDeleteRestrict_PreventsVerificationDeletion(t *testing.T) {
 		AggregationKey: aggregationKey,
 		Verifications:  []*model.CommitVerificationRecord{record},
 	}
-	err = storage.SubmitAggregatedReport(ctx, report)
+	_, err = storage.SubmitAggregatedReport(ctx, report)
 	require.NoError(t, err)
 
 	_, err = ds.ExecContext(ctx, "DELETE FROM commit_verification_records")
@@ -1445,7 +1503,7 @@ func TestScanErrorHandling_CorruptedData(t *testing.T) {
 		AggregationKey: aggregationKey,
 		Verifications:  []*model.CommitVerificationRecord{record},
 	}
-	err = storage.SubmitAggregatedReport(ctx, report)
+	_, err = storage.SubmitAggregatedReport(ctx, report)
 	require.NoError(t, err)
 
 	_, err = ds.ExecContext(ctx, "ALTER TABLE commit_verification_records DISABLE TRIGGER ALL")
@@ -1500,7 +1558,7 @@ func TestOrphanDetection_ByAggregationKey(t *testing.T) {
 		AggregationKey: aggKeyA,
 		Verifications:  []*model.CommitVerificationRecord{record},
 	}
-	err = storage.SubmitAggregatedReport(ctx, reportA)
+	_, err = storage.SubmitAggregatedReport(ctx, reportA)
 	require.NoError(t, err)
 
 	orphanKeysCh, errCh := storage.ListOrphanedKeys(ctx, time.Time{}, 100)
@@ -1530,7 +1588,8 @@ func TestGetCommitAggregatedReportByAggregationKey_PopulatesAggregationKey(t *te
 		AggregationKey: aggregationKey,
 		Verifications:  []*model.CommitVerificationRecord{record},
 	}
-	require.NoError(t, storage.SubmitAggregatedReport(ctx, report))
+	_, submitErr := storage.SubmitAggregatedReport(ctx, report)
+	require.NoError(t, submitErr)
 
 	retrieved, err := storage.GetCommitAggregatedReportByAggregationKey(ctx, messageID, aggregationKey)
 	require.NoError(t, err)
@@ -1563,14 +1622,16 @@ func TestQueryAggregatedReports_ReturnsReportsFromDifferentAggregationKeys(t *te
 		AggregationKey: aggKeyV1,
 		Verifications:  []*model.CommitVerificationRecord{record},
 	}
-	require.NoError(t, storage.SubmitAggregatedReport(ctx, report1))
+	_, submitErr := storage.SubmitAggregatedReport(ctx, report1)
+	require.NoError(t, submitErr)
 
 	report2 := &model.CommitAggregatedReport{
 		MessageID:      messageID,
 		AggregationKey: aggKeyV2,
 		Verifications:  []*model.CommitVerificationRecord{record},
 	}
-	require.NoError(t, storage.SubmitAggregatedReport(ctx, report2))
+	_, submitErr = storage.SubmitAggregatedReport(ctx, report2)
+	require.NoError(t, submitErr)
 
 	result, err := storage.QueryAggregatedReports(ctx, 0)
 	require.NoError(t, err)
@@ -1610,14 +1671,16 @@ func TestQueryAggregatedReports_ReturnsAllReportsForSameAggregationKey(t *testin
 		AggregationKey: aggregationKey,
 		Verifications:  []*model.CommitVerificationRecord{record1},
 	}
-	require.NoError(t, storage.SubmitAggregatedReport(ctx, report1))
+	_, submitErr := storage.SubmitAggregatedReport(ctx, report1)
+	require.NoError(t, submitErr)
 
 	report2 := &model.CommitAggregatedReport{
 		MessageID:      messageID,
 		AggregationKey: aggregationKey,
 		Verifications:  []*model.CommitVerificationRecord{record1, record2},
 	}
-	require.NoError(t, storage.SubmitAggregatedReport(ctx, report2))
+	_, submitErr = storage.SubmitAggregatedReport(ctx, report2)
+	require.NoError(t, submitErr)
 
 	result, err := storage.QueryAggregatedReports(ctx, 0)
 	require.NoError(t, err)
@@ -1646,7 +1709,8 @@ func TestGetCommitAggregatedReportByAggregationKey_ReturnsNotFoundForDifferentAg
 		AggregationKey: oldAggKey,
 		Verifications:  []*model.CommitVerificationRecord{record},
 	}
-	require.NoError(t, storage.SubmitAggregatedReport(ctx, report))
+	_, submitErr := storage.SubmitAggregatedReport(ctx, report)
+	require.NoError(t, submitErr)
 
 	retrieved, err := storage.GetCommitAggregatedReportByAggregationKey(ctx, messageID, oldAggKey)
 	require.NoError(t, err)
@@ -1767,11 +1831,12 @@ func TestQueryAggregatedReports_ExcludesReportWithCorruptedVerification(t *testi
 	healthyAggKey := protocol.ByteSlice(healthyMessageID).String()
 
 	require.NoError(t, storage.SaveCommitVerification(ctx, healthyRecord, healthyAggKey))
-	require.NoError(t, storage.SubmitAggregatedReport(ctx, &model.CommitAggregatedReport{
+	_, submitErr := storage.SubmitAggregatedReport(ctx, &model.CommitAggregatedReport{
 		MessageID:      healthyMessageID,
 		AggregationKey: healthyAggKey,
 		Verifications:  []*model.CommitVerificationRecord{healthyRecord},
-	}))
+	})
+	require.NoError(t, submitErr)
 
 	corruptedMsg := createTestProtocolMessage()
 	corruptedMsg.SequenceNumber = 2
@@ -1786,11 +1851,12 @@ func TestQueryAggregatedReports_ExcludesReportWithCorruptedVerification(t *testi
 
 	require.NoError(t, storage.SaveCommitVerification(ctx, corruptedRecord1, corruptedAggKey))
 	require.NoError(t, storage.SaveCommitVerification(ctx, corruptedRecord2, corruptedAggKey))
-	require.NoError(t, storage.SubmitAggregatedReport(ctx, &model.CommitAggregatedReport{
+	_, submitErr = storage.SubmitAggregatedReport(ctx, &model.CommitAggregatedReport{
 		MessageID:      corruptedMessageID,
 		AggregationKey: corruptedAggKey,
 		Verifications:  []*model.CommitVerificationRecord{corruptedRecord1, corruptedRecord2},
-	}))
+	})
+	require.NoError(t, submitErr)
 
 	corruptedID, err := corruptedRecord2.GetID()
 	require.NoError(t, err)

@@ -204,7 +204,7 @@ func (h *httpClient) callAPI(
 
 	// Using either metricsCtx or ctx for the span is fine, since the span is not used for any
 	// deadline/cancellation logic. We just need the existing trace.
-	_, span := beholder.GetTracer().Start(ctx, "token_http_request",
+	_, span := beholder.GetTracer().Start(ctx, "tokenverifier.message.fetch_attestation",
 		oteltrace.WithAttributes(
 			attribute.String(tracing.HTTPMethodKey, method),
 		),

@@ -175,7 +175,7 @@ func TestConfigChange_ReadPathFiltering(t *testing.T) {
 				AggregationKey: reportAggKey,
 				Verifications:  records,
 			}
-			err := storage.SubmitAggregatedReport(ctx, initialAggregatedReport)
+			_, err := storage.SubmitAggregatedReport(ctx, initialAggregatedReport)
 			require.NoError(t, err)
 
 			configSigners := resolveSigners(signersByName, tc.configSignerNames)
@@ -362,7 +362,7 @@ func TestConfigChange_MultipleReportRows_UsesLatestReport(t *testing.T) {
 			for _, name := range tc.firstReportSignerNames {
 				firstRecords = append(firstRecords, allRecordsByName[name])
 			}
-			err := storage.SubmitAggregatedReport(ctx, &model.CommitAggregatedReport{
+			_, err := storage.SubmitAggregatedReport(ctx, &model.CommitAggregatedReport{
 				MessageID:      messageID,
 				AggregationKey: reportAggKey,
 				Verifications:  firstRecords,
@@ -373,7 +373,7 @@ func TestConfigChange_MultipleReportRows_UsesLatestReport(t *testing.T) {
 			for _, name := range tc.secondReportSignerNames {
 				secondRecords = append(secondRecords, allRecordsByName[name])
 			}
-			err = storage.SubmitAggregatedReport(ctx, &model.CommitAggregatedReport{
+			_, err = storage.SubmitAggregatedReport(ctx, &model.CommitAggregatedReport{
 				MessageID:      messageID,
 				AggregationKey: reportAggKey,
 				Verifications:  secondRecords,

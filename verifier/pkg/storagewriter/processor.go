@@ -313,9 +313,18 @@ func (s *Processor) processJobs(ctx context.Context, jobs []jobqueue.Job[protoco
 		var span oteltrace.Span
 		payload.TraceContext, span = s.monitoring.Tracing().StartMessageSpan(
 			parentCtx, monitoring.StorageWriterWriteSpanName(s.verifierID), job.Payload.MessageID,
-			attribute.String(tracing.VerifierIDKey, s.verifierID),
-			attribute.String(tracing.JobIDKey, job.ID),
+			tracing.AlwaysSampled(),
+			tracing.WithAttributes(
+				tracing.VerifierIDKey, s.verifierID,
+				tracing.JobIDKey, job.ID,
+			),
 		)
+		// Keep TraceParent in sync with TraceContext: downstream (the aggregator write) only
+		// gets TraceParent, which otherwise would stay pinned to whatever set it before this
+		// span existed, silently skipping this span in the trace.
+		outCarrier := propagation.MapCarrier{}
+		otel.GetTextMapPropagator().Inject(payload.TraceContext, outCarrier)
+		payload.TraceParent = outCarrier.Get("traceparent")
 		span.AddEvent(monitoring.EventJobDiscovered,
 			oteltrace.WithAttributes(
 				attribute.String(tracing.JobIDKey, job.ID),
@@ -338,7 +347,6 @@ func (s *Processor) processJobs(ctx context.Context, jobs []jobqueue.Job[protoco
 		}
 	}()
 
-	// Write batch to storage
 	writeResults, err := s.storage.WriteCCVNodeData(ctx, results)
 	if err != nil && len(writeResults) == 0 {
 		// Catastrophic failure - no results returned at all

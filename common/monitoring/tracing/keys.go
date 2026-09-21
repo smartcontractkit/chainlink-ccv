@@ -30,4 +30,21 @@ const (
 	HTTPMethodKey   = "http_method"
 	HTTPOutcomeKey  = "http_outcome"
 	HTTPStatusKey   = "http_status"
+
+	// Aggregator span attributes.
+	AggregationKeyKey = "aggregation_key"
+	ChannelKeyKey     = "channel_key"
+	QuorumMetKey      = "quorum_met"
+	BatchSizeKey      = "batch_size"
+	CallerIDKey       = "caller_id"
+
+	// Indexer span attributes.
+	VerifierNameKey    = "verifier_name"
+	VerifierAddressKey = "verifier_address"
+	DiscoverySourceKey = "discovery_source"
 )
+
+// ItemTraceParentMetadataHeader carries one W3C traceparent per batch item, in
+// request order, since a batched write is one RPC but N independently-traced
+// messages and otelgrpc only propagates a single traceparent per call.
+const ItemTraceParentMetadataHeader = "x-item-traceparent"

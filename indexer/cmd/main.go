@@ -10,9 +10,11 @@ import (
 
 	"github.com/grafana/pyroscope-go"
 	"github.com/jmoiron/sqlx"
+	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap/zapcore"
 
 	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
+	ccvmonitoring "github.com/smartcontractkit/chainlink-ccv/common/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/common/monitoring/logging"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
@@ -65,7 +67,7 @@ func main() {
 	// Setup OTEL Monitoring (via beholder)
 	var indexerMonitoring common.IndexerMonitoring
 	if config.Monitoring.Beholder.Enabled {
-		indexerMonitoring, err = monitoring.InitMonitoring(beholder.Config{
+		beholderConfig := beholder.Config{
 			InsecureConnection:       config.Monitoring.Beholder.InsecureConnection,
 			CACertFile:               config.Monitoring.Beholder.CACertFile,
 			OtelExporterHTTPEndpoint: config.Monitoring.Beholder.OtelExporterHTTPEndpoint,
@@ -74,10 +76,22 @@ func main() {
 			MetricReaderInterval:     time.Second * time.Duration(config.Monitoring.Beholder.MetricReaderInterval),
 			TraceSampleRatio:         config.Monitoring.Beholder.TraceSampleRatio,
 			TraceBatchTimeout:        time.Second * time.Duration(config.Monitoring.Beholder.TraceBatchTimeout),
-		})
+		}
+		beholderConfig.ResourceAttributes = ccvmonitoring.ResourceAttributes(config.Monitoring.Beholder.TelemetryAttributes)
+		if _, ok := config.Monitoring.Beholder.TelemetryAttributes["service.name"]; !ok {
+			beholderConfig.ResourceAttributes = append(beholderConfig.ResourceAttributes, attribute.String("service.name", "indexer"))
+		}
+		indexerMonitoring, err = monitoring.InitMonitoring(beholderConfig)
 		if err != nil {
 			lggr.Fatalf("Failed to initialize indexer monitoring: %v", err)
 		}
+		streamLggr, err := logging.InitLogger("indexer", config.LogLevel, config.Monitoring)
+		if err != nil {
+			lggr.Fatalf("Failed to initialize indexer logger: %v", err)
+		}
+		// The streaming logger replaces the stdout-only logger. The rebind affects only
+		// references taken after this point: construct any logger-holding component below.
+		lggr = logger.Sugared(logging.WithService(streamLggr, "indexer"))
 	} else {
 		lggr.Infow("Monitoring disabled, using noop implementation")
 		indexerMonitoring = monitoring.NewNoopIndexerMonitoring()
@@ -145,7 +159,7 @@ func createRegistry() *registry.VerifierRegistry {
 
 func createAllVerifierReaders(ctx context.Context, lggr logger.Logger, verifierRegistry *registry.VerifierRegistry, config *config.Config, indexerMonitoring common.IndexerMonitoring) error {
 	for _, verifierConfig := range config.Verifiers {
-		err := createReadersForVerifier(ctx, lggr, verifierRegistry, &verifierConfig, indexerMonitoring)
+		err := createReadersForVerifier(ctx, lggr, verifierRegistry, &verifierConfig, indexerMonitoring, config.Resilience)
 		if err != nil {
 			return err
 		}
@@ -154,9 +168,9 @@ func createAllVerifierReaders(ctx context.Context, lggr logger.Logger, verifierR
 	return nil
 }
 
-func createReadersForVerifier(ctx context.Context, lggr logger.Logger, verifierRegistry *registry.VerifierRegistry, verifierConfig *config.VerifierConfig, monitoring common.IndexerMonitoring) error {
+func createReadersForVerifier(ctx context.Context, lggr logger.Logger, verifierRegistry *registry.VerifierRegistry, verifierConfig *config.VerifierConfig, monitoring common.IndexerMonitoring, resilience config.ResilienceConfig) error {
 	metrics := monitoring.Metrics().With("target", verifierConfig.Name)
-	reader, err := createReader(lggr, verifierConfig, metrics)
+	reader, err := createReader(lggr, verifierConfig, metrics, resilience)
 	if err != nil {
 		return err
 	}
@@ -182,13 +196,13 @@ func createReadersForVerifier(ctx context.Context, lggr logger.Logger, verifierR
 	return nil
 }
 
-func createReader(lggr logger.Logger, cfg *config.VerifierConfig, m common.IndexerMetricLabeler) (*readers.ResilientReader, error) {
+func createReader(lggr logger.Logger, cfg *config.VerifierConfig, m common.IndexerMetricLabeler, resiConfig config.ResilienceConfig) (*readers.ResilientReader, error) {
 	switch cfg.Type {
 	case config.ReaderTypeAggregator:
 		return readers.NewAggregatorReader(cfg.Address, lggr, cfg.Since, hmac.ClientConfig{
 			APIKey: cfg.APIKey,
 			Secret: cfg.Secret,
-		}, cfg.InsecureConnection, config.EffectiveMaxResponseBytes(cfg.MaxResponseBytes), m)
+		}, cfg.InsecureConnection, config.EffectiveMaxResponseBytes(cfg.MaxResponseBytes), m, readers.NewResilienceConfig(resiConfig))
 	case config.ReaderTypeRest:
 		return readers.NewRestReader(readers.RestReaderConfig{
 			BaseURL:          cfg.BaseURL,
@@ -196,6 +210,7 @@ func createReader(lggr logger.Logger, cfg *config.VerifierConfig, m common.Index
 			MaxResponseBytes: config.EffectiveMaxResponseBytes(cfg.MaxResponseBytes),
 			Logger:           lggr,
 			Metrics:          m,
+			Resilience:       readers.NewResilienceConfig(resiConfig),
 		}), nil
 	default:
 		return nil, errors.New("unknown verifier type")
@@ -235,7 +250,7 @@ func createDiscovery(ctx context.Context, lggr logger.Logger, cfg *config.Config
 		aggregator, err := readers.NewAggregatorReader(discCfg.Address, lggr, int64(persistedSinceValue), hmac.ClientConfig{
 			APIKey: discCfg.APIKey,
 			Secret: discCfg.Secret,
-		}, discCfg.InsecureConnection, config.EffectiveMaxResponseBytes(discCfg.MaxResponseBytes), metrics)
+		}, discCfg.InsecureConnection, config.EffectiveMaxResponseBytes(discCfg.MaxResponseBytes), metrics, readers.NewResilienceConfig(cfg.Resilience))
 		if err != nil {
 			cleanupOnError()
 			return nil, err
@@ -254,6 +269,7 @@ func createDiscovery(ctx context.Context, lggr logger.Logger, cfg *config.Config
 			discovery.WithRegistry(registry),
 			discovery.WithTimeProvider(timeProvider),
 			discovery.WithMetrics(metrics),
+			discovery.WithTracing(monitoring.Tracing()),
 			discovery.WithLogger(lggr),
 			discovery.WithConfig(discCfg),
 			discovery.WithDiscoveryPriority(i),
