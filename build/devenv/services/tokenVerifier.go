@@ -61,6 +61,11 @@ type TokenVerifierInput struct {
 	// generated config should resolve addresses for.
 	LombardQualifier string `toml:"lombard_qualifier"`
 
+	// VerifierVersion overrides the Lombard verifier version tag embedded in signed CCV data,
+	// hex-encoded with 0x prefix (e.g. "0xd51b221b" for LombardVerifier 2.2.0).
+	// Empty uses the deployment changeset default.
+	VerifierVersion string `toml:"verifier_version"`
+
 	// GeneratedConfig stores the generated token verifier configuration from the changeset.
 	GeneratedConfig *token.Config `toml:"-"`
 

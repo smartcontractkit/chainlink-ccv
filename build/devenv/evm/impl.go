@@ -1988,8 +1988,9 @@ func (m *CCIP17EVM) transactorForAddress(addr common.Address) *bind.TransactOpts
 }
 
 // SetLombardMailboxBridgedMessage sets the mock Lombard mailbox's execution result to verifier version + messageID
-// (36 bytes) so that when LombardVerifier.verifyMessage calls deliverAndHandle, the mailbox returns that value
-// and the contract's InvalidMessageLength check passes. Implements cciptestinterfaces.LombardMailboxBridgedMessageSetter.
+// in the 48-byte padded form (version + ID + 12 zero bytes) so that when LombardVerifier.verifyMessage calls
+// deliverAndHandle, the mailbox returns that value and the contract's InvalidMessageLength check passes.
+// Implements cciptestinterfaces.LombardMailboxBridgedMessageSetter.
 func (m *CCIP17EVM) SetLombardMailboxBridgedMessage(ctx context.Context, messageID [32]byte) error {
 	bridgeRef, err := m.ds.Addresses().Get(datastore.NewAddressRefKey(
 		m.chainDetails.ChainSelector,
@@ -2008,9 +2009,12 @@ func (m *CCIP17EVM) SetLombardMailboxBridgedMessage(ctx context.Context, message
 	if err != nil {
 		return fmt.Errorf("bridge.Mailbox: %w", err)
 	}
-	// MockLombardMailbox.setMessageId(bytes calldata optionalMessage) — we pass verifier version (4) + messageID (32) = 36 bytes
+	// MockLombardMailbox.setMessageId(bytes calldata optionalMessage) — verifier version (4) + messageID (32)
+	// + 12 zero bytes = 48. LombardVerifier.sol accepts the 36-byte form or this padded form;
+	// the padded return exercises the contract's padded-bridgedMessage branch.
 	versionTag := lombard.DefaultVerifierVersion
 	bridgedMessage := append(append([]byte(nil), versionTag...), messageID[:]...)
+	bridgedMessage = append(bridgedMessage, make([]byte, 12)...)
 	mailboxABI, err := abi.JSON(strings.NewReader(`[{"type":"function","name":"setMessageId","inputs":[{"name":"optionalMessage","type":"bytes"}]}]`))
 	if err != nil {
 		return fmt.Errorf("mailbox ABI: %w", err)

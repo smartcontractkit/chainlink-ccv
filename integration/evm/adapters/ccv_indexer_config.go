@@ -6,7 +6,7 @@ import (
 	"github.com/Masterminds/semver/v3"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/versioned_verifier_resolver"
-	lombardverifier "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_1_0/operations/lombard_verifier"
+	lombardverifier "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_2_0/operations/lombard_verifier"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	cldfdeployment "github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 

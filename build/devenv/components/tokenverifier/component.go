@@ -2,8 +2,10 @@ package tokenverifier
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"strconv"
+	"strings"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
@@ -127,15 +129,20 @@ func (c *component) RunPhase4(
 		}
 
 		lombardQualifier := familyLombardQualifier[family]
+		verifierVersion, vErr := parseLombardVerifierVersion(tvIn.VerifierVersion)
+		if vErr != nil {
+			return nil, nil, fmt.Errorf("tokenverifier: instance %q: %w", tvIn.ContainerName, vErr)
+		}
 
 		cs := ccvchangesets.GenerateTokenVerifierConfig()
 		output, csErr := cs.Apply(localEnv, ccvchangesets.GenerateTokenVerifierConfigInput{
 			ServiceIdentifier: tvIn.ContainerName,
 			ChainSelectors:    familySelectors,
 			Lombard: ccvchangesets.LombardConfigInput{
-				VerifierID:     "LombardVerifier",
-				Qualifier:      lombardQualifier,
-				AttestationAPI: fakeOut.InternalHTTPURL + "/lombard",
+				VerifierID:      "LombardVerifier",
+				Qualifier:       lombardQualifier,
+				VerifierVersion: verifierVersion,
+				AttestationAPI:  fakeOut.InternalHTTPURL + "/lombard",
 			},
 			CCTP: ccvchangesets.CCTPConfigInput{
 				VerifierID:     "CCTPVerifier",
@@ -167,9 +174,10 @@ func (c *component) RunPhase4(
 				ServiceIdentifier: tvIn.ContainerName,
 				ChainSelectors:    remoteSelectors,
 				Lombard: ccvchangesets.LombardConfigInput{
-					VerifierID:     "LombardVerifier",
-					Qualifier:      remoteLombardQualifier,
-					AttestationAPI: fakeOut.InternalHTTPURL + "/lombard",
+					VerifierID:      "LombardVerifier",
+					Qualifier:       remoteLombardQualifier,
+					VerifierVersion: verifierVersion,
+					AttestationAPI:  fakeOut.InternalHTTPURL + "/lombard",
 				},
 				CCTP: ccvchangesets.CCTPConfigInput{
 					VerifierID:     "CCTPVerifier",
@@ -259,6 +267,19 @@ func selectorsForFamily(selectors []uint64, family string) []uint64 {
 		}
 	}
 	return filtered
+}
+
+// parseLombardVerifierVersion decodes a hex version tag ("0xd51b221b"). Empty input returns nil,
+// which leaves the changeset default in place.
+func parseLombardVerifierVersion(s string) ([]byte, error) {
+	if s == "" {
+		return nil, nil
+	}
+	b, err := hex.DecodeString(strings.TrimPrefix(s, "0x"))
+	if err != nil {
+		return nil, fmt.Errorf("parse verifier_version %q: %w", s, err)
+	}
+	return b, nil
 }
 
 func decode(raw any) ([]*services.TokenVerifierInput, error) {

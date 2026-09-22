@@ -47,6 +47,21 @@ func TestByteSlice_String_EmptyAndNonEmpty(t *testing.T) {
 	}
 }
 
+func TestByteSlice_TextRoundTrip(t *testing.T) {
+	original := ByteSlice{0xd5, 0x1b, 0x22, 0x1b}
+	text, err := original.MarshalText()
+	require.NoError(t, err)
+	require.Equal(t, "0xd51b221b", string(text))
+
+	var decoded ByteSlice
+	require.NoError(t, decoded.UnmarshalText(text))
+	require.Equal(t, original, decoded)
+
+	var empty ByteSlice
+	require.NoError(t, empty.UnmarshalText([]byte("")))
+	require.Empty(t, empty)
+}
+
 func TestBytes16_RoundTrip(t *testing.T) {
 	original, err := NewBytes16FromString("0x0102030405060708090a0b0c0d0e0f10")
 	require.NoError(t, err)
