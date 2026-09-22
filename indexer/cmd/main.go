@@ -269,6 +269,7 @@ func createDiscovery(ctx context.Context, lggr logger.Logger, cfg *config.Config
 			discovery.WithRegistry(registry),
 			discovery.WithTimeProvider(timeProvider),
 			discovery.WithMetrics(metrics),
+			discovery.WithTracing(monitoring.Tracing()),
 			discovery.WithLogger(lggr),
 			discovery.WithConfig(discCfg),
 			discovery.WithDiscoveryPriority(i),

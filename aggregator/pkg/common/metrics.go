@@ -5,6 +5,7 @@ import (
 	"time"
 
 	commonmetrics "github.com/smartcontractkit/chainlink-ccv/common/metrics"
+	"github.com/smartcontractkit/chainlink-ccv/common/monitoring/tracing"
 )
 
 // AggregatorMonitoring provides access to aggregator monitoring capabilities.
@@ -13,6 +14,8 @@ import (
 type AggregatorMonitoring interface {
 	// Metrics returns an AggregatorMetricLabeler for recording metrics.
 	Metrics() AggregatorMetricLabeler
+	// Tracing returns a tracing.Tracing for opening per-message spans.
+	Tracing() tracing.Tracing
 	commonmetrics.ServiceMetrics
 }
 

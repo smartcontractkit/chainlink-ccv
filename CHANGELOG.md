@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.13.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.12.0...v0.13.0) (2026-09-17)
+
+
+### Features
+
+* **verifier:** job-queue archive lookup by message ID, JSON output, and owner inference ([#1443](https://github.com/smartcontractkit/chainlink-ccv/issues/1443)) ([6c81605](https://github.com/smartcontractkit/chainlink-ccv/commit/6c81605673b594accf94b929a1a733b8a0e07e7f))
+
+
+### Bug Fixes
+
+* **aggregator:** storage config nil guard ([#1458](https://github.com/smartcontractkit/chainlink-ccv/issues/1458)) ([e1a6985](https://github.com/smartcontractkit/chainlink-ccv/commit/e1a698523cfba0ad6c6d91c99f88b6a6fa9ff1bb))
+* bump chainlink-proto dependency ([#1457](https://github.com/smartcontractkit/chainlink-ccv/issues/1457)) ([1b32fa7](https://github.com/smartcontractkit/chainlink-ccv/commit/1b32fa7e6d5643411fff7146cab31083e76e26a6))
+* **deps:** bump chain-selectors ([#1448](https://github.com/smartcontractkit/chainlink-ccv/issues/1448)) ([e8913fc](https://github.com/smartcontractkit/chainlink-ccv/commit/e8913fc2a59078d8371debcb7ff84ce2ef12ddfb))
+* devenv grafana service log ([#1452](https://github.com/smartcontractkit/chainlink-ccv/issues/1452)) ([8713af5](https://github.com/smartcontractkit/chainlink-ccv/commit/8713af57b8983c9177e77d675a6df5bcdf5368c7))
+* **dockerfiles:** upgrade openssl to patch CVEs ([#1453](https://github.com/smartcontractkit/chainlink-ccv/issues/1453)) ([ecac495](https://github.com/smartcontractkit/chainlink-ccv/commit/ecac49513535a06f4b8c35b02736e99b56f64f17))
+* indexer scheduler backoff overflow  ([#1456](https://github.com/smartcontractkit/chainlink-ccv/issues/1456)) ([e345c02](https://github.com/smartcontractkit/chainlink-ccv/commit/e345c02e2097a6064421664ce95aad9bfa2684a9))
+* **tokenverifier:** bump defaultStartupTimeout to 2 min ([#1463](https://github.com/smartcontractkit/chainlink-ccv/issues/1463)) ([3cef5e4](https://github.com/smartcontractkit/chainlink-ccv/commit/3cef5e491ceaf9b0af76c70ee611199956da6679))
+
 ## [0.12.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.11.0...v0.12.0) (2026-09-14)
 
 

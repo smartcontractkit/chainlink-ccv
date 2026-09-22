@@ -5,6 +5,7 @@ import (
 	"time"
 
 	commonmetrics "github.com/smartcontractkit/chainlink-ccv/common/metrics"
+	"github.com/smartcontractkit/chainlink-ccv/common/monitoring/tracing"
 )
 
 // IndexerMonitoring provides all core monitoring functionality for the indexer. Also can be implemented as a no-op.
@@ -13,6 +14,8 @@ import (
 type IndexerMonitoring interface {
 	// Metrics returns the metrics labeler for the indexer.
 	Metrics() IndexerMetricLabeler
+	// Tracing returns the tracing helper for the indexer.
+	Tracing() tracing.Tracing
 	commonmetrics.ServiceMetrics
 }
 

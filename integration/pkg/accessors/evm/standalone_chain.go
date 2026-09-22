@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 
+	commonmonitoring "github.com/smartcontractkit/chainlink-ccv/common/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/contracttransmitter"
@@ -40,6 +42,34 @@ const (
 	orphanRecoveryRPCTimeout = 30 * time.Second
 )
 
+// Node URL label keys for the chain plugin config beholder event. They match the keys the core
+// node's EVM relayer uses for the same event (chainlink-evm/pkg/relay), so downstream consumers
+// see identical labels from standalone services and core nodes.
+const (
+	nodeURLKeyHTTP = "HTTPURL"
+	nodeURLKeyWS   = "WSURL"
+)
+
+// rawNodeURLs maps each configured RPC node to its endpoints for the chain plugin config
+// beholder event. The emitter normalizes the URLs (scheme://host only) before emission.
+func rawNodeURLs(nodes []Node) []map[string]string {
+	rawNodes := make([]map[string]string, 0, len(nodes))
+	for _, n := range nodes {
+		nodeURLs := make(map[string]string)
+		if httpURL := strings.TrimSpace(n.HTTPUrl); httpURL != "" {
+			nodeURLs[nodeURLKeyHTTP] = httpURL
+		}
+		if wsURL := strings.TrimSpace(n.WSUrl); wsURL != "" {
+			nodeURLs[nodeURLKeyWS] = wsURL
+		}
+		if len(nodeURLs) == 0 {
+			continue
+		}
+		rawNodes = append(rawNodes, nodeURLs)
+	}
+	return rawNodes
+}
+
 // chainRuntime is the lifecycle boundary owned by one EVM accessor. Keeping it
 // behind this narrow interface makes the accessor wiring testable without
 // replacing chainlink-evm's production implementations.
@@ -64,6 +94,9 @@ type standaloneChain struct {
 	headBroadcaster heads.Broadcaster
 	headTracker     heads.Tracker
 	mailMonitor     *mailbox.Monitor
+	// configEmitter emits the chain's ChainPluginConfig (CSA key + normalized RPC endpoints) to
+	// Beholder, as a core node relayer does, so NOPs sharing RPC endpoints can be detected.
+	configEmitter *commonmonitoring.ChainPluginConfigEmitter
 
 	// txmBlockTime and txmBlockTimeSource are resolved from the operator's Info at construction
 	// for the logging NewContractTransmitter emits: chainConfig carries the block time already
@@ -115,10 +148,15 @@ func newStandaloneChain(ctx context.Context, info Info, lggr logger.Logger) (*st
 		return nil, fmt.Errorf("failed to dial production EVM client for chain %s: %w", info.ChainID, err)
 	}
 
+	// The config emitter reports this chain's RPC endpoints to Beholder as a core node's EVM
+	// relayer does; an empty CSA key falls back to the beholder client's auth key. With Beholder
+	// disabled the global emitter is a no-op, so it runs unconditionally.
+	configEmitter := commonmonitoring.NewChainPluginConfigEmitter(lggr, "", info.ChainID, rawNodeURLs(info.Nodes))
+
 	var servicesToStart services.MultiStart
 	// MultiStart rolls back every service it started, in reverse order, if a
 	// later Start fails. The separately owned chain client is closed here.
-	if err := servicesToStart.Start(ctx, mailMonitor, headBroadcaster, headTracker); err != nil {
+	if err := servicesToStart.Start(ctx, mailMonitor, headBroadcaster, headTracker, configEmitter); err != nil {
 		chainClient.Close()
 		return nil, fmt.Errorf("failed to start production EVM head tracker for chain %s: %w", info.ChainID, err)
 	}
@@ -136,6 +174,7 @@ func newStandaloneChain(ctx context.Context, info Info, lggr logger.Logger) (*st
 		headBroadcaster:                  headBroadcaster,
 		headTracker:                      headTracker,
 		mailMonitor:                      mailMonitor,
+		configEmitter:                    configEmitter,
 		txmBlockTime:                     txmBlockTime,
 		txmBlockTimeSource:               txmBlockTimeSource,
 		sourceReaderHeaderFetchBatchSize: sourceReaderHeaderFetchBatchSize(info.SourceReaderHeaderFetchBatchSize),
@@ -379,9 +418,17 @@ func (c *standaloneChain) Close() error {
 	txm := c.txm
 	unsubscribeTXM := c.unsubscribeTXM
 	chainClient := c.chainClient
+	configEmitter := c.configEmitter
 	c.mu.Unlock()
 
-	// Stop orphan recovery first and wait for it. It reads nonces through the chain client and
+	// Stop the config emitter first: it is independent of the chain services and this stops
+	// emissions as soon as shutdown begins (reverse of startup order).
+	var err error
+	if configEmitter != nil {
+		err = errors.Join(err, configEmitter.Close())
+	}
+
+	// Stop orphan recovery next and wait for it. It reads nonces through the chain client and
 	// writes to the TXM store, so both have to outlive it; abandoning it here would leave it calling
 	// into a closed client.
 	//
@@ -394,7 +441,6 @@ func (c *standaloneChain) Close() error {
 	}
 	c.recoveryWG.Wait()
 
-	var err error
 	if headTracker != nil {
 		err = errors.Join(err, headTracker.Close())
 	}

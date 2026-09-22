@@ -42,7 +42,7 @@ const (
 	SecretsPathEnv     = "BOOTSTRAPPER_SECRETS_PATH"
 	DefaultSecretsPath = "/etc/bootstrap/secrets.toml" //nolint:gosec // G101: this is a file path, not a credential
 
-	defaultStartupTimeout  = 10 * time.Second
+	defaultStartupTimeout  = 2 * time.Minute
 	defaultShutdownTimeout = 10 * time.Second
 
 	// localConfigPollInterval is how often the local-mode watcher checks for a not-yet-present app

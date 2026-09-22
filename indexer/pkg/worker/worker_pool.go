@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/sourcegraph/conc/pool"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
 
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
@@ -162,6 +164,10 @@ func (p *Pool) run(ctx context.Context) {
 			}
 
 			workerCtx, cancel := context.WithTimeout(ctx, time.Duration(p.config.WorkerTimeout)*time.Second)
+			if task.traceParent != "" {
+				carrier := propagation.MapCarrier{"traceparent": task.traceParent}
+				workerCtx = otel.GetTextMapPropagator().Extract(workerCtx, carrier)
+			}
 			p.logger.Debugf("Starting Worker for %s", task.messageID.String())
 
 			p.pool.Go(func() {
@@ -220,6 +226,7 @@ func (p *Pool) enqueueMessages(ctx context.Context) {
 				p.logger.Error("Unable to create Task. this shouldn't happen.", err)
 				continue
 			}
+			task.traceParent = message.Metadata.TraceParent
 
 			if err = p.scheduler.Enqueue(ctx, task); err != nil {
 				p.logger.Errorf("Unable to enqueue: %v", err)

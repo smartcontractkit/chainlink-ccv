@@ -2,13 +2,27 @@ package worker
 
 import (
 	"context"
+	"strconv"
 
+	"go.opentelemetry.io/otel/attribute"
+
+	commontracing "github.com/smartcontractkit/chainlink-ccv/common/monitoring/tracing"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
 // Execute processes a task by finding missing verifiers, loading verifier readers,
 // enqueueing verifier calls, and storing the results.
 func Execute(ctx context.Context, task *Task) (*TaskResult, error) {
+	var spanOpts []commontracing.SpanOption
+	// Always sample the first 5 attempts so every task is visible at least once.
+	if task.attempt <= 5 {
+		spanOpts = append(spanOpts, commontracing.AlwaysSampled())
+	}
+	ctx, span := task.tracer().StartMessageSpan(ctx, monitoring.ProcessMessageSpanName, task.messageID, spanOpts...)
+	defer span.End()
+	span.SetAttributes(attribute.String(commontracing.AttemptKey, strconv.Itoa(task.attempt)))
+
 	// Find what verifications we're currently missing
 	// This does a storage lookup to see what verifications
 	// we currently have for the message.
@@ -21,6 +35,7 @@ func Execute(ctx context.Context, task *Task) (*TaskResult, error) {
 	if err != nil {
 		// If we're unable to query the storage, we'll return the error
 		// such that we can retry the task later.
+		span.RecordError(err)
 		return nil, err
 	}
 
@@ -60,8 +75,10 @@ func Execute(ctx context.Context, task *Task) (*TaskResult, error) {
 	if len(results) > 0 {
 		err = task.storage.InsertVerifierResults(ctx, results)
 		if err != nil {
+			span.RecordError(err)
 			return nil, err
 		}
+		span.AddEvent(monitoring.EventResultsStored)
 	}
 
 	// The result of the task determines if the message will need to be retried.
