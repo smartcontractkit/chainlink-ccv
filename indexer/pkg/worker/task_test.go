@@ -260,7 +260,7 @@ func TestCollectVerifierResults(t *testing.T) {
 		task2, err := NewTask(lggr, msg, reg, mocks.NewMockIndexerStorage(t), time.Now().Add(time.Second))
 		require.NoError(t, err)
 
-		res := task2.collectVerifierResults(context.Background(), []*readers.VerifierReader{r})
+		res := task2.collectVerifierResults(context.Background(), []verifierTarget{{reader: r, address: addr}})
 		require.Len(t, res, 1)
 		require.Equal(t, "test-verifier", res[0].Metadata.VerifierName)
 		require.Equal(t, mid, res[0].VerifierResult.MessageID)
@@ -283,11 +283,13 @@ func TestCollectVerifierResults(t *testing.T) {
 		addr2, aerr := protocol.NewUnknownAddressFromHex("0x02")
 		require.NoError(t, aerr)
 		require.NoError(t, reg.AddVerifier(addr2, "verifier-2", r1))
+		addr3, aerr := protocol.NewUnknownAddressFromHex("0x03")
+		require.NoError(t, aerr)
 
 		task3, err := NewTask(lggr, msg, reg, mocks.NewMockIndexerStorage(t), time.Now().Add(time.Second))
 		require.NoError(t, err)
 
-		res := task3.collectVerifierResults(context.Background(), []*readers.VerifierReader{r1, r2})
+		res := task3.collectVerifierResults(context.Background(), []verifierTarget{{reader: r1, address: addr2}, {reader: r2, address: addr3}})
 		require.Len(t, res, 1)
 		require.Equal(t, "verifier-2", res[0].Metadata.VerifierName)
 	})

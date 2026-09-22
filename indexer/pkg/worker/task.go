@@ -9,25 +9,30 @@ import (
 	"sync"
 	"time"
 
+	commontracing "github.com/smartcontractkit/chainlink-ccv/common/monitoring/tracing"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/readers"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/registry"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/storage"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 type Task struct {
-	logger    logger.Logger
-	messageID protocol.Bytes32
-	message   protocol.VerifierResult
-	registry  *registry.VerifierRegistry
-	storage   common.IndexerStorage
-	attempt   int // 1-indexed
-	runAt     time.Time
-	index     int // heap index
-	lastErr   error
-	ttl       time.Time
+	logger      logger.Logger
+	messageID   protocol.Bytes32
+	message     protocol.VerifierResult
+	registry    *registry.VerifierRegistry
+	storage     common.IndexerStorage
+	tracing     commontracing.Tracing
+	traceParent string // discovery w3c traceparent
+	attempt     int    // 1-indexed
+	runAt       time.Time
+	index       int // heap index
+	lastErr     error
+	ttl         time.Time
 }
 
 type TaskResult struct {
@@ -52,15 +57,24 @@ func NewTask(lggr logger.Logger, message protocol.VerifierResult, registry *regi
 		message:   message,
 		registry:  registry,
 		storage:   storage,
+		tracing:   commontracing.NewTracing(beholder.GetTracer()),
 		attempt:   0,
 		lastErr:   nil,
 		ttl:       ttl,
 	}, nil
 }
 
+// verifierTarget pairs a VerifierReader with the on-chain address it was loaded for,
+// so callers can resolve the verifier's name (for span naming/attributes) before
+// the reader's async result arrives.
+type verifierTarget struct {
+	reader  *readers.VerifierReader
+	address protocol.UnknownAddress
+}
+
 // collectVerifierResults processes all verifier readers concurrently and collects successful results.
-func (t *Task) collectVerifierResults(ctx context.Context, verifierReaders []*readers.VerifierReader) []common.VerifierResultWithMetadata {
-	if len(verifierReaders) == 0 {
+func (t *Task) collectVerifierResults(ctx context.Context, targets []verifierTarget) []common.VerifierResultWithMetadata {
+	if len(targets) == 0 {
 		return nil
 	}
 
@@ -70,21 +84,36 @@ func (t *Task) collectVerifierResults(ctx context.Context, verifierReaders []*re
 		wg      sync.WaitGroup
 	)
 
-	wg.Add(len(verifierReaders))
-	for _, reader := range verifierReaders {
-		if reader == nil {
+	wg.Add(len(targets))
+	for _, target := range targets {
+		if target.reader == nil {
 			wg.Done()
 			continue
 		}
 
-		resultCh, err := reader.ProcessMessage(t.messageID)
+		resultCh, err := target.reader.ProcessMessage(t.messageID)
 		if err != nil {
 			wg.Done()
 			continue
 		}
 
+		verifierName := t.registry.GetVerifierNameFromAddress(target.address)
+		address := target.address.String()
+
 		go func(ch <-chan common.Result[protocol.VerifierResult]) {
 			defer wg.Done()
+			spanOpts := []commontracing.SpanOption{
+				commontracing.WithAttributes(
+					commontracing.VerifierNameKey, verifierName,
+					commontracing.VerifierAddressKey, address,
+				),
+			}
+			// Always sample the first 5 attempts so every task is visible at least once.
+			if t.attempt <= 5 {
+				spanOpts = append(spanOpts, commontracing.AlwaysSampled())
+			}
+			spanCtx, span := t.tracer().StartMessageSpan(ctx, monitoring.FetchVerificationSpanName, t.messageID, spanOpts...)
+			defer span.End()
 			select {
 			case result, ok := <-ch:
 				if !ok {
@@ -92,6 +121,7 @@ func (t *Task) collectVerifierResults(ctx context.Context, verifierReaders []*re
 					return
 				}
 				if result.Err() == nil {
+					span.AddEvent(monitoring.EventVerificationFound)
 					mu.Lock()
 					t.logger.Debugf("Received result from %s for MessageID %s", result.Value().VerifierSourceAddress, t.messageID.String())
 					verifierResultWithMetadata := common.VerifierResultWithMetadata{
@@ -99,15 +129,19 @@ func (t *Task) collectVerifierResults(ctx context.Context, verifierReaders []*re
 						Metadata: common.VerifierResultMetadata{
 							AttestationTimestamp: result.Value().Timestamp,
 							IngestionTimestamp:   time.Now(),
-							VerifierName:         t.registry.GetVerifierNameFromAddress(result.Value().VerifierSourceAddress),
+							VerifierName:         verifierName,
 						},
 					}
 					results = append(results, verifierResultWithMetadata)
 					mu.Unlock()
-				} else if !errors.Is(result.Err(), readers.ErrVerificationNotFound) {
+				} else if errors.Is(result.Err(), readers.ErrVerificationNotFound) {
+					span.AddEvent(monitoring.EventVerificationNotFound)
+				} else {
+					span.RecordError(result.Err())
 					t.logger.Warnw("verifier task result error", "err", result.Err())
 				}
-			case <-ctx.Done():
+			case <-spanCtx.Done():
+				span.RecordError(spanCtx.Err())
 				return
 			}
 		}(resultCh)
@@ -117,7 +151,7 @@ func (t *Task) collectVerifierResults(ctx context.Context, verifierReaders []*re
 	return results
 }
 
-func (t *Task) loadVerifierReaders(verifierAddresses []string) (readerList []*readers.VerifierReader, loadedReaders, missingReaders []string) {
+func (t *Task) loadVerifierReaders(verifierAddresses []string) (readerList []verifierTarget, loadedReaders, missingReaders []string) {
 	for _, v := range verifierAddresses {
 		unknownAddress, err := protocol.NewUnknownAddressFromHex(v)
 		if err != nil {
@@ -133,7 +167,9 @@ func (t *Task) loadVerifierReaders(verifierAddresses []string) (readerList []*re
 			continue
 		}
 
-		readerList = append(readerList, addrReaders...)
+		for _, r := range addrReaders {
+			readerList = append(readerList, verifierTarget{reader: r, address: unknownAddress})
+		}
 		// normalize casing to lower-case hex strings to match getExistingVerifiers/getVerifiers
 		loadedReaders = append(loadedReaders, strings.ToLower(unknownAddress.String()))
 	}
@@ -187,4 +223,13 @@ func (t *Task) getVerifiers() []string {
 
 func (t *Task) SetMessageStatus(ctx context.Context, messageStatus common.MessageStatus, lastErr string) error {
 	return t.storage.UpdateMessageStatus(ctx, t.messageID, messageStatus, lastErr)
+}
+
+// tracer returns t.tracing, falling back to a working default for Tasks built via
+// a bare struct literal (e.g. in tests) rather than NewTask.
+func (t *Task) tracer() commontracing.Tracing {
+	if t.tracing == nil {
+		return commontracing.NewTracing(beholder.GetTracer())
+	}
+	return t.tracing
 }

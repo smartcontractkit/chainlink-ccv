@@ -9,10 +9,16 @@ import (
 	"time"
 
 	"github.com/sourcegraph/conc/pool"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/propagation"
+	oteltrace "go.opentelemetry.io/otel/trace"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
+	commontracing "github.com/smartcontractkit/chainlink-ccv/common/monitoring/tracing"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -51,14 +57,19 @@ type aggregationRequest struct {
 	AggregationKey model.AggregationKey
 	MessageID      model.MessageID
 	ChannelKey     model.ChannelKey
+	// TraceParent carries the enqueueing write span's W3C traceparent
+	TraceParent string
 }
 
 // CheckAggregation enqueues a new aggregation request for the specified message ID.
 func (c *CommitReportAggregator) CheckAggregation(ctx context.Context, messageID model.MessageID, aggregationKey model.AggregationKey, channelKey model.ChannelKey) error {
+	carrier := propagation.MapCarrier{}
+	otel.GetTextMapPropagator().Inject(ctx, carrier)
 	request := aggregationRequest{
 		MessageID:      messageID,
 		AggregationKey: aggregationKey,
 		ChannelKey:     channelKey,
+		TraceParent:    carrier.Get("traceparent"),
 	}
 	err := c.channelManager.Enqueue(ctx, channelKey, request)
 	if err != nil {
@@ -128,14 +139,29 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.C
 	lggr := c.logger(ctx)
 	lggr.Debug("Checking aggregation for message")
 
+	// Extract the enqueueing write-request's traceparent as ctx's active span before
+	// starting our span, so StartMessageSpan uses it as a real parent - the aggregation
+	// work becomes a genuine child of that write, not a same-messageID sibling.
+	if request.TraceParent != "" {
+		carrier := propagation.MapCarrier{"traceparent": request.TraceParent}
+		ctx = otel.GetTextMapPropagator().Extract(ctx, carrier)
+	}
+	ctx, span := c.monitoring.Tracing().StartMessageSpan(ctx, monitoring.AggregationWorkSpanName, monitoring.MessageIDToBytes32(request.MessageID),
+		commontracing.AlwaysSampled(),
+		commontracing.WithAttributes(commontracing.AggregationKeyKey, request.AggregationKey),
+	)
+	defer span.End()
+
 	shouldSkip := c.shouldSkipAggregationDueToExistingQuorum(ctx, request.MessageID, request.AggregationKey)
 	if shouldSkip {
+		span.AddEvent(monitoring.EventAggregationSkipped)
 		return nil
 	}
 
 	verifications, err := c.storage.ListCommitVerificationByAggregationKey(ctx, request.MessageID, request.AggregationKey)
 	if err != nil {
 		lggr.Errorw("Failed to list verifications", "error", err)
+		span.RecordError(err)
 		return err
 	}
 
@@ -152,33 +178,55 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.C
 	quorumMet, err := c.quorum.CheckQuorum(ctx, aggregatedReport)
 	if err != nil {
 		lggr.Errorw("Failed to check quorum", "error", err)
+		span.RecordError(err)
 		return err
 	}
+	span.SetAttributes(attribute.Bool(commontracing.QuorumMetKey, quorumMet))
 
-	if quorumMet {
-		if c.committee == nil {
-			lggr.Errorw("Cannot map aggregated report for export: committee configuration is missing")
-			c.metrics(ctx).IncrementAggregationsBlockedUnexportable(ctx)
-			return nil
-		}
-		if _, err := model.MapAggregatedReportToVerifierResultProto(aggregatedReport, c.committee); err != nil {
-			lggr.Errorw("Aggregated report is not exportable", "error", err)
-			c.metrics(ctx).IncrementAggregationsBlockedUnexportable(ctx)
-			return nil
-		}
-		if err := c.sink.SubmitAggregatedReport(ctx, aggregatedReport); err != nil {
-			lggr.Errorw("Failed to submit report", "error", err)
-			return err
-		}
-		timeToAggregation := aggregatedReport.CalculateTimeToAggregation(time.Now())
-		// PER-MESSAGE LOG (success): one line per message, on quorum.
-		lggr.Infow("Report submitted successfully", protocol.LogTypeKey, protocol.LogTypeMessageSuccess, protocol.LogKeyMessageID, protocol.ByteSlice(request.MessageID).String(), "verifications", len(verifications), "timeToAggregation", timeToAggregation)
-		c.metrics(ctx).IncrementCompletedAggregations(ctx)
-		c.metrics(ctx).RecordTimeToAggregation(ctx, timeToAggregation)
-	} else {
+	if !quorumMet {
+		span.AddEvent(monitoring.EventQuorumNotMet)
 		lggr.Debugw("Quorum not met, not submitting report", "verifications", len(verifications))
+		return nil
 	}
 
+	return c.submitAggregatedReport(ctx, lggr, span, request, aggregatedReport, verifications)
+}
+
+// submitAggregatedReport maps and submits a report that has met quorum, recording the
+// outcome (unexportable, already submitted by a concurrent worker, or submitted) on span.
+func (c *CommitReportAggregator) submitAggregatedReport(ctx context.Context, lggr logger.SugaredLogger, span oteltrace.Span, request aggregationRequest, aggregatedReport *model.CommitAggregatedReport, verifications []*model.CommitVerificationRecord) error {
+	if c.committee == nil {
+		lggr.Errorw("Cannot map aggregated report for export: committee configuration is missing")
+		span.AddEvent(monitoring.EventReportUnexportable)
+		c.metrics(ctx).IncrementAggregationsBlockedUnexportable(ctx)
+		return nil
+	}
+	if _, err := model.MapAggregatedReportToVerifierResultProto(aggregatedReport, c.committee); err != nil {
+		lggr.Errorw("Aggregated report is not exportable", "error", err)
+		span.AddEvent(monitoring.EventReportUnexportable)
+		c.metrics(ctx).IncrementAggregationsBlockedUnexportable(ctx)
+		return nil
+	}
+	inserted, err := c.sink.SubmitAggregatedReport(ctx, aggregatedReport)
+	if err != nil {
+		lggr.Errorw("Failed to submit report", "error", err)
+		span.RecordError(err)
+		return err
+	}
+	if !inserted {
+		// A concurrent worker for the same message/aggregation key already inserted the
+		// identical report first (see SubmitAggregatedReport's ON CONFLICT DO NOTHING) -
+		// not an error, just this worker losing the race.
+		span.AddEvent(monitoring.EventAggregationAlreadySubmitted)
+		lggr.Debugw("Aggregated report already submitted by a concurrent worker", "verifications", len(verifications))
+		return nil
+	}
+	span.AddEvent(monitoring.EventReportSubmitted)
+	timeToAggregation := aggregatedReport.CalculateTimeToAggregation(time.Now())
+	// PER-MESSAGE LOG (success): one line per message, on quorum.
+	lggr.Infow("Report submitted successfully", protocol.LogTypeKey, protocol.LogTypeMessageSuccess, protocol.LogKeyMessageID, protocol.ByteSlice(request.MessageID).String(), "verifications", len(verifications), "timeToAggregation", timeToAggregation)
+	c.metrics(ctx).IncrementCompletedAggregations(ctx)
+	c.metrics(ctx).RecordTimeToAggregation(ctx, timeToAggregation)
 	return nil
 }
 

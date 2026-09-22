@@ -9,7 +9,12 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	oteltrace "go.opentelemetry.io/otel/trace"
 
+	commontracing "github.com/smartcontractkit/chainlink-ccv/common/monitoring/tracing"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/jobqueue"
 	verifiermonitoring "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
@@ -147,6 +152,91 @@ func TestProcessorDB_ProcessBatchesSuccessfully(t *testing.T) {
 			return fakeStorage.GetStoredCount() == numJobs
 		}, tests.WaitTimeout(t), 100*time.Millisecond)
 	})
+}
+
+// sdkTracingMonitoring overrides FakeVerifierMonitoring's Tracing() with one backed by a
+// real OTel SDK tracer, so opened spans get real SpanContexts (the beholder-backed no-op
+// tracer FakeVerifierMonitoring normally uses can't produce a valid one to inject).
+type sdkTracingMonitoring struct {
+	*verifiermonitoring.FakeVerifierMonitoring
+	tr commontracing.Tracing
+}
+
+func (m sdkTracingMonitoring) Tracing() commontracing.Tracing { return m.tr }
+
+// TestProcessorDB_SyncsTraceParentWithTraceContext is a regression test: the write span's
+// traceparent must replace whatever traceparent was set before this span existed (e.g. the
+// upstream task-verifier attempt), so the aggregator write parents off the storage-write
+// span instead of silently skipping it.
+func TestProcessorDB_SyncsTraceParentWithTraceContext(t *testing.T) {
+	db := testutil.NewTestDB(t)
+	ctx := t.Context()
+
+	// The production propagator is installed globally via beholder.SetGlobalOtelProviders;
+	// pin it here so Inject/Extract behave deterministically regardless of test order.
+	prevPropagator := otel.GetTextMapPropagator()
+	otel.SetTextMapPropagator(propagation.TraceContext{})
+	t.Cleanup(func() { otel.SetTextMapPropagator(prevPropagator) })
+
+	lggr := logger.Test(t)
+	fakeStorage := NewFakeCCVNodeDataWriter()
+
+	resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
+		db,
+		jobqueue.QueueConfig{
+			Name:          verifier.StorageWriterJobsTableName,
+			OwnerID:       "test-" + t.Name(),
+			RetryDuration: time.Hour,
+			LockDuration:  time.Minute,
+		},
+		lggr,
+	)
+	require.NoError(t, err)
+
+	tp := sdktrace.NewTracerProvider()
+	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
+	mon := sdkTracingMonitoring{
+		FakeVerifierMonitoring: verifiermonitoring.NewFakeVerifierMonitoring(),
+		tr:                     commontracing.NewTracing(tp.Tracer("test")),
+	}
+
+	processor, err := NewProcessor(
+		lggr,
+		"test-"+t.Name(),
+		mon,
+		testutil.NoopLatencyTracker{},
+		fakeStorage,
+		resultQueue,
+		verifier.CoordinatorConfig{
+			StorageBatchSize:  10,
+			StorageRetryDelay: 100 * time.Millisecond,
+		},
+	)
+	require.NoError(t, err)
+	require.NoError(t, processor.Start(ctx))
+	t.Cleanup(func() {
+		require.NoError(t, processor.Close())
+	})
+
+	result := createTestVerifierNodeResult(1)
+	// A stale traceparent from an upstream span (e.g. the task-verifier attempt), set
+	// before this write span existed.
+	const staleTraceParent = "00-11111111111111111111111111111111-1111111111111111-01"
+	result.TraceParent = staleTraceParent
+	require.NoError(t, resultQueue.Publish(ctx, result))
+
+	require.Eventually(t, func() bool {
+		return fakeStorage.GetStoredCount() == 1
+	}, tests.WaitTimeout(t), 50*time.Millisecond)
+
+	stored := fakeStorage.GetStored()[result.MessageID]
+	require.NotEqual(t, staleTraceParent, stored.TraceParent,
+		"TraceParent must be updated to the write span opened by this processor, not stay pinned to the stale upstream one")
+
+	carrier := propagation.MapCarrier{"traceparent": stored.TraceParent}
+	extractedCtx := otel.GetTextMapPropagator().Extract(context.Background(), carrier)
+	sc := oteltrace.SpanContextFromContext(extractedCtx)
+	require.True(t, sc.IsValid(), "stored TraceParent must decode to a valid SpanContext")
 }
 
 // TestProcessorDB_RetryFailedBatches tests retry logic.

@@ -117,14 +117,23 @@ func (v *Verifier) processVerificationTask(ctx context.Context, task verifier.Ve
 		}
 	}
 	messageID, _ := protocol.NewBytes32FromString(task.MessageID)
+	spanOpts := []tracing.SpanOption{
+		tracing.WithAttributes(
+			tracing.TokenProviderKey, provider,
+			tracing.TxHashKey, task.TxHash.String(),
+			tracing.SourceChainSelectorKey, task.Message.SourceChainSelector.String(),
+			tracing.SourceChainNameKey, task.Message.SourceChainSelector.ChainName(),
+		),
+	}
+	// Always sample the 5 attempts so every task is visible at least once.
+	if task.AttemptCount <= 5 {
+		spanOpts = append(spanOpts, tracing.AlwaysSampled())
+	}
 	fetchCtx, span := v.monitoring.Tracing().StartMessageSpan(
 		parentCtx,
 		monitoring.TokenAttestationSpanName(v.verifierID),
 		messageID,
-		attribute.String(tracing.TokenProviderKey, provider),
-		attribute.String(tracing.TxHashKey, task.TxHash.String()),
-		attribute.String(tracing.SourceChainSelectorKey, task.Message.SourceChainSelector.String()),
-		attribute.String(tracing.SourceChainNameKey, task.Message.SourceChainSelector.ChainName()),
+		spanOpts...,
 	)
 	defer span.End()
 	fetchStartedAt := time.Now()
@@ -132,7 +141,7 @@ func (v *Verifier) processVerificationTask(ctx context.Context, task verifier.Ve
 		v.monitoring.Metrics().IncrementTokenAttestationFetch(fetchCtx, provider, outcome)
 		v.monitoring.Metrics().RecordTokenAttestationDuration(fetchCtx, provider, time.Since(fetchStartedAt))
 		// Semantic result of the fetch (success/not_ready/not_found/error), which is
-		// independent of the HTTP outcome recorded on the token_http_request span.
+		// independent of the HTTP outcome recorded on the fetch_attestation span.
 		span.SetAttributes(attribute.String(tracing.TokenOutcomeKey, outcome))
 	}
 

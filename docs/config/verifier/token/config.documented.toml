@@ -73,6 +73,13 @@ disable_finality_checkers = []
     OtelExporterGRPCEndpoint = ""
     # OtelExporterHTTPEndpoint is the endpoint for the beholder client to export to the collector.
     OtelExporterHTTPEndpoint = ""
+    # ChipIngressEndpoint is the gRPC endpoint of the CHIP Ingress server. Setting it publishes
+    # beholder custom events (e.g. the chain plugin config used to detect shared RPC endpoints)
+    # to CHIP Ingress in addition to the OTel collector. Mirrors the core node field's name.
+    ChipIngressEndpoint = ""
+    # ChipIngressInsecureConnection disables TLS for the CHIP Ingress connection. It is
+    # independent of InsecureConnection, which covers the OTel exporter connection.
+    ChipIngressInsecureConnection = false
     # LogStreamingEnabled enables log streaming to the collector.
     LogStreamingEnabled = false
     # LogStreamingLevel specifies the level above which logs are streamed to beholder

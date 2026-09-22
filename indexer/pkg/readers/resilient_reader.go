@@ -111,7 +111,7 @@ func createPolicies[T any](config ResilienceConfig, lggr logger.Logger, name str
 		HandleIf(retryHandleIf).
 		WithMaxRetries(config.MaxRetries).
 		WithBackoff(config.RetryDelay, config.RetryMaxDelay).
-		AbortOnErrors(context.Canceled, context.DeadlineExceeded, circuitbreaker.ErrOpen).
+		AbortOnErrors(context.Canceled, context.DeadlineExceeded, circuitbreaker.ErrOpen, ratelimiter.ErrExceeded).
 		ReturnLastFailure().
 		OnRetry(func(failsafe.ExecutionEvent[T]) {
 			lggr.Warnw(name+" retrying request", "max_retries", config.MaxRetries)
@@ -155,7 +155,7 @@ func createPolicies[T any](config ResilienceConfig, lggr logger.Logger, name str
 		Build()
 
 	return executorPolicies[T]{
-		executor:       failsafe.With(rp, cb, rl, bh, to),
+		executor:       failsafe.With(rp, rl, cb, bh, to),
 		circuitBreaker: cb,
 	}
 }
