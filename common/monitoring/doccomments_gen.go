@@ -6,17 +6,19 @@ import "github.com/smartcontractkit/chainlink-common/x/config/commentparsing"
 
 func (BeholderConfig) DocComments() map[string]commentparsing.FieldDoc {
 	return map[string]commentparsing.FieldDoc{
-		"CACertFile":               {Comment: "CACertFile is the path to the CA certificate file for the beholder client."},
-		"Enabled":                  {Comment: "Enabled enables the beholder telemetry."},
-		"InsecureConnection":       {Comment: "InsecureConnection disables TLS for the beholder client."},
-		"LogStreamingEnabled":      {Comment: "LogStreamingEnabled enables log streaming to the collector."},
-		"LogStreamingLevel":        {Comment: "LogStreamingLevel specifies the level above which logs are streamed to beholder"},
-		"MetricReaderInterval":     {Comment: "MetricReaderInterval is the interval to scrape metrics (in seconds)."},
-		"OtelExporterGRPCEndpoint": {Comment: "OtelExporterGRPCEndpoint is the endpoint for the beholder client to export to the collector."},
-		"OtelExporterHTTPEndpoint": {Comment: "OtelExporterHTTPEndpoint is the endpoint for the beholder client to export to the collector."},
-		"TelemetryAttributes":      {Comment: "TelemetryAttributes are additional labels that assigned during OTel transmission"},
-		"TraceBatchTimeout":        {Comment: "TraceBatchTimeout is the timeout for a batch of traces."},
-		"TraceSampleRatio":         {Comment: "TraceSampleRatio is the ratio of traces to sample."},
+		"CACertFile":                    {Comment: "CACertFile is the path to the CA certificate file for the beholder client."},
+		"ChipIngressEndpoint":           {Comment: "ChipIngressEndpoint is the gRPC endpoint of the CHIP Ingress server. Setting it publishes\nbeholder custom events (e.g. the chain plugin config used to detect shared RPC endpoints)\nto CHIP Ingress in addition to the OTel collector. Mirrors the core node field's name."},
+		"ChipIngressInsecureConnection": {Comment: "ChipIngressInsecureConnection disables TLS for the CHIP Ingress connection. It is\nindependent of InsecureConnection, which covers the OTel exporter connection."},
+		"Enabled":                       {Comment: "Enabled enables the beholder telemetry."},
+		"InsecureConnection":            {Comment: "InsecureConnection disables TLS for the beholder client."},
+		"LogStreamingEnabled":           {Comment: "LogStreamingEnabled enables log streaming to the collector."},
+		"LogStreamingLevel":             {Comment: "LogStreamingLevel specifies the level above which logs are streamed to beholder"},
+		"MetricReaderInterval":          {Comment: "MetricReaderInterval is the interval to scrape metrics (in seconds)."},
+		"OtelExporterGRPCEndpoint":      {Comment: "OtelExporterGRPCEndpoint is the endpoint for the beholder client to export to the collector."},
+		"OtelExporterHTTPEndpoint":      {Comment: "OtelExporterHTTPEndpoint is the endpoint for the beholder client to export to the collector."},
+		"TelemetryAttributes":           {Comment: "TelemetryAttributes are additional labels that assigned during OTel transmission"},
+		"TraceBatchTimeout":             {Comment: "TraceBatchTimeout is the timeout for a batch of traces."},
+		"TraceSampleRatio":              {Comment: "TraceSampleRatio is the ratio of traces to sample."},
 	}
 }
 
