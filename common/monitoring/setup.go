@@ -41,6 +41,12 @@ func SetupBeholder(config BeholderConfig, signer crypto.Signer, metricViews []sd
 		MetricReaderInterval:     time.Second * time.Duration(config.MetricReaderInterval),
 		TraceSampleRatio:         config.TraceSampleRatio,
 		TraceBatchTimeout:        time.Second * time.Duration(config.TraceBatchTimeout),
+		// Chip ingress: setting an endpoint enables the dual-source emitter, so custom
+		// events reach both the OTel collector and CHIP Ingress. Mirrors the core node
+		// mapping of Telemetry.ChipIngressEndpoint onto the beholder client config.
+		ChipIngressEmitterEnabled:      config.ChipIngressEndpoint != "",
+		ChipIngressEmitterGRPCEndpoint: config.ChipIngressEndpoint,
+		ChipIngressInsecureConnection:  config.ChipIngressInsecureConnection,
 	}
 
 	if signer != nil {
