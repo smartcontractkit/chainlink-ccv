@@ -35,6 +35,13 @@ type BeholderConfig struct {
 	OtelExporterGRPCEndpoint string `json:"otel_exporter_grpc_endpoint" toml:"OtelExporterGRPCEndpoint"`
 	// OtelExporterHTTPEndpoint is the endpoint for the beholder client to export to the collector.
 	OtelExporterHTTPEndpoint string `json:"otel_exporter_http_endpoint" toml:"OtelExporterHTTPEndpoint"`
+	// ChipIngressEndpoint is the gRPC endpoint of the CHIP Ingress server. Setting it publishes
+	// beholder custom events (e.g. the chain plugin config used to detect shared RPC endpoints)
+	// to CHIP Ingress in addition to the OTel collector. Mirrors the core node field's name.
+	ChipIngressEndpoint string `json:"chip_ingress_endpoint" toml:"ChipIngressEndpoint"`
+	// ChipIngressInsecureConnection disables TLS for the CHIP Ingress connection. It is
+	// independent of InsecureConnection, which covers the OTel exporter connection.
+	ChipIngressInsecureConnection bool `json:"chip_ingress_insecure_connection" toml:"ChipIngressInsecureConnection"`
 	// LogStreamingEnabled enables log streaming to the collector.
 	LogStreamingEnabled bool `json:"log_streaming_enabled" toml:"LogStreamingEnabled"`
 	// LogStreamingLevel specifies the level above which logs are streamed to beholder
@@ -89,6 +96,13 @@ func (b *BeholderConfig) Validate() error {
 		if err != nil {
 			return fmt.Errorf("beholder log_streaming_level is invalid: %w", err)
 		}
+	}
+
+	// chainlink-common only wires the chip ingress emitter in its gRPC beholder client; the
+	// HTTP exporter path ignores the chip ingress settings entirely. Reject the combination so
+	// an operator who sets an endpoint gets a startup error instead of silently missing events.
+	if b.ChipIngressEndpoint != "" && b.OtelExporterGRPCEndpoint == "" {
+		return fmt.Errorf("chip_ingress_endpoint requires otel_exporter_grpc_endpoint: chip ingress is only wired by the gRPC beholder client")
 	}
 
 	if b.MetricReaderInterval <= 0 {

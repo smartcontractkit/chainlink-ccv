@@ -14,7 +14,7 @@ type CCTPConfig struct {
 	// AttestationAPITimeout defines the timeout for the attestation API.
 	AttestationAPITimeout time.Duration `json:"attestation_api_timeout" toml:"attestation_api_timeout"`
 	// AttestationAPIInterval defines the rate in requests per second that the attestation API can be called.
-	// Default set according to the APIs documentated 10 requests per second rate limit.
+	// Default set according to the APIs documented 10 requests per second rate limit.
 	AttestationAPIInterval time.Duration `json:"attestation_api_interval" toml:"attestation_api_interval"`
 	// AttestationAPICooldown defines in what time it is allowed to make next call to API.
 	// Activates when plugin hits API's rate limits
