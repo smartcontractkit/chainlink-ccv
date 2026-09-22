@@ -114,3 +114,19 @@ func TestValidateInitializedPointers(t *testing.T) {
 		require.EqualError(t, err, "uninitialized pointer fields: Entries.Child; all config struct pointer fields must be initialized for documentation purposes")
 	})
 }
+
+func TestRelative(t *testing.T) {
+	root := t.TempDir()
+	g := &Generator{ModuleRoot: root, ModulePath: "example.com/x"}
+
+	t.Run("resolves a directory under the module root", func(t *testing.T) {
+		rel, err := g.relative(filepath.Join(root, "docs", "config"))
+		require.NoError(t, err)
+		require.Equal(t, filepath.Join("docs", "config"), rel)
+	})
+
+	t.Run("rejects a directory outside the module root", func(t *testing.T) {
+		_, err := g.relative(t.TempDir())
+		require.ErrorContains(t, err, "outside module root")
+	})
+}

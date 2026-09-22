@@ -17,7 +17,7 @@ import (
 // on any error or on drift in -check mode. Run it from within the module whose
 // structs are being documented (the comment extractor needs that source tree).
 func Main(targets []Target) {
-	out := flag.String("o", "docs/config", "output directory for generated docs")
+	out := flag.String("o", "docs/config", "output directory for generated docs, within the module being documented")
 	check := flag.Bool("check", false, "verify committed docs are up to date instead of writing")
 	flag.Parse()
 
