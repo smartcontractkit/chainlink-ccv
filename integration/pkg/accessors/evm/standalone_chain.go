@@ -9,6 +9,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 
+	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/contracttransmitter"
@@ -17,6 +18,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/keystore"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
+	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/mailbox"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 	clevmconfig "github.com/smartcontractkit/chainlink-evm/pkg/config"
@@ -24,6 +26,7 @@ import (
 	"github.com/smartcontractkit/chainlink-evm/pkg/heads"
 	evmkeys "github.com/smartcontractkit/chainlink-evm/pkg/keys"
 	evmkeysv2 "github.com/smartcontractkit/chainlink-evm/pkg/keys/v2"
+	"github.com/smartcontractkit/chainlink-evm/pkg/logpoller"
 	"github.com/smartcontractkit/chainlink-evm/pkg/txmgr"
 )
 
@@ -48,6 +51,7 @@ type chainRuntime interface {
 	HeadTracker() (heads.Tracker, error)
 	SourceReaderHeaderFetchBatchSize() int
 	LogPollerMode() evmconfig.LogPollerMode
+	LogPoller(ctx context.Context, ds sqlutil.DataSource) (logpoller.LogPoller, error)
 	NewContractTransmitter(
 		ctx context.Context,
 		chainSelector protocol.ChainSelector,
@@ -78,6 +82,7 @@ type standaloneChain struct {
 	txm                 txmgr.TxManager
 	unsubscribeTXM      func()
 	contractTransmitter chainaccess.ContractTransmitter
+	logPoller           logpoller.LogPoller
 	closed              bool
 
 	// recoveryStop cancels the orphan recovery goroutine, which spends most of its life in a grace
@@ -181,6 +186,43 @@ func (c *standaloneChain) HeadTracker() (heads.Tracker, error) {
 		return nil, errors.New("EVM head tracker is not available")
 	}
 	return c.headTracker, nil
+}
+
+func (c *standaloneChain) LogPoller(ctx context.Context, ds sqlutil.DataSource) (logpoller.LogPoller, error) {
+	c.mu.Lock()
+
+	if c.closed {
+		c.mu.Unlock()
+		return nil, errors.New("EVM chain runtime is closed")
+	}
+	if c.logPoller != nil {
+		lp := c.logPoller
+		c.mu.Unlock()
+		return lp, nil
+	}
+
+	if ds == nil {
+		c.mu.Unlock()
+		return nil, errors.New("LogPoller requires a data source")
+	}
+
+	lp, err := c.buildLogPoller(ds)
+	if err != nil {
+		c.mu.Unlock()
+		return nil, err
+	}
+
+	c.logPoller = lp
+	c.mu.Unlock()
+
+	if err := c.startLogPoller(ctx, lp); err != nil {
+		c.mu.Lock()
+		c.logPoller = nil
+		c.mu.Unlock()
+		_ = lp.Close()
+		return nil, err
+	}
+	return lp, nil
 }
 
 // NewContractTransmitter starts chainlink-evm's production TXM v2 and returns
@@ -315,6 +357,48 @@ func (c *standaloneChain) startOrphanRecovery(txm *txmV2, fromAddresses []common
 	})
 }
 
+func (c *standaloneChain) buildLogPoller(ds sqlutil.DataSource) (logpoller.LogPoller, error) {
+	chainID := c.chainClient.ConfiguredChainID()
+
+	lpORM, err := logpoller.NewObservedORM(chainID, ds, c.lggr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create logpoller observed ORM: %w", err)
+	}
+
+	metrics, err := logpoller.NewPromBeholderMetrics(chainID.String(), chainsel.FamilyEVM)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create logpoller metrics: %w", err)
+	}
+
+	return logpoller.NewLogPoller(lpORM, c.chainClient, c.lggr, c.headTracker,
+		logPollerOpts(c.chainConfig.EVM(), metrics)), nil
+}
+
+// logPollerOpts mirrors chainlink-evm's own node-config mapping (legacyevm/chain.go:247-259)
+// field for field. Every value is already populated per chain by BuildChainlinkEVMTOML.
+func logPollerOpts(cfg clevmconfig.EVM, metrics logpoller.Metrics) logpoller.Opts {
+	return logpoller.Opts{
+		PollPeriod:               cfg.LogPollInterval(),
+		UseFinalityTag:           cfg.FinalityTagEnabled(),
+		FinalityDepth:            int64(cfg.FinalityDepth()),
+		BackfillBatchSize:        int64(cfg.LogBackfillBatchSize()),
+		RPCBatchSize:             int64(cfg.RPCDefaultBatchSize()),
+		KeepFinalizedBlocksDepth: int64(cfg.LogKeepBlocksDepth()),
+		LogPrunePageSize:         int64(cfg.LogPrunePageSize()),
+		BackupPollerBlockDelay:   int64(cfg.BackupLogPollerBlockDelay()),
+		ClientErrors:             cfg.NodePool().Errors(),
+		SkipEmptyBlocks:          cfg.LogPollerSkipEmptyBlocks(),
+		Metrics:                  metrics,
+	}
+}
+
+func (c *standaloneChain) startLogPoller(ctx context.Context, lp logpoller.LogPoller) error {
+	if err := lp.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start log poller: %w", err)
+	}
+	return nil
+}
+
 func (c *standaloneChain) recoverOrphanedTransactions(ctx context.Context, txm *txmV2, address common.Address) {
 	latest, pending, err := orphanedNonces(ctx, c.chainClient, address)
 	if err != nil {
@@ -375,6 +459,7 @@ func (c *standaloneChain) Close() error {
 		return nil
 	}
 	c.closed = true
+	logPoller := c.logPoller
 	headTracker := c.headTracker
 	headBroadcaster := c.headBroadcaster
 	mailMonitor := c.mailMonitor
@@ -397,6 +482,11 @@ func (c *standaloneChain) Close() error {
 	c.recoveryWG.Wait()
 
 	var err error
+	// Ahead of the head tracker and chain client: the poller reads heads through one and
+	// logs through the other.
+	if logPoller != nil {
+		err = errors.Join(err, logPoller.Close())
+	}
 	if headTracker != nil {
 		err = errors.Join(err, headTracker.Close())
 	}

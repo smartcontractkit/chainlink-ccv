@@ -8,12 +8,15 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/keystore"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 	"github.com/smartcontractkit/chainlink-evm/pkg/heads"
+	"github.com/smartcontractkit/chainlink-evm/pkg/logpoller"
 )
 
 type stubChainRuntime struct {
@@ -34,6 +37,12 @@ type stubChainRuntime struct {
 	gotOffRamp  common.Address
 
 	sourceReaderHeaderFetchBatchSize int
+
+	logPollerMode  evmconfig.LogPollerMode
+	logPoller      logpoller.LogPoller
+	logPollerErr   error
+	logPollerCalls int
+	gotDataSource  sqlutil.DataSource
 }
 
 type runtimeContextMarkerKey struct{}
@@ -48,6 +57,14 @@ func (s *stubChainRuntime) ChainClient() (client.Client, error) { return s.Clien
 func (s *stubChainRuntime) HeadTracker() (heads.Tracker, error) { return s.Tracker, s.trackerErr }
 func (s *stubChainRuntime) SourceReaderHeaderFetchBatchSize() int {
 	return s.sourceReaderHeaderFetchBatchSize
+}
+
+func (s *stubChainRuntime) LogPollerMode() evmconfig.LogPollerMode { return s.logPollerMode }
+
+func (s *stubChainRuntime) LogPoller(ctx context.Context, ds sqlutil.DataSource) (logpoller.LogPoller, error) {
+	s.logPollerCalls++
+	s.gotDataSource = ds
+	return s.logPoller, s.logPollerErr
 }
 
 func (s *stubChainRuntime) NewContractTransmitter(
