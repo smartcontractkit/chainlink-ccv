@@ -137,12 +137,18 @@ func TestE2ESmoke_RecoveryArchiveInventory(t *testing.T) {
 		require.Equal(t, fullError, row.LastError)
 		require.NotNil(t, row.ArchivedAt)
 	}
-	selector := fmt.Sprintf(`{verifier_id=%q,source_chain=%q,reason="unknown"}`, owner, chain)
+	// The classifier maps an unmatched task-verifier row to "unknown" but every unmatched
+	// storage-writer row to "storage_failure" by design (archivecategory.SQL), so each
+	// reason series counts 1 and only the unfiltered sums see both rows.
+	selector := fmt.Sprintf(`{verifier_id=%q,source_chain=%q}`, owner, chain)
+	requireRecoveryMetric(t, ctx, `sum(verifier_archive_failed_jobs`+selector+`,reason="unknown")`, 1)
+	requireRecoveryMetric(t, ctx, `sum(verifier_archive_failed_jobs`+selector+`,reason="storage_failure")`, 1)
 	requireRecoveryMetric(t, ctx, "sum(verifier_archive_failed_jobs"+selector+")", 2)
 	requireRecoveryMetric(t, ctx, "sum(verifier_archive_expiring_jobs"+selector+")", 2)
 	out, err := vc.CLI(ctx, verifiercli.JobQueueSubcommand, "reschedule", "--queue", "task-verifier", "--job-id", jobIDs[0])
 	require.NoError(t, err, "%s", out)
 	require.Contains(t, out, owner)
+	requireRecoveryMetric(t, ctx, `sum(verifier_archive_expiring_jobs`+selector+`,reason="unknown")`, 0)
 	requireRecoveryMetric(t, ctx, "sum(verifier_archive_expiring_jobs"+selector+")", 1)
 	_, err = db.ExecContext(ctx, "DELETE FROM ccv_storage_writer_jobs_archive WHERE job_id=$1", jobIDs[1])
 	require.NoError(t, err)
