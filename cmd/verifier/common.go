@@ -1,6 +1,7 @@
 package verifier
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
 	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmmigrations"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/db"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vsecrets"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -58,7 +60,17 @@ func ConnectToPostgresDB(lggr logger.Logger, secrets *vsecrets.VerifierSecrets) 
 		return nil, fmt.Errorf("failed to run postgres migrations: %w", err)
 	}
 
-	lggr.Infow("Using PostgreSQL chain status storage",
+	// Standalone only; in-node the node's migrator owns these tables. Runs after the
+	// verifier's own root so a failure here cannot stop application storage coming up,
+	// and unconditionally: the per-chain gate decides whether a poller is built, not
+	// whether the schema exists.
+	if err := evmmigrations.RunEVMMigrations(context.Background(), dbx); err != nil {
+		_ = dbx.Close()
+		return nil, fmt.Errorf("failed to run evm logpoller migrations: %w", err)
+	}
+
+	lggr.Infow(
+		"Using PostgreSQL chain status storage",
 		"maxOpenConns", defaultMaxOpenConns,
 		"maxIdleConns", defaultMaxIdleConns,
 		"connMaxLifetime", defaultConnMaxLifetime,

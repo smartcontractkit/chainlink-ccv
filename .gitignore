@@ -30,3 +30,6 @@ coverage.out
 **/.venv/
 **/__pycache__/
 **/*.pyc
+
+# Derived by tools/lpschema/derive.sh; regenerate, do not commit
+evm-schema/

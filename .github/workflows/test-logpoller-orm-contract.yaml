@@ -1,0 +1,90 @@
+name: LogPoller ORM Contract
+
+# Runs chainlink-evm's own LogPoller ORM test suite against the `evm` schema CCV ships.
+#
+# The ORM is pinned in go.mod but its schema is generated from `chainlink`, which is not a
+# CCV dependency -- so a bump can drift from the schema with nothing to catch it until a
+# SQL error at runtime. Needs only this repo and docker.
+
+on:
+  merge_group:
+  pull_request:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  orm-contract:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          # Full history so the change-detection step can diff against the PR base.
+          fetch-depth: 0
+
+      # This job intentionally has no `paths:` filter so it runs (and reports a status) on
+      # every PR -- a required check with a paths filter deadlocks PRs that don't touch the
+      # filtered paths. Only the expensive steps below are gated on a relevant change.
+      - name: Detect changes affecting the ORM contract
+        id: changes
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          # merge_group (the merge-queue gate) and push to main always run.
+          if [[ "$EVENT_NAME" != "pull_request" ]]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Path triggers: the schema itself, the tool that generates it, or this workflow.
+          if git diff --name-only "${BASE_SHA}...HEAD" \
+            | grep -qE '^(integration/pkg/accessors/evmmigrations/|tools/logpollerschema/|\.github/workflows/test-logpoller-orm-contract\.yaml)'; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Dependency trigger. About half of all commits touch go.mod, so match only the
+          # deps that can break the contract: chainlink-evm (the ORM), chainlink-common
+          # (sqlutil column binding, sqltest harness), goose (how the migration applies).
+          #
+          # A missed dep fails silently -- this job skips and reports green. Add new ones here.
+          if git diff "${BASE_SHA}...HEAD" -- go.mod go.sum \
+            | grep -qE '^[+-].*(smartcontractkit/chainlink-evm|smartcontractkit/chainlink-common|pressly/goose)'; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "changed=false" >> "$GITHUB_OUTPUT"
+          echo "Nothing touching the evm schema, its generator, or the dependencies behind the ORM contract; skipping."
+
+      - name: Set up Go
+        if: steps.changes.outputs.changed == 'true'
+        uses: actions/setup-go@v6 # v6
+        with:
+          cache: true
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Install just
+        if: steps.changes.outputs.changed == 'true'
+        uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # v3
+        with:
+          just-version: "1.40.0"
+
+      - name: Verify docker is available
+        if: steps.changes.outputs.changed == 'true'
+        run: docker version
+
+      - name: Run the ORM contract suite
+        if: steps.changes.outputs.changed == 'true'
+        run: just logpoller-orm-contract

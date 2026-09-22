@@ -38,6 +38,24 @@ generate: ensure-oapi-codegen
 config-docs: ensure-go
     go run ./tools/configdoc/cmd/generate -o docs/config
 
+# Step 1: dump the Chainlink node's `evm` schema to evm-schema/ by applying its own
+# migrator to a scratch Postgres. Requires docker and a chainlink checkout with
+# tools/logpollerschema/main.go in place (copy it from tools/logpollerschema/migrator.go).
+logpoller-schema-derive CHAINLINK_REPO:
+    ./tools/logpollerschema/derive.sh {{CHAINLINK_REPO}}
+
+# Step 2: turn that dump into the INITIAL `evm` LogPoller migration.
+# Only for authoring the first migration: once it has been applied anywhere, goose never
+# re-runs it, so later schema changes go in new numbered migrations. Drift against the
+# pinned ORM is caught by `just logpoller-orm-contract`, not by regenerating.
+logpoller-schema: ensure-go
+    go run ./tools/logpollerschema/cmd/generate
+
+# Run chainlink-evm's own LogPoller ORM suite against CCV's generated schema. This is the
+# guard that catches a chainlink-evm bump drifting from the schema we ship. Needs docker.
+logpoller-orm-contract: ensure-go
+    ./tools/logpollerschema/orm-contract.sh
+
 mock: ensure-mockery
     @echo "Cleaning existing mocks..."
     # remove standalone mock_*.go files created by mockery
