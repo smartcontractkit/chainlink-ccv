@@ -120,6 +120,12 @@ func (c Config) ToInfos() (chainaccess.Infos[Info], error) {
 		if err != nil {
 			return nil, fmt.Errorf("chain selector %s: %w", selector, err)
 		}
+
+		if !chain.LogPollerMode.Valid() {
+			return nil, fmt.Errorf(
+				"chain selector %s: invalid log_poller_mode %q", selector, chain.LogPollerMode,
+			)
+		}
 		infos[selector] = Info{
 			ChainID:                          chainID,
 			Family:                           family,
@@ -127,6 +133,7 @@ func (c Config) ToInfos() (chainaccess.Infos[Info], error) {
 			FinalityDepth:                    chain.FinalityDepth,
 			TXMBlockTime:                     chain.TXMBlockTime,
 			SourceReaderHeaderFetchBatchSize: chain.SourceReaderHeaderFetchBatchSize,
+			LogPollerMode:                    chain.LogPollerMode,
 		}
 	}
 	return infos, nil

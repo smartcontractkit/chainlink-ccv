@@ -47,6 +47,7 @@ type chainRuntime interface {
 	ChainClient() (client.Client, error)
 	HeadTracker() (heads.Tracker, error)
 	SourceReaderHeaderFetchBatchSize() int
+	LogPollerMode() evmconfig.LogPollerMode
 	NewContractTransmitter(
 		ctx context.Context,
 		chainSelector protocol.ChainSelector,
@@ -72,6 +73,7 @@ type standaloneChain struct {
 
 	sourceReaderHeaderFetchBatchSize int
 
+	logPollerMode       evmconfig.LogPollerMode
 	mu                  sync.Mutex
 	txm                 txmgr.TxManager
 	unsubscribeTXM      func()
@@ -136,6 +138,7 @@ func newStandaloneChain(ctx context.Context, info Info, lggr logger.Logger) (*st
 		mailMonitor:                      mailMonitor,
 		txmBlockTimeIsDefault:            info.TXMBlockTime == 0,
 		sourceReaderHeaderFetchBatchSize: sourceReaderHeaderFetchBatchSize(info.SourceReaderHeaderFetchBatchSize),
+		logPollerMode:                    logPollerMode(info.LogPollerMode),
 		recoveryStop:                     make(services.StopChan),
 	}, nil
 }
@@ -153,6 +156,17 @@ func sourceReaderHeaderFetchBatchSize(batchSize int) int {
 		return evmconfig.DefaultSourceReaderHeaderFetchBatchSize
 	}
 	return batchSize
+}
+
+func logPollerMode(mode evmconfig.LogPollerMode) evmconfig.LogPollerMode {
+	if mode == "" {
+		return evmconfig.DefaultLogPollerMode
+	}
+	return mode
+}
+
+func (c *standaloneChain) LogPollerMode() evmconfig.LogPollerMode {
+	return c.logPollerMode
 }
 
 func (c *standaloneChain) ChainClient() (client.Client, error) {

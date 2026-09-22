@@ -48,6 +48,11 @@ type ChainConfig struct {
 	// are sent in a single JSON-RPC batch when the source reader fetches block
 	// headers. Zero uses [DefaultSourceReaderHeaderFetchBatchSize], which is 25.
 	SourceReaderHeaderFetchBatchSize int `toml:"source_reader_header_fetch_batch_size,omitempty"`
+	// Defines the mode the log poller run on
+	// off - log poller does not run or get instantiated, FetchMessageSentEvents source of truth comes from the rpc
+	// shadow - log poller run in parallel to rpc mode, FetchMessageSentEvents source of truth comes from the rpc (this is useful for initial warmup when turning on log poller for a chain that has been using the stateless log poller)
+	// read - FetchMessageSentEvents uses the log poller to serve requests
+	LogPollerMode LogPollerMode `toml:"log_poller_mode,omitempty"`
 }
 
 // DefaultSourceReaderHeaderFetchBatchSize is the batch size used when the
@@ -108,6 +113,7 @@ type Info struct {
 	FinalityDepth                    uint32        `json:"finality_depth"                        toml:"finality_depth"`
 	TXMBlockTime                     time.Duration `json:"txm_block_time"                        toml:"txm_block_time"`
 	SourceReaderHeaderFetchBatchSize int           `json:"source_reader_header_fetch_batch_size" toml:"source_reader_header_fetch_batch_size"`
+	LogPollerMode                    LogPollerMode `json:"log_poller_mode"                       toml:"log_poller_mode"`
 }
 
 func (bi Info) Empty() bool {
@@ -157,4 +163,35 @@ func (bi Info) GetFirstNode() (Node, error) {
 	}
 
 	return Node{}, fmt.Errorf("no nodes found for chain %s", bi.ChainID)
+}
+
+type LogPollerMode string
+
+const (
+	LogPollerModeOff    = "off"
+	LogPollerModeShadow = "shadow"
+	LogPollerModeRead   = "read"
+)
+
+const DefaultLogPollerMode = LogPollerModeOff
+
+func (mode LogPollerMode) Valid() bool {
+	switch mode {
+	case LogPollerModeOff, LogPollerModeShadow, LogPollerModeRead:
+		return true
+	}
+
+	return false
+}
+
+func (mode *LogPollerMode) UnMarshallText(txt []byte) error {
+	parsed := LogPollerMode(txt)
+
+	if !parsed.Valid() {
+		return fmt.Errorf("invalid log_poller_mode %q: must be %q, %q or %q",
+			txt, LogPollerModeOff, LogPollerModeShadow, LogPollerModeRead)
+	}
+
+	*mode = parsed
+	return nil
 }
