@@ -204,16 +204,6 @@ func (h ByteSlice) MarshalText() ([]byte, error) {
 	return []byte(h.String()), nil
 }
 
-// UnmarshalText implements encoding.TextUnmarshaler for text encodings (TOML, YAML).
-func (h *ByteSlice) UnmarshalText(b []byte) error {
-	decoded, err := NewByteSliceFromHex(string(b))
-	if err != nil {
-		return err
-	}
-	*h = decoded
-	return nil
-}
-
 // String returns the hex representation with 0x prefix.
 func (h ByteSlice) String() string {
 	if len(h) == 0 {
