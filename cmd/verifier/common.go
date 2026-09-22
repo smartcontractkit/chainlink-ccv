@@ -8,6 +8,7 @@ import (
 
 	"github.com/grafana/pyroscope-go"
 	"github.com/jmoiron/sqlx"
+	"github.com/scylladb/go-reflectx"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
@@ -54,6 +55,7 @@ func ConnectToPostgresDB(lggr logger.Logger, secrets *vsecrets.VerifierSecrets) 
 	}
 
 	sqlxDB := sqlx.NewDb(dbx, "postgres")
+	sqlxDB.MapperFunc(reflectx.CamelToSnakeASCII)
 
 	if err := db.RunPostgresMigrations(sqlxDB); err != nil {
 		_ = dbx.Close()
