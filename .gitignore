@@ -30,3 +30,6 @@ coverage.out
 **/.venv/
 **/__pycache__/
 **/*.pyc
+
+# Ignore Mac stuff
+**/.DS_Store

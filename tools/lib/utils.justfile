@@ -1,6 +1,13 @@
 set dotenv-filename := "tool-versions.env"
 set dotenv-required
 
+# Pin the toolchain every recipe runs under, rather than trusting whatever `go` is
+# first on PATH. Go's default GOTOOLCHAIN=auto only upgrades, so a newer local Go
+# (e.g. 1.27) silently ignores the go.mod directive and fails ensure-go; this makes
+# tool-versions.env the single source of truth and lets Go fetch the pinned
+# toolchain on demand.
+export GOTOOLCHAIN := "go" + env_var("VERSION_GO")
+
 ensure-go:
     @go version | grep -q "go$VERSION_GO" || (echo "Please use go$VERSION_GO (just install-go-tools)" && exit 1)
 
