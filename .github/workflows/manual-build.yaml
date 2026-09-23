@@ -71,8 +71,8 @@ jobs:
         with:
           just-version: '1.40.0'
 
-      # The prod testnet deployment pulls from the primary registry, so publish with the same role and registry as
-      # the main branch publish workflow.
+      # The deployments pull from the regional registries, so publish with the same roles and registries as the
+      # main branch publish workflow.
       - name: Authenticate to AWS ECR (primary)
         uses: ./.github/actions/aws-ecr-auth
         with:
@@ -80,10 +80,18 @@ jobs:
           aws-region: us-west-2
           registry-type: private
 
+      - name: Authenticate to AWS ECR (secondary)
+        uses: ./.github/actions/aws-ecr-auth
+        with:
+          role-to-assume: ${{ secrets.CCV_IAM_ROLE_SECONDARY }}
+          aws-region: us-east-2
+          registry-type: private
+
       - name: Build & Publish ZK verifier
         env:
           COMMIT_SHA: ${{ inputs.git-ref }}
           ECR_REGISTRY_PRIMARY: ${{ secrets.ECR_REGISTRY_PRIMARY }}
+          ECR_REGISTRY_SECONDARY: ${{ secrets.ECR_REGISTRY_SECONDARY }}
         run: |
           echo "Git Ref: $COMMIT_SHA"
           echo "Full Tag: zk-poc-$COMMIT_SHA"
@@ -91,3 +99,5 @@ jobs:
           just verifier/build-zk
           echo "Publishing image (primary).."
           just verifier/publish-zk "$ECR_REGISTRY_PRIMARY" "$COMMIT_SHA"
+          echo "Publishing image (secondary).."
+          just verifier/publish-zk "$ECR_REGISTRY_SECONDARY" "$COMMIT_SHA"
