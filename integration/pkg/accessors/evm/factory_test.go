@@ -2,6 +2,7 @@ package evm
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"math/big"
 	"sync"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/jmoiron/sqlx"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
@@ -20,6 +22,7 @@ import (
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 	"github.com/smartcontractkit/chainlink-evm/pkg/heads"
 	"github.com/smartcontractkit/chainlink-evm/pkg/logpoller"
+	lpmocks "github.com/smartcontractkit/chainlink-evm/pkg/logpoller/mocks"
 )
 
 type stubChainRuntime struct {
@@ -708,4 +711,22 @@ func TestAccessorSetDataSource(t *testing.T) {
 			require.Equal(t, tt.ds, runtime.gotDataSource)
 		})
 	}
+}
+
+// read sources events from the poller instead of RPC, so a chain that has never ingested would
+// return no events rather than an error. Shadow has to run first.
+func TestAccessorSetDataSourceRejectsReadBeforeShadow(t *testing.T) {
+	t.Parallel()
+
+	lp := lpmocks.NewLogPoller(t)
+	lp.On("LatestBlock", mock.Anything).Return(logpoller.Block{}, sql.ErrNoRows)
+
+	runtime := &stubChainRuntime{logPollerMode: evmconfig.LogPollerModeRead, logPoller: lp}
+	accessor := newAccessor(
+		logger.Test(t), refcountTestSelector, runtime, runtime.Close,
+		common.Address{}, "evm-key", nil, nil, nil,
+	).(*accessor)
+
+	err := accessor.SetDataSource(context.Background(), sqlx.NewDb(nil, "postgres"))
+	require.ErrorContains(t, err, "run the chain in shadow first")
 }

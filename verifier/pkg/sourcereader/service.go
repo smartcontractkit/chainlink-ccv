@@ -73,7 +73,8 @@ type Service struct {
 	reorgTracker                *ReorgTracker
 	disabled                    atomic.Bool
 	finalityBlocked             atomic.Bool
-
+	// logPollerReplayed is read and written only by eventMonitoringLoop, so it needs no lock.
+	logPollerReplayed bool
 	// ChainStatus management
 	chainStatusManager protocol.ChainStatusManager
 
@@ -248,6 +249,15 @@ func (r *Service) eventMonitoringLoop() {
 						)
 					}
 				}()
+
+				if !r.logPollerReplayed {
+					if err := r.replayLogPoller(ctx); err != nil {
+						r.logger.Errorw("Failed to replay the log poller, retrying next tick",
+							"error", err)
+						return
+					}
+					r.logPollerReplayed = true
+				}
 
 				ready, latest, safe, finalized := r.readyToQuery(ctx)
 				if !ready {
@@ -1080,6 +1090,23 @@ func (r *Service) recordPendingMetricsLocked(ctx context.Context) {
 			r.pendingMetricDestinations[destination] = struct{}{}
 		}
 	}
+}
+
+// logPollerReplayer is implemented by source readers backed by a LogPoller, which must backfill
+// from the last processed block before their first read. Checked structurally so this package
+// does not depend on chainlink-evm's logpoller.
+type logPollerReplayer interface {
+	ReplayFrom(ctx context.Context, lastProcessedBlock *big.Int) error
+}
+
+// replayLogPoller backfills a poller-backed reader. Readers that do not use a LogPoller, and
+// chains with the poller gated off, are no-ops.
+func (r *Service) replayLogPoller(ctx context.Context) error {
+	replayer, ok := r.sourceReader.(logPollerReplayer)
+	if !ok {
+		return nil
+	}
+	return replayer.ReplayFrom(ctx, r.lastProcessedFinalizedBlock.Load())
 }
 
 var (

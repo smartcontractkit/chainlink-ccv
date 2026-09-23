@@ -21,6 +21,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 	"github.com/smartcontractkit/chainlink-evm/pkg/heads"
+	"github.com/smartcontractkit/chainlink-evm/pkg/logpoller"
 	evmtypes "github.com/smartcontractkit/chainlink-evm/pkg/types"
 
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/rmnremotereader"
@@ -48,6 +49,9 @@ type SourceReader struct {
 	onRampABI                        *abi.ABI // Cached ABI to avoid re-parsing
 	onCriticalInvariant              func(context.Context)
 	sourceReaderHeaderFetchBatchSize int
+	// logPoller is nil until AttachLogPoller runs, and stays nil for chains with
+	// log_poller_mode off. Reads go via RPC until Phase 3 switches the source.
+	logPoller logpoller.LogPoller
 }
 
 func NewEVMSourceReader(
@@ -414,6 +418,90 @@ func (r *SourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, to
 		})
 	}
 	return results, nil
+}
+
+// logPollerAttacher is implemented by source readers that read logs from a LogPoller.
+type logPollerAttacher interface {
+	AttachLogPoller(ctx context.Context, lp logpoller.LogPoller) error
+}
+
+var _ logPollerAttacher = (*SourceReader)(nil)
+
+// ccipMessageSentFilterName identifies this reader's LogPoller filter. It is hashed and
+// upserted, so it must stay byte-stable across restarts: changing it strands the old row and
+// permanently widens the eth_getLogs scope the poller requests.
+const ccipMessageSentFilterName = "ccv-source-reader-ccip-message-sent"
+
+// AttachLogPoller gives the reader the chain's LogPoller and registers its filter. The poller
+// is already started; this is the RegisterFilter leg of Start -> RegisterFilter -> Replay.
+func (r *SourceReader) AttachLogPoller(ctx context.Context, lp logpoller.LogPoller) error {
+	filter := logpoller.Filter{
+		Name:      logpoller.FilterName(ccipMessageSentFilterName, r.chainSelector),
+		Addresses: evmtypes.AddressArray{r.onRampAddress},
+		EventSigs: evmtypes.HashArray{common.HexToHash(r.ccipMessageSentTopic)},
+		// Zero means never prune: DeleteExpiredLogs skips filters whose MIN(retention) is 0, and
+		// nothing reaps these logs yet. TODO: settle retention with the team -- a CCV-owned reaper,
+		// not a non-zero Retention here, which would prune behind the answerability window.
+		Retention:   0,
+		MaxLogsKept: 0,
+	}
+
+	if err := lp.RegisterFilter(ctx, filter); err != nil {
+		return fmt.Errorf("failed to register CCIPMessageSent log filter for chain %d: %w",
+			r.chainSelector, err)
+	}
+
+	r.logPoller = lp
+	return nil
+}
+
+// ReplayFrom backfills the poller from the block after lastProcessedBlock, synchronously.
+// The poller must already be started: Replay hands the request to the poller's run loop over an
+// unbuffered channel, so with no loop running it blocks until the context is canceled.
+func (r *SourceReader) ReplayFrom(ctx context.Context, lastProcessedBlock *big.Int) error {
+	if r.logPoller == nil {
+		return nil
+	}
+	fromBlock := new(big.Int).Add(lastProcessedBlock, big.NewInt(1))
+
+	if fromBlock.Sign() <= 0 {
+		fromBlock = big.NewInt(1)
+	}
+
+	// The poller persists its own cursor, so a replay only does work the first time a chain is
+	// enabled. An error here means no rows yet, which is exactly that case, so replay.
+	if pollerLatest, err := r.logPoller.LatestBlock(ctx); err == nil &&
+		big.NewInt(pollerLatest.BlockNumber).Cmp(fromBlock) >= 0 {
+		r.lggr.Debugw("Skipping log poller replay, the poller is already past the checkpoint",
+			"chainSelector", r.chainSelector,
+			"fromBlock", fromBlock.String(),
+			"pollerLatestBlock", pollerLatest.BlockNumber)
+		return nil
+	}
+
+	latestHead, _, err := r.headTracker.LatestAndFinalizedBlock(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get the latest block before replay: %w", err)
+	}
+	if latestHead == nil {
+		return errors.New("received nil head from tracker")
+	}
+
+	if fromBlock.Cmp(big.NewInt(latestHead.Number)) > 0 {
+		r.lggr.Infow("Skipping log poller replay, nothing to backfill",
+			"chainSelector", r.chainSelector,
+			"fromBlock", fromBlock.String(),
+			"latestBlock", latestHead.Number)
+		return nil
+	}
+
+	if err := r.logPoller.Replay(ctx, fromBlock.Int64()); err != nil {
+		return fmt.Errorf("failed to replay the log poller from block %s: %w", fromBlock, err)
+	}
+
+	r.lggr.Infow("Replayed the log poller",
+		"chainSelector", r.chainSelector, "fromBlock", fromBlock.String())
+	return nil
 }
 
 // LatestAndFinalizedBlock returns the latest and finalized block headers.

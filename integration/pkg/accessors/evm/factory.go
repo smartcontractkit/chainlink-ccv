@@ -2,6 +2,7 @@ package evm
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"sync"
@@ -33,7 +34,7 @@ type runtimeBuilder func(
 
 // runtimeEntry is a shared chainRuntime and its live reference count. Runtimes are shared
 // because a chain must have exactly one LogPoller per process: two would both poll the chain
-// and write evm.log_poller_blocks for it
+// and write evm.log_poller_blocks for it.
 type runtimeEntry struct {
 	rt   chainRuntime
 	refs int
@@ -328,14 +329,8 @@ func (a *accessor) SetKeystore(ctx context.Context, ks keystore.Keystore) error 
 	return nil
 }
 
-// The verifier injects the pool through an optional interface, so a signature change here
-// would silently stop every chain from getting a poller rather than fail to compile.
-var _ interface {
-	SetDataSource(context.Context, sqlutil.DataSource) error
-} = (*accessor)(nil)
-
-// SetDataSource gives the chain's LogPoller the database it needs and starts it.
-// A chain with log_poller_mode off needs no poller and no database.
+// SetDataSource gives the chain's LogPoller the database it needs, starts it, and hands it to
+// the source reader. A chain with log_poller_mode off needs no poller and no database.
 func (a *accessor) SetDataSource(ctx context.Context, ds sqlutil.DataSource) error {
 	if a == nil {
 		return errors.New("EVM accessor is nil")
@@ -352,8 +347,30 @@ func (a *accessor) SetDataSource(ctx context.Context, ds sqlutil.DataSource) err
 		return fmt.Errorf("log_poller_mode %q requires a database for chain %d", mode, a.chainSelector)
 	}
 
-	if _, err := a.runtime.LogPoller(ctx, ds); err != nil {
+	lp, err := a.runtime.LogPoller(ctx, ds)
+	if err != nil {
 		return fmt.Errorf("failed to start EVM log poller for chain %d: %w", a.chainSelector, err)
+	}
+
+	// read sources events from the poller instead of RPC, so enabling it before the chain has
+	// ingested anything would return no events rather than an error. Shadow has to run first.
+	if mode == evmconfig.LogPollerModeRead {
+		if _, err := lp.LatestBlock(ctx); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return fmt.Errorf("log_poller_mode read requires ingested blocks for chain %d; "+
+					"run the chain in shadow first", a.chainSelector)
+			}
+			return fmt.Errorf("failed to check log poller state for chain %d: %w", a.chainSelector, err)
+		}
+	}
+
+	// Destination-only accessors have no source reader, and a nil one fails the assertion too.
+	attacher, ok := a.sourceReader.(logPollerAttacher)
+	if !ok {
+		return nil
+	}
+	if err := attacher.AttachLogPoller(ctx, lp); err != nil {
+		return fmt.Errorf("failed to attach the log poller for chain %d: %w", a.chainSelector, err)
 	}
 	return nil
 }
