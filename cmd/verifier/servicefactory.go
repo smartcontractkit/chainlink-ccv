@@ -110,7 +110,8 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	if deps.Keystore == nil {
 		return fmt.Errorf(
 			"committee verifier requires a keystore: ensure the [keystore] section in the secrets is set correctly" +
-				", with any corresponding fields in [db] if backend is 'postgres'")
+				", with any corresponding fields in [db] if backend is 'postgres'",
+		)
 	}
 
 	protocol.InitChainSelectorCache()
@@ -207,13 +208,26 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		}
 	}
 
+	// Create chain status manager (PostgreSQL storage) with monitoring decorator
+	chainStatusManager, chainStatusDB, err := createChainStatusManager(lggr, config.VerifierID, verifierMonitoring, secrets)
+	if err != nil {
+		lggr.Errorw("Failed to create chain status manager", "error", err)
+		return fmt.Errorf("failed to create chain status manager: %w", err)
+	}
+	f.chainStatusDB = chainStatusDB
+
+	// Chains with log_poller_mode set need the verifier's application storage for their
+	// LogPoller. Wrapping here rather than passing the pool afterwards means no caller can
+	// observe an accessor before its chain services have one.
+	registry := newDataSourceRegistry(lggr, deps.Registry, chainStatusDB)
+
 	// A failure to stand up one chain's reader (e.g. an unreachable RPC) must not stop the
 	// remaining chains from starting. Log and skip, then only reject the whole coordinator if no
 	// chain is usable.
 	chainSelectors := chainaccess.Infos[string](config.OnRampAddresses).GetAllChainSelectors()
 	sourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
 	for _, selector := range chainSelectors {
-		accessor, err := deps.Registry.GetAccessor(ctx, selector)
+		accessor, err := registry.GetAccessor(ctx, selector)
 		if err != nil {
 			lggr.Errorw("Failed to get accessor, skipping chain", "error", err, "selector", selector)
 			continue
@@ -274,14 +288,6 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		return err
 	}
 	lggr.Infow("Using signer address", "address", signerAddress)
-
-	// Create chain status manager (PostgreSQL storage) with monitoring decorator
-	chainStatusManager, chainStatusDB, err := createChainStatusManager(lggr, config.VerifierID, verifierMonitoring, secrets)
-	if err != nil {
-		lggr.Errorw("Failed to create chain status manager", "error", err)
-		return fmt.Errorf("failed to create chain status manager: %w", err)
-	}
-	f.chainStatusDB = chainStatusDB
 
 	// Create commit verifier
 	commitVerifier, err := commit.NewCommitVerifier(coordinatorConfig, signerAddress, signer, lggr, verifierMonitoring)
@@ -417,7 +423,8 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	}
 
 	// Start the verification coordinator
-	lggr.Infow("Starting Verification Coordinator",
+	lggr.Infow(
+		"Starting Verification Coordinator",
 		"verifierID", coordinatorConfig.VerifierID,
 		"verifierAddress", verifierAddresses,
 	)

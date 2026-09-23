@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
@@ -650,6 +651,61 @@ func TestGetAccessorReleasesRuntimeOnFailure(t *testing.T) {
 			_, cached := runtimeRefs(t, f, refcountTestSelector)
 			require.False(t, cached, "a failed GetAccessor must release the reference it acquired")
 			require.Equal(t, 1, tt.runtime.closeCalls, "the released reference was the last one")
+		})
+	}
+}
+
+// SetDataSource is how the per-chain log_poller_mode gate is finally consumed: off chains must
+// never touch the database, and a chain that wants a poller must fail loudly without one rather
+// than start without it.
+func TestAccessorSetDataSource(t *testing.T) {
+	t.Parallel()
+
+	ds := sqlx.NewDb(nil, "postgres")
+	tests := []struct {
+		name       string
+		mode       evmconfig.LogPollerMode
+		ds         sqlutil.DataSource
+		wantErr    string
+		wantPoller bool
+	}{
+		{name: "off needs no database", mode: evmconfig.LogPollerModeOff},
+		{
+			name:    "shadow without a database",
+			mode:    evmconfig.LogPollerModeShadow,
+			wantErr: `log_poller_mode "shadow" requires a database`,
+		},
+		{
+			name:    "read without a database",
+			mode:    evmconfig.LogPollerModeRead,
+			wantErr: `log_poller_mode "read" requires a database`,
+		},
+		{name: "shadow builds the poller", mode: evmconfig.LogPollerModeShadow, ds: ds, wantPoller: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			runtime := &stubChainRuntime{logPollerMode: tt.mode}
+			accessor := newAccessor(
+				logger.Test(t), refcountTestSelector, runtime, runtime.Close,
+				common.Address{}, "evm-key", nil, nil, nil,
+			).(*accessor)
+
+			err := accessor.SetDataSource(context.Background(), tt.ds)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+
+			if !tt.wantPoller {
+				require.Zero(t, runtime.logPollerCalls, "the chain must not touch the database")
+				return
+			}
+			require.Equal(t, 1, runtime.logPollerCalls)
+			require.Equal(t, tt.ds, runtime.gotDataSource)
 		})
 	}
 }

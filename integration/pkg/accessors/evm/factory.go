@@ -12,12 +12,14 @@ import (
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/contracttransmitter"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/destinationreader"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/keystore"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 )
 
 // defaultExecutionVisibilityWindow mirrors executor.maxRetryDurationDefault.
@@ -323,6 +325,36 @@ func (a *accessor) SetKeystore(ctx context.Context, ks keystore.Keystore) error 
 		return fmt.Errorf("failed to start EVM contract transmitter for chain %d: transmitter is nil", a.chainSelector)
 	}
 	a.contractTransmitter = ct
+	return nil
+}
+
+// The verifier injects the pool through an optional interface, so a signature change here
+// would silently stop every chain from getting a poller rather than fail to compile.
+var _ interface {
+	SetDataSource(context.Context, sqlutil.DataSource) error
+} = (*accessor)(nil)
+
+// SetDataSource gives the chain's LogPoller the database it needs and starts it.
+// A chain with log_poller_mode off needs no poller and no database.
+func (a *accessor) SetDataSource(ctx context.Context, ds sqlutil.DataSource) error {
+	if a == nil {
+		return errors.New("EVM accessor is nil")
+	}
+	if a.runtime == nil {
+		return errors.New("EVM chain runtime is not available")
+	}
+
+	mode := a.runtime.LogPollerMode()
+	if mode == evmconfig.LogPollerModeOff {
+		return nil
+	}
+	if ds == nil {
+		return fmt.Errorf("log_poller_mode %q requires a database for chain %d", mode, a.chainSelector)
+	}
+
+	if _, err := a.runtime.LogPoller(ctx, ds); err != nil {
+		return fmt.Errorf("failed to start EVM log poller for chain %d: %w", a.chainSelector, err)
+	}
 	return nil
 }
 
