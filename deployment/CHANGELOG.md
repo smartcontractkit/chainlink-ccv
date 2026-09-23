@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.2.0](https://github.com/smartcontractkit/chainlink-ccv/compare/deployment/v0.1.0...deployment/v0.2.0) (2026-09-23)
+
+
+### ⚠ BREAKING CHANGES
+
+* Add GCP support ([#1410](https://github.com/smartcontractkit/chainlink-ccv/issues/1410))
+
+### Features
+
+* Add GCP support ([#1410](https://github.com/smartcontractkit/chainlink-ccv/issues/1410)) ([b84dbed](https://github.com/smartcontractkit/chainlink-ccv/commit/b84dbed0c9e95663dd93e3ea10cbe92f421cf775))
+* Add lane off-chain readiness preflight ([#1432](https://github.com/smartcontractkit/chainlink-ccv/issues/1432)) ([26f851e](https://github.com/smartcontractkit/chainlink-ccv/commit/26f851ed033b80bdf8832b4668389c94c91a4713))
+* add onramp upgrade verifier config changeset and refactor ApplyVerifierConfig with options ([#1356](https://github.com/smartcontractkit/chainlink-ccv/issues/1356)) ([b740c6d](https://github.com/smartcontractkit/chainlink-ccv/commit/b740c6d6fa7afce3923ca4d04698db77a3c9b0f8))
+* **evm:** Derive RMN Remote addresses from ramp contracts' on-chain static config ([#1357](https://github.com/smartcontractkit/chainlink-ccv/issues/1357)) ([32d9d53](https://github.com/smartcontractkit/chainlink-ccv/commit/32d9d534ef3c2d083443b6045f4f649836b0ad65))
+* parse config doc comments via chainlink-common/x/config so pre-generated config can live outside the module ([#1451](https://github.com/smartcontractkit/chainlink-ccv/issues/1451)) ([bfd0913](https://github.com/smartcontractkit/chainlink-ccv/commit/bfd091335c44c8bcdb53830a7556be934862efac))
+* remove configure lombard evm dependency ([#1394](https://github.com/smartcontractkit/chainlink-ccv/issues/1394)) ([14a9d8b](https://github.com/smartcontractkit/chainlink-ccv/commit/14a9d8ba943c707baedb50c3faf63a42e450bba8))
+* **verifier:** policy hooks ([#1380](https://github.com/smartcontractkit/chainlink-ccv/issues/1380)) ([039ff50](https://github.com/smartcontractkit/chainlink-ccv/commit/039ff507b30c5d31a32f8745f5a82f4efca392ad))
+
+
+### Bug Fixes
+
+* bump chainlink-proto dependency ([#1457](https://github.com/smartcontractkit/chainlink-ccv/issues/1457)) ([1b32fa7](https://github.com/smartcontractkit/chainlink-ccv/commit/1b32fa7e6d5643411fff7146cab31083e76e26a6))
+* **deps:** bump chain-selectors ([#1347](https://github.com/smartcontractkit/chainlink-ccv/issues/1347)) ([694608e](https://github.com/smartcontractkit/chainlink-ccv/commit/694608e509526c17b9dec1da566c4599655d60a3))
+* **deps:** bump chain-selectors ([#1425](https://github.com/smartcontractkit/chainlink-ccv/issues/1425)) ([ec06fe4](https://github.com/smartcontractkit/chainlink-ccv/commit/ec06fe497cd2991aa854c178bddeeeaff4311226))
+* **deps:** bump chain-selectors ([#1448](https://github.com/smartcontractkit/chainlink-ccv/issues/1448)) ([e8913fc](https://github.com/smartcontractkit/chainlink-ccv/commit/e8913fc2a59078d8371debcb7ff84ce2ef12ddfb))
+* devenv grafana service log ([#1452](https://github.com/smartcontractkit/chainlink-ccv/issues/1452)) ([8713af5](https://github.com/smartcontractkit/chainlink-ccv/commit/8713af57b8983c9177e77d675a6df5bcdf5368c7))
+* update lombard and cctp verifier tags to use v2.1.0 ([#1340](https://github.com/smartcontractkit/chainlink-ccv/issues/1340)) ([42174dd](https://github.com/smartcontractkit/chainlink-ccv/commit/42174dd7851db594f319a376caff44747fdfbe4b))
+* **verifier:** reject [policy_hook] in Chainlink-node mode at boot ([#1414](https://github.com/smartcontractkit/chainlink-ccv/issues/1414)) ([23f8516](https://github.com/smartcontractkit/chainlink-ccv/commit/23f8516dbaf4b1e68154389956f642f9534464a5))
+
 ## [0.1.0](https://github.com/smartcontractkit/chainlink-ccv/compare/deployment/v0.0.1...deployment/v0.1.0) (2026-07-30)
 
 
