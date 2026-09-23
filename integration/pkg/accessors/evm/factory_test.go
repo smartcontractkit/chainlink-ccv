@@ -3,6 +3,8 @@ package evm
 import (
 	"context"
 	"errors"
+	"math/big"
+	"sync"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -106,6 +108,7 @@ func TestAccessorStartsRuntimeContractTransmitterAndOwnsLifecycle(t *testing.T) 
 		logger.Test(t),
 		protocol.ChainSelector(42),
 		runtime,
+		runtime.Close,
 		offRamp,
 		"evm-key",
 		nil,
@@ -136,6 +139,7 @@ func TestAccessorPropagatesRuntimeContractTransmitterFailure(t *testing.T) {
 		logger.Test(t),
 		protocol.ChainSelector(42),
 		runtime,
+		runtime.Close,
 		common.HexToAddress("0x1234"),
 		"evm-key",
 		nil,
@@ -150,10 +154,12 @@ func TestAccessorPropagatesRuntimeContractTransmitterFailure(t *testing.T) {
 func TestAccessorRejectsNilRuntimeContractTransmitter(t *testing.T) {
 	t.Parallel()
 
+	runtime := &stubChainRuntime{}
 	accessor := newAccessor(
 		logger.Test(t),
 		protocol.ChainSelector(42),
-		&stubChainRuntime{},
+		runtime,
+		runtime.Close,
 		common.HexToAddress("0x1234"),
 		"evm-key",
 		nil,
@@ -173,6 +179,7 @@ func TestSourceOnlyAccessorDoesNotStartTransactionManager(t *testing.T) {
 		logger.Test(t),
 		protocol.ChainSelector(42),
 		runtime,
+		runtime.Close,
 		common.Address{},
 		"evm-key",
 		nil,
@@ -374,4 +381,275 @@ func TestStandaloneChainComponentAccessorsReturnErrorsWhenUnavailable(t *testing
 	headTracker, err := runtime.HeadTracker()
 	require.Nil(t, headTracker)
 	require.ErrorContains(t, err, "head tracker is not available")
+}
+
+// --- runtime reference counting ---------------------------------------------------------------
+//
+// A chain must have exactly one LogPoller per process, so factory shares one chainRuntime per
+// selector and tears it down only when the last accessor holding it closes.
+
+const refcountTestSelector = protocol.ChainSelector(5009297550715157269)
+
+// countingRuntimeBuilder hands out the given runtimes in order, then fresh stubs, and reports how
+// many times it was called.
+func countingRuntimeBuilder(runtimes ...chainRuntime) (runtimeBuilder, *int) {
+	calls := 0
+	build := func(context.Context, protocol.ChainSelector, logger.Logger) (chainRuntime, error) {
+		defer func() { calls++ }()
+		if calls < len(runtimes) {
+			return runtimes[calls], nil
+		}
+		return &stubChainRuntime{}, nil
+	}
+	return build, &calls
+}
+
+func newRefcountTestFactory(t *testing.T, build runtimeBuilder) *factory {
+	t.Helper()
+	return newFactory(logger.Test(t), nil, nil, nil, 0, build).(*factory)
+}
+
+// runtimeRefs reports the live reference count for a selector, and whether it is cached at all.
+func runtimeRefs(t *testing.T, f *factory, selector protocol.ChainSelector) (int, bool) {
+	t.Helper()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	entry, ok := f.runtimes[selector]
+	if !ok {
+		return 0, false
+	}
+	return entry.refs, true
+}
+
+func TestFactorySharesOneRuntimePerChain(t *testing.T) {
+	t.Parallel()
+
+	build, calls := countingRuntimeBuilder()
+	f := newRefcountTestFactory(t, build)
+
+	first, err := f.acquireRuntime(context.Background(), refcountTestSelector, logger.Test(t))
+	require.NoError(t, err)
+	second, err := f.acquireRuntime(context.Background(), refcountTestSelector, logger.Test(t))
+	require.NoError(t, err)
+
+	require.Equal(t, 1, *calls, "second acquire must reuse the cached runtime, not build another")
+	require.Same(t, first, second)
+
+	refs, cached := runtimeRefs(t, f, refcountTestSelector)
+	require.True(t, cached)
+	require.Equal(t, 2, refs)
+}
+
+func TestFactoryKeepsRuntimeUntilLastRelease(t *testing.T) {
+	t.Parallel()
+
+	runtime := &stubChainRuntime{}
+	build, _ := countingRuntimeBuilder(runtime)
+	f := newRefcountTestFactory(t, build)
+
+	_, err := f.acquireRuntime(context.Background(), refcountTestSelector, logger.Test(t))
+	require.NoError(t, err)
+	_, err = f.acquireRuntime(context.Background(), refcountTestSelector, logger.Test(t))
+	require.NoError(t, err)
+
+	require.NoError(t, f.releaseRuntime(refcountTestSelector))
+	require.Zero(t, runtime.closeCalls, "a runtime with a live reference must not be closed")
+	refs, cached := runtimeRefs(t, f, refcountTestSelector)
+	require.True(t, cached)
+	require.Equal(t, 1, refs)
+
+	require.NoError(t, f.releaseRuntime(refcountTestSelector))
+	require.Equal(t, 1, runtime.closeCalls, "the last release must close the runtime exactly once")
+	_, cached = runtimeRefs(t, f, refcountTestSelector)
+	require.False(t, cached, "the last release must evict the entry")
+}
+
+// A closed runtime must not be handed out again: the job lifecycle restarts a job after a failed
+// StopJob (lifecycle/manager.go rollbackReplacement), so a second generation acquires the same
+// selector after the first has been released.
+func TestFactoryRebuildsRuntimeAfterLastRelease(t *testing.T) {
+	t.Parallel()
+
+	first, second := &stubChainRuntime{}, &stubChainRuntime{}
+	build, calls := countingRuntimeBuilder(first, second)
+	f := newRefcountTestFactory(t, build)
+
+	got, err := f.acquireRuntime(context.Background(), refcountTestSelector, logger.Test(t))
+	require.NoError(t, err)
+	require.Same(t, first, got)
+	require.NoError(t, f.releaseRuntime(refcountTestSelector))
+
+	got, err = f.acquireRuntime(context.Background(), refcountTestSelector, logger.Test(t))
+	require.NoError(t, err)
+	require.Same(t, second, got, "a released runtime is closed and must never be reused")
+	require.Equal(t, 2, *calls)
+}
+
+func TestFactoryAcquireCachesNothingOnFailure(t *testing.T) {
+	t.Parallel()
+
+	buildErr := errors.New("dial failed")
+	tests := []struct {
+		name    string
+		build   runtimeBuilder
+		wantErr string
+	}{
+		{
+			name: "builder error",
+			build: func(context.Context, protocol.ChainSelector, logger.Logger) (chainRuntime, error) {
+				return nil, buildErr
+			},
+			wantErr: "dial failed",
+		},
+		{
+			// Caching a nil runtime would make every later acquire for this chain return nil.
+			name: "builder returned a nil runtime",
+			build: func(context.Context, protocol.ChainSelector, logger.Logger) (chainRuntime, error) {
+				return nil, nil
+			},
+			wantErr: "runtime is nil",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			f := newRefcountTestFactory(t, tt.build)
+			runtime, err := f.acquireRuntime(context.Background(), refcountTestSelector, logger.Test(t))
+			require.Nil(t, runtime)
+			require.ErrorContains(t, err, tt.wantErr)
+			_, cached := runtimeRefs(t, f, refcountTestSelector)
+			require.False(t, cached)
+		})
+	}
+}
+
+func TestFactoryReleaseOfUnheldRuntimeIsNoop(t *testing.T) {
+	t.Parallel()
+
+	build, calls := countingRuntimeBuilder()
+	f := newRefcountTestFactory(t, build)
+
+	require.NoError(t, f.releaseRuntime(refcountTestSelector))
+	require.Zero(t, *calls)
+}
+
+func TestFactoryRuntimeRefcountIsConcurrencySafe(t *testing.T) {
+	t.Parallel()
+
+	runtime := &stubChainRuntime{}
+	build, calls := countingRuntimeBuilder(runtime)
+	f := newRefcountTestFactory(t, build)
+
+	// One reference is held for the whole test, so the count can never reach zero and the builder
+	// must run exactly once however the concurrent acquires and releases interleave.
+	_, err := f.acquireRuntime(context.Background(), refcountTestSelector, logger.Test(t))
+	require.NoError(t, err)
+
+	const goroutines = 50
+	var wg sync.WaitGroup
+	for range goroutines {
+		wg.Go(func() {
+			if _, err := f.acquireRuntime(context.Background(), refcountTestSelector, logger.Test(t)); err != nil {
+				return
+			}
+			_ = f.releaseRuntime(refcountTestSelector)
+		})
+	}
+	wg.Wait()
+
+	require.Equal(t, 1, *calls)
+	require.Zero(t, runtime.closeCalls)
+	refs, cached := runtimeRefs(t, f, refcountTestSelector)
+	require.True(t, cached)
+	require.Equal(t, 1, refs)
+
+	require.NoError(t, f.releaseRuntime(refcountTestSelector))
+	require.Equal(t, 1, runtime.closeCalls)
+}
+
+// Close is exported and documented as safe to call more than once, so it must not drop a second
+// reference: that would tear down a runtime another accessor is still using.
+func TestAccessorCloseDropsExactlyOneReference(t *testing.T) {
+	t.Parallel()
+
+	releases := 0
+	accessor := newAccessor(
+		logger.Test(t),
+		refcountTestSelector,
+		&stubChainRuntime{},
+		func() error { releases++; return nil },
+		common.HexToAddress("0x1234"),
+		"evm-key",
+		nil,
+		nil,
+		nil,
+	)
+
+	require.NoError(t, accessor.Close())
+	require.NoError(t, accessor.Close())
+	require.NoError(t, accessor.Close())
+	require.Equal(t, 1, releases)
+}
+
+// Every GetAccessor path that returns an error after a successful acquire owes exactly one
+// release, or the chain's runtime and its LogPoller leak for the life of the process.
+func TestGetAccessorReleasesRuntimeOnFailure(t *testing.T) {
+	t.Parallel()
+
+	clientErr := errors.New("chain client unavailable")
+	trackerErr := errors.New("head tracker unavailable")
+	nullClient := client.NewNullClient(big.NewInt(1), logger.Test(t))
+
+	tests := []struct {
+		name    string
+		runtime *stubChainRuntime
+		wantErr string
+	}{
+		{
+			name:    "chain client error",
+			runtime: &stubChainRuntime{clientErr: clientErr},
+			wantErr: "chain client unavailable",
+		},
+		{
+			name:    "nil chain client",
+			runtime: &stubChainRuntime{},
+			wantErr: "client is nil",
+		},
+		{
+			name:    "head tracker error",
+			runtime: &stubChainRuntime{Client: nullClient, trackerErr: trackerErr},
+			wantErr: "head tracker unavailable",
+		},
+		{
+			name:    "nil head tracker",
+			runtime: &stubChainRuntime{Client: nullClient},
+			wantErr: "tracker is nil",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			build, _ := countingRuntimeBuilder(tt.runtime)
+			f := newFactory(
+				logger.Test(t),
+				map[protocol.ChainSelector]string{refcountTestSelector: validTestOffRampAddress},
+				nil,
+				nil,
+				0,
+				build,
+			).(*factory)
+
+			accessor, err := f.GetAccessor(context.Background(), refcountTestSelector)
+			require.Nil(t, accessor)
+			require.ErrorContains(t, err, tt.wantErr)
+
+			_, cached := runtimeRefs(t, f, refcountTestSelector)
+			require.False(t, cached, "a failed GetAccessor must release the reference it acquired")
+			require.Equal(t, 1, tt.runtime.closeCalls, "the released reference was the last one")
+		})
+	}
 }

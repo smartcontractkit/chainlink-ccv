@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -28,6 +29,14 @@ type runtimeBuilder func(
 	lggr logger.Logger,
 ) (chainRuntime, error)
 
+// runtimeEntry is a shared chainRuntime and its live reference count. Runtimes are shared
+// because a chain must have exactly one LogPoller per process: two would both poll the chain
+// and write evm.log_poller_blocks for it
+type runtimeEntry struct {
+	rt   chainRuntime
+	refs int
+}
+
 type factory struct {
 	lggr logger.Logger
 
@@ -40,6 +49,10 @@ type factory struct {
 
 	executionVisibilityWindow time.Duration
 	newRuntime                runtimeBuilder
+
+	// mu guards runtimes
+	mu       sync.Mutex
+	runtimes map[protocol.ChainSelector]*runtimeEntry
 }
 
 func newFactory(
@@ -60,6 +73,61 @@ func newFactory(
 		executionVisibilityWindow: executionVisibilityWindow,
 		newRuntime:                newRuntime,
 	}
+}
+
+// acquireRuntime returns the chain's runtime, building it on first use, and takes a reference.
+// Every successful call must be paired with exactly one releaseRuntime. newRuntime runs with mu
+// held, so chain startup is serialized, which matches the sequential accessor loops today.
+func (f *factory) acquireRuntime(ctx context.Context, chainSelector protocol.ChainSelector, lggr logger.Logger) (chainRuntime, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if entry, ok := f.runtimes[chainSelector]; ok {
+		entry.refs++
+		return entry.rt, nil
+	}
+
+	runtime, err := f.newRuntime(ctx, chainSelector, lggr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to start EVM services for chain %d: %w", chainSelector, err)
+	}
+
+	if runtime == nil {
+		return nil, fmt.Errorf("failed to start EVM services for chain %d: runtime is nil", chainSelector)
+	}
+
+	if f.runtimes == nil {
+		f.runtimes = make(map[protocol.ChainSelector]*runtimeEntry)
+	}
+
+	f.runtimes[chainSelector] = &runtimeEntry{rt: runtime, refs: 1}
+	return runtime, nil
+}
+
+// releaseRuntime drops a reference and closes the runtime once the last one goes. Eviction and
+// the decision to close happen under mu so a concurrent acquire cannot revive a dying entry;
+// Close itself runs outside it, because it waits on orphan recovery and tears down RPCs.
+func (f *factory) releaseRuntime(chainSelector protocol.ChainSelector) error {
+	f.mu.Lock()
+
+	entry, ok := f.runtimes[chainSelector]
+	if !ok {
+		f.mu.Unlock()
+		f.lggr.Warnw("Released an EVM chain runtime that was not held; this is a refcount bug",
+			"chainSelector", chainSelector)
+		return nil
+	}
+
+	entry.refs--
+	if entry.refs > 0 {
+		f.mu.Unlock()
+		return nil
+	}
+
+	delete(f.runtimes, chainSelector)
+	f.mu.Unlock()
+
+	return entry.rt.Close()
 }
 
 // isValidAddress reports whether s is a non-empty hex address that is not the zero address.
@@ -106,20 +174,17 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 	}
 
 	chainLggr := logger.With(f.lggr, "chainSelector", chainSelector)
-	runtime, err := f.newRuntime(ctx, chainSelector, chainLggr)
+	runtime, err := f.acquireRuntime(ctx, chainSelector, chainLggr)
 	if err != nil {
-		return nil, fmt.Errorf("failed to start EVM services for chain %d: %w", chainSelector, err)
-	}
-	if runtime == nil {
-		return nil, fmt.Errorf("failed to start EVM services for chain %d: runtime is nil", chainSelector)
+		return nil, err
 	}
 	chainClient, err := runtime.ChainClient()
 	if err != nil {
-		closeErr := runtime.Close()
+		closeErr := f.releaseRuntime(chainSelector)
 		return nil, errors.Join(fmt.Errorf("failed to get EVM chain client for chain %d: %w", chainSelector, err), closeErr)
 	}
 	if chainClient == nil {
-		closeErr := runtime.Close()
+		closeErr := f.releaseRuntime(chainSelector)
 		return nil, errors.Join(fmt.Errorf("failed to get EVM chain client for chain %d: client is nil", chainSelector), closeErr)
 	}
 
@@ -130,11 +195,11 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 	if hasSourceReaderConfig {
 		headTracker, err := runtime.HeadTracker()
 		if err != nil {
-			closeErr := runtime.Close()
+			closeErr := f.releaseRuntime(chainSelector)
 			return nil, errors.Join(fmt.Errorf("failed to get EVM head tracker for chain %d: %w", chainSelector, err), closeErr)
 		}
 		if headTracker == nil {
-			closeErr := runtime.Close()
+			closeErr := f.releaseRuntime(chainSelector)
 			return nil, errors.Join(fmt.Errorf("failed to get EVM head tracker for chain %d: tracker is nil", chainSelector), closeErr)
 		}
 		sr, err := NewEVMSourceReader(
@@ -150,7 +215,7 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 			nil,
 		)
 		if err != nil {
-			closeErr := runtime.Close()
+			closeErr := f.releaseRuntime(chainSelector)
 			return nil, errors.Join(fmt.Errorf("failed to create EVM source reader: %w", err), closeErr)
 		}
 		evmSourceReader = sr
@@ -171,7 +236,7 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 		})
 		if err != nil {
 			if evmSourceReader == nil {
-				closeErr := runtime.Close()
+				closeErr := f.releaseRuntime(chainSelector)
 				return nil, errors.Join(fmt.Errorf("failed to create EVM destination reader: %w", err), closeErr)
 			}
 			chainLggr.Warnw("Failed to create EVM destination reader, DestinationReader will be unavailable", "error", err)
@@ -189,6 +254,7 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 		chainLggr,
 		chainSelector,
 		runtime,
+		func() error { return f.releaseRuntime(chainSelector) },
 		offRampAddr,
 		keyName,
 		evmSourceReader,
@@ -207,12 +273,17 @@ type accessor struct {
 	runtime       chainRuntime
 	offRampAddr   common.Address
 	keyName       string
+
+	// closeOnce keeps Close idempotent: a second call must not drop a second reference.
+	closeOnce sync.Once
+	release   func() error
 }
 
 func newAccessor(
 	lggr logger.Logger,
 	chainSelector protocol.ChainSelector,
 	runtime chainRuntime,
+	release func() error,
 	offRampAddr common.Address,
 	keyName string,
 	sourceReader chainaccess.SourceReader,
@@ -223,6 +294,7 @@ func newAccessor(
 		lggr:                lggr,
 		chainSelector:       chainSelector,
 		runtime:             runtime,
+		release:             release,
 		offRampAddr:         offRampAddr,
 		keyName:             keyName,
 		sourceReader:        sourceReader,
@@ -275,10 +347,14 @@ func (a *accessor) ContractTransmitter() (chainaccess.ContractTransmitter, error
 	return a.contractTransmitter, nil
 }
 
-// Close releases the production services owned by this accessor.
+// Close drops this accessor's reference to the shared chain runtime. The runtime is torn down
+// once the last accessor holding it closes.
 func (a *accessor) Close() error {
-	if a == nil || a.runtime == nil {
+	if a == nil || a.release == nil {
 		return nil
 	}
-	return a.runtime.Close()
+
+	var err error
+	a.closeOnce.Do(func() { err = a.release() })
+	return err
 }
