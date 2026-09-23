@@ -3,6 +3,7 @@ package sourcereader
 import (
 	"context"
 	"fmt"
+	"math/big"
 
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -80,4 +81,24 @@ func (o observedSourceReader) LatestSafeBlock(ctx context.Context) (*protocol.Bl
 			RecordSourceChainSafeBlock(ctx, int64(safe.Number))
 	}
 	return safe, err
+}
+
+// ReplayFrom forwards to a LogPoller-backed delegate, so the service's structural check sees it.
+func (o observedSourceReader) ReplayFrom(ctx context.Context, lastProcessedBlock *big.Int) error {
+	if source, ok := o.SourceReader.(interface {
+		ReplayFrom(ctx context.Context, lastProcessedBlock *big.Int) error
+	}); ok {
+		return source.ReplayFrom(ctx, lastProcessedBlock)
+	}
+	return nil
+}
+
+// LatestIngestedBlock forwards to a LogPoller-backed delegate; ok is false for any other reader.
+func (o observedSourceReader) LatestIngestedBlock(ctx context.Context) (block int64, ok bool, err error) {
+	if source, ok := o.SourceReader.(interface {
+		LatestIngestedBlock(ctx context.Context) (int64, bool, error)
+	}); ok {
+		return source.LatestIngestedBlock(ctx)
+	}
+	return 0, false, nil
 }

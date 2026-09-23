@@ -12,6 +12,10 @@ import (
 // Callers should treat the lane as cursed (fail closed) when this error is returned.
 var ErrCurseStateUnknown = errors.New("curse state unknown: no successful RPC poll yet")
 
+// ErrSourceRangeUnanswerable means the log source cannot yet cover the requested range.
+// Callers must retry without advancing; it is never an empty result.
+var ErrSourceRangeUnanswerable = errors.New("source range not answerable by log poller yet")
+
 // ErrMessageRulesStateUnknown indicates message rules could not be determined.
 // Callers should block/retry until a successful rules refresh instead of dropping or signing.
 var ErrMessageRulesStateUnknown = errors.New("message rules state unknown: no successful aggregator poll yet")

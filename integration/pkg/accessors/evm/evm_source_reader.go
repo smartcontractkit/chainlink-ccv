@@ -8,16 +8,19 @@ import (
 	"fmt"
 	"maps"
 	"math/big"
+	"slices"
 	"time"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/rpc"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_6_0/rmn_remote"
+	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/common/lazy"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
@@ -25,6 +28,7 @@ import (
 	"github.com/smartcontractkit/chainlink-evm/pkg/logpoller"
 	evmtypes "github.com/smartcontractkit/chainlink-evm/pkg/types"
 
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/rmnremotereader"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -50,9 +54,10 @@ type SourceReader struct {
 	onRampABI                        *abi.ABI // Cached ABI to avoid re-parsing
 	onCriticalInvariant              func(context.Context)
 	sourceReaderHeaderFetchBatchSize int
-	// logPoller is nil until AttachLogPoller runs, and stays nil for chains with
-	// log_poller_mode off. Reads go via RPC until Phase 3 switches the source.
-	logPoller logpoller.LogPoller
+	// logPoller is nil until AttachLogPoller runs, and stays nil for chains with log_poller_mode
+	// off. logPollerMode decides whether reads come from it (read) or RPC (shadow).
+	logPoller     logpoller.LogPoller
+	logPollerMode evmconfig.LogPollerMode
 }
 
 func NewEVMSourceReader(
@@ -251,6 +256,14 @@ func (r *SourceReader) fetchHeadBatch(ctx context.Context, blockNumbers []*big.I
 // FetchMessageSentEvents returns MessageSentEvents in the given block range.
 // The toBlock parameter can be nil to query up to the latest block.
 func (r *SourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, toBlock *big.Int) ([]protocol.MessageSentEvent, error) {
+	logs, err := r.fetchLogs(ctx, fromBlock, toBlock)
+	if err != nil {
+		return nil, err
+	}
+	return r.decodeMessageSentLogs(ctx, logs), nil
+}
+
+func (r *SourceReader) fetchLogsFromRPC(ctx context.Context, fromBlock, toBlock *big.Int) ([]types.Log, error) {
 	rangeQuery := ethereum.FilterQuery{
 		FromBlock: fromBlock,
 		ToBlock:   toBlock,
@@ -262,7 +275,12 @@ func (r *SourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, to
 		r.lggr.Warnw("Failed to filter logs", "error", err)
 		return nil, err
 	}
+	return logs, nil
+}
 
+// decodeMessageSentLogs decodes CCIPMessageSent logs and enforces the source invariants, skipping
+// any log that fails them.
+func (r *SourceReader) decodeMessageSentLogs(ctx context.Context, logs []types.Log) []protocol.MessageSentEvent {
 	results := make([]protocol.MessageSentEvent, 0, len(logs))
 
 	// Process found events
@@ -304,7 +322,7 @@ func (r *SourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, to
 		event.DestChainSelector = destChainSelector
 		event.MessageId = messageID
 		event.Sender = sender
-		err = r.onRampABI.UnpackIntoInterface(event, "CCIPMessageSent", log.Data)
+		err := r.onRampABI.UnpackIntoInterface(event, "CCIPMessageSent", log.Data)
 		if err != nil {
 			r.onCriticalInvariant(ctx)
 			r.lggr.Errorw("Failed to unpack CCIPMessageSent event payload", "error", err)
@@ -418,12 +436,146 @@ func (r *SourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, to
 			BlockTimestamp: blockTimestamp,
 		})
 	}
-	return results, nil
+	return results
+}
+
+func (r *SourceReader) fetchLogs(ctx context.Context, from, to *big.Int) ([]types.Log, error) {
+	switch {
+	case r.logPoller != nil && r.logPollerMode == evmconfig.LogPollerModeRead:
+		return r.fetchLogsFromPoller(ctx, from, to)
+	case r.logPoller != nil && r.logPollerMode == evmconfig.LogPollerModeShadow:
+		logs, err := r.fetchLogsFromRPC(ctx, from, to)
+		if err == nil {
+			r.compareShadow(ctx, from, to, logs) // Step 4; never affects the result
+		}
+		return logs, err
+	default:
+		return r.fetchLogsFromRPC(ctx, from, to)
+	}
+}
+
+// fetchLogsFromPoller reads logs the poller has ingested, and returns ErrSourceRangeUnanswerable
+// for any range it cannot fully cover. A nil to means up to the poller's latest ingested block.
+func (r *SourceReader) fetchLogsFromPoller(ctx context.Context, from, to *big.Int) ([]types.Log, error) {
+	latest, err := r.logPoller.LatestBlock(ctx)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("%w: log poller has not ingested any blocks", ccvcommon.ErrSourceRangeUnanswerable)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to read the log poller's latest block: %w", err)
+	}
+	ceiling := latest.BlockNumber
+
+	end := ceiling
+	if to != nil {
+		if to.Int64() > ceiling {
+			return nil, fmt.Errorf("%w: block %s is past ingested block %d",
+				ccvcommon.ErrSourceRangeUnanswerable, to, ceiling)
+		}
+		end = to.Int64()
+	} else {
+		// The service advances to finalized after an open-ended read, so the poller must reach it.
+		_, finalized, err := r.LatestAndFinalizedBlock(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if int64(finalized.Number) > ceiling { // #nosec G115 -- chain block heights are within int64 range
+			return nil, fmt.Errorf("%w: finalized block %d is past ingested block %d",
+				ccvcommon.ErrSourceRangeUnanswerable, finalized.Number, ceiling)
+		}
+	}
+	if from.Int64() > end {
+		return nil, fmt.Errorf("%w: block %s is past ingested block %d",
+			ccvcommon.ErrSourceRangeUnanswerable, from, end)
+	}
+
+	pollerLogs, err := r.logPoller.Logs(ctx, from.Int64(), end, common.HexToHash(r.ccipMessageSentTopic), r.onRampAddress)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read logs from the log poller: %w", err)
+	}
+
+	logs := make([]types.Log, 0, len(pollerLogs))
+	for _, l := range pollerLogs {
+		logs = append(logs, pollerLogToGeth(l))
+	}
+	return logs, nil
+}
+
+// shadowLogKey identifies a log across sources.
+type shadowLogKey struct {
+	blockNumber uint64
+	index       uint
+	txHash      common.Hash
+}
+
+// compareShadow warns when the poller disagrees with RPC over the finalized part of a range.
+// It never affects the result; unfinalized blocks are skipped because they can still reorg.
+func (r *SourceReader) compareShadow(ctx context.Context, from, to *big.Int, rpcLogs []types.Log) {
+	_, finalized, err := r.LatestAndFinalizedBlock(ctx)
+	if err != nil {
+		r.lggr.Debugw("Skipping log poller shadow comparison", "error", err)
+		return
+	}
+	upper := new(big.Int).SetUint64(finalized.Number)
+	if to != nil && to.Cmp(upper) < 0 {
+		upper = to
+	}
+	if from.Cmp(upper) > 0 {
+		return
+	}
+
+	pollerLogs, err := r.fetchLogsFromPoller(ctx, from, upper)
+	if err != nil {
+		r.lggr.Debugw("Skipping log poller shadow comparison", "fromBlock", from, "toBlock", upper, "error", err)
+		return
+	}
+
+	pollerTimestamps := make(map[shadowLogKey]uint64, len(pollerLogs))
+	for _, l := range pollerLogs {
+		pollerTimestamps[shadowLogKey{l.BlockNumber, l.Index, l.TxHash}] = l.BlockTimestamp
+	}
+
+	var missing, timestampMismatches []shadowLogKey
+	for _, l := range rpcLogs {
+		if l.BlockNumber > upper.Uint64() {
+			continue
+		}
+		key := shadowLogKey{l.BlockNumber, l.Index, l.TxHash}
+		pollerTimestamp, ok := pollerTimestamps[key]
+		delete(pollerTimestamps, key)
+		switch {
+		case !ok:
+			missing = append(missing, key)
+		// Many providers omit the timestamp from eth_getLogs, so only a timestamp RPC supplied is checked.
+		case l.BlockTimestamp != 0 && l.BlockTimestamp != pollerTimestamp:
+			timestampMismatches = append(timestampMismatches, key)
+		}
+	}
+
+	if len(missing) == 0 && len(timestampMismatches) == 0 && len(pollerTimestamps) == 0 {
+		return
+	}
+	r.lggr.Warnw("Log poller shadow read disagrees with RPC",
+		"chainSelector", r.chainSelector,
+		"fromBlock", from,
+		"toBlock", upper,
+		"missingFromPoller", missing,
+		"timestampMismatches", timestampMismatches,
+		"extraInPoller", slices.Collect(maps.Keys(pollerTimestamps)))
+}
+
+// pollerLogToGeth converts a poller log, carrying the BlockTimestamp that ToGethLog drops.
+func pollerLogToGeth(l logpoller.Log) types.Log {
+	gl := l.ToGethLog()
+	if !l.BlockTimestamp.IsZero() {
+		gl.BlockTimestamp = uint64(l.BlockTimestamp.Unix()) // #nosec G115 -- chain timestamps are positive
+	}
+	return gl
 }
 
 // logPollerAttacher is implemented by source readers that read logs from a LogPoller.
 type logPollerAttacher interface {
-	AttachLogPoller(ctx context.Context, lp logpoller.LogPoller) error
+	AttachLogPoller(ctx context.Context, lp logpoller.LogPoller, mode evmconfig.LogPollerMode) error
 }
 
 var _ logPollerAttacher = (*SourceReader)(nil)
@@ -435,14 +587,13 @@ const ccipMessageSentFilterName = "ccv-source-reader-ccip-message-sent"
 
 // AttachLogPoller gives the reader the chain's LogPoller and registers its filter. The poller
 // is already started; this is the RegisterFilter leg of Start -> RegisterFilter -> Replay.
-func (r *SourceReader) AttachLogPoller(ctx context.Context, lp logpoller.LogPoller) error {
+func (r *SourceReader) AttachLogPoller(ctx context.Context, lp logpoller.LogPoller, mode evmconfig.LogPollerMode) error {
 	filter := logpoller.Filter{
 		Name:      logpoller.FilterName(ccipMessageSentFilterName, r.chainSelector),
 		Addresses: evmtypes.AddressArray{r.onRampAddress},
 		EventSigs: evmtypes.HashArray{common.HexToHash(r.ccipMessageSentTopic)},
-		// Zero means never prune: DeleteExpiredLogs skips filters whose MIN(retention) is 0, and
-		// nothing reaps these logs yet. TODO: settle retention with the team -- a CCV-owned reaper,
-		// not a non-zero Retention here, which would prune behind the answerability window.
+		// Zero means never prune (DeleteExpiredLogs skips MIN(retention) = 0). fetchLogsFromPoller
+		// has no lower bound and relies on this: pruning would make ranges read as empty.
 		Retention:   0,
 		MaxLogsKept: 0,
 	}
@@ -453,6 +604,7 @@ func (r *SourceReader) AttachLogPoller(ctx context.Context, lp logpoller.LogPoll
 	}
 
 	r.logPoller = lp
+	r.logPollerMode = mode
 	return nil
 }
 
@@ -473,9 +625,8 @@ func (r *SourceReader) LatestIngestedBlock(ctx context.Context) (block int64, ok
 	return latest.BlockNumber, true, nil
 }
 
-// ReplayFrom backfills the poller from the block after lastProcessedBlock, synchronously.
-// The poller must already be started: Replay hands the request to the poller's run loop over an
-// unbuffered channel, so with no loop running it blocks until the context is canceled.
+// ReplayFrom backfills the poller from the block after lastProcessedBlock, synchronously, so every
+// log from the checkpoint on is ingested. The poller must be started: Replay blocks otherwise.
 func (r *SourceReader) ReplayFrom(ctx context.Context, lastProcessedBlock *big.Int) error {
 	if r.logPoller == nil {
 		return nil
@@ -484,17 +635,6 @@ func (r *SourceReader) ReplayFrom(ctx context.Context, lastProcessedBlock *big.I
 
 	if fromBlock.Sign() <= 0 {
 		fromBlock = big.NewInt(1)
-	}
-
-	// The poller persists its own cursor, so a replay only does work the first time a chain is
-	// enabled. An error here means no rows yet, which is exactly that case, so replay.
-	if pollerLatest, err := r.logPoller.LatestBlock(ctx); err == nil &&
-		big.NewInt(pollerLatest.BlockNumber).Cmp(fromBlock) >= 0 {
-		r.lggr.Debugw("Skipping log poller replay, the poller is already past the checkpoint",
-			"chainSelector", r.chainSelector,
-			"fromBlock", fromBlock.String(),
-			"pollerLatestBlock", pollerLatest.BlockNumber)
-		return nil
 	}
 
 	latestHead, _, err := r.headTracker.LatestAndFinalizedBlock(ctx)

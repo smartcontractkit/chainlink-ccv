@@ -149,6 +149,51 @@ func (m *mockFilterLogsClient) FilterLogs(ctx context.Context, q ethereum.Filter
 	return m.filterLogsFunc(ctx, q)
 }
 
+// newMessageSentLog builds a CCIPMessageSent log that passes every source invariant, emitted by
+// onRampAddress for source selector 1337.
+func newMessageSentLog(t *testing.T, onRampAddress, feeToken common.Address) (types.Log, *protocol.Message, []onramp.OnRampReceipt) {
+	t.Helper()
+	sender := common.HexToAddress("0x5678")
+	receipts := []onramp.OnRampReceipt{
+		{Issuer: common.HexToAddress("0x1111"), FeeTokenAmount: big.NewInt(2)},
+		{Issuer: common.HexToAddress("0x2222"), FeeTokenAmount: big.NewInt(3)},
+		{Issuer: common.HexToAddress("0x3333"), FeeTokenAmount: big.NewInt(4)},
+	}
+	ccvHash, err := protocol.ComputeCCVAndExecutorHash(
+		[]protocol.UnknownAddress{receipts[0].Issuer.Bytes()}, receipts[1].Issuer.Bytes())
+	require.NoError(t, err)
+	message, err := protocol.NewMessage(
+		1337, 100, 1,
+		expectedSourceAddressBytes(onRampAddress), protocol.UnknownAddress{0x01},
+		protocol.FinalityWaitForFinality, 300000, 200000, ccvHash,
+		expectedSourceAddressBytes(sender), protocol.UnknownAddress{0x02}, nil, nil, nil,
+	)
+	require.NoError(t, err)
+	encodedMessage, err := message.Encode()
+	require.NoError(t, err)
+	messageID, err := message.MessageID()
+	require.NoError(t, err)
+	onRampABI, err := onramp.OnRampMetaData.GetAbi()
+	require.NoError(t, err)
+	data, err := onRampABI.Events["CCIPMessageSent"].Inputs.NonIndexed().Pack(
+		feeToken, big.NewInt(0), encodedMessage, receipts, [][]byte{{0x01}},
+	)
+	require.NoError(t, err)
+	log := types.Log{
+		Address: onRampAddress,
+		Topics: []common.Hash{
+			onRampABI.Events["CCIPMessageSent"].ID,
+			common.BigToHash(big.NewInt(100)),
+			common.BytesToHash(sender.Bytes()),
+			common.Hash(messageID),
+		},
+		Data:        data,
+		BlockNumber: 95,
+		TxHash:      common.HexToHash("0xdeadbeef"),
+	}
+	return log, message, receipts
+}
+
 func TestFetchMessageSentEvents_SourceMetadata(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
@@ -161,45 +206,11 @@ func TestFetchMessageSentEvents_SourceMetadata(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			onRampAddress := common.HexToAddress("0x1234")
-			sender := common.HexToAddress("0x5678")
-			receipts := []onramp.OnRampReceipt{
-				{Issuer: common.HexToAddress("0x1111"), FeeTokenAmount: big.NewInt(2)},
-				{Issuer: common.HexToAddress("0x2222"), FeeTokenAmount: big.NewInt(3)},
-				{Issuer: common.HexToAddress("0x3333"), FeeTokenAmount: big.NewInt(4)},
-			}
-			ccvHash, err := protocol.ComputeCCVAndExecutorHash(
-				[]protocol.UnknownAddress{receipts[0].Issuer.Bytes()}, receipts[1].Issuer.Bytes())
-			require.NoError(t, err)
-			message, err := protocol.NewMessage(
-				1337, 100, 1,
-				expectedSourceAddressBytes(onRampAddress), protocol.UnknownAddress{0x01},
-				protocol.FinalityWaitForFinality, 300000, 200000, ccvHash,
-				expectedSourceAddressBytes(sender), protocol.UnknownAddress{0x02}, nil, nil, nil,
-			)
-			require.NoError(t, err)
-			encodedMessage, err := message.Encode()
-			require.NoError(t, err)
-			messageID, err := message.MessageID()
-			require.NoError(t, err)
+			log, message, receipts := newMessageSentLog(t, onRampAddress, tc.feeToken)
+			log.BlockTimestamp = tc.timestamp
+			messageID := message.MustMessageID()
 			onRampABI, err := onramp.OnRampMetaData.GetAbi()
 			require.NoError(t, err)
-			data, err := onRampABI.Events["CCIPMessageSent"].Inputs.NonIndexed().Pack(
-				tc.feeToken, big.NewInt(0), encodedMessage, receipts, [][]byte{{0x01}},
-			)
-			require.NoError(t, err)
-			log := types.Log{
-				Address: onRampAddress,
-				Topics: []common.Hash{
-					onRampABI.Events["CCIPMessageSent"].ID,
-					common.BigToHash(big.NewInt(100)),
-					common.BytesToHash(sender.Bytes()),
-					common.Hash(messageID),
-				},
-				Data:           data,
-				BlockNumber:    95,
-				BlockTimestamp: tc.timestamp,
-				TxHash:         common.HexToHash("0xdeadbeef"),
-			}
 			// Only FilterLogs is implemented: an added block or transaction RPC fails the test.
 			calls := 0
 			chainClient := &mockFilterLogsClient{

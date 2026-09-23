@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/heads"
@@ -51,7 +52,7 @@ func TestSourceReaderAttachLogPoller(t *testing.T) {
 			Return(nil)
 
 		reader := newLogPollerTestReader(t, heads.NullTracker)
-		require.NoError(t, reader.AttachLogPoller(context.Background(), lp))
+		require.NoError(t, reader.AttachLogPoller(context.Background(), lp, evmconfig.LogPollerModeShadow))
 
 		// The name is hashed and upserted, so changing it strands the deployed filter row.
 		require.Equal(t, "ccv-source-reader-ccip-message-sent - 1337", got.Name)
@@ -61,6 +62,7 @@ func TestSourceReaderAttachLogPoller(t *testing.T) {
 		require.Zero(t, got.Retention)
 		require.Zero(t, got.MaxLogsKept)
 		require.Equal(t, lp, reader.logPoller)
+		require.Equal(t, evmconfig.LogPollerMode(evmconfig.LogPollerModeShadow), reader.logPollerMode)
 	})
 
 	t.Run("leaves the reader on RPC when registration fails", func(t *testing.T) {
@@ -70,13 +72,14 @@ func TestSourceReaderAttachLogPoller(t *testing.T) {
 		lp.On("RegisterFilter", mock.Anything, mock.Anything).Return(errors.New("no such index"))
 
 		reader := newLogPollerTestReader(t, heads.NullTracker)
-		require.ErrorContains(t, reader.AttachLogPoller(context.Background(), lp), "no such index")
+		require.ErrorContains(t, reader.AttachLogPoller(context.Background(), lp, evmconfig.LogPollerModeRead), "no such index")
 		require.Nil(t, reader.logPoller)
+		require.Empty(t, reader.logPollerMode)
 	})
 }
 
-// Replay is expensive and only useful when the poller is behind, so ReplayFrom has three exits
-// before it runs. Unexpected calls fail the mock, so a skipped replay needs no assertion.
+// ReplayFrom always backfills from the checkpoint, so the poller provably holds every log from
+// there on. Unexpected calls fail the mock, so a skipped replay needs no assertion.
 func TestSourceReaderReplayFrom(t *testing.T) {
 	t.Parallel()
 
@@ -93,29 +96,20 @@ func TestSourceReaderReplayFrom(t *testing.T) {
 			attach: false,
 		},
 		{
-			name:   "poller is already past the checkpoint",
+			// Its latest block says nothing about the blocks between the checkpoint and it: a poller
+			// that started before this replay began at latest finalized, not at the checkpoint.
+			name:   "replays even when the poller is past the checkpoint",
 			attach: true,
 			setupLP: func(lp *lpmocks.LogPoller) {
-				lp.On("LatestBlock", mock.Anything).Return(logpoller.Block{BlockNumber: 200}, nil)
-			},
-		},
-		{
-			name:   "nothing behind the head to backfill",
-			attach: true,
-			setupLP: func(lp *lpmocks.LogPoller) {
-				lp.On("LatestBlock", mock.Anything).Return(logpoller.Block{}, errors.New("no rows"))
-			},
-			head: 50,
-		},
-		{
-			// An empty poller table is the first enablement: it must replay, not skip.
-			name:   "first enablement replays from the checkpoint",
-			attach: true,
-			setupLP: func(lp *lpmocks.LogPoller) {
-				lp.On("LatestBlock", mock.Anything).Return(logpoller.Block{}, errors.New("no rows"))
 				lp.On("Replay", mock.Anything, int64(lastProcessed+1)).Return(nil)
 			},
 			head: 500,
+		},
+		{
+			name:    "nothing behind the head to backfill",
+			attach:  true,
+			setupLP: func(*lpmocks.LogPoller) {},
+			head:    50,
 		},
 	}
 

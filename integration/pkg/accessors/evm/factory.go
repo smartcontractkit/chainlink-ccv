@@ -369,7 +369,7 @@ func (a *accessor) SetDataSource(ctx context.Context, ds sqlutil.DataSource) err
 	if !ok {
 		return nil
 	}
-	if err := attacher.AttachLogPoller(ctx, lp); err != nil {
+	if err := attacher.AttachLogPoller(ctx, lp, mode); err != nil {
 		return fmt.Errorf("failed to attach the log poller for chain %d: %w", a.chainSelector, err)
 	}
 	return nil

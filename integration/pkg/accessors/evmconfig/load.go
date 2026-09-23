@@ -121,7 +121,12 @@ func (c Config) ToInfos() (chainaccess.Infos[Info], error) {
 			return nil, fmt.Errorf("chain selector %s: %w", selector, err)
 		}
 
-		if !chain.LogPollerMode.Valid() {
+		// An omitted key means off, so configs written before the key existed still load.
+		logPollerMode := chain.LogPollerMode
+		if logPollerMode == "" {
+			logPollerMode = DefaultLogPollerMode
+		}
+		if !logPollerMode.Valid() {
 			return nil, fmt.Errorf(
 				"chain selector %s: invalid log_poller_mode %q", selector, chain.LogPollerMode,
 			)
@@ -133,7 +138,7 @@ func (c Config) ToInfos() (chainaccess.Infos[Info], error) {
 			FinalityDepth:                    chain.FinalityDepth,
 			TXMBlockTime:                     chain.TXMBlockTime,
 			SourceReaderHeaderFetchBatchSize: chain.SourceReaderHeaderFetchBatchSize,
-			LogPollerMode:                    chain.LogPollerMode,
+			LogPollerMode:                    logPollerMode,
 		}
 	}
 	return infos, nil
