@@ -1,0 +1,307 @@
+package views
+
+import (
+	"fmt"
+	"time"
+
+	"github.com/smartcontractkit/chainlink-ccv/cli/jobqueue"
+)
+
+// DetailVM is the message-detail page model. UnreachableDetail non-empty means the
+// node's database was not available and no lookups ran; the per-section Detail fields
+// mark individual lookups that failed and are rendered as errors, never as empties.
+type DetailVM struct {
+	NodeName          string
+	MessageID         string
+	TraceURL          string
+	IndexerURL        string
+	UnreachableDetail string
+	ArchiveDetail     string
+	Failed            []ArchivedJobVM
+	EventsDetail      string
+	Events            []DropEventVM
+	RetainedSince     time.Time
+	Coverage          string
+	SourceChain       string
+	ChainDetail       string
+	Chains            []ChainStatusVM
+}
+
+// ArchivedJobVM is one failed archive row plus its reschedule affordance.
+type ArchivedJobVM struct {
+	Job              jobqueue.ArchivedJob
+	RescheduleTarget string
+	ButtonLabel      string
+}
+
+// DropEventVM is one durable drop/incident event (R4 evidence).
+type DropEventVM struct {
+	Kind          string
+	Stage         string
+	Reason        string
+	OwnerID       string
+	SourceChain   string
+	SourceBlock   string
+	TxHash        string
+	IncidentID    string
+	Observations  string
+	FirstObserved time.Time
+	LastObserved  time.Time
+	ExpiresAt     time.Time
+}
+
+// ChainStatusVM is the node's chain-status row for the message's source chain.
+type ChainStatusVM struct {
+	ChainSelector   string
+	VerifierID      string
+	FinalizedHeight string
+	Disabled        bool
+	UpdatedAt       time.Time
+}
+
+templ DetailPage(csrfToken string, vm DetailVM) {
+	@Layout("Message detail") {
+		<h1>Message <code class="mid">{ vm.MessageID }</code></h1>
+		<p>
+			Node: <code>{ vm.NodeName }</code>
+			if vm.TraceURL != "" {
+				| <a href={ templ.SafeURL(vm.TraceURL) }>Trace viewer</a>
+			}
+			if vm.IndexerURL != "" {
+				| <a href={ templ.SafeURL(vm.IndexerURL) }>Indexer</a>
+			}
+		</p>
+		if vm.UnreachableDetail != "" {
+			<div class="error">
+				Node unreachable: { vm.UnreachableDetail }. Nothing on this page was looked up — treat the
+				message's state on this node as unknown, not absent.
+			</div>
+		} else {
+			@detailVerdict(vm)
+			@detailArchive(csrfToken, vm)
+			@detailAttestation()
+			@detailEvidence(vm)
+			@detailChainStatus(vm)
+		}
+	}
+}
+
+// detailVerdict renders the overall state: archived failures, an observed pre-admission
+// drop, not found, or unknown because a lookup failed.
+templ detailVerdict(vm DetailVM) {
+	if len(vm.Failed) > 0 {
+		<div class="banner">
+			{ fmt.Sprint(len(vm.Failed)) } archived failed job(s) for this message on this node — reschedule below.
+		</div>
+	} else if len(vm.Events) > 0 {
+		<div class="banner">
+			No archived failed jobs, but the source reader observed drop/incident events for this message: it
+			was dropped before queue admission, so there is nothing to reschedule. Recovery means a bounded
+			source re-read from the <a href="/recovery">source recovery</a> page; per the runbook, drops before
+			admission need source recovery, not a queue reschedule.
+		</div>
+	} else if vm.ArchiveDetail == "" && vm.EventsDetail == "" {
+		<p><em>Message not found on this node: no archived failed jobs and no observed drop/incident events.</em></p>
+	} else {
+		<div class="banner">Some lookups failed, so the message's state on this node is unknown — see the errors below.</div>
+	}
+}
+
+templ detailArchive(csrfToken string, vm DetailVM) {
+	<h2>Failed archive rows</h2>
+	if vm.ArchiveDetail != "" {
+		<div class="error">Archive lookup failed: { vm.ArchiveDetail }. Treat the archive as unknown.</div>
+	} else if len(vm.Failed) == 0 {
+		<p><em>No archived failed jobs for this message on this node.</em></p>
+	} else {
+		<table>
+			<thead>
+				<tr>
+					<th>Queue</th>
+					<th>Owner</th>
+					<th>Job ID</th>
+					<th>Failure</th>
+					<th>Last error</th>
+					<th>Attempts</th>
+					<th>Created</th>
+					<th>Archived</th>
+					<th>Archive age</th>
+					<th>Archive expires</th>
+					<th>Retry deadline</th>
+					<th></th>
+				</tr>
+			</thead>
+			<tbody>
+				for _, job := range vm.Failed {
+					<tr>
+						<td>{ string(job.Job.Queue) }</td>
+						<td><code>{ job.Job.OwnerID }</code></td>
+						<td><code>{ job.Job.JobID }</code></td>
+						<td>{ job.Job.FailureCategory }</td>
+						<td>{ job.Job.LastError }</td>
+						<td>{ fmt.Sprint(job.Job.AttemptCount) }</td>
+						<td>{ formatT(job.Job.CreatedAt) }</td>
+						<td>{ formatTime(job.Job.ArchivedAt) }</td>
+						<td>{ archiveAge(job.Job.ArchivedAt) }</td>
+						<td>{ archiveExpiry(job.Job.ArchivedAt) }</td>
+						<td>{ formatT(job.Job.RetryDeadline) }</td>
+						<td>
+							<form method="post" action="/reschedule/preview" class="inline">
+								@CSRFField(csrfToken)
+								<input type="hidden" name="target" value={ job.RescheduleTarget }/>
+								<button type="submit">{ job.ButtonLabel }</button>
+							</form>
+						</td>
+					</tr>
+				}
+			</tbody>
+		</table>
+		<p>
+			<small>
+				Archive rows are retained for 30 days from archiving and swept roughly every 4 hours.
+				Rescheduling restores the saved payload to the active queue — neither action re-checks
+				source-chain finality.
+			</small>
+		</p>
+	}
+}
+
+// detailAttestation is a placeholder: the freshness check lives in the reschedule flow.
+templ detailAttestation() {
+	<h2>Attestation freshness</h2>
+	<p>
+		<small>
+			Not checked on this page — the aggregator/indexer attestation check runs at reschedule-preview
+			time, before any job is restored.
+		</small>
+	</p>
+}
+
+templ detailEvidence(vm DetailVM) {
+	<h2>Drop &amp; incident evidence</h2>
+	if vm.EventsDetail != "" {
+		<div class="error">Event lookup failed: { vm.EventsDetail }. Treat the event history as unknown.</div>
+	} else {
+		if len(vm.Events) == 0 {
+			<p><em>No drop or incident events observed for this message.</em></p>
+		} else {
+			<table>
+				<thead>
+					<tr>
+						<th>Kind</th>
+						<th>Stage</th>
+						<th>Reason</th>
+						<th>Owner</th>
+						<th>Source chain</th>
+						<th>Source block</th>
+						<th>Tx hash</th>
+						<th>Incident</th>
+						<th>First observed</th>
+						<th>Last observed</th>
+						<th>Observations</th>
+						<th>Evidence expires</th>
+					</tr>
+				</thead>
+				<tbody>
+					for _, e := range vm.Events {
+						<tr>
+							<td>{ e.Kind }</td>
+							<td>{ e.Stage }</td>
+							<td>{ e.Reason }</td>
+							<td><code>{ e.OwnerID }</code></td>
+							<td>{ e.SourceChain }</td>
+							<td>{ e.SourceBlock }</td>
+							<td>{ e.TxHash }</td>
+							<td>{ e.IncidentID }</td>
+							<td>{ formatT(e.FirstObserved) }</td>
+							<td>{ formatT(e.LastObserved) }</td>
+							<td>{ e.Observations }</td>
+							<td>{ formatT(e.ExpiresAt) }</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		}
+		<p>
+			<small>
+				Event history retained since { formatT(vm.RetainedSince) } (30-day retention). { vm.Coverage }
+				An empty result over an incomplete history is unknown, not "nothing happened".
+			</small>
+		</p>
+	}
+}
+
+templ detailChainStatus(vm DetailVM) {
+	<h2>Source chain status</h2>
+	if vm.ChainDetail != "" {
+		<div class="error">Chain status lookup failed: { vm.ChainDetail }.</div>
+	} else if vm.SourceChain == "" {
+		<p><em>Source chain unknown — no archive rows or observed events name it.</em></p>
+	} else if len(vm.Chains) == 0 {
+		<p><em>No chain-status rows for source chain { vm.SourceChain } on this node.</em></p>
+	} else {
+		<table>
+			<thead>
+				<tr>
+					<th>Source chain</th>
+					<th>Verifier</th>
+					<th>Finalized height</th>
+					<th>Reader state</th>
+					<th>Updated</th>
+				</tr>
+			</thead>
+			<tbody>
+				for _, row := range vm.Chains {
+					<tr>
+						<td>{ row.ChainSelector }</td>
+						<td><code>{ row.VerifierID }</code></td>
+						<td>{ row.FinalizedHeight }</td>
+						<td>
+							if row.Disabled {
+								<span class="state-unreachable">disabled</span>
+							} else {
+								enabled
+							}
+						</td>
+						<td>{ formatT(row.UpdatedAt) }</td>
+					</tr>
+				}
+			</tbody>
+		</table>
+		if anyChainDisabled(vm.Chains) {
+			<div class="banner">
+				The reader for this source chain is disabled: recovery requires the investigated reset-reader
+				action on the <a href="/recovery">source recovery</a> page — ordinary replay will not re-enable it.
+			</div>
+		}
+	}
+}
+
+func anyChainDisabled(rows []ChainStatusVM) bool {
+	for _, r := range rows {
+		if r.Disabled {
+			return true
+		}
+	}
+	return false
+}
+
+func formatT(t time.Time) string { return t.UTC().Format(time.RFC3339) }
+
+func archiveAge(archivedAt *time.Time) string {
+	if archivedAt == nil {
+		return "—"
+	}
+	d := time.Since(*archivedAt)
+	if d < 0 {
+		d = 0
+	}
+	switch {
+	case d >= 48*time.Hour:
+		return fmt.Sprintf("%dd", int(d.Hours())/24)
+	case d >= time.Hour:
+		return fmt.Sprintf("%dh", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	}
+}

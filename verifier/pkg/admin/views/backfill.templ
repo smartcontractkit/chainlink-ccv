@@ -1,0 +1,219 @@
+package views
+
+import "time"
+
+// BackfillNodeVM is one node eligible for indexer backfill (owns an indexer config).
+type BackfillNodeVM struct {
+	Name string
+}
+
+// BackfillSubmitResultVM is the outcome of one backfill submission.
+type BackfillSubmitResultVM struct {
+	NodeName    string
+	Error       string
+	JobID       string
+	RequestHash string
+	Target      string
+}
+
+// BackfillJobVM is one durable replay_jobs row as rendered.
+type BackfillJobVM struct {
+	ID, Type, Status string
+	Target           string
+	Progress         string
+	Force            bool
+	Stale            bool
+	Error            string
+	CreatedAt        time.Time
+	Heartbeat        time.Time
+}
+
+// BackfillJobsNodeVM is one node's job table (or its lookup failure).
+type BackfillJobsNodeVM struct {
+	NodeName string
+	Error    string
+	Jobs     []BackfillJobVM
+}
+
+// BackfillPage is the indexer-data backfill console, shown only for nodes with an
+// owned indexer configured. Two distinct forms: discovery by aggregator sequence
+// number, targeted repair by message IDs — never source block numbers.
+templ BackfillPage(csrfToken string, nodes []BackfillNodeVM) {
+	@Layout("Indexer backfill") {
+		<h1>Indexer-data backfill</h1>
+		<p>
+			This repairs the indexer's own view of aggregator/verifier data (missing or stale rows). It does
+			not re-admit or re-verify source-chain events — that is
+			<a href="/recovery">source recovery</a>.
+		</p>
+		if len(nodes) == 0 {
+			<div class="banner">
+				Indexer backfill is not available: no configured node has <code>indexer_config_path</code> set.
+				It is enabled only for an indexer this operator owns; the console never touches anyone else's
+				indexer.
+			</div>
+		} else {
+			<p>
+				<small>
+					Backfill targets aggregator sequence numbers (discovery) or message IDs (targeted repair).
+					These are not source block numbers. Jobs are durable in the indexer's
+					<code>replay_jobs</code> table and run in the background; a crashed job is resumed by
+					resubmitting the identical request (stale-job detection) or
+					<code>indexer-replay resume --id</code>.
+				</small>
+			</p>
+			<h2>Discovery backfill</h2>
+			<p>Re-run aggregator discovery from a sequence number onward, gathering verifier records for everything found.</p>
+			<form id="backfill-discovery-form">
+				@CSRFField(csrfToken)
+				<label>
+					Node
+					<select name="node">
+						for _, n := range nodes {
+							<option value={ n.Name }>{ n.Name }</option>
+						}
+					</select>
+				</label>
+				<label>
+					Aggregator sequence number (since, inclusive)
+					<input type="number" name="since" min="0" step="1"/>
+				</label>
+				@BackfillForceField()
+				<br/>
+				<button type="button" hx-post="/backfill/submit" hx-target="#backfill-result" hx-swap="innerHTML">
+					Start discovery backfill
+				</button>
+			</form>
+			<h2>Targeted repair</h2>
+			<p>Re-fetch verifier records for specific messages by ID (full 32-byte hex, space or comma separated). Does not re-run discovery.</p>
+			<form id="backfill-messages-form">
+				@CSRFField(csrfToken)
+				<label>
+					Node
+					<select name="node">
+						for _, n := range nodes {
+							<option value={ n.Name }>{ n.Name }</option>
+						}
+					</select>
+				</label>
+				<label>
+					Message IDs<br/>
+					<textarea name="message_ids" placeholder="0x… 0x…"></textarea>
+				</label>
+				@BackfillForceField()
+				<br/>
+				<button type="button" hx-post="/backfill/submit" hx-target="#backfill-result" hx-swap="innerHTML">
+					Start targeted repair
+				</button>
+			</form>
+			<div id="backfill-result"></div>
+			<h2>Replay jobs</h2>
+			<div id="backfill-jobs" hx-get="/backfill/jobs" hx-trigger="load" hx-target="#backfill-jobs" hx-swap="innerHTML"></div>
+		}
+	}
+}
+
+// BackfillForceField is the overwrite opt-in: always defaulted off, always labeled
+// with its consequence. Maps to the replay engine's force flag.
+templ BackfillForceField() {
+	<p>
+		<label><input type="checkbox" name="force" value="on"/> Force overwrite of existing records</label>
+		<br/>
+		<small class="state-unreachable">
+			Warning: force replaces rows the indexer already holds (ON CONFLICT DO UPDATE). Default is
+			backfill-only: existing rows are left untouched. Enable only when known-stale data must be replaced.
+		</small>
+	</p>
+}
+
+// BackfillSubmitError renders a rejected submission.
+templ BackfillSubmitError(detail string) {
+	<div class="error">{ detail }</div>
+}
+
+// BackfillSubmitResult renders one accepted (or per-node failed) submission.
+templ BackfillSubmitResult(vm BackfillSubmitResultVM) {
+	<h3>Submission result — <code>{ vm.NodeName }</code></h3>
+	if vm.Error != "" {
+		<div class="error">{ vm.Error }</div>
+	} else {
+		<p>
+			{ vm.Target } submitted.
+			if vm.JobID != "" {
+				Job <code class="mid">{ vm.JobID }</code> is running in the background.
+			} else {
+				The job row is not visible yet; watch the job list below.
+			}
+			Request hash <code class="mid">{ vm.RequestHash }</code> identifies this exact request for
+			stale-job resume.
+		</p>
+	}
+}
+
+// BackfillJobs is the job-list fragment; it self-polls every 5s while jobs run.
+templ BackfillJobs(nodes []BackfillJobsNodeVM, inFlight bool) {
+	<div
+		if inFlight {
+			hx-get="/backfill/jobs"
+			hx-trigger="every 5s"
+			hx-target="#backfill-jobs"
+			hx-swap="innerHTML"
+		}
+	>
+		for _, n := range nodes {
+			<h3><code>{ n.NodeName }</code></h3>
+			if n.Error != "" {
+				<div class="error">Job list unavailable: { n.Error }. Treat this indexer's replay state as unknown.</div>
+			} else if len(n.Jobs) == 0 {
+				<p><em>No replay jobs recorded.</em></p>
+			} else {
+				<table>
+					<thead>
+						<tr>
+							<th>Job</th>
+							<th>Type</th>
+							<th>Status</th>
+							<th>Force</th>
+							<th>Target</th>
+							<th>Progress</th>
+							<th>Heartbeat (UTC)</th>
+							<th>Created (UTC)</th>
+						</tr>
+					</thead>
+					<tbody>
+						for _, j := range n.Jobs {
+							<tr>
+								<td>
+									<code class="mid">{ j.ID }</code>
+									if j.Error != "" {
+										<br/>
+										<small class="state-unreachable">{ j.Error }</small>
+									}
+								</td>
+								<td>{ j.Type }</td>
+								<td>{ j.Status }</td>
+								<td>
+									if j.Force {
+										<strong>force</strong>
+									} else {
+										backfill-only
+									}
+								</td>
+								<td><small>{ j.Target }</small></td>
+								<td>{ j.Progress }</td>
+								<td>
+									<small>{ j.Heartbeat.UTC().Format(time.RFC3339) }</small>
+									if j.Stale {
+										<br/>
+										<small class="state-unreachable">stale — resumed by an identical resubmission or indexer-replay resume</small>
+									}
+								</td>
+								<td><small>{ j.CreatedAt.UTC().Format(time.RFC3339) }</small></td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			}
+		}
+	</div>
+}

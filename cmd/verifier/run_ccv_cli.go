@@ -10,6 +10,7 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
+	"github.com/smartcontractkit/chainlink-ccv/cli/admin"
 	"github.com/smartcontractkit/chainlink-ccv/cli/chainstatuses"
 	"github.com/smartcontractkit/chainlink-ccv/cli/jobqueue"
 	"github.com/smartcontractkit/chainlink-ccv/cli/migrate"
@@ -114,6 +115,7 @@ func RunCCVCLI(args []string, secretsEnvVar, defaultSecretsPath string) {
 			Usage: "CCV-related commands",
 			Subcommands: []cli.Command{
 				{Name: "recovery", Usage: "Live source-range recovery and durable admission evidence", Subcommands: recoverycli.InitCommandsWithFactory(getRecoveryStore)},
+				admin.Command(lggr),
 				{
 					Name:        "chain-statuses",
 					Usage:       "List, enable, disable, or set finalized block height for chain statuses",

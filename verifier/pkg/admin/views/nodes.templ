@@ -1,0 +1,69 @@
+package views
+
+// NodeRow is the rendered view of one configured node's probe state. State is
+// "ready" or "unreachable"; Detail carries the operator-facing error text.
+type NodeRow struct {
+	Name    string
+	Ready   bool
+	Detail  string
+	HasAgg  bool
+	HasIdx  bool
+	HasBack bool
+}
+
+// NodesPage is the console home: which infrastructure this console controls, and
+// whether each member is reachable. Verify this list before acting.
+templ NodesPage(rows []NodeRow, listenAddress string, readOnly bool) {
+	@Layout("Nodes") {
+		<h1>Configured nodes</h1>
+		<p>This console administers the following verifier databases. Verify the list before acting.</p>
+		if readOnly {
+			<div class="banner">
+				Read-only mode: the console database is not configured, so mutations are disabled and no
+				action log is kept. Set <code>[db].url</code> in the console secrets file to enable actions.
+			</div>
+		}
+		<table>
+			<thead>
+				<tr>
+					<th>Node</th>
+					<th>State</th>
+					<th>Capabilities</th>
+				</tr>
+			</thead>
+			<tbody>
+				for _, row := range rows {
+					<tr>
+						<td><code>{ row.Name }</code></td>
+						<td>
+							if row.Ready {
+								<span class="state-ready">ready</span>
+							} else {
+								<span class="state-unreachable">unreachable</span>
+								if row.Detail != "" {
+									<br/><small>{ row.Detail }</small>
+								}
+							}
+						</td>
+						<td>{ capabilityList(row) }</td>
+					</tr>
+				}
+			</tbody>
+		</table>
+		<p><small>Serving on { listenAddress }. The console talks directly to each node's database; credentials never leave this process.</small></p>
+	}
+}
+
+func capabilityList(row NodeRow) string {
+	caps := "job queues, chain statuses, source recovery"
+	if row.HasAgg {
+		caps += ", aggregator reads"
+	}
+	if row.HasIdx {
+		caps += ", indexer reads"
+	}
+	if row.HasBack {
+		caps += ", indexer backfill"
+	}
+	return caps
+}

@@ -1,0 +1,50 @@
+package views
+
+import "time"
+
+// ActionVM is one action-log row as rendered. Kept free of the admin package's types
+// so views never imports its caller.
+type ActionVM struct {
+	Actor, Action, NodeName, Target, OperationID, Outcome, Detail string
+	CreatedAt                                                     time.Time
+}
+
+// ActionsPage lists the console's mutation history, newest first.
+templ ActionsPage(actions []ActionVM) {
+	@Layout("Action log") {
+		<h1>Action log</h1>
+		<p>Every console mutation: actor, time, target, operation, and outcome.</p>
+		if len(actions) == 0 {
+			<p><em>No actions recorded.</em></p>
+		} else {
+			<table>
+				<thead>
+					<tr>
+						<th>Time (UTC)</th>
+						<th>Actor</th>
+						<th>Action</th>
+						<th>Node</th>
+						<th>Target</th>
+						<th>Operation</th>
+						<th>Outcome</th>
+						<th>Detail</th>
+					</tr>
+				</thead>
+				<tbody>
+					for _, a := range actions {
+						<tr>
+							<td>{ a.CreatedAt.UTC().Format(time.RFC3339) }</td>
+							<td>{ a.Actor }</td>
+							<td>{ a.Action }</td>
+							<td>{ a.NodeName }</td>
+							<td><code class="mid">{ a.Target }</code></td>
+							<td><code class="mid">{ a.OperationID }</code></td>
+							<td>{ a.Outcome }</td>
+							<td><small>{ a.Detail }</small></td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		}
+	}
+}
