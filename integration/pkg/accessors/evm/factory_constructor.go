@@ -3,6 +3,7 @@ package evm
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
@@ -11,14 +12,16 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-// Importing this package registers the EVM accessor factory with chainaccess, so a process that
-// does not run EVM chains must not import it: chainaccess.NewRegistry constructs every registered
-// factory eagerly and CreateEVMAccessorFactory fails when no EVM config is mounted. Tooling that
-// only needs to read or convert EVM config imports
+// Importing this package registers the EVM accessor factory — and the EVM declared-chain coverage
+// checker (see coverage.go) — with chainaccess, so a process that does not run EVM chains must not
+// import it: chainaccess.NewRegistry constructs every registered factory eagerly and
+// CreateEVMAccessorFactory fails when no EVM config is mounted. Tooling that only needs to read or
+// convert EVM config imports
 // github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig instead, which
 // registers nothing.
 func init() {
 	chainaccess.Register(chainsel.FamilyEVM, CreateEVMAccessorFactory)
+	chainaccess.RegisterDeclaredChainCoverageChecker(chainsel.FamilyEVM, checkDeclaredChainCoverage)
 }
 
 var _ chainaccess.AccessorFactoryConstructor = CreateEVMAccessorFactory
@@ -53,10 +56,15 @@ func CreateEVMAccessorFactory(lggr logger.Logger, genericConfig chainaccess.Gene
 		return nil, fmt.Errorf("failed to load EVM config: %w", err)
 	}
 	// Present only when a Chainlink node config was converted. Logged at warn so an operator who
-	// mounted their node's file sees what standalone CCV could not carry over.
+	// mounted their node's file sees what standalone CCV could not carry over — including the
+	// top-level sections the conversion does not read at all.
 	if conversion != nil {
 		for _, warning := range conversion.Warnings {
 			lggr.Warnw("converted Chainlink node EVM config", "detail", warning)
+		}
+		if len(conversion.IgnoredSections) > 0 {
+			lggr.Warnw("converted Chainlink node EVM config", "detail",
+				"ignoring top-level sections with no standalone equivalent: "+strings.Join(conversion.IgnoredSections, ", "))
 		}
 	}
 	infos, err := evmCfg.ToInfos()
