@@ -26,10 +26,10 @@ execute the staging plan's step with the substitutions in "Conventions".
    Cutovers need a posted schedule, a quiet window per node, and a real lane for the
    confirmation message in step 11. Staging's "pick a quiet moment" becomes "announce it,
    then pick a quiet moment."
-2. **60 EVM chains, not 5.** The pre-cutover config diff runs per chain. The curated
-   per-chain TXM block-time table covers known slow chains; every chain
-   reporting `generic_fallback` in the diff gets an explicit value or a recorded
-   acceptance. This is the scale test for the config tooling.
+2. **59 EVM chains, not 5.** The pre-cutover config diff runs per chain. There is no
+   curated block-time table: every chain flagged `txm_block_time_is_default: true` in
+   the diff gets an explicit value in the EVM TOML or a recorded acceptance. This is
+   the scale test for the config tooling.
 3. **Balance alerting is mandatory.** Staging skipped it with manual soak checks. Here
    the external alert on each new executor transmitter address, per chain, goes up before
    that node's jobs start. This is the rehearsal for the prod-mainnet alerting
@@ -121,8 +121,9 @@ EVM-serving nodes (open question 1).
 ### P2. Images
 
 Run the release-tagged image (`vX.Y.Z` from `release-publish.yaml`), not a `-rc` SHA.
-The tag must include the curated per-chain TXM block-time table — it is load-bearing at
-this chain count. Confirm the tag matches what the prod-mainnet operator image will be.
+The tag must include the migration tooling and the block-time fallback warning; the
+per-chain values themselves are set in the P3 EVM TOML and reviewed in P5. Confirm the
+tag matches what the prod-mainnet operator image will be.
 
 ### P3. Charts and config dirs
 
@@ -149,13 +150,14 @@ two-way isolation: the rollback path never depends on it. Sizing: the DON cluste
 `db.t4g.medium`. Start at the Canton shape, revisit after the first soak with real
 traffic. Map keys ≤ 43 chars; set `connectionSecret.name` explicitly.
 
-### P5. Per-chain config review at 60-chain scale
+### P5. Per-chain config review at 59-chain scale
 
 For each of the 59 EVM chains: run `ccv migrate inspect-config` against the node EVM
 TOML (the `chainlink-ccv-testnet` values carry 61 `[[EVM]]` entries; the committee
 serves 59 — reconcile the difference during the first node's diff) and record
-accept-or-correct for every warning, every `failed_chains` entry, and every chain whose
-`txm_block_time_source` is `generic_fallback`. This is one recorded review, reused
+accept-or-correct for every warning and every chain flagged
+`txm_block_time_is_default: true`. A chain that fails to convert fails the whole
+report, so it is a fix, not a review item. This is one recorded review, reused
 across nodes, re-run when the config changes.
 
 ### P6. Secrets per node

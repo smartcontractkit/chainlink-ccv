@@ -39,15 +39,21 @@ operators. This document adapts it for staging, where one team does both halves.
 - The cutover mechanism itself is tested end to end by `TestE2EMigration_CLToStandalone`
   (`chainlink-ccv/build/devenv/tests/e2e/smoke_migration_test.go`).
 - Migration tooling (`ccv migrate`): key export with an expected-address check, the
-  pre-cutover settings diff, curated per-chain TXM block-time defaults, and a boot-time
-  check that fails startup when a declared chain is missing from the mounted config.
+  pre-cutover settings diff, and a per-chain warning when the generic TXM block-time
+  fallback fires.
   - `ccv migrate export --expected-id <addr>` fails the export if the exported key doesn't match
     the JD-registered signing address. This catches a wrong-bundle export while the node is
     still up.
   - `ccv migrate inspect-config --config <node.toml>` prints the effective per-chain settings the
-    standalone processes will run (finality, TXM block time and its source, node set) plus
-    every node setting the conversion drops. This is the pre-cutover settings diff.
-  - The TXM block-time fallback warns per chain at startup instead of applying silently.
+    standalone processes will run (finality, TXM block time, flagged when the 2s fallback
+    fired, node set) plus every node setting the conversion drops. This is the pre-cutover
+    settings diff.
+  - The TXM block-time fallback is a single generic 2s value, not a curated per-chain table;
+    it warns at startup on every chain that runs a TXM, and P5 sets real values per chain.
+  - Startup does not fail on a per-chain config problem: a chain whose reader fails to resolve
+    is logged and skipped, and the process refuses to start only when no chain is usable
+    (`cmd/verifier/servicefactory.go`). The step 2 diff is the guard against a silently
+    missing chain.
 
 ## Hard rules (from the runbook)
 
