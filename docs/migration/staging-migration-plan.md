@@ -38,16 +38,16 @@ operators. This document adapts it for staging, where one team does both halves.
   (A1-A4, B1-B7, C1-C5, D1-D6).
 - The cutover mechanism itself is tested end to end by `TestE2EMigration_CLToStandalone`
   (`chainlink-ccv/build/devenv/tests/e2e/smoke_migration_test.go`).
-- Migration tooling landed 20 Aug 2026. Note: this batch currently lives on the `tt/stagingPrep`
-  branch of chainlink-ccv, not on main. It has to merge before P2, since the images we deploy are
-  the ones CI publishes from main.
+- Migration tooling (`ccv migrate`): key export with an expected-address check, the
+  pre-cutover settings diff, curated per-chain TXM block-time defaults, and a boot-time
+  check that fails startup when a declared chain is missing from the mounted config.
   - `ccv migrate export --expected-id <addr>` fails the export if the exported key doesn't match
     the JD-registered signing address. This catches a wrong-bundle export while the node is
     still up.
   - `ccv migrate inspect-config --config <node.toml>` prints the effective per-chain settings the
-    standalone processes will run (finality, TXM block time with the 2s fallback flagged, node
-    set) plus every node setting the conversion drops. This is the pre-cutover settings diff.
-  - The 2s TXM block-time fallback now warns per chain at startup instead of applying silently.
+    standalone processes will run (finality, TXM block time and its source, node set) plus
+    every node setting the conversion drops. This is the pre-cutover settings diff.
+  - The TXM block-time fallback warns per chain at startup instead of applying silently.
 
 ## Hard rules (from the runbook)
 
@@ -219,8 +219,8 @@ publishes `containers/chainlink-ccv-verifier:<sha>-rc` and
 secondary private ECRs. The staging aggregator and indexer values already pin images this way
 (`deploy/config/staging/aggregator/common.yaml`:
 `809128755817.dkr.ecr.us-west-2.amazonaws.com/containers/chainlink-ccv-aggregator:<sha>-rc`).
-So: merge `tt/stagingPrep`, take the merge commit's SHA, and pin `image.tag: <sha>-rc` in the P3
-values.
+So: take a recent main SHA that includes the migration tooling and pin
+`image.tag: <sha>-rc` in the P3 values.
 
 A release tag is the alternative. release-please cuts the root `vX.Y.Z` tag
 (`.release-please-manifest.json` is at 0.4.0, so the next is v0.5.0) and `release-publish.yaml`
