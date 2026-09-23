@@ -270,6 +270,7 @@ func (r *Service) eventMonitoringLoop() {
 				} else {
 					r.metrics().SetSourceReaderState(ctx, monitoring.SourceReaderStatePollError)
 				}
+				r.recordLogPollerGap(ctx)
 				r.sendReadyMessages(ctx, latest, safe, finalized)
 			}()
 		}
@@ -1092,17 +1093,43 @@ func (r *Service) recordPendingMetricsLocked(ctx context.Context) {
 	}
 }
 
-// logPollerReplayer is implemented by source readers backed by a LogPoller, which must backfill
-// from the last processed block before their first read. Checked structurally so this package
-// does not depend on chainlink-evm's logpoller.
-type logPollerReplayer interface {
+// logPollerSource is implemented by source readers backed by a LogPoller. Checked structurally
+// so this package does not depend on chainlink-evm's logpoller.
+type logPollerSource interface {
+	// ReplayFrom backfills from the last processed block, before the reader's first read.
 	ReplayFrom(ctx context.Context, lastProcessedBlock *big.Int) error
+	// LatestIngestedBlock reports the poller's cursor. ok is false when there is nothing to report.
+	LatestIngestedBlock(ctx context.Context) (block int64, ok bool, err error)
+}
+
+// recordLogPollerGap publishes how far the poller trails the checkpoint, positive when behind.
+// It uses the in-memory checkpoint, so chainstatus.Batcher's coalescing does not skew the gauge.
+func (r *Service) recordLogPollerGap(ctx context.Context) {
+	source, ok := r.sourceReader.(logPollerSource)
+	if !ok {
+		return
+	}
+
+	ingested, ok, err := source.LatestIngestedBlock(ctx)
+	if err != nil {
+		r.logger.Warnw("Failed to read the log poller's latest block", "error", err)
+		return
+	}
+	if !ok {
+		return
+	}
+
+	checkpoint := r.lastProcessedFinalizedBlock.Load()
+	if checkpoint == nil {
+		return
+	}
+	r.metrics().SetSourceReaderLogPollerGapBlocks(ctx, checkpoint.Int64()-ingested)
 }
 
 // replayLogPoller backfills a poller-backed reader. Readers that do not use a LogPoller, and
 // chains with the poller gated off, are no-ops.
 func (r *Service) replayLogPoller(ctx context.Context) error {
-	replayer, ok := r.sourceReader.(logPollerReplayer)
+	replayer, ok := r.sourceReader.(logPollerSource)
 	if !ok {
 		return nil
 	}

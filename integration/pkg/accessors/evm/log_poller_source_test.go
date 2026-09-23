@@ -2,6 +2,7 @@ package evm
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"math/big"
 	"testing"
@@ -140,4 +141,50 @@ func TestSourceReaderReplayFrom(t *testing.T) {
 			require.NoError(t, reader.ReplayFrom(context.Background(), big.NewInt(lastProcessed)))
 		})
 	}
+}
+
+func TestSourceReaderLatestIngestedBlock(t *testing.T) {
+	t.Parallel()
+
+	t.Run("reports the poller cursor", func(t *testing.T) {
+		t.Parallel()
+
+		lp := lpmocks.NewLogPoller(t)
+		lp.On("LatestBlock", mock.Anything).Return(logpoller.Block{BlockNumber: 150}, nil)
+
+		reader := newLogPollerTestReader(t, heads.NullTracker)
+		reader.logPoller = lp
+
+		block, ok, err := reader.LatestIngestedBlock(context.Background())
+		require.NoError(t, err)
+		require.True(t, ok)
+		require.EqualValues(t, 150, block)
+	})
+
+	// Neither an absent poller nor an empty block table is a failure: both mean "nothing to
+	// report", so the gauge is skipped rather than recording a misleading zero.
+	t.Run("not ok without a cursor", func(t *testing.T) {
+		t.Parallel()
+
+		t.Run("no poller", func(t *testing.T) {
+			t.Parallel()
+			reader := newLogPollerTestReader(t, heads.NullTracker)
+			_, ok, err := reader.LatestIngestedBlock(context.Background())
+			require.NoError(t, err)
+			require.False(t, ok)
+		})
+
+		t.Run("poller has ingested nothing", func(t *testing.T) {
+			t.Parallel()
+			lp := lpmocks.NewLogPoller(t)
+			lp.On("LatestBlock", mock.Anything).Return(logpoller.Block{}, sql.ErrNoRows)
+
+			reader := newLogPollerTestReader(t, heads.NullTracker)
+			reader.logPoller = lp
+
+			_, ok, err := reader.LatestIngestedBlock(context.Background())
+			require.NoError(t, err)
+			require.False(t, ok)
+		})
+	})
 }

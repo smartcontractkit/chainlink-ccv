@@ -146,6 +146,7 @@ type VerifierMetrics struct {
 	sourceReaderLastSuccessfulPollTimestamp metric.Float64Gauge
 	sourceReaderLastProcessedFinalizedBlock metric.Int64Gauge
 	sourceReaderState                       metric.Int64Gauge
+	sourceReaderLogPollerGapBlocks          metric.Int64Gauge
 
 	// HTTP API Metrics
 	httpActiveRequestsUpDownCounter metric.Int64UpDownCounter
@@ -416,6 +417,10 @@ func InitMetrics() (*VerifierMetrics, error) {
 	vm.sourceReaderState, err = beholder.GetMeter().Int64Gauge("verifier_source_reader_state", metric.WithDescription("One-hot source reader state"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to register source reader state gauge: %w", err)
+	}
+	vm.sourceReaderLogPollerGapBlocks, err = beholder.GetMeter().Int64Gauge("verifier_source_reader_log_poller_gap_blocks", metric.WithDescription("Blocks by which the LogPoller trails the source reader's checkpoint; positive means the poller is behind"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to register source reader log poller gap gauge: %w", err)
 	}
 
 	vm.taskVerificationPermanentErrors, err = beholder.GetMeter().Int64Counter(
@@ -784,6 +789,10 @@ func (v *VerifierMetricLabeler) SetSourceReaderLastSuccessfulPollTimestamp(ctx c
 
 func (v *VerifierMetricLabeler) SetSourceReaderLastProcessedFinalizedBlock(ctx context.Context, blockNum int64) {
 	v.vm.sourceReaderLastProcessedFinalizedBlock.Record(ctx, blockNum, metric.WithAttributes(beholder.OtelAttributes(v.Labels).AsStringAttributes()...))
+}
+
+func (v *VerifierMetricLabeler) SetSourceReaderLogPollerGapBlocks(ctx context.Context, gap int64) {
+	v.vm.sourceReaderLogPollerGapBlocks.Record(ctx, gap, metric.WithAttributes(beholder.OtelAttributes(v.Labels).AsStringAttributes()...))
 }
 
 // ClassifyError maps known operational failures to a bounded Prometheus label value.

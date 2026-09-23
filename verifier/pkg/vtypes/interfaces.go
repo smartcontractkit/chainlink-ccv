@@ -166,6 +166,8 @@ type MetricLabeler interface {
 	SetSourceReaderLastSuccessfulPollTimestamp(ctx context.Context, timestamp int64)
 	// SetSourceReaderLastProcessedFinalizedBlock records the last finalized block processed by the source reader.
 	SetSourceReaderLastProcessedFinalizedBlock(ctx context.Context, blockNum int64)
+	// SetSourceReaderLogPollerGapBlocks records how far the LogPoller trails the checkpoint.
+	SetSourceReaderLogPollerGapBlocks(ctx context.Context, gap int64)
 
 	// HTTP API metrics
 

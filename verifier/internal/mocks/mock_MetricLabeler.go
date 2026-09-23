@@ -1429,6 +1429,40 @@ func (_c *MockMetricLabeler_SetSourceReaderLastSuccessfulPollTimestamp_Call) Run
 	return _c
 }
 
+// SetSourceReaderLogPollerGapBlocks provides a mock function with given fields: ctx, gap
+func (_m *MockMetricLabeler) SetSourceReaderLogPollerGapBlocks(ctx context.Context, gap int64) {
+	_m.Called(ctx, gap)
+}
+
+// MockMetricLabeler_SetSourceReaderLogPollerGapBlocks_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetSourceReaderLogPollerGapBlocks'
+type MockMetricLabeler_SetSourceReaderLogPollerGapBlocks_Call struct {
+	*mock.Call
+}
+
+// SetSourceReaderLogPollerGapBlocks is a helper method to define mock.On call
+//   - ctx context.Context
+//   - gap int64
+func (_e *MockMetricLabeler_Expecter) SetSourceReaderLogPollerGapBlocks(ctx interface{}, gap interface{}) *MockMetricLabeler_SetSourceReaderLogPollerGapBlocks_Call {
+	return &MockMetricLabeler_SetSourceReaderLogPollerGapBlocks_Call{Call: _e.mock.On("SetSourceReaderLogPollerGapBlocks", ctx, gap)}
+}
+
+func (_c *MockMetricLabeler_SetSourceReaderLogPollerGapBlocks_Call) Run(run func(ctx context.Context, gap int64)) *MockMetricLabeler_SetSourceReaderLogPollerGapBlocks_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(int64))
+	})
+	return _c
+}
+
+func (_c *MockMetricLabeler_SetSourceReaderLogPollerGapBlocks_Call) Return() *MockMetricLabeler_SetSourceReaderLogPollerGapBlocks_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockMetricLabeler_SetSourceReaderLogPollerGapBlocks_Call) RunAndReturn(run func(context.Context, int64)) *MockMetricLabeler_SetSourceReaderLogPollerGapBlocks_Call {
+	_c.Run(run)
+	return _c
+}
+
 // SetSourceReaderState provides a mock function with given fields: ctx, state
 func (_m *MockMetricLabeler) SetSourceReaderState(ctx context.Context, state string) {
 	_m.Called(ctx, state)

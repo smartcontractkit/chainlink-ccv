@@ -2,6 +2,7 @@ package evm
 
 import (
 	"context"
+	"database/sql"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -453,6 +454,23 @@ func (r *SourceReader) AttachLogPoller(ctx context.Context, lp logpoller.LogPoll
 
 	r.logPoller = lp
 	return nil
+}
+
+// LatestIngestedBlock reports how far the LogPoller has ingested. ok is false when the chain has
+// no poller, and when the poller has not ingested anything yet, which is not a failure.
+func (r *SourceReader) LatestIngestedBlock(ctx context.Context) (block int64, ok bool, err error) {
+	if r.logPoller == nil {
+		return 0, false, nil
+	}
+
+	latest, err := r.logPoller.LatestBlock(ctx)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, fmt.Errorf("failed to read the log poller's latest block: %w", err)
+	}
+	return latest.BlockNumber, true, nil
 }
 
 // ReplayFrom backfills the poller from the block after lastProcessedBlock, synchronously.

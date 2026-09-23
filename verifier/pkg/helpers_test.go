@@ -142,6 +142,7 @@ func (m *noopMetricLabeler) RecordReorgTrackedSeqNums(ctx context.Context, count
 func (m *noopMetricLabeler) SetSourceReaderState(context.Context, string)                        {}
 func (m *noopMetricLabeler) SetSourceReaderLastSuccessfulPollTimestamp(context.Context, int64)   {}
 func (m *noopMetricLabeler) SetSourceReaderLastProcessedFinalizedBlock(context.Context, int64)   {}
+func (m *noopMetricLabeler) SetSourceReaderLogPollerGapBlocks(context.Context, int64)            {}
 
 func (m *noopMetricLabeler) SetVerifierFinalityViolated(ctx context.Context, selector protocol.ChainSelector, violated bool) {
 }
