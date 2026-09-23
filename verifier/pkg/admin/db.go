@@ -1,9 +1,10 @@
 package admin
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
-	"sync"
+	"io/fs"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -17,7 +18,24 @@ import (
 
 const gooseTableName = "ccv_admin_goose_db_version"
 
-var migrationMutex sync.Mutex
+// runAdminMigrations applies the console's schema. It uses a goose Provider rather
+// than the package-level goose API: the global SetTableName/SetBaseFS state is shared
+// process-wide and would otherwise make the verifier migrations run against the
+// console's version table (or vice versa) whenever both open in one process.
+func runAdminMigrations(sqlxDB *sqlx.DB) error {
+	fsys, err := fs.Sub(migrations.PostgresMigrations, "postgres")
+	if err != nil {
+		return fmt.Errorf("failed to resolve admin migrations fs: %w", err)
+	}
+	provider, err := goose.NewProvider(goose.DialectPostgres, sqlxDB.DB, fsys, goose.WithTableName(gooseTableName))
+	if err != nil {
+		return fmt.Errorf("failed to create admin migration provider: %w", err)
+	}
+	if _, err := provider.Up(context.Background()); err != nil {
+		return fmt.Errorf("failed to run admin migrations: %w", err)
+	}
+	return nil
+}
 
 // openPostgres opens a pooled postgres connection and runs the given migrations. Shared
 // by node databases (verifier migrations, matching the CLI) and the console database
@@ -74,19 +92,4 @@ func openConsoleDB(lggr logger.Logger, secretsPath string) (*sqlx.DB, error) {
 		return nil, nil
 	}
 	return openPostgres(lggr, url, runAdminMigrations)
-}
-
-func runAdminMigrations(sqlxDB *sqlx.DB) error {
-	migrationMutex.Lock()
-	defer migrationMutex.Unlock()
-
-	goose.SetBaseFS(migrations.PostgresMigrations)
-	if err := goose.SetDialect("postgres"); err != nil {
-		return fmt.Errorf("failed to set goose dialect: %w", err)
-	}
-	goose.SetTableName(gooseTableName)
-	if err := goose.Up(sqlxDB.DB, "postgres"); err != nil {
-		return fmt.Errorf("failed to run admin migrations: %w", err)
-	}
-	return nil
 }

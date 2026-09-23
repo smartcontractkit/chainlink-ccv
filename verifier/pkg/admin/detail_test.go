@@ -86,8 +86,6 @@ func detailTestMessageID(t *testing.T) []byte {
 	return id
 }
 
-func detailStrPtr(s string) *string { return &s }
-
 // serveDetail renders the page through renderDetail with fake stores; the node's own
 // (lazy) connection is never touched.
 func serveDetail(t *testing.T, src detailSources, msgID []byte) *httptest.ResponseRecorder {
@@ -113,7 +111,7 @@ func TestDetailPreAdmissionDrop(t *testing.T) {
 		rec: &fakeRecoveryStore{page: recoverystore.EventPage{
 			Events: []recoverystore.Event{{
 				OwnerID: "verifier-1a", SourceChain: "1", Kind: "drop", Stage: "pre_admission",
-				Reason: "remote_chain_cursed", SourceBlock: detailStrPtr("12345"), TxHash: detailStrPtr("0xdeadbeef"),
+				Reason: "remote_chain_cursed", SourceBlock: new("12345"), TxHash: new("0xdeadbeef"),
 				FirstObservedAt: since, LastObservedAt: since.Add(time.Hour),
 				Observations: "2", ExpiresAt: since.Add(30 * 24 * time.Hour),
 			}},

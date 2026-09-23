@@ -3,121 +3,115 @@ package admin
 import (
 	"context"
 	"errors"
-	"io"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	rpcstatus "google.golang.org/genproto/googleapis/rpc/status"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/test/bufconn"
 
-	verifierpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1"
+	"github.com/smartcontractkit/chainlink-ccv/integration/storageaccess"
 )
 
-// fakeVerifierServer answers per-ID lookups: results carry ccv_data, perErr forces a
-// per-ID error entry, everything else defaults to NotFound — mirroring the aggregator's
-// 1:1 results/errors correspondence.
-type fakeVerifierServer struct {
-	verifierpb.UnimplementedVerifierServer
-	results map[string][]byte // string(messageID) → ccv_data
-	perErr  map[string]*rpcstatus.Status
+// fakeResultsClient serves canned per-index entries: the protobuf translation is
+// tested in storageaccess; these tests cover the console's interpretation.
+type fakeResultsClient struct {
+	entries []storageaccess.ResultEntry
 	callErr error
-	empty   bool // return a response with no entries at all
 }
 
-func (f *fakeVerifierServer) GetVerifierResultsForMessage(_ context.Context, req *verifierpb.GetVerifierResultsForMessageRequest) (*verifierpb.GetVerifierResultsForMessageResponse, error) {
+func (f *fakeResultsClient) GetVerifierResultsForMessage(_ context.Context, _ [][]byte) ([]storageaccess.ResultEntry, error) {
 	if f.callErr != nil {
 		return nil, f.callErr
 	}
-	if f.empty {
-		return &verifierpb.GetVerifierResultsForMessageResponse{}, nil
-	}
-	resp := &verifierpb.GetVerifierResultsForMessageResponse{}
-	for _, id := range req.GetMessageIds() {
-		if st, ok := f.perErr[string(id)]; ok {
-			resp.Results = append(resp.Results, nil)
-			resp.Errors = append(resp.Errors, st)
-			continue
-		}
-		if ccvData, ok := f.results[string(id)]; ok {
-			resp.Results = append(resp.Results, &verifierpb.VerifierResult{CcvData: ccvData})
-			resp.Errors = append(resp.Errors, &rpcstatus.Status{Code: int32(codes.OK)})
-			continue
-		}
-		resp.Results = append(resp.Results, nil)
-		resp.Errors = append(resp.Errors, &rpcstatus.Status{Code: int32(codes.NotFound), Message: "message ID not found"})
-	}
-	return resp, nil
+	return f.entries, nil
 }
 
-// installFakeVerifier serves srv over bufconn and points the aggregator dial seam at it.
-func installFakeVerifier(t *testing.T, srv verifierpb.VerifierServer) {
-	t.Helper()
-	lis := bufconn.Listen(1024 * 1024)
-	grpcSrv := grpc.NewServer()
-	verifierpb.RegisterVerifierServer(grpcSrv, srv)
-	go func() { _ = grpcSrv.Serve(lis) }()
-	t.Cleanup(grpcSrv.Stop)
+func (f *fakeResultsClient) Close() error { return nil }
 
-	orig := dialVerifierClient
-	dialVerifierClient = func(string) (verifierpb.VerifierClient, io.Closer, error) {
-		conn, err := grpc.NewClient("passthrough:///bufnet",
-			grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) { return lis.DialContext(ctx) }),
-			grpc.WithTransportCredentials(insecure.NewCredentials()))
-		if err != nil {
-			return nil, nil, err
-		}
-		return verifierpb.NewVerifierClient(conn), conn, nil
+// notFoundClient answers "not found" for every requested ID, like an aggregator that
+// holds none of the messages.
+type notFoundClient struct{}
+
+func (notFoundClient) GetVerifierResultsForMessage(_ context.Context, messageIDs [][]byte) ([]storageaccess.ResultEntry, error) {
+	entries := make([]storageaccess.ResultEntry, len(messageIDs))
+	for i := range entries {
+		entries[i] = storageaccess.ResultEntry{Present: true, ErrorCode: int32(codes.NotFound), ErrorMsg: "message ID not found"}
 	}
+	return entries, nil
+}
+
+func (notFoundClient) Close() error { return nil }
+
+func notFoundResultsClient() notFoundClient { return notFoundClient{} }
+
+// installFakeResultsClient points the aggregator dial seam at a canned client.
+func installFakeResultsClient(t *testing.T, client storageaccess.ResultsClient) {
+	t.Helper()
+	orig := dialVerifierClient
+	dialVerifierClient = func(string) (storageaccess.ResultsClient, error) { return client, nil }
+	t.Cleanup(func() { dialVerifierClient = orig })
+}
+
+// installDialError points the aggregator dial seam at a failing dial.
+func installDialError(t *testing.T, err error) {
+	t.Helper()
+	orig := dialVerifierClient
+	dialVerifierClient = func(string) (storageaccess.ResultsClient, error) { return nil, err }
 	t.Cleanup(func() { dialVerifierClient = orig })
 }
 
 func TestAggregatorAttested(t *testing.T) {
-	id := rescheduleMsgID(1)
-	installFakeVerifier(t, &fakeVerifierServer{results: map[string][]byte{string(id): {0xde, 0xad}}})
+	installFakeResultsClient(t, &fakeResultsClient{entries: []storageaccess.ResultEntry{
+		{Present: true, CcvData: []byte{0xde, 0xad}},
+	}})
 
-	results := checkNodeAttestations(context.Background(), NodeConfig{Name: "n1", AggregatorAddress: "bufnet"}, [][]byte{id})
+	id := rescheduleMsgID(1)
+	results := checkNodeAttestations(context.Background(), NodeConfig{Name: "n1", AggregatorAddress: "agg:443"}, [][]byte{id})
 	require.Len(t, results, 1)
 	require.Equal(t, AttestationAttested, results[0].State)
 	require.Contains(t, results[0].Detail, "aggregator")
 }
 
 func TestAggregatorPerIDErrorMeansNotFound(t *testing.T) {
-	id := rescheduleMsgID(2)
-	installFakeVerifier(t, &fakeVerifierServer{
-		perErr: map[string]*rpcstatus.Status{string(id): {Code: int32(codes.NotFound), Message: "message ID not found"}},
-	})
+	installFakeResultsClient(t, &fakeResultsClient{entries: []storageaccess.ResultEntry{
+		{Present: true, ErrorCode: int32(codes.NotFound), ErrorMsg: "message ID not found"},
+	}})
 
-	results := checkNodeAttestations(context.Background(), NodeConfig{AggregatorAddress: "bufnet"}, [][]byte{id})
+	results := checkNodeAttestations(context.Background(), NodeConfig{AggregatorAddress: "agg:443"}, [][]byte{rescheduleMsgID(2)})
 	require.Equal(t, AttestationNotFound, results[0].State)
 	require.Contains(t, results[0].Detail, "message ID not found")
 }
 
 func TestAggregatorEmptyCcvDataMeansNotFound(t *testing.T) {
-	id := rescheduleMsgID(3)
-	installFakeVerifier(t, &fakeVerifierServer{results: map[string][]byte{string(id): {}}})
+	installFakeResultsClient(t, &fakeResultsClient{entries: []storageaccess.ResultEntry{
+		{Present: true, CcvData: []byte{}},
+	}})
 
-	results := checkNodeAttestations(context.Background(), NodeConfig{AggregatorAddress: "bufnet"}, [][]byte{id})
+	results := checkNodeAttestations(context.Background(), NodeConfig{AggregatorAddress: "agg:443"}, [][]byte{rescheduleMsgID(3)})
 	require.Equal(t, AttestationNotFound, results[0].State)
 }
 
 func TestAggregatorCallErrorIsUnknown(t *testing.T) {
-	installFakeVerifier(t, &fakeVerifierServer{callErr: errors.New("internal")})
+	installFakeResultsClient(t, &fakeResultsClient{callErr: context.DeadlineExceeded})
 
-	results := checkNodeAttestations(context.Background(), NodeConfig{AggregatorAddress: "bufnet"}, [][]byte{rescheduleMsgID(4)})
+	results := checkNodeAttestations(context.Background(), NodeConfig{AggregatorAddress: "agg:443"}, [][]byte{rescheduleMsgID(4)})
 	require.Equal(t, AttestationUnknown, results[0].State)
 	require.Contains(t, results[0].Detail, "aggregator unreachable")
 }
 
-func TestAggregatorMissingEntryIsUnknown(t *testing.T) {
-	installFakeVerifier(t, &fakeVerifierServer{empty: true})
+func TestAggregatorDialErrorIsUnknown(t *testing.T) {
+	installDialError(t, errors.New("connection refused"))
 
-	results := checkNodeAttestations(context.Background(), NodeConfig{AggregatorAddress: "bufnet"}, [][]byte{rescheduleMsgID(5)})
+	results := checkNodeAttestations(context.Background(), NodeConfig{AggregatorAddress: "agg:443"}, [][]byte{rescheduleMsgID(4)})
+	require.Equal(t, AttestationUnknown, results[0].State)
+	require.Equal(t, "connection refused", results[0].Detail)
+}
+
+func TestAggregatorMissingEntryIsUnknown(t *testing.T) {
+	installFakeResultsClient(t, &fakeResultsClient{entries: []storageaccess.ResultEntry{}})
+
+	results := checkNodeAttestations(context.Background(), NodeConfig{AggregatorAddress: "agg:443"}, [][]byte{rescheduleMsgID(5)})
 	require.Equal(t, AttestationUnknown, results[0].State)
 	require.Contains(t, results[0].Detail, "missing an entry")
 }

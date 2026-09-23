@@ -150,68 +150,68 @@ type recoveryCapability struct {
 // recoveryCapabilityOf combines the recovery reader registry (head, reset state) with
 // chain statuses (authoritative finality disablement, finalized height).
 func (h *handlers) recoveryCapabilityOf(ctx context.Context, n *Node, store recoverycli.Store, owner, chain string) (recoveryCapability, error) {
-	var cap recoveryCapability
+	var capability recoveryCapability
 	page, err := store.ListEvents(ctx, recovery.EventFilter{OwnerID: owner, SourceChain: chain, Limit: 1})
 	if err != nil {
-		return cap, fmt.Errorf("reader state query failed: %w", err)
+		return capability, fmt.Errorf("reader state query failed: %w", err)
 	}
 	var readers []recoveryReaderInfo
 	if len(page.Readers) > 0 {
 		if err := json.Unmarshal(page.Readers, &readers); err != nil {
-			return cap, fmt.Errorf("reader metadata unreadable: %w", err)
+			return capability, fmt.Errorf("reader metadata unreadable: %w", err)
 		}
 	}
 	if len(readers) > 0 {
-		cap.registered = true
-		cap.reader = &readers[0]
-		cap.disabled = readers[0].Disabled
+		capability.registered = true
+		capability.reader = &readers[0]
+		capability.disabled = readers[0].Disabled
 		if readers[0].LatestBlock != nil {
 			if v, perr := strconv.ParseUint(*readers[0].LatestBlock, 10, 64); perr == nil {
-				cap.latestHead = &v
+				capability.latestHead = &v
 			}
 		}
-		cap.headStale = readers[0].HeadObservedAt == nil || time.Since(*readers[0].HeadObservedAt) > time.Minute
+		capability.headStale = readers[0].HeadObservedAt == nil || time.Since(*readers[0].HeadObservedAt) > time.Minute
 	}
 	lister, err := chainStatusesOf(n)
 	if err != nil {
-		cap.statusLookupFailed = true
-		return cap, nil
+		capability.statusLookupFailed = true
+		return capability, nil
 	}
 	rows, err := lister.List(ctx)
 	if err != nil {
-		cap.statusLookupFailed = true
-		return cap, nil
+		capability.statusLookupFailed = true
+		return capability, nil
 	}
 	chainNum, _ := strconv.ParseUint(chain, 10, 64)
 	for _, row := range rows {
 		if row.VerifierID == owner && uint64(row.ChainSelector) == chainNum {
-			cap.disabled = cap.disabled || row.Disabled
+			capability.disabled = capability.disabled || row.Disabled
 			if row.FinalizedBlockHeight != nil && row.FinalizedBlockHeight.IsUint64() {
 				v := row.FinalizedBlockHeight.Uint64()
-				cap.finalizedHeight = &v
+				capability.finalizedHeight = &v
 			}
 		}
 	}
-	return cap, nil
+	return capability, nil
 }
 
 // recoveryModeAllowed enforces the replay/reset split: replay never runs against a
 // finality-blocked reader, and reset-reader exists only for one.
-func recoveryModeAllowed(mode string, cap recoveryCapability) (bool, string) {
-	if !cap.registered {
+func recoveryModeAllowed(mode string, capability recoveryCapability) (bool, string) {
+	if !capability.registered {
 		return false, "No reader is registered for this owner/chain on this node; the node would reject the submission."
 	}
 	switch mode {
 	case "replay":
-		if cap.disabled {
+		if capability.disabled {
 			return false, "The reader is disabled (finality-blocked): ordinary replay will not run. Investigate the finality incident and use reset-reader instead."
 		}
-		if cap.statusLookupFailed {
+		if capability.statusLookupFailed {
 			return false, "Chain-status lookup failed, so finality disablement cannot be ruled out; replay is refused on the safe side. Retry, or investigate the node's database."
 		}
 		return true, ""
 	case "reset-reader":
-		if !cap.disabled {
+		if !capability.disabled {
 			return false, "The reader is not finality-blocked; reset-reader is the investigated action for a disabled reader. Use replay for an ordinary range re-verification."
 		}
 		return true, ""
@@ -248,26 +248,26 @@ func (h *handlers) recoveryPreviewNode(ctx context.Context, name string, in reco
 		vm.Error = "node database unavailable: " + err.Error()
 		return vm
 	}
-	cap, err := h.recoveryCapabilityOf(ctx, n, store, in.owner, in.chain)
+	capability, err := h.recoveryCapabilityOf(ctx, n, store, in.owner, in.chain)
 	if err != nil {
 		vm.Error = err.Error()
 		return vm
 	}
-	vm.Registered = cap.registered
-	vm.ReaderDisabled = cap.disabled
-	if cap.latestHead != nil {
-		vm.LatestHead = strconv.FormatUint(*cap.latestHead, 10)
+	vm.Registered = capability.registered
+	vm.ReaderDisabled = capability.disabled
+	if capability.latestHead != nil {
+		vm.LatestHead = strconv.FormatUint(*capability.latestHead, 10)
 	}
-	vm.HeadStale = cap.registered && cap.headStale
-	if cap.finalizedHeight != nil {
-		vm.FinalizedHeight = strconv.FormatUint(*cap.finalizedHeight, 10)
+	vm.HeadStale = capability.registered && capability.headStale
+	if capability.finalizedHeight != nil {
+		vm.FinalizedHeight = strconv.FormatUint(*capability.finalizedHeight, 10)
 	}
-	if cap.reader != nil && cap.reader.ActiveResetID != nil {
-		vm.ActiveResetID = *cap.reader.ActiveResetID
+	if capability.reader != nil && capability.reader.ActiveResetID != nil {
+		vm.ActiveResetID = *capability.reader.ActiveResetID
 	}
 	vm.RangeText = recoveryRangeText(in)
-	vm.Warnings = recoveryWarnings(in, cap)
-	vm.Allowed, vm.BlockedReason = recoveryModeAllowed(in.mode, cap)
+	vm.Warnings = recoveryWarnings(in, capability)
+	vm.Allowed, vm.BlockedReason = recoveryModeAllowed(in.mode, capability)
 	return vm
 }
 
@@ -281,24 +281,24 @@ func recoveryRangeText(in recoveryFormInput) string {
 		in.from, *in.to, size, chunks, recovery.MaxChunkBlocks, recovery.MaxChunkMessages)
 }
 
-func recoveryWarnings(in recoveryFormInput, cap recoveryCapability) []string {
+func recoveryWarnings(in recoveryFormInput, capability recoveryCapability) []string {
 	var warnings []string
-	if cap.finalizedHeight != nil && in.from < *cap.finalizedHeight {
+	if capability.finalizedHeight != nil && in.from < *capability.finalizedHeight {
 		warnings = append(warnings, fmt.Sprintf(
 			"From-block %d is below the current finalized height %d: this range may revisit already-attested traffic, and it covers every lane on this source chain, not one message.",
-			in.from, *cap.finalizedHeight))
+			in.from, *capability.finalizedHeight))
 	}
-	if in.to == nil && cap.registered && cap.headStale {
+	if in.to == nil && capability.registered && capability.headStale {
 		warnings = append(warnings, "The reader's last advertised head is stale or missing, so an omitted to-block will be rejected; set an explicit to-block.")
 	}
-	if cap.reader != nil && cap.reader.ActiveResetID != nil {
-		warnings = append(warnings, "An applied reset ("+*cap.reader.ActiveResetID+") owns normal polling until it completes; a new investigated reset marks it superseded.")
+	if capability.reader != nil && capability.reader.ActiveResetID != nil {
+		warnings = append(warnings, "An applied reset ("+*capability.reader.ActiveResetID+") owns normal polling until it completes; a new investigated reset marks it superseded.")
 	}
-	if cap.statusLookupFailed {
+	if capability.statusLookupFailed {
 		warnings = append(warnings, "Chain-status lookup failed on this node; finalized height and the authoritative disabled flag are unavailable.")
 	}
-	if cap.reader != nil && cap.reader.AuditFailures != "" && cap.reader.AuditFailures != "0" {
-		warnings = append(warnings, "This reader reports "+cap.reader.AuditFailures+" failed evidence writes; retained history below may have gaps.")
+	if capability.reader != nil && capability.reader.AuditFailures != "" && capability.reader.AuditFailures != "0" {
+		warnings = append(warnings, "This reader reports "+capability.reader.AuditFailures+" failed evidence writes; retained history below may have gaps.")
 	}
 	return warnings
 }
@@ -340,12 +340,12 @@ func (h *handlers) recoverySubmitNode(c *gin.Context, name string, in recoveryFo
 		fail("node database unavailable: " + err.Error())
 		return res
 	}
-	cap, err := h.recoveryCapabilityOf(c.Request.Context(), n, store, in.owner, in.chain)
+	capability, err := h.recoveryCapabilityOf(c.Request.Context(), n, store, in.owner, in.chain)
 	if err != nil {
 		fail(err.Error())
 		return res
 	}
-	if allowed, reason := recoveryModeAllowed(in.mode, cap); !allowed {
+	if allowed, reason := recoveryModeAllowed(in.mode, capability); !allowed {
 		fail(reason)
 		return res
 	}

@@ -46,37 +46,53 @@ type replayJobLister interface {
 }
 
 // Test seams: swapped by backfill_test.go.
-var backfillEngineFor = buildReplayEngine
-var backfillJobsFor = openReplayJobLister
+var (
+	backfillEngineFor = buildReplayEngine
+	backfillJobsFor   = openReplayJobLister
+)
 
 // backfillInFlight guards against double submission from this console process. It is
 // not job state: durability and cross-process resume live in replay_jobs.
-var backfillInFlight = struct {
+var backfillInFlight = newClaimSet()
+
+// claimSet is a mutex-guarded set of in-flight claim keys.
+type claimSet struct {
 	sync.Mutex
 	running map[string]struct{}
-}{running: map[string]struct{}{}}
+}
 
-func backfillClaim(key string) bool {
-	backfillInFlight.Lock()
-	defer backfillInFlight.Unlock()
-	if _, ok := backfillInFlight.running[key]; ok {
+func newClaimSet() *claimSet {
+	return &claimSet{running: make(map[string]struct{})}
+}
+
+func (s *claimSet) claim(key string) bool {
+	s.Lock()
+	defer s.Unlock()
+	if _, ok := s.running[key]; ok {
 		return false
 	}
-	backfillInFlight.running[key] = struct{}{}
+	s.running[key] = struct{}{}
 	return true
 }
 
-func backfillRelease(key string) {
-	backfillInFlight.Lock()
-	defer backfillInFlight.Unlock()
-	delete(backfillInFlight.running, key)
+func (s *claimSet) release(key string) {
+	s.Lock()
+	defer s.Unlock()
+	delete(s.running, key)
 }
 
 // backfillStores caches one replay store (a connection pool, not job state) per node.
-var backfillStores = struct {
+var backfillStores = newStoreCache()
+
+// storeCache caches one replay job lister per node key.
+type storeCache struct {
 	sync.Mutex
 	byKey map[string]replayJobLister
-}{byKey: map[string]replayJobLister{}}
+}
+
+func newStoreCache() *storeCache {
+	return &storeCache{byKey: make(map[string]replayJobLister)}
+}
 
 func (h *handlers) registerBackfillRoutes(r *gin.Engine) {
 	r.GET("/backfill", h.backfillPage)
@@ -163,13 +179,13 @@ func (h *handlers) backfillSubmit(c *gin.Context) {
 		h.render(c, status, views.BackfillSubmitResult(res))
 	}
 	claimKey := res.NodeName + "\x00" + res.RequestHash
-	if !backfillClaim(claimKey) {
+	if !backfillInFlight.claim(claimKey) {
 		fail(http.StatusConflict, "an identical replay is already running from this console; the job list below shows its progress")
 		return
 	}
 	engine, cleanup, err := backfillEngineFor(c.Request.Context(), h.lggr, n)
 	if err != nil {
-		backfillRelease(claimKey)
+		backfillInFlight.release(claimKey)
 		fail(http.StatusInternalServerError, "could not build the replay engine from the indexer config: "+err.Error())
 		return
 	}
@@ -177,7 +193,7 @@ func (h *handlers) backfillSubmit(c *gin.Context) {
 	// job stalls as running and is resumed by an identical resubmission (stale heartbeat).
 	go func() {
 		defer cleanup()
-		defer backfillRelease(claimKey)
+		defer backfillInFlight.release(claimKey)
 		jobID, err := engine.Start(context.Background(), req)
 		if err != nil {
 			h.lggr.Errorw("backfill replay failed", "node", res.NodeName, "jobID", jobID, "requestHash", res.RequestHash, "error", err)
@@ -197,23 +213,31 @@ func (h *handlers) backfillSubmit(c *gin.Context) {
 	h.render(c, http.StatusOK, views.BackfillSubmitResult(res))
 }
 
+// newestJobIDForHash returns the newest durable job row matching the request hash,
+// which is also the stale-resume row.
+func newestJobIDForHash(ctx context.Context, lister replayJobLister, hash string) string {
+	jobs, err := lister.ListJobs(ctx)
+	if err != nil {
+		return ""
+	}
+	best := ""
+	var bestCreated time.Time
+	for _, j := range jobs {
+		if j.RequestHash == hash && !j.CreatedAt.Before(bestCreated) {
+			best, bestCreated = j.ID, j.CreatedAt
+		}
+	}
+	return best
+}
+
 // backfillAwaitJob correlates the just-launched run with its durable job row by
-// request hash (the newest matching row wins, which is also the stale-resume row).
+// request hash.
 func (h *handlers) backfillAwaitJob(ctx context.Context, n *Node, hash string) string {
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		if lister, err := backfillJobsFor(ctx, h.lggr, n); err == nil {
-			if jobs, err := lister.ListJobs(ctx); err == nil {
-				best := ""
-				var bestCreated time.Time
-				for _, j := range jobs {
-					if j.RequestHash == hash && !j.CreatedAt.Before(bestCreated) {
-						best, bestCreated = j.ID, j.CreatedAt
-					}
-				}
-				if best != "" {
-					return best
-				}
+			if id := newestJobIDForHash(ctx, lister, hash); id != "" {
+				return id
 			}
 		}
 		if time.Now().After(deadline) {
@@ -306,7 +330,7 @@ func loadIndexerConfig(configPath string) (*indexerconfig.Config, error) {
 	}
 	indexerconfig.MergeGeneratedConfig(cfg, generated)
 	secretsPath := filepath.Join(filepath.Dir(configPath), "secrets.toml")
-	if secretsData, err := os.ReadFile(secretsPath); err == nil {
+	if secretsData, err := os.ReadFile(secretsPath); err == nil { //nolint:gosec // G304: sibling of the operator-provided config path.
 		secrets, err := indexerconfig.LoadSecretsFromBytes(secretsData)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse indexer secrets %q: %w", secretsPath, err)

@@ -7,6 +7,7 @@ replace github.com/fbsobreira/gotron-sdk => github.com/smartcontractkit/chainlin
 require (
 	cloud.google.com/go/kms v1.33.0
 	github.com/BurntSushi/toml v1.6.0
+	github.com/a-h/templ v0.3.1020
 	github.com/aws/aws-sdk-go-v2/service/kms v1.54.0
 	github.com/beevik/ntp v1.5.0
 	github.com/ethereum/go-ethereum v1.17.4
@@ -84,7 +85,6 @@ require (
 	github.com/ProjectZKM/Ziren/crates/go-runtime/zkvm_runtime v0.0.0-20260416073033-7c2071eaa8d4 // indirect
 	github.com/VictoriaMetrics/fastcache v1.13.0 // indirect
 	github.com/XSAM/otelsql v0.42.0 // indirect
-	github.com/a-h/templ v0.3.1020 // indirect
 	github.com/apapsch/go-jsonmerge/v2 v2.0.0 // indirect
 	github.com/aws/aws-sdk-go-v2 v1.42.1 // indirect
 	github.com/aws/aws-sdk-go-v2/config v1.32.28 // indirect

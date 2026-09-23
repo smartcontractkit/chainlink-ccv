@@ -47,11 +47,9 @@ func (h *handlers) searchResults(c *gin.Context) {
 	results := make([]searchNodeResult, len(h.nodes))
 	var wg sync.WaitGroup
 	for i, n := range h.nodes {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			results[i] = h.searchNode(c.Request.Context(), n, messageIDs)
-		}()
+		})
 	}
 	wg.Wait()
 	vms := make([]views.SearchNodeVM, 0, len(results))

@@ -93,12 +93,10 @@ func (h *handlers) nodesPage(c *gin.Context) {
 	results := make([]probeResult, len(h.nodes))
 	var wg sync.WaitGroup
 	for i, n := range h.nodes {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			state, detail := n.State(c.Request.Context())
 			results[i] = probeResult{state, detail}
-		}()
+		})
 	}
 	wg.Wait()
 	rows := make([]views.NodeRow, 0, len(h.nodes))

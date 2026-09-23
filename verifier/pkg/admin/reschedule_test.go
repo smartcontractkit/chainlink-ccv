@@ -6,10 +6,10 @@ import (
 	"database/sql/driver"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -21,8 +21,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/cli/jobqueue"
+	"github.com/smartcontractkit/chainlink-ccv/integration/storageaccess"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-	verifierpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1"
 )
 
 func rescheduleMsgID(b byte) []byte {
@@ -75,12 +75,7 @@ func (f *rescheduleFakeStore) ListFailedFiltered(_ context.Context, queues []job
 }
 
 func rescheduleQueueIn(queues []jobqueue.QueueType, q jobqueue.QueueType) bool {
-	for _, x := range queues {
-		if x == q {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(queues, q)
 }
 
 func rescheduleMessageIDIn(ids [][]byte, id []byte) bool {
@@ -228,8 +223,10 @@ func TestReschedulePreviewExcludesAttested(t *testing.T) {
 		JobID: "job-1", MessageID: id, OwnerID: "owner-1",
 		Queue: jobqueue.QueueTypeTaskVerifier, FailureCategory: "policy-timeout",
 	}}}
-	installFakeVerifier(t, &fakeVerifierServer{results: map[string][]byte{string(id): {0x01}}})
-	h := newRescheduleTestHandlers(t, store, nil, NodeConfig{Name: "n1", AggregatorAddress: "bufnet"})
+	installFakeResultsClient(t, &fakeResultsClient{entries: []storageaccess.ResultEntry{
+		{Present: true, CcvData: []byte{0x01}},
+	}})
+	h := newRescheduleTestHandlers(t, store, nil, NodeConfig{Name: "n1", AggregatorAddress: "agg:443"})
 
 	c, rec := reschedulePostContext(url.Values{"target": {rescheduleTargetString("n1", "job-1", id, jobqueue.QueueTypeTaskVerifier, "owner-1")}})
 	h.reschedulePreview(c)
@@ -247,11 +244,7 @@ func TestReschedulePreviewUnknownDisablesTarget(t *testing.T) {
 	store := &rescheduleFakeStore{jobs: []jobqueue.ArchivedJob{{
 		JobID: "job-2", MessageID: id, OwnerID: "owner-1", Queue: jobqueue.QueueTypeStorageWriter,
 	}}}
-	orig := dialVerifierClient
-	dialVerifierClient = func(string) (verifierpb.VerifierClient, io.Closer, error) {
-		return nil, nil, errors.New("connection refused")
-	}
-	t.Cleanup(func() { dialVerifierClient = orig })
+	installDialError(t, errors.New("connection refused"))
 	h := newRescheduleTestHandlers(t, store, nil, NodeConfig{Name: "n1", AggregatorAddress: "down:443"})
 
 	c, rec := reschedulePostContext(url.Values{"target": {rescheduleTargetString("n1", "job-2", id, jobqueue.QueueTypeStorageWriter, "owner-1")}})
@@ -269,8 +262,8 @@ func TestReschedulePreviewExecutableTarget(t *testing.T) {
 		JobID: "job-3", MessageID: id, OwnerID: "owner-1",
 		Queue: jobqueue.QueueTypeTaskVerifier, FailureCategory: "source-rpc",
 	}}}
-	installFakeVerifier(t, &fakeVerifierServer{}) // every ID: NotFound
-	h := newRescheduleTestHandlers(t, store, nil, NodeConfig{Name: "n1", AggregatorAddress: "bufnet"})
+	installFakeResultsClient(t, notFoundResultsClient())
+	h := newRescheduleTestHandlers(t, store, nil, NodeConfig{Name: "n1", AggregatorAddress: "agg:443"})
 
 	c, rec := reschedulePostContext(url.Values{"target": {rescheduleTargetString("n1", "job-3", id, jobqueue.QueueTypeTaskVerifier, "owner-1")}})
 	h.reschedulePreview(c)
@@ -287,8 +280,8 @@ func TestReschedulePreviewExecutableTarget(t *testing.T) {
 func TestReschedulePreviewSkipsMissingArchiveRowAndUnknownNode(t *testing.T) {
 	id := rescheduleMsgID(4)
 	store := &rescheduleFakeStore{} // archive empty
-	installFakeVerifier(t, &fakeVerifierServer{})
-	h := newRescheduleTestHandlers(t, store, nil, NodeConfig{Name: "n1", AggregatorAddress: "bufnet"})
+	installFakeResultsClient(t, notFoundResultsClient())
+	h := newRescheduleTestHandlers(t, store, nil, NodeConfig{Name: "n1", AggregatorAddress: "agg:443"})
 
 	form := url.Values{"target": {
 		rescheduleTargetString("n1", "job-gone", id, jobqueue.QueueTypeTaskVerifier, "owner-1"),
@@ -376,9 +369,9 @@ func TestRescheduleExecuteRetryFailedSkipsSuccesses(t *testing.T) {
 		},
 		rescheduleErr: map[string]error{"job-b": errors.New("boom")},
 	}
-	installFakeVerifier(t, &fakeVerifierServer{}) // NotFound: replays remain needed
+	installFakeResultsClient(t, notFoundResultsClient()) // NotFound: replays remain needed
 	actions, _ := newFakeActionLog(nil)
-	h := newRescheduleTestHandlers(t, store, actions, NodeConfig{Name: "n1", AggregatorAddress: "bufnet"})
+	h := newRescheduleTestHandlers(t, store, actions, NodeConfig{Name: "n1", AggregatorAddress: "agg:443"})
 
 	tA := rescheduleTargetString("n1", "job-a", idA, jobqueue.QueueTypeStorageWriter, "owner-1")
 	tB := rescheduleTargetString("n1", "job-b", idB, jobqueue.QueueTypeStorageWriter, "owner-1")

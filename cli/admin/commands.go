@@ -47,9 +47,9 @@ func Command(lggr logger.Logger) cli.Command {
 					if err != nil {
 						return err
 					}
-					fmt.Printf("config OK: listen=%s nodes=%d\n", cfg.ListenAddress, len(cfg.Nodes))
+					fmt.Println("config OK: listen=" + cfg.ListenAddress + " nodes=" + fmt.Sprint(len(cfg.Nodes))) //nolint:forbidigo // CLI user output
 					for _, n := range cfg.Nodes {
-						fmt.Printf("  node %q (secrets: %s)\n", n.Name, n.SecretsPath)
+						fmt.Println("  node " + n.Name + " (secrets: " + n.SecretsPath + ")") //nolint:forbidigo // CLI user output
 					}
 					return nil
 				},

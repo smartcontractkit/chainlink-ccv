@@ -299,7 +299,7 @@ func TestRecoveryOperationsReadsOnlyStoreState(t *testing.T) {
 
 	// Two independent handler instances (a "reload") render identically: operation
 	// state comes only from the store, never from console memory.
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		r := newRecoveryTestRouter(t, store, enabledChainStatuses(), nil)
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/recovery/operations", nil)

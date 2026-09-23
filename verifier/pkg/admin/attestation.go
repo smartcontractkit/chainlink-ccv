@@ -2,7 +2,6 @@ package admin
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,12 +10,9 @@ import (
 	"sync"
 	"time"
 
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials"
 
-	verifierpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1"
-
+	"github.com/smartcontractkit/chainlink-ccv/integration/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
@@ -56,15 +52,10 @@ func checkNodeAttestations(ctx context.Context, cfg NodeConfig, messageIDs [][]b
 	}
 }
 
-// dialVerifierClient opens the aggregator's unauthenticated read path: TLS transport
-// credentials, no auth interceptor. A var so tests can substitute a bufconn dial.
-var dialVerifierClient = func(address string) (verifierpb.VerifierClient, io.Closer, error) {
-	conn, err := grpc.NewClient(address, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS12})))
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to connect to aggregator: %w", err)
-	}
-	return verifierpb.NewVerifierClient(conn), conn, nil
-}
+// dialVerifierClient opens the aggregator's read path for freshness checks. A var so
+// tests can substitute a fake; the protobuf dialer lives in storageaccess because
+// verifier packages must not import the chainlink protos.
+var dialVerifierClient = storageaccess.DialResultsClient
 
 func checkAggregatorAttestations(ctx context.Context, address string, messageIDs [][]byte) []AttestationResult {
 	results := make([]AttestationResult, len(messageIDs))
@@ -74,39 +65,37 @@ func checkAggregatorAttestations(ctx context.Context, address string, messageIDs
 		}
 		return results
 	}
-	client, conn, err := dialVerifierClient(address)
+	client, err := dialVerifierClient(address)
 	if err != nil {
 		return markUnknown(err.Error())
 	}
-	defer conn.Close()
+	defer func() { _ = client.Close() }()
 
 	callCtx, cancel := context.WithTimeout(ctx, attestationCallTimeout)
 	defer cancel()
-	resp, err := client.GetVerifierResultsForMessage(callCtx, &verifierpb.GetVerifierResultsForMessageRequest{MessageIds: messageIDs})
+	entries, err := client.GetVerifierResultsForMessage(callCtx, messageIDs)
 	if err != nil {
 		return markUnknown("aggregator unreachable: " + err.Error())
 	}
 	for i := range messageIDs {
-		results[i] = aggregatorEntryResult(resp, i)
+		results[i] = aggregatorEntryResult(entries, i)
 	}
 	return results
 }
 
-// aggregatorEntryResult interprets entry i of the batch response: a per-ID error means
-// "not found"; only a result with non-empty ccv_data proves attestation.
-func aggregatorEntryResult(resp *verifierpb.GetVerifierResultsForMessageResponse, i int) AttestationResult {
-	if i < len(resp.GetErrors()) {
-		if st := resp.GetErrors()[i]; st != nil && st.GetCode() != int32(codes.OK) {
-			return AttestationResult{AttestationNotFound, "aggregator: " + st.GetMessage()}
-		}
+// aggregatorEntryResult interprets entry i of the batch: a per-ID error means "not
+// found"; only a result with non-empty ccv data proves attestation.
+func aggregatorEntryResult(entries []storageaccess.ResultEntry, i int) AttestationResult {
+	if i >= len(entries) || !entries[i].Present {
+		return AttestationResult{AttestationUnknown, "aggregator response is missing an entry for this message"}
 	}
-	if i < len(resp.GetResults()) {
-		if len(resp.GetResults()[i].GetCcvData()) > 0 {
-			return AttestationResult{AttestationAttested, "aggregator holds ccv data for this message"}
-		}
-		return AttestationResult{AttestationNotFound, "aggregator returned empty ccv data"}
+	if entries[i].ErrorCode != int32(codes.OK) {
+		return AttestationResult{AttestationNotFound, "aggregator: " + entries[i].ErrorMsg}
 	}
-	return AttestationResult{AttestationUnknown, "aggregator response is missing an entry for this message"}
+	if len(entries[i].CcvData) > 0 {
+		return AttestationResult{AttestationAttested, "aggregator holds ccv data for this message"}
+	}
+	return AttestationResult{AttestationNotFound, "aggregator returned empty ccv data"}
 }
 
 // indexerClient has no client-side timeout; every request carries attestationCallTimeout.
@@ -126,11 +115,9 @@ func checkIndexerAttestations(ctx context.Context, baseURL string, messageIDs []
 	results := make([]AttestationResult, len(messageIDs))
 	var wg sync.WaitGroup
 	for i, id := range messageIDs {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			results[i] = checkIndexerAttestation(ctx, baseURL, id)
-		}()
+		})
 	}
 	wg.Wait()
 	return results
@@ -150,7 +137,7 @@ func checkIndexerAttestation(ctx context.Context, baseURL string, messageID []by
 	if err != nil {
 		return AttestationResult{AttestationUnknown, "indexer unreachable: " + err.Error()}
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	switch resp.StatusCode {
 	case http.StatusOK:
 		var body indexerResultsBody

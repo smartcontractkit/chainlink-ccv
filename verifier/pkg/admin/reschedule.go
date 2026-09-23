@@ -149,7 +149,7 @@ func (h *handlers) recheckAttestations(ctx context.Context, pts []previewTarget)
 		cfg     NodeConfig
 		indexes []int
 	}
-	groups := map[string]*nodeGroup{}
+	groups := make(map[string]*nodeGroup)
 	var order []*nodeGroup
 	for i := range pts {
 		if pts[i].state != recheckExecutable {

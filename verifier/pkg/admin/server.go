@@ -18,7 +18,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-const csrfCookieName = "ccv_admin_csrf" //nolint:gosec // G101: cookie name, not a credential
+const csrfCookieName = "ccv_admin_csrf"
 
 // Server is the admin console HTTP server.
 type Server struct {
@@ -76,7 +76,7 @@ func (s *Server) buildRouter() *gin.Engine {
 	return r
 }
 
-// Run serves until ctx is cancelled, then shuts down gracefully.
+// Run serves until ctx is canceled, then shuts down gracefully.
 func (s *Server) Run(ctx context.Context) error {
 	s.httpSrv = &http.Server{
 		Addr:              s.cfg.ListenAddress,

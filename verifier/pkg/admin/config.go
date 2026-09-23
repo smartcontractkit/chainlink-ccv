@@ -17,10 +17,11 @@ const (
 	// DefaultListenAddress binds the console to loopback unless configured otherwise.
 	DefaultListenAddress = "127.0.0.1:8105"
 	// ConfigPathEnv overrides the --config flag's default path.
-	ConfigPathEnv      = "CCV_ADMIN_CONFIG_PATH"
-	DefaultConfigPath  = "/etc/ccv-admin/config.toml"
-	SecretsPathEnv     = "CCV_ADMIN_SECRETS_PATH"
-	DefaultSecretsPath = "/etc/ccv-admin/secrets.toml"
+	ConfigPathEnv     = "CCV_ADMIN_CONFIG_PATH"
+	DefaultConfigPath = "/etc/ccv-admin/config.toml"
+	SecretsPathEnv    = "CCV_ADMIN_SECRETS_PATH"
+	// DefaultSecretsPath is the console secrets file's default location.
+	DefaultSecretsPath = "/etc/ccv-admin/secrets.toml" //nolint:gosec // G101: filesystem path, not a credential.
 )
 
 // Config is the console configuration file schema. It carries no credentials: nodes
