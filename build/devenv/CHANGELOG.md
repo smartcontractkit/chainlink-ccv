@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.7.0](https://github.com/smartcontractkit/chainlink-ccv/compare/build/devenv/v0.6.0...build/devenv/v0.7.0) (2026-09-23)
+
+
+### ⚠ BREAKING CHANGES
+
+* **tokenverifier:** CCTPCodec via the chain accessor ([#1450](https://github.com/smartcontractkit/chainlink-ccv/issues/1450))
+* **verifier:** composable verifier gates via vtypes.Chain ([#1417](https://github.com/smartcontractkit/chainlink-ccv/issues/1417))
+
+### Features
+
+* parse config doc comments via chainlink-common/x/config so pre-generated config can live outside the module ([#1451](https://github.com/smartcontractkit/chainlink-ccv/issues/1451)) ([bfd0913](https://github.com/smartcontractkit/chainlink-ccv/commit/bfd091335c44c8bcdb53830a7556be934862efac))
+* standalone beholder support ([#1467](https://github.com/smartcontractkit/chainlink-ccv/issues/1467)) ([1033ffd](https://github.com/smartcontractkit/chainlink-ccv/commit/1033ffd42646c63623023df7b7247683b1c22294))
+* **tokenverifier:** CCTPCodec via the chain accessor ([#1450](https://github.com/smartcontractkit/chainlink-ccv/issues/1450)) ([96ca522](https://github.com/smartcontractkit/chainlink-ccv/commit/96ca5224edc7295cea6df673432c46df36321ae8))
+* **verifier:** job-queue archive lookup by message ID, JSON output, and owner inference ([#1443](https://github.com/smartcontractkit/chainlink-ccv/issues/1443)) ([6c81605](https://github.com/smartcontractkit/chainlink-ccv/commit/6c81605673b594accf94b929a1a733b8a0e07e7f))
+
+
+### Bug Fixes
+
+* bump chainlink-proto dependency ([#1457](https://github.com/smartcontractkit/chainlink-ccv/issues/1457)) ([1b32fa7](https://github.com/smartcontractkit/chainlink-ccv/commit/1b32fa7e6d5643411fff7146cab31083e76e26a6))
+* **deps:** bump chain-selectors ([#1448](https://github.com/smartcontractkit/chainlink-ccv/issues/1448)) ([e8913fc](https://github.com/smartcontractkit/chainlink-ccv/commit/e8913fc2a59078d8371debcb7ff84ce2ef12ddfb))
+* devenv grafana service log ([#1452](https://github.com/smartcontractkit/chainlink-ccv/issues/1452)) ([8713af5](https://github.com/smartcontractkit/chainlink-ccv/commit/8713af57b8983c9177e77d675a6df5bcdf5368c7))
+
+
+### Code Refactoring
+
+* **verifier:** composable verifier gates via vtypes.Chain ([#1417](https://github.com/smartcontractkit/chainlink-ccv/issues/1417)) ([f920c80](https://github.com/smartcontractkit/chainlink-ccv/commit/f920c808e0ba7c886ca07aec50d3013dc360381b))
+
 ## [0.6.0](https://github.com/smartcontractkit/chainlink-ccv/compare/build/devenv/v0.5.0...build/devenv/v0.6.0) (2026-09-09)
 
 
