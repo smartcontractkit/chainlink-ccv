@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.14.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.13.0...v0.14.0) (2026-09-23)
+
+
+### ⚠ BREAKING CHANGES
+
+* **tokenverifier:** CCTPCodec via the chain accessor ([#1450](https://github.com/smartcontractkit/chainlink-ccv/issues/1450))
+
+### Features
+
+* CCIP-12517 aggregator traces ([#1459](https://github.com/smartcontractkit/chainlink-ccv/issues/1459)) ([3d88ede](https://github.com/smartcontractkit/chainlink-ccv/commit/3d88ede379583c7237748c7cec7b405756755390))
+* CCIP-12517 indexer traces ([#1464](https://github.com/smartcontractkit/chainlink-ccv/issues/1464)) ([c93b0d2](https://github.com/smartcontractkit/chainlink-ccv/commit/c93b0d2ef3c0e98170d09dd2db631d8ac9f6d100))
+* **evm:** harden CL node-config conversion for the standalone cutover ([#1461](https://github.com/smartcontractkit/chainlink-ccv/issues/1461)) ([1d28ed6](https://github.com/smartcontractkit/chainlink-ccv/commit/1d28ed6275a51186b0dc971fb4a4729a7206d3b1))
+* parse config doc comments via chainlink-common/x/config so pre-generated config can live outside the module ([#1451](https://github.com/smartcontractkit/chainlink-ccv/issues/1451)) ([bfd0913](https://github.com/smartcontractkit/chainlink-ccv/commit/bfd091335c44c8bcdb53830a7556be934862efac))
+* standalone beholder support ([#1467](https://github.com/smartcontractkit/chainlink-ccv/issues/1467)) ([1033ffd](https://github.com/smartcontractkit/chainlink-ccv/commit/1033ffd42646c63623023df7b7247683b1c22294))
+* **tokenverifier:** CCTPCodec via the chain accessor ([#1450](https://github.com/smartcontractkit/chainlink-ccv/issues/1450)) ([96ca522](https://github.com/smartcontractkit/chainlink-ccv/commit/96ca5224edc7295cea6df673432c46df36321ae8))
+
+
+### Bug Fixes
+
+* CCIP-13583 keep discovery span until finalized ([#1454](https://github.com/smartcontractkit/chainlink-ccv/issues/1454)) ([89cab36](https://github.com/smartcontractkit/chainlink-ccv/commit/89cab36b44f30a7cf552a788377cb1464b7fd9eb))
+
 ## [0.13.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.12.0...v0.13.0) (2026-09-17)
 
 
