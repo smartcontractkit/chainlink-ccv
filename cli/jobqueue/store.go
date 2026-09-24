@@ -37,6 +37,8 @@ type ArchivedJob struct {
 	ArchivedAt *time.Time
 	// RetryDeadline is the original retry deadline (now exceeded for failed jobs).
 	RetryDeadline time.Time
+	// FailureCategory is the bounded failure vocabulary value derived at read time.
+	FailureCategory string
 	// Queue is the queue this job belongs to.
 	Queue QueueType
 }

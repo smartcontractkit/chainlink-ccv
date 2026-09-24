@@ -410,6 +410,7 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		heartbeatSender,
 		messageRulesPoller,
 		chainStatusDB,
+		verifier.WithSourceRecovery(),
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create verification coordinator", "error", err)

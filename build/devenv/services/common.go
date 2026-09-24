@@ -24,6 +24,12 @@ const (
 
 const (
 	AppPathInsideContainer = "/app"
+
+	// HostGatewayExtraHost maps host.docker.internal to the host gateway so containers can
+	// resolve it on Linux Docker hosts, where the name has no default mapping; services reach
+	// the observability stack's published OTLP port through it. Docker Desktop already maps
+	// the name, so appending it there is harmless.
+	HostGatewayExtraHost = "host.docker.internal:host-gateway"
 )
 
 // TelemetryAttrs copies base telemetry attributes and adds OTel service identity:

@@ -448,6 +448,7 @@ func baseImageRequest(in *Input, envVars map[string]string, bootstrapConfigFileP
 		Env:          envVars,
 		ExposedPorts: []string{DefaultExecutorPortTCP, services.DefaultBootstrapListenPortTCP},
 		HostConfigModifier: func(h *container.HostConfig) {
+			h.ExtraHosts = append(h.ExtraHosts, services.HostGatewayExtraHost)
 			h.PortBindings = network.PortMap{
 				network.MustParsePort(DefaultExecutorPortTCP): []network.PortBinding{
 					{HostPort: ""},
@@ -529,6 +530,7 @@ func createDBContainer(ctx context.Context, in *Input, chainFamily string) (*pos
 				},
 				Labels: framework.DefaultTCLabels(),
 				HostConfigModifier: func(h *container.HostConfig) {
+					h.ExtraHosts = append(h.ExtraHosts, services.HostGatewayExtraHost)
 					h.PortBindings = network.PortMap{
 						network.MustParsePort("5432/tcp"): []network.PortBinding{
 							{HostPort: ""},
