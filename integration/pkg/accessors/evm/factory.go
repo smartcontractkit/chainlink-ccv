@@ -2,7 +2,6 @@ package evm
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"sync"
@@ -350,18 +349,6 @@ func (a *accessor) SetDataSource(ctx context.Context, ds sqlutil.DataSource) err
 	lp, err := a.runtime.LogPoller(ctx, ds)
 	if err != nil {
 		return fmt.Errorf("failed to start EVM log poller for chain %d: %w", a.chainSelector, err)
-	}
-
-	// read sources events from the poller instead of RPC, so enabling it before the chain has
-	// ingested anything would return no events rather than an error. Shadow has to run first.
-	if mode == evmconfig.LogPollerModeRead {
-		if _, err := lp.LatestBlock(ctx); err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return fmt.Errorf("log_poller_mode read requires ingested blocks for chain %d; "+
-					"run the chain in shadow first", a.chainSelector)
-			}
-			return fmt.Errorf("failed to check log poller state for chain %d: %w", a.chainSelector, err)
-		}
 	}
 
 	// Destination-only accessors have no source reader, and a nil one fails the assertion too.

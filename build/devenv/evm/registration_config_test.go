@@ -10,6 +10,8 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
 	accessorevm "github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
@@ -47,7 +49,7 @@ func TestEVMConfigIsMountedSeparatelyFromAppConfig(t *testing.T) {
 		require.Empty(t, metadata.Nodes)
 	}
 
-	req, err := addEVMConfig(testcontainers.ContainerRequest{}, []*blockchain.Output{output})
+	req, err := addEVMConfig(testcontainers.ContainerRequest{}, []*blockchain.Output{output}, "")
 	require.NoError(t, err)
 	require.Len(t, req.Files, 1)
 	require.Equal(t, accessorevm.DefaultEVMConfigPath, req.Files[0].ContainerFilePath)
@@ -82,4 +84,56 @@ func TestEVMConfigIsMountedSeparatelyFromAppConfig(t *testing.T) {
 	}
 	require.NotContains(t, string(data), "internal_http_url")
 	require.NotContains(t, string(data), "external_http_url")
+}
+
+func readMountedEVMConfig(t *testing.T, req testcontainers.ContainerRequest) (accessorevm.Config, string) {
+	t.Helper()
+	require.Len(t, req.Files, 1)
+	t.Cleanup(func() { require.NoError(t, os.Remove(req.Files[0].HostFilePath)) })
+	data, err := os.ReadFile(req.Files[0].HostFilePath)
+	require.NoError(t, err)
+	var cfg accessorevm.Config
+	_, err = toml.Decode(string(data), &cfg)
+	require.NoError(t, err)
+	return cfg, string(data)
+}
+
+// log_poller_mode is per verifier, so one committee member can run on the poller beside an RPC peer.
+func TestVerifierLogPollerModeReachesEveryChain(t *testing.T) {
+	outputs := []*blockchain.Output{
+		{
+			Type: "anvil", Family: chainsel.FamilyEVM, ContainerName: "evm-a", ChainID: "1337",
+			Nodes: []*blockchain.Node{{InternalHTTPUrl: "http://evm-a:8545", InternalWSUrl: "ws://evm-a:8546"}},
+		},
+		{
+			Type: "anvil", Family: chainsel.FamilyEVM, ContainerName: "evm-b", ChainID: "2337",
+			Nodes: []*blockchain.Node{{InternalHTTPUrl: "http://evm-b:8545", InternalWSUrl: "ws://evm-b:8546"}},
+		},
+	}
+
+	t.Run("verifier with a mode", func(t *testing.T) {
+		req, err := VerifierModifier(testcontainers.ContainerRequest{},
+			&committeeverifier.Input{ContainerName: "v1", LogPollerMode: "read"}, outputs)
+		require.NoError(t, err)
+		cfg, _ := readMountedEVMConfig(t, req)
+		require.Len(t, cfg.Chains, 2)
+		for selector, chain := range cfg.Chains {
+			require.EqualValues(t, "read", chain.LogPollerMode, selector)
+		}
+	})
+
+	t.Run("verifier without a mode", func(t *testing.T) {
+		req, err := VerifierModifier(testcontainers.ContainerRequest{},
+			&committeeverifier.Input{ContainerName: "v2"}, outputs)
+		require.NoError(t, err)
+		_, raw := readMountedEVMConfig(t, req)
+		require.NotContains(t, raw, "log_poller_mode")
+	})
+
+	t.Run("executor", func(t *testing.T) {
+		req, err := ExecutorModifier(testcontainers.ContainerRequest{}, &executor.Input{ContainerName: "e1"}, outputs)
+		require.NoError(t, err)
+		_, raw := readMountedEVMConfig(t, req)
+		require.NotContains(t, raw, "log_poller_mode")
+	})
 }

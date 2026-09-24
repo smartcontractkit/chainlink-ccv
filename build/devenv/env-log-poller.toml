@@ -1,0 +1,107 @@
+# Overlay that runs standalone verifiers on the LogPoller. Use it via standard.log-poller.profile.
+#
+# default-verifier-1 reads source events from the poller (read); its committee is 2-of-2, so every
+# message that completes proves the poller path found and signed it. default-verifier-2 stays on
+# RPC as a control. secondary-verifier-1 runs shadow: RPC stays authoritative and any disagreement
+# with the poller is logged as "Log poller shadow read disagrees with RPC".
+#
+# The whole verifier array is restated because an overlay replaces an array of tables rather than
+# merging into it. A verifier added to env.toml must be added here too or it disappears from this
+# profile.
+
+## Default Verifier Setup
+[[verifier]]
+  image = "verifier:latest"
+  container_name = "default-verifier-1"
+  log_poller_mode = "read"
+  nop_alias = "default-verifier-1"
+  port = 8100
+  # path is relative from "devenv" dir
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "default"
+  node_index = 0
+  [verifier.db]
+    image = "postgres:16-alpine"
+    name = "default-verifier-1-db"
+    port = 8432
+
+
+[[verifier]]
+  image = "verifier:latest"
+  container_name = "default-verifier-2"
+  nop_alias = "default-verifier-2"
+  port = 8200
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "default"
+  node_index = 1
+  [verifier.db]
+    image = "postgres:16-alpine"
+    name = "default-verifier-2-db"
+    port = 8433
+
+
+# Secondary Verifier Setup
+[[verifier]]
+  image = "verifier:latest"
+  container_name = "secondary-verifier-1"
+  log_poller_mode = "shadow"
+  nop_alias = "secondary-verifier-1"
+  port = 8300
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "secondary"
+  node_index = 0
+  [verifier.db]
+    image = "postgres:16-alpine"
+    name = "secondary-verifier-1-db"
+    port = 8434
+
+
+[[verifier]]
+  image = "verifier:latest"
+  container_name = "secondary-verifier-2"
+  nop_alias = "secondary-verifier-2"
+  port = 8400
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "secondary"
+  node_index = 1
+  [verifier.db]
+    image = "postgres:16-alpine"
+    name = "secondary-verifier-2-db"
+    port = 8435
+
+
+# Tertiary Verifier Setup
+[[verifier]]
+  image = "verifier:latest"
+  container_name = "tertiary-verifier-1"
+  nop_alias = "tertiary-verifier-1"
+  port = 8500
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "tertiary"
+  node_index = 0
+  [verifier.db]
+    image = "postgres:16-alpine"
+    name = "tertiary-verifier-1-db"
+    port = 8436
+
+
+[[verifier]]
+  image = "verifier:latest"
+  container_name = "tertiary-verifier-2"
+  nop_alias = "tertiary-verifier-2"
+  port = 8600
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "tertiary"
+  node_index = 1
+  [verifier.db]
+    image = "postgres:16-alpine"
+    name = "tertiary-verifier-2-db"
+    port = 8437
+
+

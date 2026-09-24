@@ -98,6 +98,10 @@ type Input struct {
 	// The chain selectors are formatted as strings of the chain selector.
 	DisableFinalityCheckers []string `toml:"disable_finality_checkers"`
 
+	// LogPollerMode is written as log_poller_mode on every EVM chain in this verifier's config.
+	// Empty means off. Standalone mode only.
+	LogPollerMode string `toml:"log_poller_mode"`
+
 	// TLSCACertFile is the path to the CA certificate file for TLS verification.
 	TLSCACertFile string `toml:"-"`
 

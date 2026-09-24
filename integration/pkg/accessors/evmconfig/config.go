@@ -69,6 +69,7 @@ func NewConfigFromInfos(infos chainaccess.Infos[Info]) Config {
 			FinalityDepth:                    info.FinalityDepth,
 			TXMBlockTime:                     info.TXMBlockTime,
 			SourceReaderHeaderFetchBatchSize: info.SourceReaderHeaderFetchBatchSize,
+			LogPollerMode:                    info.LogPollerMode,
 		}
 	}
 	return Config{Chains: chains}

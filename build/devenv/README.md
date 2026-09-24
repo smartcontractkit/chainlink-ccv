@@ -67,6 +67,7 @@ A `.profile` file encodes the full environment configuration — mode, config fi
 | `standard.src-auto-mine.profile` | Standalone + auto-mine source chain |
 | `standard.policy-hook.profile` | Standalone + auto-mine source chain + operator policy hook on the default committee |
 | `standard.one-exec-per-chain.profile` | Standalone + one executor per chain |
+| `standard.log-poller.profile` | Standalone + LogPoller: `default-verifier-1` in `read`, `secondary-verifier-1` in `shadow` |
 | `standard.ha.clnode.profile` | High-availability + Chainlink nodes |
 | `phased.clnode.profile` | Phased runtime + Chainlink nodes |
 | `standard.rpc-failover.profile` | Standalone + RPC failover proxies |

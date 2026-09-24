@@ -37,6 +37,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/contracttransmitter"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
@@ -96,22 +97,23 @@ func init() {
 // VerifierModifier adjusts committee verifier container requests for EVM.
 func VerifierModifier(req testcontainers.ContainerRequest, verifierInput *committeeverifier.Input, outputs []*blockchain.Output) (testcontainers.ContainerRequest, error) {
 	req.Name = fmt.Sprintf("evm-%s", verifierInput.ContainerName)
-	return addEVMConfig(req, outputs)
+	return addEVMConfig(req, outputs, verifierInput.LogPollerMode)
 }
 
 // ExecutorModifier adjusts executor container requests for EVM.
 func ExecutorModifier(req testcontainers.ContainerRequest, executorInput *executor.Input, outputs []*blockchain.Output) (testcontainers.ContainerRequest, error) {
 	req.Name = fmt.Sprintf("evm-%s", executorInput.ContainerName)
-	return addEVMConfig(req, outputs)
+	return addEVMConfig(req, outputs, "")
 }
 
 // TokenVerifierModifier adjusts token verifier container requests for EVM.
 func TokenVerifierModifier(req testcontainers.ContainerRequest, _ *services.TokenVerifierInput, outputs []*blockchain.Output) (testcontainers.ContainerRequest, error) {
-	return addEVMConfig(req, outputs)
+	return addEVMConfig(req, outputs, "")
 }
 
-func addEVMConfig(req testcontainers.ContainerRequest, outputs []*blockchain.Output) (testcontainers.ContainerRequest, error) {
-	config, err := marshalEVMConfig(outputs)
+// addEVMConfig mounts the EVM config; logPollerMode is set on every chain, empty meaning off.
+func addEVMConfig(req testcontainers.ContainerRequest, outputs []*blockchain.Output, logPollerMode string) (testcontainers.ContainerRequest, error) {
+	config, err := marshalEVMConfig(outputs, logPollerMode)
 	if err != nil {
 		return req, fmt.Errorf("failed to marshal EVM config: %w", err)
 	}
@@ -329,10 +331,14 @@ func ChainConfigLoader(outputs []*blockchain.Output) (map[string]any, error) {
 	return infos, nil
 }
 
-func marshalEVMConfig(outputs []*blockchain.Output) ([]byte, error) {
+func marshalEVMConfig(outputs []*blockchain.Output, logPollerMode string) ([]byte, error) {
 	infos, err := evmchainconfig.ConvertBlockchainOutputsToInfo(outputs)
 	if err != nil {
 		return nil, err
+	}
+	for selector, info := range infos {
+		info.LogPollerMode = evmconfig.LogPollerMode(logPollerMode)
+		infos[selector] = info
 	}
 
 	config, err := toml.Marshal(evm.NewConfigFromInfos(infos))

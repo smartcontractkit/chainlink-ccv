@@ -2,7 +2,6 @@ package evm
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"math/big"
 	"sync"
@@ -713,20 +712,23 @@ func TestAccessorSetDataSource(t *testing.T) {
 	}
 }
 
-// read sources events from the poller instead of RPC, so a chain that has never ingested would
-// return no events rather than an error. Shadow has to run first.
-func TestAccessorSetDataSourceRejectsReadBeforeShadow(t *testing.T) {
+// read starts on an empty database: the first tick's synchronous replay backfills it, and until
+// then reads return ErrSourceRangeUnanswerable, so nothing is skipped.
+func TestAccessorSetDataSourceStartsReadOnEmptyDatabase(t *testing.T) {
 	t.Parallel()
 
+	// No LatestBlock expectation: the mock fails the test if SetDataSource checks for rows.
 	lp := lpmocks.NewLogPoller(t)
-	lp.On("LatestBlock", mock.Anything).Return(logpoller.Block{}, sql.ErrNoRows)
+	lp.On("RegisterFilter", mock.Anything, mock.Anything).Return(nil)
 
+	reader := newLogPollerTestReader(t, heads.NullTracker)
 	runtime := &stubChainRuntime{logPollerMode: evmconfig.LogPollerModeRead, logPoller: lp}
 	accessor := newAccessor(
 		logger.Test(t), refcountTestSelector, runtime, runtime.Close,
-		common.Address{}, "evm-key", nil, nil, nil,
+		common.Address{}, "evm-key", reader, nil, nil,
 	).(*accessor)
 
-	err := accessor.SetDataSource(context.Background(), sqlx.NewDb(nil, "postgres"))
-	require.ErrorContains(t, err, "run the chain in shadow first")
+	require.NoError(t, accessor.SetDataSource(context.Background(), sqlx.NewDb(nil, "postgres")))
+	require.Equal(t, lp, reader.logPoller)
+	require.Equal(t, evmconfig.LogPollerMode(evmconfig.LogPollerModeRead), reader.logPollerMode)
 }
