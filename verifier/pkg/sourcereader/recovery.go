@@ -44,11 +44,12 @@ type recoveryRuntime struct {
 }
 
 // RecoveryPollInterval is how often an idle reader checks for submitted recovery
-// operations. Deliberately coarse: recovery is an investigated operator action, so a
-// pickup delay within the interval is acceptable, and the control-plane reads stay
-// negligible even with many readers. An active operation runs at full loop speed —
-// recovery executes one chunk per tick, so execution must never be throttled.
-const RecoveryPollInterval = 5 * time.Minute
+// operations. Deliberately coarse relative to the event loop: recovery is an
+// investigated operator action, so a pickup delay within the interval is acceptable,
+// and the control-plane reads stay negligible even with many readers. An active
+// operation runs at full loop speed — recovery executes one chunk per tick, so
+// execution must never be throttled.
+const RecoveryPollInterval = 15 * time.Second
 
 // ConfigureRecovery is called before Start. All recovery and reader mutations run
 // on the existing event loop; slots bound recovery concurrency across this owner.
