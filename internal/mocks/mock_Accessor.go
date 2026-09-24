@@ -236,6 +236,63 @@ func (_c *MockAccessor_DestinationReader_Call) RunAndReturn(run func() (chainacc
 	return _c
 }
 
+// FeeQuoter provides a mock function with no fields
+func (_m *MockAccessor) FeeQuoter() (chainaccess.FeeQuoter, error) {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for FeeQuoter")
+	}
+
+	var r0 chainaccess.FeeQuoter
+	var r1 error
+	if rf, ok := ret.Get(0).(func() (chainaccess.FeeQuoter, error)); ok {
+		return rf()
+	}
+	if rf, ok := ret.Get(0).(func() chainaccess.FeeQuoter); ok {
+		r0 = rf()
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(chainaccess.FeeQuoter)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func() error); ok {
+		r1 = rf()
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockAccessor_FeeQuoter_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'FeeQuoter'
+type MockAccessor_FeeQuoter_Call struct {
+	*mock.Call
+}
+
+// FeeQuoter is a helper method to define mock.On call
+func (_e *MockAccessor_Expecter) FeeQuoter() *MockAccessor_FeeQuoter_Call {
+	return &MockAccessor_FeeQuoter_Call{Call: _e.mock.On("FeeQuoter")}
+}
+
+func (_c *MockAccessor_FeeQuoter_Call) Run(run func()) *MockAccessor_FeeQuoter_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockAccessor_FeeQuoter_Call) Return(_a0 chainaccess.FeeQuoter, _a1 error) *MockAccessor_FeeQuoter_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockAccessor_FeeQuoter_Call) RunAndReturn(run func() (chainaccess.FeeQuoter, error)) *MockAccessor_FeeQuoter_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // SourceReader provides a mock function with no fields
 func (_m *MockAccessor) SourceReader() (chainaccess.SourceReader, error) {
 	ret := _m.Called()
