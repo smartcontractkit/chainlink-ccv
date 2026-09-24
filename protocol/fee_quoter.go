@@ -25,16 +25,16 @@ type FeeToken struct {
 	Address UnknownAddress
 }
 
-// TokenPrice is a token's price and when it was updated.
-type TokenPrice struct {
+// FeeTokenPrice is a fee token's price and when it was updated.
+type FeeTokenPrice struct {
 	// Price is the token's price.
 	Price *big.Int
 	// UpdatedAt is when the price was last updated on-chain.
 	UpdatedAt time.Time
 }
 
-// GasPriceUpdate is a chain's gas price and when it was updated.
-type GasPriceUpdate struct {
+// GasTokenPrice is a chain's gas price and when it was updated.
+type GasTokenPrice struct {
 	// GasPrice is the chain's gas price.
 	GasPrice GasPrice
 	// UpdatedAt is when the gas price was last updated on-chain.
@@ -46,21 +46,27 @@ type FQState struct {
 	// FeeTokens is the list of fee tokens and their addresses.
 	FeeTokens []FeeToken
 	// FeeTokenPrices maps a token to its price and when it was updated.
-	FeeTokenPrices map[Token]TokenPrice
+	FeeTokenPrices map[Token]FeeTokenPrice
 	// DestinationChains is the list of destination chain selectors.
 	DestinationChains []ChainSelector
 	// GasPrices maps a chain selector to its gas price and when it was updated.
-	GasPrices map[ChainSelector]GasPriceUpdate
+	GasPrices map[ChainSelector]GasTokenPrice
 	// ServiceIsAuthorized indicates whether the pricer is an authorized caller.
 	ServiceIsAuthorized bool
 }
 
-// TokenPriceUpdate is a requested price update for a fee token, keyed by its
-// on-chain address. The address is used because the Fee Quoter interface has no
-// Token-to-address mapping of its own.
-type TokenPriceUpdate struct {
+// FeeTokenPriceUpdate is a requested price update for a fee token.
+type FeeTokenPriceUpdate struct {
 	// Address is the on-chain address of the fee token to update.
 	Address UnknownAddress
 	// Price is the new price for the token.
 	Price *big.Int
+}
+
+// GasTokenPriceUpdate is a requested gas price update for a destination chain.
+type GasTokenPriceUpdate struct {
+	// ChainSelector is the destination chain to update.
+	ChainSelector ChainSelector
+	// GasPrice is the new gas price for the chain.
+	GasPrice GasPrice
 }

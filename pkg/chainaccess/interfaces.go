@@ -123,9 +123,12 @@ type FeeQuoter interface {
 	// and streams a fresh FQState snapshot on the returned channel whenever it
 	// changes. The channel is closed when the context is canceled.
 	MonitorFQ(ctx context.Context) (<-chan protocol.FQState, error)
-	// UpdatePrices generates and broadcasts transactions for the given price
-	// updates to the chain.
-	UpdatePrices(ctx context.Context, prices []protocol.TokenPriceUpdate) error
+	// UpdateFeeTokenPrices generates and broadcasts transactions for the given
+	// fee token price updates to the chain.
+	UpdateFeeTokenPrices(ctx context.Context, prices []protocol.FeeTokenPriceUpdate) error
+	// UpdateGasTokenPrices generates and broadcasts transactions for the given
+	// gas token price updates to the chain.
+	UpdateGasTokenPrices(ctx context.Context, prices []protocol.GasTokenPriceUpdate) error
 }
 
 // Accessor provides objects that in turn provide specific kinds of blockchain access.
