@@ -121,7 +121,7 @@ type FeeQuoter interface {
 	GetGasPrice(ctx context.Context, chainSelector protocol.ChainSelector) (protocol.GasPrice, error)
 	// MonitorFQ runs a goroutine that monitors the Fee Quoter on-chain state
 	// and streams a fresh FQState snapshot on the returned channel whenever it
-	// changes. The channel is closed when the context is cancelled.
+	// changes. The channel is closed when the context is canceled.
 	MonitorFQ(ctx context.Context) (<-chan protocol.FQState, error)
 	// UpdatePrices generates and broadcasts transactions for the given price
 	// updates to the chain.
