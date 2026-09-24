@@ -61,6 +61,16 @@ func recoveryTestService(t *testing.T, cursed bool, rules common.MessageRulesChe
 	return r, reader, db
 }
 
+// forceRecoveryControl bypasses the idle poll interval: tests drive control ticks
+// back-to-back, faster than RecoveryPollInterval allows in production.
+func forceRecoveryControl(t *testing.T, r *Service) {
+	t.Helper()
+	if r.recovery != nil {
+		r.recovery.lastControlPoll = time.Now().Add(-2 * RecoveryPollInterval)
+	}
+	r.recoveryControl(t.Context())
+}
+
 func TestRecoveryRereadsAdmissionWithoutChangingNormalProgress(t *testing.T) {
 	for _, tc := range []struct {
 		name             string
@@ -139,7 +149,7 @@ func TestLiveFinalityRecoveryIncludesDisabledStartupReaders(t *testing.T) {
 	request := recovery.SubmitRequest{OwnerID: "owner", SourceChain: "42", FromBlock: 100, ToBlock: &end, Mode: "replay", Actor: "operator", Note: "investigated boundary 99"}
 	ordinary, err := r.recovery.store.Submit(ctx, request)
 	require.NoError(t, err)
-	r.recoveryControl(ctx)
+	forceRecoveryControl(t, r)
 	ordinary, err = r.recovery.store.Get(ctx, ordinary.ID)
 	require.NoError(t, err)
 	require.Equal(t, "blocked", ordinary.State)
@@ -147,7 +157,7 @@ func TestLiveFinalityRecoveryIncludesDisabledStartupReaders(t *testing.T) {
 	request.Mode = "reset-reader"
 	reset, err := r.recovery.store.Submit(ctx, request)
 	require.NoError(t, err)
-	r.recoveryControl(ctx)
+	forceRecoveryControl(t, r)
 	require.False(t, r.disabled.Load())
 	require.Equal(t, reset.ID, r.recovery.rebuildingID)
 	_, err = r.recovery.store.ChangeState(ctx, reset.ID, "cancel")
@@ -277,6 +287,57 @@ func TestRecoveryReportsRPCFailureAndBoundsChunks(t *testing.T) {
 	require.Equal(t, uint64(500), r.lastProcessedFinalizedBlock.Load().Uint64())
 }
 
+func TestRecoveryControlThrottlesIdlePolls(t *testing.T) {
+	r, _, _ := recoveryTestService(t, false, common.AllowAllMessagesChecker{})
+	ctx := t.Context()
+	// Disabled reader: control marks a submitted replay "blocked".
+	require.NoError(t, r.chainStatusManager.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{{ChainSelector: 42, FinalizedBlockHeight: big.NewInt(0), Disabled: true}}))
+	_, err := r.initializeStartBlock(ctx)
+	require.NoError(t, err)
+	require.True(t, r.disabled.Load())
+
+	end := uint64(100)
+	submit := func(note string) recovery.Operation {
+		o, err := r.recovery.store.Submit(ctx, recovery.SubmitRequest{
+			OwnerID: "owner", SourceChain: "42", FromBlock: 90, ToBlock: &end,
+			Mode: "replay", Actor: "operator", Note: note,
+		})
+		require.NoError(t, err)
+		return o
+	}
+	state := func(id string) string {
+		o, err := r.recovery.store.Get(ctx, id)
+		require.NoError(t, err)
+		return o.State
+	}
+
+	first := submit("first")
+	r.recoveryControl(ctx) // the first poll is never throttled: lastControlPoll is zero
+	require.Equal(t, "blocked", state(first.ID))
+
+	// A second submission within the idle interval must not be inspected yet.
+	second := submit("second")
+	r.recoveryControl(ctx)
+	require.Equal(t, "accepted", state(second.ID), "idle control ticks must skip the store within RecoveryPollInterval")
+
+	forceRecoveryControl(t, r)
+	require.Equal(t, "blocked", state(second.ID), "the next due poll inspects it")
+}
+
+func TestRecoveryOpsDueThrottle(t *testing.T) {
+	r, _, _ := recoveryTestService(t, false, common.AllowAllMessagesChecker{})
+	p := r.recovery
+	require.True(t, r.recoveryOpsDue(), "first poll is never throttled")
+	require.False(t, r.recoveryOpsDue(), "idle re-poll within the interval is throttled")
+	p.lastRangePoll = time.Now().Add(-2 * RecoveryPollInterval)
+	require.True(t, r.recoveryOpsDue(), "polls again once the interval elapses")
+	p.replayRunning = true
+	require.True(t, r.recoveryOpsDue(), "an in-flight replay keeps full loop speed")
+	p.replayRunning, p.lastRangePoll = false, time.Now()
+	p.rebuildingID = "reset-id"
+	require.True(t, r.recoveryOpsDue(), "an active reset keeps full loop speed")
+}
+
 // A reset whose range ends above the finalized head must not move the in-memory cursor past
 // finality. The durable checkpoint is already clamped, so without this the two disagree: a
 // process that never restarts resumes above blocks that can still reorg and never sees their
@@ -295,7 +356,7 @@ func TestResetDoesNotAdvanceCursorPastFinality(t *testing.T) {
 		Mode: "reset-reader", Actor: "operator", Note: "investigated boundary 99",
 	})
 	require.NoError(t, err)
-	r.recoveryControl(ctx)
+	forceRecoveryControl(t, r)
 	require.False(t, r.disabled.Load())
 
 	// The range runs to 105 but only 102 is finalized, so 103-105 are still reorg-able.

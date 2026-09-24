@@ -270,7 +270,7 @@ func (r *Service) eventMonitoringLoop() {
 				} else {
 					r.metrics().SetSourceReaderState(ctx, monitoring.SourceReaderStatePollError)
 				}
-				if r.sendReadyMessages(ctx, latest, safe, finalized) {
+				if r.sendReadyMessages(ctx, latest, safe, finalized) && r.recoveryOpsDue() {
 					r.recoverRange(ctx, latest, safe, finalized)
 				}
 			}()
