@@ -108,16 +108,16 @@ type CCTPCodec interface {
 	DecodeAddress(address string) (protocol.UnknownAddress, error)
 }
 
-// FeeQuoter provides chain-agnostic access to a chain's Fee Quoter contract.
-// It isolates all chain-specific logic behind this interface so that consumers
-// (e.g. a standalone price reporting service) can interact with any chain family
-// uniformly.
+// FeeQuoter provides chain-agnostic access to a chain's Fee Quoter and gas
+// prices. It isolates all chain-specific logic behind this interface so that
+// consumers (e.g. a standalone price reporting service) can interact with any
+// chain family uniformly.
 //
 // Thread-safety: All methods must be safe for concurrent calls.
 type FeeQuoter interface {
 	// GetFQState reads the current Fee Quoter on-chain state and returns it.
 	GetFQState(ctx context.Context) (protocol.FQState, error)
-	// GetGasPrice reads the current gas price for the given chain selector.
+	// GetGasPrice reads the current native gas price for the given chain selector from the RPC.
 	GetGasPrice(ctx context.Context, chainSelector protocol.ChainSelector) (protocol.GasPrice, error)
 	// MonitorFQ runs a goroutine that monitors the Fee Quoter on-chain state
 	// and streams a fresh FQState snapshot on the returned channel whenever it
