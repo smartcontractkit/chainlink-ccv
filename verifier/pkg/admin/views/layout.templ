@@ -1,7 +1,6 @@
 package views
 
-// Layout is the shared page frame. Keep styling inline; the CSP allows 'unsafe-inline'
-// for style only.
+// Layout is the shared page frame: themed header nav, content container, footer.
 templ Layout(title string) {
 	<!DOCTYPE html>
 	<html lang="en">
@@ -9,35 +8,69 @@ templ Layout(title string) {
 			<meta charset="utf-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1"/>
 			<title>{ title } — CCV admin</title>
+			<link rel="icon" type="image/svg+xml" href="/static/favicon.svg"/>
+			<link rel="stylesheet" href="/static/admin.css"/>
 			<script src="/static/htmx.min.js"></script>
-			<style>
-				body { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; margin: 2rem; max-width: 72rem; color: #1a1a1a; }
-				nav a { margin-right: 1rem; }
-				table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
-				th, td { border: 1px solid #ccc; padding: 0.35rem 0.6rem; text-align: left; vertical-align: top; }
-				th { background: #f3f3f3; }
-				.state-ready { color: #067306; }
-				.state-unreachable { color: #a40000; }
-				.banner { background: #fff7d6; border: 1px solid #d6c66b; padding: 0.6rem; margin: 1rem 0; }
-				.error { background: #fdecec; border: 1px solid #e0a0a0; padding: 0.6rem; margin: 1rem 0; }
-				code.mid { word-break: break-all; }
-				form.inline { display: inline; }
-				textarea { width: 100%; min-height: 4rem; font-family: inherit; }
-			</style>
 		</head>
 		<body>
-			<nav>
-				<strong>CCV admin</strong>
-				<a href="/">Nodes</a>
-				<a href="/search">Message search</a>
-				<a href="/recovery">Source recovery</a>
-				<a href="/backfill">Indexer backfill</a>
-				<a href="/actions">Action log</a>
-			</nav>
-			<hr/>
-			{ children... }
+			<header class="topbar">
+				<div class="topbar-inner">
+					<a class="brand" href="/">
+						@logoMark()
+						<span>CCV <strong>Admin</strong></span>
+					</a>
+					<nav>
+						@navLink("/", "Nodes", title)
+						@navLink("/search", "Message search", title)
+						@navLink("/recovery", "Source recovery", title)
+						@navLink("/backfill", "Indexer backfill", title)
+						@navLink("/actions", "Action log", title)
+					</nav>
+				</div>
+			</header>
+			<main class="container">
+				{ children... }
+			</main>
+			<footer class="footer">
+				CCV admin console — actions are previewed and audited. Verify targets before acting.
+			</footer>
 		</body>
 	</html>
+}
+
+// logoMark is the Chainlink mark: hexagon outline around the perspective cube, drawn
+// with strokes only so it reads at small sizes (light-blue hexagon, white cube on navy).
+templ logoMark() {
+	<svg width="25" height="29" viewBox="0 0 26 30" fill="none" aria-hidden="true">
+		<path d="M13 1 24 7.5v15L13 29 2 22.5v-15L13 1z" stroke="#639cff" stroke-width="2"></path>
+		<path d="M13 8.2 19.2 11.8v7.2L13 22.6 6.8 19v-7.2L13 8.2z" stroke="#ffffff" stroke-width="1.5"></path>
+		<path d="M13 15.4 6.8 11.8m6.2 3.6 6.2-3.6m-6.2 3.6v7.2" stroke="#ffffff" stroke-width="1.5"></path>
+	</svg>
+}
+
+templ navLink(href, label, title string) {
+	if navSection(title) == href {
+		<a class="active" href={ templ.SafeURL(href) }>{ label }</a>
+	} else {
+		<a href={ templ.SafeURL(href) }>{ label }</a>
+	}
+}
+
+// navSection maps a page title to its nav item so sub-pages highlight their section.
+func navSection(title string) string {
+	switch title {
+	case "Nodes":
+		return "/"
+	case "Message search", "Message detail", "Reschedule preview", "Reschedule results":
+		return "/search"
+	case "Source recovery":
+		return "/recovery"
+	case "Indexer backfill":
+		return "/backfill"
+	case "Action log":
+		return "/actions"
+	}
+	return ""
 }
 
 templ ErrorPage(title, detail string) {

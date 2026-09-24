@@ -97,8 +97,7 @@ templ detailVerdict(vm DetailVM) {
 		<div class="banner">
 			No archived failed jobs, but the source reader observed drop/incident events for this message: it
 			was dropped before queue admission, so there is nothing to reschedule. Recovery means a bounded
-			source re-read from the <a href="/recovery">source recovery</a> page; per the runbook, drops before
-			admission need source recovery, not a queue reschedule.
+			source re-read from the <a href="/recovery">source recovery</a> page.
 		</div>
 	} else if vm.ArchiveDetail == "" && vm.EventsDetail == "" {
 		<p><em>Message not found on this node: no archived failed jobs and no observed drop/incident events.</em></p>
@@ -114,67 +113,67 @@ templ detailArchive(csrfToken string, vm DetailVM) {
 	} else if len(vm.Failed) == 0 {
 		<p><em>No archived failed jobs for this message on this node.</em></p>
 	} else {
-		<table>
-			<thead>
-				<tr>
-					<th>Queue</th>
-					<th>Owner</th>
-					<th>Job ID</th>
-					<th>Failure</th>
-					<th>Last error</th>
-					<th>Attempts</th>
-					<th>Created</th>
-					<th>Archived</th>
-					<th>Archive age</th>
-					<th>Archive expires</th>
-					<th>Retry deadline</th>
-					<th></th>
-				</tr>
-			</thead>
-			<tbody>
-				for _, job := range vm.Failed {
+		<div class="table-wrap">
+			<table>
+				<thead>
 					<tr>
-						<td>{ string(job.Job.Queue) }</td>
-						<td><code>{ job.Job.OwnerID }</code></td>
-						<td><code>{ job.Job.JobID }</code></td>
-						<td>{ job.Job.FailureCategory }</td>
-						<td>{ job.Job.LastError }</td>
-						<td>{ fmt.Sprint(job.Job.AttemptCount) }</td>
-						<td>{ formatT(job.Job.CreatedAt) }</td>
-						<td>{ formatTime(job.Job.ArchivedAt) }</td>
-						<td>{ archiveAge(job.Job.ArchivedAt) }</td>
-						<td>{ archiveExpiry(job.Job.ArchivedAt) }</td>
-						<td>{ formatT(job.Job.RetryDeadline) }</td>
-						<td>
-							<form method="post" action="/reschedule/preview" class="inline">
-								@CSRFField(csrfToken)
-								<input type="hidden" name="target" value={ job.RescheduleTarget }/>
-								<button type="submit">{ job.ButtonLabel }</button>
-							</form>
-						</td>
+						<th>Queue</th>
+						<th>Owner</th>
+						<th>Job ID</th>
+						<th>Failure</th>
+						<th>Last error</th>
+						<th>Attempts</th>
+						<th>Created</th>
+						<th>Archived</th>
+						<th>Archive age</th>
+						<th>Archive expires</th>
+						<th>Retry deadline</th>
+						<th></th>
 					</tr>
-				}
-			</tbody>
-		</table>
-		<p>
-			<small>
-				Archive rows are retained for 30 days from archiving and swept roughly every 4 hours.
-				Rescheduling restores the saved payload to the active queue — neither action re-checks
-				source-chain finality.
-			</small>
-		</p>
+				</thead>
+				<tbody>
+					for _, job := range vm.Failed {
+						<tr>
+							<td>{ string(job.Job.Queue) }</td>
+							<td><code>{ job.Job.OwnerID }</code></td>
+							<td><code>{ job.Job.JobID }</code></td>
+							<td>{ job.Job.FailureCategory }</td>
+							<td>{ job.Job.LastError }</td>
+							<td>{ fmt.Sprint(job.Job.AttemptCount) }</td>
+							<td>{ formatT(job.Job.CreatedAt) }</td>
+							<td>{ formatTime(job.Job.ArchivedAt) }</td>
+							<td>{ archiveAge(job.Job.ArchivedAt) }</td>
+							<td>{ archiveExpiry(job.Job.ArchivedAt) }</td>
+							<td>{ formatT(job.Job.RetryDeadline) }</td>
+							<td>
+								<form method="post" action="/reschedule/preview" class="inline">
+									@CSRFField(csrfToken)
+									<input type="hidden" name="target" value={ job.RescheduleTarget }/>
+									<button type="submit">{ job.ButtonLabel }</button>
+								</form>
+							</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		</div>
+		<details class="explain">
+			<summary>Archive retention &amp; what reschedule does</summary>
+			Archive rows are retained for 30 days from archiving and swept roughly every 4 hours.
+			Rescheduling restores the saved payload to the active queue — neither action re-checks
+			source-chain finality.
+		</details>
 	}
 }
 
-// detailAttestation is a placeholder: the freshness check lives in the reschedule flow.
+// detailAttestation is a pointer, not a section: the freshness check lives in the
+// reschedule flow, so the detail page stays quiet about it.
 templ detailAttestation() {
-	<h2>Attestation freshness</h2>
-	<p>
-		<small>
-			Not checked on this page — the aggregator/indexer attestation check runs at reschedule-preview
-			time, before any job is restored.
-		</small>
-	</p>
+	<details class="explain">
+		<summary>Attestation freshness is not checked on this page</summary>
+		The aggregator/indexer attestation check runs at reschedule-preview time, before any
+		job is restored.
+	</details>
 }
 
 templ detailEvidence(vm DetailVM) {
@@ -185,49 +184,50 @@ templ detailEvidence(vm DetailVM) {
 		if len(vm.Events) == 0 {
 			<p><em>No drop or incident events observed for this message.</em></p>
 		} else {
-			<table>
-				<thead>
-					<tr>
-						<th>Kind</th>
-						<th>Stage</th>
-						<th>Reason</th>
-						<th>Owner</th>
-						<th>Source chain</th>
-						<th>Source block</th>
-						<th>Tx hash</th>
-						<th>Incident</th>
-						<th>First observed</th>
-						<th>Last observed</th>
-						<th>Observations</th>
-						<th>Evidence expires</th>
-					</tr>
-				</thead>
-				<tbody>
-					for _, e := range vm.Events {
+			<div class="table-wrap">
+				<table>
+					<thead>
 						<tr>
-							<td>{ e.Kind }</td>
-							<td>{ e.Stage }</td>
-							<td>{ e.Reason }</td>
-							<td><code>{ e.OwnerID }</code></td>
-							<td>{ e.SourceChain }</td>
-							<td>{ e.SourceBlock }</td>
-							<td>{ e.TxHash }</td>
-							<td>{ e.IncidentID }</td>
-							<td>{ formatT(e.FirstObserved) }</td>
-							<td>{ formatT(e.LastObserved) }</td>
-							<td>{ e.Observations }</td>
-							<td>{ formatT(e.ExpiresAt) }</td>
+							<th>Kind</th>
+							<th>Stage</th>
+							<th>Reason</th>
+							<th>Owner</th>
+							<th>Source chain</th>
+							<th>Source block</th>
+							<th>Tx hash</th>
+							<th>Incident</th>
+							<th>First observed</th>
+							<th>Last observed</th>
+							<th>Observations</th>
+							<th>Evidence expires</th>
 						</tr>
-					}
-				</tbody>
-			</table>
+					</thead>
+					<tbody>
+						for _, e := range vm.Events {
+							<tr>
+								<td>{ e.Kind }</td>
+								<td>{ e.Stage }</td>
+								<td>{ e.Reason }</td>
+								<td><code>{ e.OwnerID }</code></td>
+								<td>{ e.SourceChain }</td>
+								<td>{ e.SourceBlock }</td>
+								<td>{ e.TxHash }</td>
+								<td>{ e.IncidentID }</td>
+								<td>{ formatT(e.FirstObserved) }</td>
+								<td>{ formatT(e.LastObserved) }</td>
+								<td>{ e.Observations }</td>
+								<td>{ formatT(e.ExpiresAt) }</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			</div>
 		}
-		<p>
-			<small>
-				Event history retained since { formatT(vm.RetainedSince) } (30-day retention). { vm.Coverage }
-				An empty result over an incomplete history is unknown, not "nothing happened".
-			</small>
-		</p>
+		<details class="explain">
+			<summary>Evidence coverage &amp; caveats</summary>
+			Event history retained since { formatT(vm.RetainedSince) } (30-day retention). { vm.Coverage }
+			An empty result over an incomplete history is unknown, not "nothing happened".
+		</details>
 	}
 }
 
@@ -240,34 +240,36 @@ templ detailChainStatus(vm DetailVM) {
 	} else if len(vm.Chains) == 0 {
 		<p><em>No chain-status rows for source chain { vm.SourceChain } on this node.</em></p>
 	} else {
-		<table>
-			<thead>
-				<tr>
-					<th>Source chain</th>
-					<th>Verifier</th>
-					<th>Finalized height</th>
-					<th>Reader state</th>
-					<th>Updated</th>
-				</tr>
-			</thead>
-			<tbody>
-				for _, row := range vm.Chains {
+		<div class="table-wrap">
+			<table>
+				<thead>
 					<tr>
-						<td>{ row.ChainSelector }</td>
-						<td><code>{ row.VerifierID }</code></td>
-						<td>{ row.FinalizedHeight }</td>
-						<td>
-							if row.Disabled {
-								<span class="state-unreachable">disabled</span>
-							} else {
-								enabled
-							}
-						</td>
-						<td>{ formatT(row.UpdatedAt) }</td>
+						<th>Source chain</th>
+						<th>Verifier</th>
+						<th>Finalized height</th>
+						<th>Reader state</th>
+						<th>Updated</th>
 					</tr>
-				}
-			</tbody>
-		</table>
+				</thead>
+				<tbody>
+					for _, row := range vm.Chains {
+						<tr>
+							<td>{ row.ChainSelector }</td>
+							<td><code>{ row.VerifierID }</code></td>
+							<td>{ row.FinalizedHeight }</td>
+							<td>
+								if row.Disabled {
+									<span class="state-unreachable">disabled</span>
+								} else {
+									<span class="state-ready">enabled</span>
+								}
+							</td>
+							<td>{ formatT(row.UpdatedAt) }</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		</div>
 		if anyChainDisabled(vm.Chains) {
 			<div class="banner">
 				The reader for this source chain is disabled: recovery requires the investigated reset-reader

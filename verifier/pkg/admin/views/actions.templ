@@ -17,34 +17,36 @@ templ ActionsPage(actions []ActionVM) {
 		if len(actions) == 0 {
 			<p><em>No actions recorded.</em></p>
 		} else {
-			<table>
-				<thead>
-					<tr>
-						<th>Time (UTC)</th>
-						<th>Actor</th>
-						<th>Action</th>
-						<th>Node</th>
-						<th>Target</th>
-						<th>Operation</th>
-						<th>Outcome</th>
-						<th>Detail</th>
-					</tr>
-				</thead>
-				<tbody>
-					for _, a := range actions {
+			<div class="table-wrap">
+				<table>
+					<thead>
 						<tr>
-							<td>{ a.CreatedAt.UTC().Format(time.RFC3339) }</td>
-							<td>{ a.Actor }</td>
-							<td>{ a.Action }</td>
-							<td>{ a.NodeName }</td>
-							<td><code class="mid">{ a.Target }</code></td>
-							<td><code class="mid">{ a.OperationID }</code></td>
-							<td>{ a.Outcome }</td>
-							<td><small>{ a.Detail }</small></td>
+							<th>Time (UTC)</th>
+							<th>Actor</th>
+							<th>Action</th>
+							<th>Node</th>
+							<th>Target</th>
+							<th>Operation</th>
+							<th>Outcome</th>
+							<th>Detail</th>
 						</tr>
-					}
-				</tbody>
-			</table>
+					</thead>
+					<tbody>
+						for _, a := range actions {
+							<tr>
+								<td>{ a.CreatedAt.UTC().Format(time.RFC3339) }</td>
+								<td>{ a.Actor }</td>
+								<td>{ a.Action }</td>
+								<td>{ a.NodeName }</td>
+								<td><code class="mid">{ a.Target }</code></td>
+								<td><code class="mid">{ a.OperationID }</code></td>
+								<td>{ a.Outcome }</td>
+								<td><small>{ a.Detail }</small></td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			</div>
 		}
 	}
 }

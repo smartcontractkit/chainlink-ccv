@@ -15,42 +15,44 @@ type NodeRow struct {
 // whether each member is reachable. Verify this list before acting.
 templ NodesPage(rows []NodeRow, listenAddress string, readOnly bool) {
 	@Layout("Nodes") {
-		<h1>Configured nodes</h1>
-		<p>This console administers the following verifier databases. Verify the list before acting.</p>
+		<h1>Nodes</h1>
+		<p>The verifier databases this console administers — verify the list before acting.</p>
 		if readOnly {
 			<div class="banner">
 				Read-only mode: the console database is not configured, so mutations are disabled and no
 				action log is kept. Set <code>[db].url</code> in the console secrets file to enable actions.
 			</div>
 		}
-		<table>
-			<thead>
-				<tr>
-					<th>Node</th>
-					<th>State</th>
-					<th>Capabilities</th>
-				</tr>
-			</thead>
-			<tbody>
-				for _, row := range rows {
+		<div class="table-wrap">
+			<table>
+				<thead>
 					<tr>
-						<td><code>{ row.Name }</code></td>
-						<td>
-							if row.Ready {
-								<span class="state-ready">ready</span>
-							} else {
-								<span class="state-unreachable">unreachable</span>
-								if row.Detail != "" {
-									<br/><small>{ row.Detail }</small>
-								}
-							}
-						</td>
-						<td>{ capabilityList(row) }</td>
+						<th>Node</th>
+						<th>State</th>
+						<th>Capabilities</th>
 					</tr>
-				}
-			</tbody>
-		</table>
-		<p><small>Serving on { listenAddress }. The console talks directly to each node's database; credentials never leave this process.</small></p>
+				</thead>
+				<tbody>
+					for _, row := range rows {
+						<tr>
+							<td><code>{ row.Name }</code></td>
+							<td>
+								if row.Ready {
+									<span class="state-ready">ready</span>
+								} else {
+									<span class="state-unreachable">unreachable</span>
+									if row.Detail != "" {
+										<br/><small>{ row.Detail }</small>
+									}
+								}
+							</td>
+							<td>{ capabilityList(row) }</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		</div>
+		<p><small>Serving on { listenAddress } — credentials never leave this process.</small></p>
 	}
 }
 

@@ -41,11 +41,7 @@ type BackfillJobsNodeVM struct {
 templ BackfillPage(csrfToken string, nodes []BackfillNodeVM) {
 	@Layout("Indexer backfill") {
 		<h1>Indexer-data backfill</h1>
-		<p>
-			This repairs the indexer's own view of aggregator/verifier data (missing or stale rows). It does
-			not re-admit or re-verify source-chain events — that is
-			<a href="/recovery">source recovery</a>.
-		</p>
+		<p>Repair the indexer's own view of aggregator/verifier data (missing or stale rows) — this is not <a href="/recovery">source recovery</a>.</p>
 		if len(nodes) == 0 {
 			<div class="banner">
 				Indexer backfill is not available: no configured node has <code>indexer_config_path</code> set.
@@ -64,48 +60,54 @@ templ BackfillPage(csrfToken string, nodes []BackfillNodeVM) {
 			</p>
 			<h2>Discovery backfill</h2>
 			<p>Re-run aggregator discovery from a sequence number onward, gathering verifier records for everything found.</p>
-			<form id="backfill-discovery-form">
-				@CSRFField(csrfToken)
-				<label>
-					Node
-					<select name="node">
-						for _, n := range nodes {
-							<option value={ n.Name }>{ n.Name }</option>
-						}
-					</select>
-				</label>
-				<label>
-					Aggregator sequence number (since, inclusive)
-					<input type="number" name="since" min="0" step="1"/>
-				</label>
-				@BackfillForceField()
-				<br/>
-				<button type="button" hx-post="/backfill/submit" hx-target="#backfill-result" hx-swap="innerHTML">
-					Start discovery backfill
-				</button>
-			</form>
+			<div class="card">
+				<form id="backfill-discovery-form">
+					@CSRFField(csrfToken)
+					<p>
+						<label>
+							Node
+							<select name="node">
+								for _, n := range nodes {
+									<option value={ n.Name }>{ n.Name }</option>
+								}
+							</select>
+						</label>
+						<label>
+							Aggregator sequence number (since, inclusive)
+							<input type="number" name="since" min="0" step="1"/>
+						</label>
+					</p>
+					@BackfillForceField()
+					<button type="button" hx-post="/backfill/submit" hx-target="#backfill-result" hx-swap="innerHTML">
+						Start discovery backfill
+					</button>
+				</form>
+			</div>
 			<h2>Targeted repair</h2>
 			<p>Re-fetch verifier records for specific messages by ID (full 32-byte hex, space or comma separated). Does not re-run discovery.</p>
-			<form id="backfill-messages-form">
-				@CSRFField(csrfToken)
-				<label>
-					Node
-					<select name="node">
-						for _, n := range nodes {
-							<option value={ n.Name }>{ n.Name }</option>
-						}
-					</select>
-				</label>
-				<label>
-					Message IDs<br/>
-					<textarea name="message_ids" placeholder="0x… 0x…"></textarea>
-				</label>
-				@BackfillForceField()
-				<br/>
-				<button type="button" hx-post="/backfill/submit" hx-target="#backfill-result" hx-swap="innerHTML">
-					Start targeted repair
-				</button>
-			</form>
+			<div class="card">
+				<form id="backfill-messages-form">
+					@CSRFField(csrfToken)
+					<p>
+						<label>
+							Node
+							<select name="node">
+								for _, n := range nodes {
+									<option value={ n.Name }>{ n.Name }</option>
+								}
+							</select>
+						</label>
+					</p>
+					<label>
+						Message IDs<br/>
+						<textarea name="message_ids" placeholder="0x… 0x…"></textarea>
+					</label>
+					@BackfillForceField()
+					<button type="button" hx-post="/backfill/submit" hx-target="#backfill-result" hx-swap="innerHTML">
+						Start targeted repair
+					</button>
+				</form>
+			</div>
 			<div id="backfill-result"></div>
 			<h2>Replay jobs</h2>
 			<div id="backfill-jobs" hx-get="/backfill/jobs" hx-trigger="load" hx-target="#backfill-jobs" hx-swap="innerHTML"></div>
@@ -167,52 +169,54 @@ templ BackfillJobs(nodes []BackfillJobsNodeVM, inFlight bool) {
 			} else if len(n.Jobs) == 0 {
 				<p><em>No replay jobs recorded.</em></p>
 			} else {
-				<table>
-					<thead>
-						<tr>
-							<th>Job</th>
-							<th>Type</th>
-							<th>Status</th>
-							<th>Force</th>
-							<th>Target</th>
-							<th>Progress</th>
-							<th>Heartbeat (UTC)</th>
-							<th>Created (UTC)</th>
-						</tr>
-					</thead>
-					<tbody>
-						for _, j := range n.Jobs {
+				<div class="table-wrap">
+					<table>
+						<thead>
 							<tr>
-								<td>
-									<code class="mid">{ j.ID }</code>
-									if j.Error != "" {
-										<br/>
-										<small class="state-unreachable">{ j.Error }</small>
-									}
-								</td>
-								<td>{ j.Type }</td>
-								<td>{ j.Status }</td>
-								<td>
-									if j.Force {
-										<strong>force</strong>
-									} else {
-										backfill-only
-									}
-								</td>
-								<td><small>{ j.Target }</small></td>
-								<td>{ j.Progress }</td>
-								<td>
-									<small>{ j.Heartbeat.UTC().Format(time.RFC3339) }</small>
-									if j.Stale {
-										<br/>
-										<small class="state-unreachable">stale — resumed by an identical resubmission or indexer-replay resume</small>
-									}
-								</td>
-								<td><small>{ j.CreatedAt.UTC().Format(time.RFC3339) }</small></td>
+								<th>Job</th>
+								<th>Type</th>
+								<th>Status</th>
+								<th>Force</th>
+								<th>Target</th>
+								<th>Progress</th>
+								<th>Heartbeat (UTC)</th>
+								<th>Created (UTC)</th>
 							</tr>
-						}
-					</tbody>
-				</table>
+						</thead>
+						<tbody>
+							for _, j := range n.Jobs {
+								<tr>
+									<td>
+										<code class="mid">{ j.ID }</code>
+										if j.Error != "" {
+											<br/>
+											<small class="state-unreachable">{ j.Error }</small>
+										}
+									</td>
+									<td>{ j.Type }</td>
+									<td>{ j.Status }</td>
+									<td>
+										if j.Force {
+											<strong>force</strong>
+										} else {
+											backfill-only
+										}
+									</td>
+									<td><small>{ j.Target }</small></td>
+									<td>{ j.Progress }</td>
+									<td>
+										<small>{ j.Heartbeat.UTC().Format(time.RFC3339) }</small>
+										if j.Stale {
+											<br/>
+											<small class="state-unreachable">stale — resumed by an identical resubmission or indexer-replay resume</small>
+										}
+									</td>
+									<td><small>{ j.CreatedAt.UTC().Format(time.RFC3339) }</small></td>
+								</tr>
+							}
+						</tbody>
+					</table>
+				</div>
 			}
 		}
 	</div>

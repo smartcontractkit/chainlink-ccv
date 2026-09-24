@@ -97,82 +97,86 @@ type RecoveryEventVM struct {
 templ RecoveryPage(csrfToken string, nodes []RecoveryPageNodeVM) {
 	@Layout("Source recovery") {
 		<h1>Source-range recovery</h1>
-		<p>
-			<strong>replay</strong> re-reads an inclusive source block range and re-runs admission and
-			verification for the events found there. It never rewinds the normal reader checkpoint and never
-			re-enables a disabled reader.
-		</p>
-		<p>
-			<strong>reset-reader</strong> is the investigated recovery action for a finality-blocked
-			(disabled) reader: it records your operator identity and boundary evidence, re-initializes the
-			finality checker at <code>from-block − 1</code>, re-enables the reader, and recovers the range.
-			Submit it only after establishing the canonical chain and a known-good boundary. It requires a
-			disabled reader; an enabled reader takes <strong>replay</strong> instead.
-		</p>
-		<p>
-			<small>
+		<p>Re-read a source block range through the verifier's durable recovery machinery — every action is previewed before submission.</p>
+		<details class="explain">
+			<summary>How recovery works: replay vs reset-reader, and bounds</summary>
+			<p>
+				<strong>replay</strong> re-reads an inclusive source block range and re-runs admission and
+				verification for the events found there. It never rewinds the normal reader checkpoint and never
+				re-enables a disabled reader.
+			</p>
+			<p>
+				<strong>reset-reader</strong> is the investigated recovery action for a finality-blocked
+				(disabled) reader: it records your operator identity and boundary evidence, re-initializes the
+				finality checker at <code>from-block − 1</code>, re-enables the reader, and recovers the range.
+				Submit it only after establishing the canonical chain and a known-good boundary. It requires a
+				disabled reader; an enabled reader takes <strong>replay</strong> instead.
+			</p>
+			<p>
 				Bounds: at most 100 blocks and 1,000 events per chunk; recovery pauses while an owner has
 				10,000 active verification jobs. A range covers every lane on the source chain. Operations are
 				durable in the node database and survive reloads and console restarts.
-			</small>
-		</p>
-		<form id="recovery-form">
-			@CSRFField(csrfToken)
-			<fieldset>
-				<legend>Nodes (the operation is submitted once per selected node)</legend>
-				for _, n := range nodes {
-					<label><input type="checkbox" name="nodes" value={ n.Name }/> <code>{ n.Name }</code></label>
-				}
-			</fieldset>
-			<p>
-				<label>Verifier owner <input type="text" name="owner" size="40"/></label>
-				<label>Source chain selector <input type="number" name="chain" min="0" step="1"/></label>
 			</p>
-			<p>
-				<label>From block (inclusive) <input type="number" name="from_block" min="0" step="1"/></label>
-				<label>
-					To block (inclusive, optional)
-					<input type="number" name="to_block" min="0" step="1"/>
-				</label>
-				<br/>
-				<small>Omitting to-block captures the reader's advertised head at submission; the target never follows later chain progress.</small>
-			</p>
-			<fieldset>
-				<legend>Action</legend>
-				<label><input type="radio" name="mode" value="replay" checked/> replay — re-verify a range; does not enable a finality-blocked reader</label>
-				<br/>
-				<label><input type="radio" name="mode" value="reset-reader"/> reset-reader — investigated reset: re-enables a disabled reader and recovers the range</label>
-			</fieldset>
-			<p>
-				<label>
-					Recovery note (required — the reason and the investigated boundary evidence)<br/>
-					<textarea name="note" placeholder="Incident reference; canonical headers checked through block …"></textarea>
-				</label>
-			</p>
-			<p>
-				<label>
-					Request ID (optional UUID)
-					<input type="text" name="request_id" size="40"/>
-				</label>
-				<br/>
-				<small>
-					Leave empty for a fresh request. After a disconnected submission, resubmit only failed nodes, or
-					reuse the shown request ID: a node that already accepted it returns its original operation.
-				</small>
-			</p>
-			<button type="button" hx-post="/recovery/preview" hx-target="#recovery-preview" hx-swap="innerHTML">
-				Preview capability
-			</button>
-			<div id="recovery-preview"></div>
-		</form>
+		</details>
+		<div class="card">
+			<form id="recovery-form">
+				@CSRFField(csrfToken)
+				<fieldset>
+					<legend>Nodes (the operation is submitted once per selected node)</legend>
+					for _, n := range nodes {
+						<label><input type="checkbox" name="nodes" value={ n.Name }/> <code>{ n.Name }</code></label>
+					}
+				</fieldset>
+				<p>
+					<label>Verifier owner <input type="text" name="owner" size="40"/></label>
+					<label>Source chain selector <input type="number" name="chain" min="0" step="1"/></label>
+				</p>
+				<p>
+					<label>From block (inclusive) <input type="number" name="from_block" min="0" step="1"/></label>
+					<label>
+						To block (inclusive, optional)
+						<input type="number" name="to_block" min="0" step="1"/>
+					</label>
+					<br/>
+					<small>Omitting to-block captures the reader's advertised head at submission; the target never follows later chain progress.</small>
+				</p>
+				<fieldset>
+					<legend>Action</legend>
+					<label><input type="radio" name="mode" value="replay" checked/> replay — re-verify a range; does not enable a finality-blocked reader</label>
+					<br/>
+					<label><input type="radio" name="mode" value="reset-reader"/> reset-reader — investigated reset: re-enables a disabled reader and recovers the range</label>
+				</fieldset>
+				<p>
+					<label>
+						Recovery note (required — the reason and the investigated boundary evidence)<br/>
+						<textarea name="note" placeholder="Incident reference; canonical headers checked through block …"></textarea>
+					</label>
+				</p>
+				<p>
+					<label>
+						Request ID (optional UUID)
+						<input type="text" name="request_id" size="40"/>
+					</label>
+					<br/>
+					<small>
+						Leave empty for a fresh request. After a disconnected submission, resubmit only failed nodes, or
+						reuse the shown request ID: a node that already accepted it returns its original operation.
+					</small>
+				</p>
+				<button type="button" hx-post="/recovery/preview" hx-target="#recovery-preview" hx-swap="innerHTML">
+					Preview capability
+				</button>
+				<div id="recovery-preview"></div>
+			</form>
+		</div>
 		<div id="recovery-submit-result"></div>
 		<h2>Evidence</h2>
-		<p>
-			Retained drops, finality incidents and reader resets recorded by the selected nodes for the chosen
-			owner/chain (and range, when set). A detected finality mismatch marks where detection happened — it is
-			evidence, not automatically the earliest affected block; scope the range from canonical-chain
-			investigation.
-		</p>
+		<p>Retained drops, incidents and reader resets for the chosen owner/chain — load them before choosing a range.</p>
+		<details class="explain">
+			<summary>What the evidence can and cannot tell you</summary>
+			A detected finality mismatch marks where detection happened — it is evidence, not automatically
+			the earliest affected block; scope the range from canonical-chain investigation.
+		</details>
 		<button type="button" hx-get="/recovery/evidence" hx-include="#recovery-form" hx-target="#recovery-evidence" hx-swap="innerHTML">
 			Load evidence for the selected nodes
 		</button>
@@ -252,12 +256,11 @@ templ RecoveryPreview(vm RecoveryPreviewVM) {
 	} else {
 		<button type="button" disabled>Submit unavailable — resolve the per-node findings above</button>
 	}
-	<p>
-		<small>
-			The capability view is a snapshot: re-run the preview after changing any input. The submit path
-			re-checks every finding on the server before touching a node.
-		</small>
-	</p>
+	<details class="explain">
+		<summary>The capability view is a snapshot</summary>
+		Re-run the preview after changing any input. The submit path re-checks every finding on the
+		server before touching a node.
+	</details>
 }
 
 // RecoverySubmitError renders a rejected submission (validation or read-only mode).
@@ -304,26 +307,28 @@ templ RecoveryOperations(vm RecoveryOperationsVM, csrfToken string) {
 			} else if len(n.Ops) == 0 {
 				<p><em>No recovery operations recorded for this filter.</em></p>
 			} else {
-				<table>
-					<thead>
-						<tr>
-							<th>Operation</th>
-							<th>Mode</th>
-							<th>State</th>
-							<th>Range</th>
-							<th>Progress</th>
-							<th>Counters</th>
-							<th>Reset applied</th>
-							<th>Updated (UTC)</th>
-							<th></th>
-						</tr>
-					</thead>
-					<tbody>
-						for _, op := range n.Ops {
-							@RecoveryOperationRow(n.NodeName, op, csrfToken)
-						}
-					</tbody>
-				</table>
+				<div class="table-wrap">
+					<table>
+						<thead>
+							<tr>
+								<th>Operation</th>
+								<th>Mode</th>
+								<th>State</th>
+								<th>Range</th>
+								<th>Progress</th>
+								<th>Counters</th>
+								<th>Reset applied</th>
+								<th>Updated (UTC)</th>
+								<th></th>
+							</tr>
+						</thead>
+						<tbody>
+							for _, op := range n.Ops {
+								@RecoveryOperationRow(n.NodeName, op, csrfToken)
+							}
+						</tbody>
+					</table>
+				</div>
 			}
 		}
 	</div>
@@ -412,34 +417,36 @@ templ RecoveryEvidence(nodes []RecoveryEvidenceNodeVM) {
 			<div class="error">Evidence unavailable: { n.Error }. Treat this node's evidence as unknown, not as "no incidents".</div>
 		} else {
 			if len(n.Readers) > 0 {
-				<table>
-					<thead>
-						<tr>
-							<th>Reader node</th>
-							<th>Disabled</th>
-							<th>Latest head</th>
-							<th>Head observed</th>
-							<th>Last seen</th>
-							<th>History since</th>
-							<th>Active reset</th>
-							<th>Audit failures</th>
-						</tr>
-					</thead>
-					<tbody>
-						for _, r := range n.Readers {
+				<div class="table-wrap">
+					<table>
+						<thead>
 							<tr>
-								<td><code>{ r.NodeID }</code></td>
-								<td>{ r.Disabled }</td>
-								<td>{ r.LatestBlock }</td>
-								<td><small>{ r.HeadObservedAt }</small></td>
-								<td><small>{ r.LastSeenAt }</small></td>
-								<td><small>{ r.HistoryStartedAt }</small></td>
-								<td><code class="mid">{ r.ActiveResetID }</code></td>
-								<td>{ r.AuditFailures }</td>
+								<th>Reader node</th>
+								<th>Disabled</th>
+								<th>Latest head</th>
+								<th>Head observed</th>
+								<th>Last seen</th>
+								<th>History since</th>
+								<th>Active reset</th>
+								<th>Audit failures</th>
 							</tr>
-						}
-					</tbody>
-				</table>
+						</thead>
+						<tbody>
+							for _, r := range n.Readers {
+								<tr>
+									<td><code>{ r.NodeID }</code></td>
+									<td>{ r.Disabled }</td>
+									<td>{ r.LatestBlock }</td>
+									<td><small>{ r.HeadObservedAt }</small></td>
+									<td><small>{ r.LastSeenAt }</small></td>
+									<td><small>{ r.HistoryStartedAt }</small></td>
+									<td><code class="mid">{ r.ActiveResetID }</code></td>
+									<td>{ r.AuditFailures }</td>
+								</tr>
+							}
+						</tbody>
+					</table>
+				</div>
 			}
 			<div class="banner">
 				{ n.Coverage }
@@ -455,44 +462,46 @@ templ RecoveryEvidence(nodes []RecoveryEvidenceNodeVM) {
 					</em>
 				</p>
 			} else {
-				<table>
-					<thead>
-						<tr>
-							<th>Kind</th>
-							<th>Reason</th>
-							<th>Stage</th>
-							<th>Source block</th>
-							<th>Message ID</th>
-							<th>Tx hash</th>
-							<th>Block hash</th>
-							<th>Incident</th>
-							<th>Observed</th>
-							<th>Expires (UTC)</th>
-						</tr>
-					</thead>
-					<tbody>
-						for _, e := range n.Events {
+				<div class="table-wrap">
+					<table>
+						<thead>
 							<tr>
-								<td>{ e.Kind }</td>
-								<td>{ e.Reason }</td>
-								<td>{ e.Stage }</td>
-								<td>{ e.SourceBlock }</td>
-								<td><code class="mid">{ e.MessageID }</code></td>
-								<td><code class="mid">{ e.TxHash }</code></td>
-								<td><code class="mid">{ e.BlockHash }</code></td>
-								<td><code class="mid">{ e.IncidentID }</code></td>
-								<td>
-									<small>
-										×{ e.Observations }<br/>
-										{ e.FirstObserved }<br/>
-										{ e.LastObserved }
-									</small>
-								</td>
-								<td><small>{ e.Expires }</small></td>
+								<th>Kind</th>
+								<th>Reason</th>
+								<th>Stage</th>
+								<th>Source block</th>
+								<th>Message ID</th>
+								<th>Tx hash</th>
+								<th>Block hash</th>
+								<th>Incident</th>
+								<th>Observed</th>
+								<th>Expires (UTC)</th>
 							</tr>
-						}
-					</tbody>
-				</table>
+						</thead>
+						<tbody>
+							for _, e := range n.Events {
+								<tr>
+									<td>{ e.Kind }</td>
+									<td>{ e.Reason }</td>
+									<td>{ e.Stage }</td>
+									<td>{ e.SourceBlock }</td>
+									<td><code class="mid">{ e.MessageID }</code></td>
+									<td><code class="mid">{ e.TxHash }</code></td>
+									<td><code class="mid">{ e.BlockHash }</code></td>
+									<td><code class="mid">{ e.IncidentID }</code></td>
+									<td>
+										<small>
+											×{ e.Observations }<br/>
+											{ e.FirstObserved }<br/>
+											{ e.LastObserved }
+										</small>
+									</td>
+									<td><small>{ e.Expires }</small></td>
+								</tr>
+							}
+						</tbody>
+					</table>
+				</div>
 				if n.NextCursor != "" {
 					<button
 						type="button"

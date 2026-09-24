@@ -79,7 +79,7 @@ func BackfillPage(csrfToken string, nodes []BackfillNodeVM) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<h1>Indexer-data backfill</h1><p>This repairs the indexer's own view of aggregator/verifier data (missing or stale rows). It does not re-admit or re-verify source-chain events — that is <a href=\"/recovery\">source recovery</a>.</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<h1>Indexer-data backfill</h1><p>Repair the indexer's own view of aggregator/verifier data (missing or stale rows) — this is not <a href=\"/recovery\">source recovery</a>.</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -89,7 +89,7 @@ func BackfillPage(csrfToken string, nodes []BackfillNodeVM) templ.Component {
 					return templ_7745c5c3_Err
 				}
 			} else {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "<p><small>Backfill targets aggregator sequence numbers (discovery) or message IDs (targeted repair). These are not source block numbers. Jobs are durable in the indexer's <code>replay_jobs</code> table and run in the background; a crashed job is resumed by resubmitting the identical request (stale-job detection) or <code>indexer-replay resume --id</code>.</small></p><h2>Discovery backfill</h2><p>Re-run aggregator discovery from a sequence number onward, gathering verifier records for everything found.</p><form id=\"backfill-discovery-form\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "<p><small>Backfill targets aggregator sequence numbers (discovery) or message IDs (targeted repair). These are not source block numbers. Jobs are durable in the indexer's <code>replay_jobs</code> table and run in the background; a crashed job is resumed by resubmitting the identical request (stale-job detection) or <code>indexer-replay resume --id</code>.</small></p><h2>Discovery backfill</h2><p>Re-run aggregator discovery from a sequence number onward, gathering verifier records for everything found.</p><div class=\"card\"><form id=\"backfill-discovery-form\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -97,7 +97,7 @@ func BackfillPage(csrfToken string, nodes []BackfillNodeVM) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<label>Node <select name=\"node\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<p><label>Node <select name=\"node\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -109,7 +109,7 @@ func BackfillPage(csrfToken string, nodes []BackfillNodeVM) templ.Component {
 					var templ_7745c5c3_Var3 string
 					templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.ResolveAttributeValue(n.Name)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/backfill.templ`, Line: 73, Col: 29}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `backfill.templ`, Line: 71, Col: 31}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var3)
 					if templ_7745c5c3_Err != nil {
@@ -122,7 +122,7 @@ func BackfillPage(csrfToken string, nodes []BackfillNodeVM) templ.Component {
 					var templ_7745c5c3_Var4 string
 					templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(n.Name)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/backfill.templ`, Line: 73, Col: 40}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `backfill.templ`, Line: 71, Col: 42}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 					if templ_7745c5c3_Err != nil {
@@ -133,7 +133,7 @@ func BackfillPage(csrfToken string, nodes []BackfillNodeVM) templ.Component {
 						return templ_7745c5c3_Err
 					}
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "</select></label> <label>Aggregator sequence number (since, inclusive) <input type=\"number\" name=\"since\" min=\"0\" step=\"1\"></label>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "</select></label> <label>Aggregator sequence number (since, inclusive) <input type=\"number\" name=\"since\" min=\"0\" step=\"1\"></label></p>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -141,7 +141,7 @@ func BackfillPage(csrfToken string, nodes []BackfillNodeVM) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "<br><button type=\"button\" hx-post=\"/backfill/submit\" hx-target=\"#backfill-result\" hx-swap=\"innerHTML\">Start discovery backfill</button></form><h2>Targeted repair</h2><p>Re-fetch verifier records for specific messages by ID (full 32-byte hex, space or comma separated). Does not re-run discovery.</p><form id=\"backfill-messages-form\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "<button type=\"button\" hx-post=\"/backfill/submit\" hx-target=\"#backfill-result\" hx-swap=\"innerHTML\">Start discovery backfill</button></form></div><h2>Targeted repair</h2><p>Re-fetch verifier records for specific messages by ID (full 32-byte hex, space or comma separated). Does not re-run discovery.</p><div class=\"card\"><form id=\"backfill-messages-form\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -149,7 +149,7 @@ func BackfillPage(csrfToken string, nodes []BackfillNodeVM) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "<label>Node <select name=\"node\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "<p><label>Node <select name=\"node\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -161,7 +161,7 @@ func BackfillPage(csrfToken string, nodes []BackfillNodeVM) templ.Component {
 					var templ_7745c5c3_Var5 string
 					templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.ResolveAttributeValue(n.Name)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/backfill.templ`, Line: 95, Col: 29}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `backfill.templ`, Line: 96, Col: 31}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var5)
 					if templ_7745c5c3_Err != nil {
@@ -174,7 +174,7 @@ func BackfillPage(csrfToken string, nodes []BackfillNodeVM) templ.Component {
 					var templ_7745c5c3_Var6 string
 					templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(n.Name)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/backfill.templ`, Line: 95, Col: 40}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `backfill.templ`, Line: 96, Col: 42}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 					if templ_7745c5c3_Err != nil {
@@ -185,7 +185,7 @@ func BackfillPage(csrfToken string, nodes []BackfillNodeVM) templ.Component {
 						return templ_7745c5c3_Err
 					}
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "</select></label> <label>Message IDs<br><textarea name=\"message_ids\" placeholder=\"0x… 0x…\"></textarea></label>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "</select></label></p><label>Message IDs<br><textarea name=\"message_ids\" placeholder=\"0x… 0x…\"></textarea></label>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -193,7 +193,7 @@ func BackfillPage(csrfToken string, nodes []BackfillNodeVM) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "<br><button type=\"button\" hx-post=\"/backfill/submit\" hx-target=\"#backfill-result\" hx-swap=\"innerHTML\">Start targeted repair</button></form><div id=\"backfill-result\"></div><h2>Replay jobs</h2><div id=\"backfill-jobs\" hx-get=\"/backfill/jobs\" hx-trigger=\"load\" hx-target=\"#backfill-jobs\" hx-swap=\"innerHTML\"></div>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "<button type=\"button\" hx-post=\"/backfill/submit\" hx-target=\"#backfill-result\" hx-swap=\"innerHTML\">Start targeted repair</button></form></div><div id=\"backfill-result\"></div><h2>Replay jobs</h2><div id=\"backfill-jobs\" hx-get=\"/backfill/jobs\" hx-trigger=\"load\" hx-target=\"#backfill-jobs\" hx-swap=\"innerHTML\"></div>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -268,7 +268,7 @@ func BackfillSubmitError(detail string) templ.Component {
 		var templ_7745c5c3_Var9 string
 		templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(detail)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/backfill.templ`, Line: 131, Col: 28}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `backfill.templ`, Line: 133, Col: 28}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 		if templ_7745c5c3_Err != nil {
@@ -311,7 +311,7 @@ func BackfillSubmitResult(vm BackfillSubmitResultVM) templ.Component {
 		var templ_7745c5c3_Var11 string
 		templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(vm.NodeName)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/backfill.templ`, Line: 136, Col: 46}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `backfill.templ`, Line: 138, Col: 46}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 		if templ_7745c5c3_Err != nil {
@@ -329,7 +329,7 @@ func BackfillSubmitResult(vm BackfillSubmitResultVM) templ.Component {
 			var templ_7745c5c3_Var12 string
 			templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(vm.Error)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/backfill.templ`, Line: 138, Col: 31}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `backfill.templ`, Line: 140, Col: 31}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 			if templ_7745c5c3_Err != nil {
@@ -347,7 +347,7 @@ func BackfillSubmitResult(vm BackfillSubmitResultVM) templ.Component {
 			var templ_7745c5c3_Var13 string
 			templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(vm.Target)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/backfill.templ`, Line: 141, Col: 14}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `backfill.templ`, Line: 143, Col: 14}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 			if templ_7745c5c3_Err != nil {
@@ -365,7 +365,7 @@ func BackfillSubmitResult(vm BackfillSubmitResultVM) templ.Component {
 				var templ_7745c5c3_Var14 string
 				templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(vm.JobID)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/backfill.templ`, Line: 143, Col: 36}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `backfill.templ`, Line: 145, Col: 36}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
 				if templ_7745c5c3_Err != nil {
@@ -388,7 +388,7 @@ func BackfillSubmitResult(vm BackfillSubmitResultVM) templ.Component {
 			var templ_7745c5c3_Var15 string
 			templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinStringErrs(vm.RequestHash)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/backfill.templ`, Line: 147, Col: 50}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `backfill.templ`, Line: 149, Col: 50}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
 			if templ_7745c5c3_Err != nil {
@@ -447,7 +447,7 @@ func BackfillJobs(nodes []BackfillJobsNodeVM, inFlight bool) templ.Component {
 			var templ_7745c5c3_Var17 string
 			templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(n.NodeName)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/backfill.templ`, Line: 164, Col: 25}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `backfill.templ`, Line: 166, Col: 25}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
 			if templ_7745c5c3_Err != nil {
@@ -465,7 +465,7 @@ func BackfillJobs(nodes []BackfillJobsNodeVM, inFlight bool) templ.Component {
 				var templ_7745c5c3_Var18 string
 				templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(n.Error)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/backfill.templ`, Line: 166, Col: 54}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `backfill.templ`, Line: 168, Col: 54}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 				if templ_7745c5c3_Err != nil {
@@ -481,7 +481,7 @@ func BackfillJobs(nodes []BackfillJobsNodeVM, inFlight bool) templ.Component {
 					return templ_7745c5c3_Err
 				}
 			} else {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 38, "<table><thead><tr><th>Job</th><th>Type</th><th>Status</th><th>Force</th><th>Target</th><th>Progress</th><th>Heartbeat (UTC)</th><th>Created (UTC)</th></tr></thead> <tbody>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 38, "<div class=\"table-wrap\"><table><thead><tr><th>Job</th><th>Type</th><th>Status</th><th>Force</th><th>Target</th><th>Progress</th><th>Heartbeat (UTC)</th><th>Created (UTC)</th></tr></thead> <tbody>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -493,7 +493,7 @@ func BackfillJobs(nodes []BackfillJobsNodeVM, inFlight bool) templ.Component {
 					var templ_7745c5c3_Var19 string
 					templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.JoinStringErrs(j.ID)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/backfill.templ`, Line: 187, Col: 33}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `backfill.templ`, Line: 190, Col: 34}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var19))
 					if templ_7745c5c3_Err != nil {
@@ -511,7 +511,7 @@ func BackfillJobs(nodes []BackfillJobsNodeVM, inFlight bool) templ.Component {
 						var templ_7745c5c3_Var20 string
 						templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.JoinStringErrs(j.Error)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/backfill.templ`, Line: 190, Col: 52}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `backfill.templ`, Line: 193, Col: 53}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var20))
 						if templ_7745c5c3_Err != nil {
@@ -529,7 +529,7 @@ func BackfillJobs(nodes []BackfillJobsNodeVM, inFlight bool) templ.Component {
 					var templ_7745c5c3_Var21 string
 					templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.JoinStringErrs(j.Type)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/backfill.templ`, Line: 193, Col: 20}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `backfill.templ`, Line: 196, Col: 21}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var21))
 					if templ_7745c5c3_Err != nil {
@@ -542,7 +542,7 @@ func BackfillJobs(nodes []BackfillJobsNodeVM, inFlight bool) templ.Component {
 					var templ_7745c5c3_Var22 string
 					templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.JoinStringErrs(j.Status)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/backfill.templ`, Line: 194, Col: 22}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `backfill.templ`, Line: 197, Col: 23}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var22))
 					if templ_7745c5c3_Err != nil {
@@ -570,7 +570,7 @@ func BackfillJobs(nodes []BackfillJobsNodeVM, inFlight bool) templ.Component {
 					var templ_7745c5c3_Var23 string
 					templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.JoinStringErrs(j.Target)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/backfill.templ`, Line: 202, Col: 29}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `backfill.templ`, Line: 205, Col: 30}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var23))
 					if templ_7745c5c3_Err != nil {
@@ -583,7 +583,7 @@ func BackfillJobs(nodes []BackfillJobsNodeVM, inFlight bool) templ.Component {
 					var templ_7745c5c3_Var24 string
 					templ_7745c5c3_Var24, templ_7745c5c3_Err = templ.JoinStringErrs(j.Progress)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/backfill.templ`, Line: 203, Col: 24}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `backfill.templ`, Line: 206, Col: 25}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var24))
 					if templ_7745c5c3_Err != nil {
@@ -596,7 +596,7 @@ func BackfillJobs(nodes []BackfillJobsNodeVM, inFlight bool) templ.Component {
 					var templ_7745c5c3_Var25 string
 					templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.JoinStringErrs(j.Heartbeat.UTC().Format(time.RFC3339))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/backfill.templ`, Line: 205, Col: 56}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `backfill.templ`, Line: 208, Col: 57}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var25))
 					if templ_7745c5c3_Err != nil {
@@ -619,7 +619,7 @@ func BackfillJobs(nodes []BackfillJobsNodeVM, inFlight bool) templ.Component {
 					var templ_7745c5c3_Var26 string
 					templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.JoinStringErrs(j.CreatedAt.UTC().Format(time.RFC3339))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/backfill.templ`, Line: 211, Col: 59}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `backfill.templ`, Line: 214, Col: 60}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var26))
 					if templ_7745c5c3_Err != nil {
@@ -630,7 +630,7 @@ func BackfillJobs(nodes []BackfillJobsNodeVM, inFlight bool) templ.Component {
 						return templ_7745c5c3_Err
 					}
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 55, "</tbody></table>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 55, "</tbody></table></div>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}

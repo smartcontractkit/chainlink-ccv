@@ -135,7 +135,7 @@ func RecoveryPage(csrfToken string, nodes []RecoveryPageNodeVM) templ.Component 
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<h1>Source-range recovery</h1><p><strong>replay</strong> re-reads an inclusive source block range and re-runs admission and verification for the events found there. It never rewinds the normal reader checkpoint and never re-enables a disabled reader.</p><p><strong>reset-reader</strong> is the investigated recovery action for a finality-blocked (disabled) reader: it records your operator identity and boundary evidence, re-initializes the finality checker at <code>from-block − 1</code>, re-enables the reader, and recovers the range. Submit it only after establishing the canonical chain and a known-good boundary. It requires a disabled reader; an enabled reader takes <strong>replay</strong> instead.</p><p><small>Bounds: at most 100 blocks and 1,000 events per chunk; recovery pauses while an owner has 10,000 active verification jobs. A range covers every lane on the source chain. Operations are durable in the node database and survive reloads and console restarts.</small></p><form id=\"recovery-form\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<h1>Source-range recovery</h1><p>Re-read a source block range through the verifier's durable recovery machinery — every action is previewed before submission.</p><details class=\"explain\"><summary>How recovery works: replay vs reset-reader, and bounds</summary><p><strong>replay</strong> re-reads an inclusive source block range and re-runs admission and verification for the events found there. It never rewinds the normal reader checkpoint and never re-enables a disabled reader.</p><p><strong>reset-reader</strong> is the investigated recovery action for a finality-blocked (disabled) reader: it records your operator identity and boundary evidence, re-initializes the finality checker at <code>from-block − 1</code>, re-enables the reader, and recovers the range. Submit it only after establishing the canonical chain and a known-good boundary. It requires a disabled reader; an enabled reader takes <strong>replay</strong> instead.</p><p>Bounds: at most 100 blocks and 1,000 events per chunk; recovery pauses while an owner has 10,000 active verification jobs. A range covers every lane on the source chain. Operations are durable in the node database and survive reloads and console restarts.</p></details><div class=\"card\"><form id=\"recovery-form\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -155,7 +155,7 @@ func RecoveryPage(csrfToken string, nodes []RecoveryPageNodeVM) templ.Component 
 				var templ_7745c5c3_Var3 string
 				templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.ResolveAttributeValue(n.Name)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 124, Col: 62}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 127, Col: 63}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var3)
 				if templ_7745c5c3_Err != nil {
@@ -168,7 +168,7 @@ func RecoveryPage(csrfToken string, nodes []RecoveryPageNodeVM) templ.Component 
 				var templ_7745c5c3_Var4 string
 				templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(n.Name)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 124, Col: 81}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 127, Col: 82}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 				if templ_7745c5c3_Err != nil {
@@ -179,7 +179,7 @@ func RecoveryPage(csrfToken string, nodes []RecoveryPageNodeVM) templ.Component 
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "</fieldset><p><label>Verifier owner <input type=\"text\" name=\"owner\" size=\"40\"></label> <label>Source chain selector <input type=\"number\" name=\"chain\" min=\"0\" step=\"1\"></label></p><p><label>From block (inclusive) <input type=\"number\" name=\"from_block\" min=\"0\" step=\"1\"></label> <label>To block (inclusive, optional) <input type=\"number\" name=\"to_block\" min=\"0\" step=\"1\"></label><br><small>Omitting to-block captures the reader's advertised head at submission; the target never follows later chain progress.</small></p><fieldset><legend>Action</legend> <label><input type=\"radio\" name=\"mode\" value=\"replay\" checked> replay — re-verify a range; does not enable a finality-blocked reader</label><br><label><input type=\"radio\" name=\"mode\" value=\"reset-reader\"> reset-reader — investigated reset: re-enables a disabled reader and recovers the range</label></fieldset><p><label>Recovery note (required — the reason and the investigated boundary evidence)<br><textarea name=\"note\" placeholder=\"Incident reference; canonical headers checked through block …\"></textarea></label></p><p><label>Request ID (optional UUID) <input type=\"text\" name=\"request_id\" size=\"40\"></label><br><small>Leave empty for a fresh request. After a disconnected submission, resubmit only failed nodes, or reuse the shown request ID: a node that already accepted it returns its original operation.</small></p><button type=\"button\" hx-post=\"/recovery/preview\" hx-target=\"#recovery-preview\" hx-swap=\"innerHTML\">Preview capability</button><div id=\"recovery-preview\"></div></form><div id=\"recovery-submit-result\"></div><h2>Evidence</h2><p>Retained drops, finality incidents and reader resets recorded by the selected nodes for the chosen owner/chain (and range, when set). A detected finality mismatch marks where detection happened — it is evidence, not automatically the earliest affected block; scope the range from canonical-chain investigation.</p><button type=\"button\" hx-get=\"/recovery/evidence\" hx-include=\"#recovery-form\" hx-target=\"#recovery-evidence\" hx-swap=\"innerHTML\">Load evidence for the selected nodes</button><div id=\"recovery-evidence\"></div><h2>Operations</h2><p><small>Read fresh from each node's database on every render; the list polls while work is in flight.</small></p><form id=\"recovery-ops-filter\"><label>Owner <input type=\"text\" name=\"owner\" size=\"40\"></label> <label>Source chain <input type=\"number\" name=\"chain\" min=\"0\" step=\"1\"></label> <button type=\"button\" hx-get=\"/recovery/operations\" hx-include=\"#recovery-ops-filter\" hx-target=\"#recovery-operations\" hx-swap=\"innerHTML\">Refresh</button></form><div id=\"recovery-operations\" hx-get=\"/recovery/operations\" hx-trigger=\"load\" hx-target=\"#recovery-operations\" hx-swap=\"innerHTML\"></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "</fieldset><p><label>Verifier owner <input type=\"text\" name=\"owner\" size=\"40\"></label> <label>Source chain selector <input type=\"number\" name=\"chain\" min=\"0\" step=\"1\"></label></p><p><label>From block (inclusive) <input type=\"number\" name=\"from_block\" min=\"0\" step=\"1\"></label> <label>To block (inclusive, optional) <input type=\"number\" name=\"to_block\" min=\"0\" step=\"1\"></label><br><small>Omitting to-block captures the reader's advertised head at submission; the target never follows later chain progress.</small></p><fieldset><legend>Action</legend> <label><input type=\"radio\" name=\"mode\" value=\"replay\" checked> replay — re-verify a range; does not enable a finality-blocked reader</label><br><label><input type=\"radio\" name=\"mode\" value=\"reset-reader\"> reset-reader — investigated reset: re-enables a disabled reader and recovers the range</label></fieldset><p><label>Recovery note (required — the reason and the investigated boundary evidence)<br><textarea name=\"note\" placeholder=\"Incident reference; canonical headers checked through block …\"></textarea></label></p><p><label>Request ID (optional UUID) <input type=\"text\" name=\"request_id\" size=\"40\"></label><br><small>Leave empty for a fresh request. After a disconnected submission, resubmit only failed nodes, or reuse the shown request ID: a node that already accepted it returns its original operation.</small></p><button type=\"button\" hx-post=\"/recovery/preview\" hx-target=\"#recovery-preview\" hx-swap=\"innerHTML\">Preview capability</button><div id=\"recovery-preview\"></div></form></div><div id=\"recovery-submit-result\"></div><h2>Evidence</h2><p>Retained drops, incidents and reader resets for the chosen owner/chain — load them before choosing a range.</p><details class=\"explain\"><summary>What the evidence can and cannot tell you</summary> A detected finality mismatch marks where detection happened — it is evidence, not automatically the earliest affected block; scope the range from canonical-chain investigation.</details> <button type=\"button\" hx-get=\"/recovery/evidence\" hx-include=\"#recovery-form\" hx-target=\"#recovery-evidence\" hx-swap=\"innerHTML\">Load evidence for the selected nodes</button><div id=\"recovery-evidence\"></div><h2>Operations</h2><p><small>Read fresh from each node's database on every render; the list polls while work is in flight.</small></p><form id=\"recovery-ops-filter\"><label>Owner <input type=\"text\" name=\"owner\" size=\"40\"></label> <label>Source chain <input type=\"number\" name=\"chain\" min=\"0\" step=\"1\"></label> <button type=\"button\" hx-get=\"/recovery/operations\" hx-include=\"#recovery-ops-filter\" hx-target=\"#recovery-operations\" hx-swap=\"innerHTML\">Refresh</button></form><div id=\"recovery-operations\" hx-get=\"/recovery/operations\" hx-trigger=\"load\" hx-target=\"#recovery-operations\" hx-swap=\"innerHTML\"></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -222,7 +222,7 @@ func RecoveryPreviewError(detail string) templ.Component {
 		var templ_7745c5c3_Var6 string
 		templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(detail)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 197, Col: 28}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 201, Col: 28}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 		if templ_7745c5c3_Err != nil {
@@ -266,7 +266,7 @@ func RecoveryPreview(vm RecoveryPreviewVM) templ.Component {
 		var templ_7745c5c3_Var8 string
 		templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(vm.Mode)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 203, Col: 35}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 207, Col: 35}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 		if templ_7745c5c3_Err != nil {
@@ -284,7 +284,7 @@ func RecoveryPreview(vm RecoveryPreviewVM) templ.Component {
 			var templ_7745c5c3_Var9 string
 			templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(n.NodeName)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 205, Col: 24}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 209, Col: 24}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 			if templ_7745c5c3_Err != nil {
@@ -302,7 +302,7 @@ func RecoveryPreview(vm RecoveryPreviewVM) templ.Component {
 				var templ_7745c5c3_Var10 string
 				templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(n.Error)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 207, Col: 60}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 211, Col: 60}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
 				if templ_7745c5c3_Err != nil {
@@ -350,7 +350,7 @@ func RecoveryPreview(vm RecoveryPreviewVM) templ.Component {
 				var templ_7745c5c3_Var11 string
 				templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(n.LatestHead)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 227, Col: 41}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 231, Col: 41}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 				if templ_7745c5c3_Err != nil {
@@ -373,7 +373,7 @@ func RecoveryPreview(vm RecoveryPreviewVM) templ.Component {
 				var templ_7745c5c3_Var12 string
 				templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(n.FinalizedHeight)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 232, Col: 53}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 236, Col: 53}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 				if templ_7745c5c3_Err != nil {
@@ -391,7 +391,7 @@ func RecoveryPreview(vm RecoveryPreviewVM) templ.Component {
 					var templ_7745c5c3_Var13 string
 					templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(n.ActiveResetID)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 234, Col: 81}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 238, Col: 81}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 					if templ_7745c5c3_Err != nil {
@@ -409,7 +409,7 @@ func RecoveryPreview(vm RecoveryPreviewVM) templ.Component {
 				var templ_7745c5c3_Var14 string
 				templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(n.RangeText)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 236, Col: 21}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 240, Col: 21}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
 				if templ_7745c5c3_Err != nil {
@@ -427,7 +427,7 @@ func RecoveryPreview(vm RecoveryPreviewVM) templ.Component {
 					var templ_7745c5c3_Var15 string
 					templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinStringErrs(w)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 239, Col: 27}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 243, Col: 27}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
 					if templ_7745c5c3_Err != nil {
@@ -450,7 +450,7 @@ func RecoveryPreview(vm RecoveryPreviewVM) templ.Component {
 					var templ_7745c5c3_Var16 string
 					templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(vm.Mode)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 242, Col: 36}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 246, Col: 36}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 					if templ_7745c5c3_Err != nil {
@@ -468,7 +468,7 @@ func RecoveryPreview(vm RecoveryPreviewVM) templ.Component {
 					var templ_7745c5c3_Var17 string
 					templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(n.BlockedReason)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 244, Col: 40}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 248, Col: 40}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
 					if templ_7745c5c3_Err != nil {
@@ -489,23 +489,23 @@ func RecoveryPreview(vm RecoveryPreviewVM) templ.Component {
 			var templ_7745c5c3_Var18 string
 			templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(vm.Mode)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 250, Col: 19}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 254, Col: 19}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 38, " to the selected nodes</button>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 38, " to the selected nodes</button> ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		} else {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 39, "<button type=\"button\" disabled>Submit unavailable — resolve the per-node findings above</button>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 39, "<button type=\"button\" disabled>Submit unavailable — resolve the per-node findings above</button> ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 40, "<p><small>The capability view is a snapshot: re-run the preview after changing any input. The submit path re-checks every finding on the server before touching a node.</small></p>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 40, "<details class=\"explain\"><summary>The capability view is a snapshot</summary> Re-run the preview after changing any input. The submit path re-checks every finding on the server before touching a node.</details>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -542,7 +542,7 @@ func RecoverySubmitError(detail string) templ.Component {
 		var templ_7745c5c3_Var20 string
 		templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.JoinStringErrs(detail)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 265, Col: 28}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 268, Col: 28}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var20))
 		if templ_7745c5c3_Err != nil {
@@ -585,7 +585,7 @@ func RecoverySubmitResult(nodes []RecoverySubmitNodeVM, requestID string) templ.
 		var templ_7745c5c3_Var22 string
 		templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.JoinStringErrs(requestID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 272, Col: 43}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 275, Col: 43}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var22))
 		if templ_7745c5c3_Err != nil {
@@ -603,7 +603,7 @@ func RecoverySubmitResult(nodes []RecoverySubmitNodeVM, requestID string) templ.
 			var templ_7745c5c3_Var23 string
 			templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.JoinStringErrs(n.NodeName)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 276, Col: 24}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 279, Col: 24}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var23))
 			if templ_7745c5c3_Err != nil {
@@ -621,7 +621,7 @@ func RecoverySubmitResult(nodes []RecoverySubmitNodeVM, requestID string) templ.
 				var templ_7745c5c3_Var24 string
 				templ_7745c5c3_Var24, templ_7745c5c3_Err = templ.JoinStringErrs(n.Error)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 278, Col: 31}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 281, Col: 31}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var24))
 				if templ_7745c5c3_Err != nil {
@@ -639,7 +639,7 @@ func RecoverySubmitResult(nodes []RecoverySubmitNodeVM, requestID string) templ.
 				var templ_7745c5c3_Var25 string
 				templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.JoinStringErrs(n.OperationID)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 281, Col: 47}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 284, Col: 47}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var25))
 				if templ_7745c5c3_Err != nil {
@@ -652,7 +652,7 @@ func RecoverySubmitResult(nodes []RecoverySubmitNodeVM, requestID string) templ.
 				var templ_7745c5c3_Var26 string
 				templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.JoinStringErrs(n.State)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 281, Col: 76}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 284, Col: 76}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var26))
 				if templ_7745c5c3_Err != nil {
@@ -665,7 +665,7 @@ func RecoverySubmitResult(nodes []RecoverySubmitNodeVM, requestID string) templ.
 				var templ_7745c5c3_Var27 string
 				templ_7745c5c3_Var27, templ_7745c5c3_Err = templ.JoinStringErrs(n.ToBlock)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 282, Col: 15}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 285, Col: 15}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var27))
 				if templ_7745c5c3_Err != nil {
@@ -726,7 +726,7 @@ func RecoveryOperations(vm RecoveryOperationsVM, csrfToken string) templ.Compone
 			var templ_7745c5c3_Var29 string
 			templ_7745c5c3_Var29, templ_7745c5c3_Err = templ.JoinStringErrs(n.NodeName)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 301, Col: 25}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 304, Col: 25}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var29))
 			if templ_7745c5c3_Err != nil {
@@ -744,7 +744,7 @@ func RecoveryOperations(vm RecoveryOperationsVM, csrfToken string) templ.Compone
 				var templ_7745c5c3_Var30 string
 				templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.JoinStringErrs(n.Error)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 303, Col: 56}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 306, Col: 56}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var30))
 				if templ_7745c5c3_Err != nil {
@@ -760,7 +760,7 @@ func RecoveryOperations(vm RecoveryOperationsVM, csrfToken string) templ.Compone
 					return templ_7745c5c3_Err
 				}
 			} else {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 61, "<table><thead><tr><th>Operation</th><th>Mode</th><th>State</th><th>Range</th><th>Progress</th><th>Counters</th><th>Reset applied</th><th>Updated (UTC)</th><th></th></tr></thead> <tbody>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 61, "<div class=\"table-wrap\"><table><thead><tr><th>Operation</th><th>Mode</th><th>State</th><th>Range</th><th>Progress</th><th>Counters</th><th>Reset applied</th><th>Updated (UTC)</th><th></th></tr></thead> <tbody>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -770,7 +770,7 @@ func RecoveryOperations(vm RecoveryOperationsVM, csrfToken string) templ.Compone
 						return templ_7745c5c3_Err
 					}
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 62, "</tbody></table>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 62, "</tbody></table></div>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -814,7 +814,7 @@ func RecoveryOperationRow(nodeName string, op RecoveryOperationVM, csrfToken str
 			var templ_7745c5c3_Var32 string
 			templ_7745c5c3_Var32, templ_7745c5c3_Err = templ.JoinStringErrs(op.RowError)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 338, Col: 18}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 343, Col: 18}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var32))
 			if templ_7745c5c3_Err != nil {
@@ -832,7 +832,7 @@ func RecoveryOperationRow(nodeName string, op RecoveryOperationVM, csrfToken str
 			var templ_7745c5c3_Var33 string
 			templ_7745c5c3_Var33, templ_7745c5c3_Err = templ.JoinStringErrs(op.ID)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 345, Col: 29}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 350, Col: 29}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var33))
 			if templ_7745c5c3_Err != nil {
@@ -845,7 +845,7 @@ func RecoveryOperationRow(nodeName string, op RecoveryOperationVM, csrfToken str
 			var templ_7745c5c3_Var34 string
 			templ_7745c5c3_Var34, templ_7745c5c3_Err = templ.JoinStringErrs(op.Actor)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 347, Col: 27}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 352, Col: 27}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var34))
 			if templ_7745c5c3_Err != nil {
@@ -863,7 +863,7 @@ func RecoveryOperationRow(nodeName string, op RecoveryOperationVM, csrfToken str
 				var templ_7745c5c3_Var35 string
 				templ_7745c5c3_Var35, templ_7745c5c3_Err = templ.JoinStringErrs(op.Note)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 350, Col: 21}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 355, Col: 21}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var35))
 				if templ_7745c5c3_Err != nil {
@@ -881,7 +881,7 @@ func RecoveryOperationRow(nodeName string, op RecoveryOperationVM, csrfToken str
 			var templ_7745c5c3_Var36 string
 			templ_7745c5c3_Var36, templ_7745c5c3_Err = templ.JoinStringErrs(op.Mode)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 353, Col: 16}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 358, Col: 16}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var36))
 			if templ_7745c5c3_Err != nil {
@@ -894,7 +894,7 @@ func RecoveryOperationRow(nodeName string, op RecoveryOperationVM, csrfToken str
 			var templ_7745c5c3_Var37 string
 			templ_7745c5c3_Var37, templ_7745c5c3_Err = templ.JoinStringErrs(op.State)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 355, Col: 14}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 360, Col: 14}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var37))
 			if templ_7745c5c3_Err != nil {
@@ -912,7 +912,7 @@ func RecoveryOperationRow(nodeName string, op RecoveryOperationVM, csrfToken str
 				var templ_7745c5c3_Var38 string
 				templ_7745c5c3_Var38, templ_7745c5c3_Err = templ.JoinStringErrs(op.LastError)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 358, Col: 52}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 363, Col: 52}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var38))
 				if templ_7745c5c3_Err != nil {
@@ -930,7 +930,7 @@ func RecoveryOperationRow(nodeName string, op RecoveryOperationVM, csrfToken str
 			var templ_7745c5c3_Var39 string
 			templ_7745c5c3_Var39, templ_7745c5c3_Err = templ.JoinStringErrs(op.RangeFrom)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 361, Col: 21}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 366, Col: 21}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var39))
 			if templ_7745c5c3_Err != nil {
@@ -943,7 +943,7 @@ func RecoveryOperationRow(nodeName string, op RecoveryOperationVM, csrfToken str
 			var templ_7745c5c3_Var40 string
 			templ_7745c5c3_Var40, templ_7745c5c3_Err = templ.JoinStringErrs(op.RangeTo)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 361, Col: 38}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 366, Col: 38}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var40))
 			if templ_7745c5c3_Err != nil {
@@ -956,7 +956,7 @@ func RecoveryOperationRow(nodeName string, op RecoveryOperationVM, csrfToken str
 			var templ_7745c5c3_Var41 string
 			templ_7745c5c3_Var41, templ_7745c5c3_Err = templ.JoinStringErrs(op.Progress)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 362, Col: 20}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 367, Col: 20}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var41))
 			if templ_7745c5c3_Err != nil {
@@ -969,7 +969,7 @@ func RecoveryOperationRow(nodeName string, op RecoveryOperationVM, csrfToken str
 			var templ_7745c5c3_Var42 string
 			templ_7745c5c3_Var42, templ_7745c5c3_Err = templ.JoinStringErrs(op.Counters)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 363, Col: 27}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 368, Col: 27}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var42))
 			if templ_7745c5c3_Err != nil {
@@ -997,7 +997,7 @@ func RecoveryOperationRow(nodeName string, op RecoveryOperationVM, csrfToken str
 			var templ_7745c5c3_Var43 string
 			templ_7745c5c3_Var43, templ_7745c5c3_Err = templ.JoinStringErrs(op.UpdatedAt.UTC().Format(time.RFC3339))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 371, Col: 55}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 376, Col: 55}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var43))
 			if templ_7745c5c3_Err != nil {
@@ -1023,7 +1023,7 @@ func RecoveryOperationRow(nodeName string, op RecoveryOperationVM, csrfToken str
 				var templ_7745c5c3_Var44 string
 				templ_7745c5c3_Var44, templ_7745c5c3_Err = templ.ResolveAttributeValue(nodeName)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 376, Col: 55}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 381, Col: 55}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var44)
 				if templ_7745c5c3_Err != nil {
@@ -1036,7 +1036,7 @@ func RecoveryOperationRow(nodeName string, op RecoveryOperationVM, csrfToken str
 				var templ_7745c5c3_Var45 string
 				templ_7745c5c3_Var45, templ_7745c5c3_Err = templ.ResolveAttributeValue("/recovery/operations/" + op.ID + "/cancel")
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 379, Col: 60}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 384, Col: 60}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var45)
 				if templ_7745c5c3_Err != nil {
@@ -1063,7 +1063,7 @@ func RecoveryOperationRow(nodeName string, op RecoveryOperationVM, csrfToken str
 				var templ_7745c5c3_Var46 string
 				templ_7745c5c3_Var46, templ_7745c5c3_Err = templ.ResolveAttributeValue(nodeName)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 391, Col: 55}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 396, Col: 55}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var46)
 				if templ_7745c5c3_Err != nil {
@@ -1076,7 +1076,7 @@ func RecoveryOperationRow(nodeName string, op RecoveryOperationVM, csrfToken str
 				var templ_7745c5c3_Var47 string
 				templ_7745c5c3_Var47, templ_7745c5c3_Err = templ.ResolveAttributeValue("/recovery/operations/" + op.ID + "/resume")
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 394, Col: 60}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 399, Col: 60}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var47)
 				if templ_7745c5c3_Err != nil {
@@ -1126,7 +1126,7 @@ func RecoveryEvidence(nodes []RecoveryEvidenceNodeVM) templ.Component {
 			var templ_7745c5c3_Var49 string
 			templ_7745c5c3_Var49, templ_7745c5c3_Err = templ.JoinStringErrs(n.NodeName)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 410, Col: 24}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 415, Col: 24}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var49))
 			if templ_7745c5c3_Err != nil {
@@ -1144,7 +1144,7 @@ func RecoveryEvidence(nodes []RecoveryEvidenceNodeVM) templ.Component {
 				var templ_7745c5c3_Var50 string
 				templ_7745c5c3_Var50, templ_7745c5c3_Err = templ.JoinStringErrs(n.Error)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 412, Col: 53}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 417, Col: 53}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var50))
 				if templ_7745c5c3_Err != nil {
@@ -1156,7 +1156,7 @@ func RecoveryEvidence(nodes []RecoveryEvidenceNodeVM) templ.Component {
 				}
 			} else {
 				if len(n.Readers) > 0 {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 98, "<table><thead><tr><th>Reader node</th><th>Disabled</th><th>Latest head</th><th>Head observed</th><th>Last seen</th><th>History since</th><th>Active reset</th><th>Audit failures</th></tr></thead> <tbody>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 98, "<div class=\"table-wrap\"><table><thead><tr><th>Reader node</th><th>Disabled</th><th>Latest head</th><th>Head observed</th><th>Last seen</th><th>History since</th><th>Active reset</th><th>Audit failures</th></tr></thead> <tbody>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -1168,7 +1168,7 @@ func RecoveryEvidence(nodes []RecoveryEvidenceNodeVM) templ.Component {
 						var templ_7745c5c3_Var51 string
 						templ_7745c5c3_Var51, templ_7745c5c3_Err = templ.JoinStringErrs(r.NodeID)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 431, Col: 28}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 437, Col: 29}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var51))
 						if templ_7745c5c3_Err != nil {
@@ -1181,7 +1181,7 @@ func RecoveryEvidence(nodes []RecoveryEvidenceNodeVM) templ.Component {
 						var templ_7745c5c3_Var52 string
 						templ_7745c5c3_Var52, templ_7745c5c3_Err = templ.JoinStringErrs(r.Disabled)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 432, Col: 24}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 438, Col: 25}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var52))
 						if templ_7745c5c3_Err != nil {
@@ -1194,7 +1194,7 @@ func RecoveryEvidence(nodes []RecoveryEvidenceNodeVM) templ.Component {
 						var templ_7745c5c3_Var53 string
 						templ_7745c5c3_Var53, templ_7745c5c3_Err = templ.JoinStringErrs(r.LatestBlock)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 433, Col: 27}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 439, Col: 28}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var53))
 						if templ_7745c5c3_Err != nil {
@@ -1207,7 +1207,7 @@ func RecoveryEvidence(nodes []RecoveryEvidenceNodeVM) templ.Component {
 						var templ_7745c5c3_Var54 string
 						templ_7745c5c3_Var54, templ_7745c5c3_Err = templ.JoinStringErrs(r.HeadObservedAt)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 434, Col: 37}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 440, Col: 38}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var54))
 						if templ_7745c5c3_Err != nil {
@@ -1220,7 +1220,7 @@ func RecoveryEvidence(nodes []RecoveryEvidenceNodeVM) templ.Component {
 						var templ_7745c5c3_Var55 string
 						templ_7745c5c3_Var55, templ_7745c5c3_Err = templ.JoinStringErrs(r.LastSeenAt)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 435, Col: 33}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 441, Col: 34}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var55))
 						if templ_7745c5c3_Err != nil {
@@ -1233,7 +1233,7 @@ func RecoveryEvidence(nodes []RecoveryEvidenceNodeVM) templ.Component {
 						var templ_7745c5c3_Var56 string
 						templ_7745c5c3_Var56, templ_7745c5c3_Err = templ.JoinStringErrs(r.HistoryStartedAt)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 436, Col: 39}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 442, Col: 40}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var56))
 						if templ_7745c5c3_Err != nil {
@@ -1246,7 +1246,7 @@ func RecoveryEvidence(nodes []RecoveryEvidenceNodeVM) templ.Component {
 						var templ_7745c5c3_Var57 string
 						templ_7745c5c3_Var57, templ_7745c5c3_Err = templ.JoinStringErrs(r.ActiveResetID)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 437, Col: 47}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 443, Col: 48}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var57))
 						if templ_7745c5c3_Err != nil {
@@ -1259,7 +1259,7 @@ func RecoveryEvidence(nodes []RecoveryEvidenceNodeVM) templ.Component {
 						var templ_7745c5c3_Var58 string
 						templ_7745c5c3_Var58, templ_7745c5c3_Err = templ.JoinStringErrs(r.AuditFailures)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 438, Col: 29}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 444, Col: 30}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var58))
 						if templ_7745c5c3_Err != nil {
@@ -1270,7 +1270,7 @@ func RecoveryEvidence(nodes []RecoveryEvidenceNodeVM) templ.Component {
 							return templ_7745c5c3_Err
 						}
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 108, "</tbody></table>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 108, "</tbody></table></div>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -1282,7 +1282,7 @@ func RecoveryEvidence(nodes []RecoveryEvidenceNodeVM) templ.Component {
 				var templ_7745c5c3_Var59 string
 				templ_7745c5c3_Var59, templ_7745c5c3_Err = templ.JoinStringErrs(n.Coverage)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 445, Col: 16}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 452, Col: 16}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var59))
 				if templ_7745c5c3_Err != nil {
@@ -1295,7 +1295,7 @@ func RecoveryEvidence(nodes []RecoveryEvidenceNodeVM) templ.Component {
 				var templ_7745c5c3_Var60 string
 				templ_7745c5c3_Var60, templ_7745c5c3_Err = templ.JoinStringErrs(n.RetainedSince)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 447, Col: 44}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 454, Col: 44}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var60))
 				if templ_7745c5c3_Err != nil {
@@ -1311,7 +1311,7 @@ func RecoveryEvidence(nodes []RecoveryEvidenceNodeVM) templ.Component {
 						return templ_7745c5c3_Err
 					}
 				} else {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 113, "<table><thead><tr><th>Kind</th><th>Reason</th><th>Stage</th><th>Source block</th><th>Message ID</th><th>Tx hash</th><th>Block hash</th><th>Incident</th><th>Observed</th><th>Expires (UTC)</th></tr></thead> <tbody>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 113, "<div class=\"table-wrap\"><table><thead><tr><th>Kind</th><th>Reason</th><th>Stage</th><th>Source block</th><th>Message ID</th><th>Tx hash</th><th>Block hash</th><th>Incident</th><th>Observed</th><th>Expires (UTC)</th></tr></thead> <tbody>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -1323,7 +1323,7 @@ func RecoveryEvidence(nodes []RecoveryEvidenceNodeVM) templ.Component {
 						var templ_7745c5c3_Var61 string
 						templ_7745c5c3_Var61, templ_7745c5c3_Err = templ.JoinStringErrs(e.Kind)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 476, Col: 20}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 484, Col: 21}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var61))
 						if templ_7745c5c3_Err != nil {
@@ -1336,7 +1336,7 @@ func RecoveryEvidence(nodes []RecoveryEvidenceNodeVM) templ.Component {
 						var templ_7745c5c3_Var62 string
 						templ_7745c5c3_Var62, templ_7745c5c3_Err = templ.JoinStringErrs(e.Reason)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 477, Col: 22}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 485, Col: 23}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var62))
 						if templ_7745c5c3_Err != nil {
@@ -1349,7 +1349,7 @@ func RecoveryEvidence(nodes []RecoveryEvidenceNodeVM) templ.Component {
 						var templ_7745c5c3_Var63 string
 						templ_7745c5c3_Var63, templ_7745c5c3_Err = templ.JoinStringErrs(e.Stage)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 478, Col: 21}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 486, Col: 22}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var63))
 						if templ_7745c5c3_Err != nil {
@@ -1362,7 +1362,7 @@ func RecoveryEvidence(nodes []RecoveryEvidenceNodeVM) templ.Component {
 						var templ_7745c5c3_Var64 string
 						templ_7745c5c3_Var64, templ_7745c5c3_Err = templ.JoinStringErrs(e.SourceBlock)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 479, Col: 27}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 487, Col: 28}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var64))
 						if templ_7745c5c3_Err != nil {
@@ -1375,7 +1375,7 @@ func RecoveryEvidence(nodes []RecoveryEvidenceNodeVM) templ.Component {
 						var templ_7745c5c3_Var65 string
 						templ_7745c5c3_Var65, templ_7745c5c3_Err = templ.JoinStringErrs(e.MessageID)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 480, Col: 43}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 488, Col: 44}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var65))
 						if templ_7745c5c3_Err != nil {
@@ -1388,7 +1388,7 @@ func RecoveryEvidence(nodes []RecoveryEvidenceNodeVM) templ.Component {
 						var templ_7745c5c3_Var66 string
 						templ_7745c5c3_Var66, templ_7745c5c3_Err = templ.JoinStringErrs(e.TxHash)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 481, Col: 40}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 489, Col: 41}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var66))
 						if templ_7745c5c3_Err != nil {
@@ -1401,7 +1401,7 @@ func RecoveryEvidence(nodes []RecoveryEvidenceNodeVM) templ.Component {
 						var templ_7745c5c3_Var67 string
 						templ_7745c5c3_Var67, templ_7745c5c3_Err = templ.JoinStringErrs(e.BlockHash)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 482, Col: 43}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 490, Col: 44}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var67))
 						if templ_7745c5c3_Err != nil {
@@ -1414,7 +1414,7 @@ func RecoveryEvidence(nodes []RecoveryEvidenceNodeVM) templ.Component {
 						var templ_7745c5c3_Var68 string
 						templ_7745c5c3_Var68, templ_7745c5c3_Err = templ.JoinStringErrs(e.IncidentID)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 483, Col: 44}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 491, Col: 45}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var68))
 						if templ_7745c5c3_Err != nil {
@@ -1427,7 +1427,7 @@ func RecoveryEvidence(nodes []RecoveryEvidenceNodeVM) templ.Component {
 						var templ_7745c5c3_Var69 string
 						templ_7745c5c3_Var69, templ_7745c5c3_Err = templ.JoinStringErrs(e.Observations)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 486, Col: 28}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 494, Col: 29}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var69))
 						if templ_7745c5c3_Err != nil {
@@ -1440,7 +1440,7 @@ func RecoveryEvidence(nodes []RecoveryEvidenceNodeVM) templ.Component {
 						var templ_7745c5c3_Var70 string
 						templ_7745c5c3_Var70, templ_7745c5c3_Err = templ.JoinStringErrs(e.FirstObserved)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 487, Col: 27}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 495, Col: 28}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var70))
 						if templ_7745c5c3_Err != nil {
@@ -1453,7 +1453,7 @@ func RecoveryEvidence(nodes []RecoveryEvidenceNodeVM) templ.Component {
 						var templ_7745c5c3_Var71 string
 						templ_7745c5c3_Var71, templ_7745c5c3_Err = templ.JoinStringErrs(e.LastObserved)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 488, Col: 26}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 496, Col: 27}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var71))
 						if templ_7745c5c3_Err != nil {
@@ -1466,7 +1466,7 @@ func RecoveryEvidence(nodes []RecoveryEvidenceNodeVM) templ.Component {
 						var templ_7745c5c3_Var72 string
 						templ_7745c5c3_Var72, templ_7745c5c3_Err = templ.JoinStringErrs(e.Expires)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 491, Col: 30}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 499, Col: 31}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var72))
 						if templ_7745c5c3_Err != nil {
@@ -1477,7 +1477,7 @@ func RecoveryEvidence(nodes []RecoveryEvidenceNodeVM) templ.Component {
 							return templ_7745c5c3_Err
 						}
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 127, "</tbody></table>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 127, "</tbody></table></div>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -1489,7 +1489,7 @@ func RecoveryEvidence(nodes []RecoveryEvidenceNodeVM) templ.Component {
 						var templ_7745c5c3_Var73 string
 						templ_7745c5c3_Var73, templ_7745c5c3_Err = templ.ResolveAttributeValue(`{"before_id":"` + n.NextCursor + `"}`)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `verifier/pkg/admin/views/recovery.templ`, Line: 501, Col: 54}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `recovery.templ`, Line: 510, Col: 54}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var73)
 						if templ_7745c5c3_Err != nil {

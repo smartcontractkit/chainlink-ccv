@@ -23,13 +23,19 @@ const ArchiveRetention = 30 * 24 * time.Hour
 templ SearchPage(csrfToken string, results []SearchNodeVM, searchedIDs [][]byte) {
 	@Layout("Message search") {
 		<h1>Message search</h1>
-		<p>Find one or several messages across all configured nodes. Message IDs are full 32-byte hex, space or comma separated.</p>
-		<form method="post" action="/search">
-			@CSRFField(csrfToken)
-			<textarea name="message_ids" placeholder="0x… 0x…"></textarea>
-			<br/>
-			<button type="submit">Search</button>
-		</form>
+		<p>Search every configured node's failed-job archive at once.</p>
+		<div class="card">
+			<form method="post" action="/search">
+				@CSRFField(csrfToken)
+				<textarea name="message_ids" placeholder="0x… 0x…"></textarea>
+				<br/>
+				<button type="submit">Search</button>
+			</form>
+			<details class="explain">
+				<summary>Message ID format</summary>
+				Full 32-byte hex IDs, space or comma separated.
+			</details>
+		</div>
 		if searchedIDs != nil {
 			<h2>Results</h2>
 			@SearchResultsList(results)
@@ -50,40 +56,42 @@ templ SearchResultsList(results []SearchNodeVM) {
 	for _, node := range results {
 		<h3>{ node.NodeName }</h3>
 		if node.UnreachableDetail != "" {
-			<div class="error">Lookup unavailable: { node.UnreachableDetail }. This node was not searched — treat its absence as unknown, not as "no failed jobs".</div>
+			<div class="error">Lookup unavailable: { node.UnreachableDetail }. This node was not searched — treat its absence as unknown, not empty.</div>
 		} else if len(node.Jobs) == 0 {
 			<p><em>No archived (failed) jobs for these message IDs on this node.</em></p>
 		} else {
-			<table>
-				<thead>
-					<tr>
-						<th>Message ID</th>
-						<th>Queue</th>
-						<th>Owner</th>
-						<th>Failure</th>
-						<th>Attempts</th>
-						<th>Archived</th>
-						<th>Archive expires</th>
-						<th></th>
-					</tr>
-				</thead>
-				<tbody>
-					for _, job := range node.Jobs {
+			<div class="table-wrap">
+				<table>
+					<thead>
 						<tr>
-							<td><code class="mid">{ messageIDHex(job.MessageID) }</code></td>
-							<td>{ string(job.Queue) }</td>
-							<td><code>{ job.OwnerID }</code></td>
-							<td>{ job.FailureCategory }</td>
-							<td>{ fmt.Sprint(job.AttemptCount) }</td>
-							<td>{ formatTime(job.ArchivedAt) }</td>
-							<td>{ archiveExpiry(job.ArchivedAt) }</td>
-							<td>
-								<a href={ templ.SafeURL("/nodes/" + node.NodeName + "/messages/" + messageIDHex(job.MessageID)) }>detail</a>
-							</td>
+							<th>Message ID</th>
+							<th>Queue</th>
+							<th>Owner</th>
+							<th>Failure</th>
+							<th>Attempts</th>
+							<th>Archived</th>
+							<th>Archive expires</th>
+							<th></th>
 						</tr>
-					}
-				</tbody>
-			</table>
+					</thead>
+					<tbody>
+						for _, job := range node.Jobs {
+							<tr>
+								<td><code class="mid">{ messageIDHex(job.MessageID) }</code></td>
+								<td>{ string(job.Queue) }</td>
+								<td><code>{ job.OwnerID }</code></td>
+								<td>{ job.FailureCategory }</td>
+								<td>{ fmt.Sprint(job.AttemptCount) }</td>
+								<td>{ formatTime(job.ArchivedAt) }</td>
+								<td>{ archiveExpiry(job.ArchivedAt) }</td>
+								<td>
+									<a href={ templ.SafeURL("/nodes/" + node.NodeName + "/messages/" + messageIDHex(job.MessageID)) }>detail</a>
+								</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			</div>
 		}
 	}
 }
