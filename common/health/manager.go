@@ -5,21 +5,27 @@ import (
 	"sync"
 	"time"
 
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common/health"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+)
+
+// logTypeKey and logTypeServiceStatus mirror protocol.LogTypeKey/LogTypeServiceStatus.
+// Duplicated as literals here (rather than imported) to avoid an import cycle with protocol,
+// which embeds HealthReporter from this package.
+const (
+	logTypeKey           = "log_type"
+	logTypeServiceStatus = "service_status"
 )
 
 // Manager coordinates health checks across multiple components.
 type Manager struct {
-	components []protocol.HealthReporter
+	components []HealthReporter
 	mu         sync.RWMutex
 }
 
 // NewManager creates a new health check manager.
 func NewManager() *Manager {
 	return &Manager{
-		components: make([]protocol.HealthReporter, 0),
+		components: make([]HealthReporter, 0),
 	}
 }
 
@@ -28,27 +34,27 @@ func (m *Manager) Register(component any) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if checker, ok := component.(protocol.HealthReporter); ok {
+	if checker, ok := component.(HealthReporter); ok {
 		m.components = append(m.components, checker)
 	}
 }
 
 // CheckLiveness returns the basic liveness status of the service.
-func (m *Manager) CheckLiveness(ctx context.Context) health.LivenessResponse {
-	return health.NewAliveResponse()
+func (m *Manager) CheckLiveness(ctx context.Context) LivenessResponse {
+	return NewAliveResponse()
 }
 
 // CheckReadiness aggregates health status from all registered components.
-func (m *Manager) CheckReadiness(ctx context.Context) health.ReadinessResponse {
+func (m *Manager) CheckReadiness(ctx context.Context) ReadinessResponse {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	results := make([]health.ServicesHealth, 0, len(m.components))
+	results := make([]ServicesHealth, 0, len(m.components))
 	for _, component := range m.components {
-		results = append(results, health.NewServiceHealth(component))
+		results = append(results, CheckServiceHealth(component))
 	}
 
-	return health.NewReadinessResponse(results)
+	return NewReadinessResponse(results)
 }
 
 // StartPeriodicHealthLogging blocks and periodically logs the health status
@@ -71,9 +77,14 @@ func (m *Manager) StartPeriodicHealthLogging(ctx context.Context, l logger.Sugar
 				componentStatus[svc.Name] = status
 			}
 
-			// SERVICE LOG (status): periodic health summary; only steady-state Info line.
-			l.Infow("Service health summary",
-				protocol.LogTypeKey, protocol.LogTypeServiceStatus,
+			logFn := l.Debugw
+			if response.Status == NotReady {
+				logFn = l.Warnw
+			}
+
+			// SERVICE LOG (status): periodic health summary; Debug when healthy, Warn otherwise.
+			logFn("Service health summary",
+				logTypeKey, logTypeServiceStatus,
 				"overall_status", response.Status,
 				"components", componentStatus,
 			)
