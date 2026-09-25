@@ -256,6 +256,9 @@ func cctpCodecsFor(
 		if err != nil {
 			return nil, fmt.Errorf("no CCTP chain codec for source chain selector %d: %w", selector, err)
 		}
+		if codec == nil {
+			return nil, fmt.Errorf("no CCTP chain codec for source chain selector %d", selector)
+		}
 		cctpCodecs[selector] = codec
 	}
 	return cctpCodecs, nil
