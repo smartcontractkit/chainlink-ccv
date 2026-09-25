@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common/health"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -41,10 +40,10 @@ func TestHTTPHealthServer_handleLiveness(t *testing.T) {
 		assert.Equal(t, http.StatusOK, recorder.Code)
 		assert.Equal(t, "application/json", recorder.Header().Get("Content-Type"))
 
-		var response health.LivenessResponse
+		var response LivenessResponse
 		err := json.Unmarshal(recorder.Body.Bytes(), &response)
 		require.NoError(t, err)
-		assert.Equal(t, health.Alive, response.Status)
+		assert.Equal(t, Alive, response.Status)
 	})
 }
 
@@ -65,10 +64,10 @@ func TestHTTPHealthServer_handleReadiness(t *testing.T) {
 		assert.Equal(t, http.StatusOK, recorder.Code)
 		assert.Equal(t, "application/json", recorder.Header().Get("Content-Type"))
 
-		var response health.ReadinessResponse
+		var response ReadinessResponse
 		err := json.Unmarshal(recorder.Body.Bytes(), &response)
 		require.NoError(t, err)
-		assert.Equal(t, health.Ready, response.Status)
+		assert.Equal(t, Ready, response.Status)
 	})
 
 	t.Run("returns not ready when component unhealthy", func(t *testing.T) {
@@ -84,10 +83,10 @@ func TestHTTPHealthServer_handleReadiness(t *testing.T) {
 
 		assert.Equal(t, http.StatusServiceUnavailable, recorder.Code)
 
-		var response health.ReadinessResponse
+		var response ReadinessResponse
 		err := json.Unmarshal(recorder.Body.Bytes(), &response)
 		require.NoError(t, err)
-		assert.Equal(t, health.NotReady, response.Status)
+		assert.Equal(t, NotReady, response.Status)
 	})
 }
 
