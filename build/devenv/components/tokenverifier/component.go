@@ -188,8 +188,7 @@ func (c *component) RunPhase4(
 			return nil, nil, fmt.Errorf("tokenverifier: getting token verifier config: %w", cfgErr)
 		}
 
-		tokenVerifierCfg.TokenVerifiers = dropUnreachableVerifiers(tokenVerifierCfg.TokenVerifiers, familySelectors)
-		inputs[i].GeneratedConfig = tokenVerifierCfg
+		inputs[i].GeneratedConfig = configForFamily(tokenVerifierCfg, familySelectors)
 	}
 
 	modifiers := chainreg.GetRegistry().GetTokenVerifierModifiers()
@@ -214,15 +213,8 @@ func (c *component) RunPhase4(
 	return map[string]any{Key: inputs}, nil, nil
 }
 
-// dropUnreachableVerifiers removes any verifier-type entry (CCTP or Lombard) whose
-// resolved verifier-resolver addresses have no chain in common with localSelectors:
-// an instance can never coordinate a verifier type it has no locally-reachable chains for.
-func dropUnreachableVerifiers(verifiers []token.VerifierConfig, localSelectors []uint64) []token.VerifierConfig {
-	local := make(map[string]struct{}, len(localSelectors))
-	for _, sel := range localSelectors {
-		local[strconv.FormatUint(sel, 10)] = struct{}{}
-	}
-
+// dropUnreachableVerifiers keeps verifiers with a resolver on a local chain.
+func dropUnreachableVerifiers(verifiers []token.VerifierConfig, local map[string]struct{}) []token.VerifierConfig {
 	reachable := make([]token.VerifierConfig, 0, len(verifiers))
 	for _, vc := range verifiers {
 		var resolvers map[string]any
@@ -244,6 +236,45 @@ func dropUnreachableVerifiers(verifiers []token.VerifierConfig, localSelectors [
 		}
 	}
 	return reachable
+}
+
+// configForFamily returns a copy with local source addresses and all resolver addresses.
+// It leaves the input config unchanged.
+func configForFamily(cfg *token.Config, localSelectors []uint64) *token.Config {
+	// Convert local selectors to the string keys used by the address maps.
+	local := make(map[string]struct{}, len(localSelectors))
+	for _, sel := range localSelectors {
+		local[strconv.FormatUint(sel, 10)] = struct{}{}
+	}
+
+	// Copy the config and keep local on-ramp and RMN addresses.
+	familyConfig := *cfg
+	familyConfig.OnRampAddresses = localAddresses(cfg.OnRampAddresses, local)
+	familyConfig.RMNRemoteAddresses = localAddresses(cfg.RMNRemoteAddresses, local)
+
+	// Keep verifier types that have a resolver on a local chain.
+	familyConfig.TokenVerifiers = dropUnreachableVerifiers(cfg.TokenVerifiers, local)
+
+	// Keep local CCTP senders and all resolver addresses for the writer.
+	for i := range familyConfig.TokenVerifiers {
+		vc := &familyConfig.TokenVerifiers[i]
+		if vc.CCTPConfig != nil {
+			cctpConfig := *vc.CCTPConfig
+			cctpConfig.Verifiers = localAddresses(cctpConfig.Verifiers, local)
+			vc.CCTPConfig = &cctpConfig
+		}
+	}
+	return &familyConfig
+}
+
+func localAddresses[T any](addresses map[string]T, local map[string]struct{}) map[string]T {
+	selected := make(map[string]T)
+	for selector, address := range addresses {
+		if _, ok := local[selector]; ok {
+			selected[selector] = address
+		}
+	}
+	return selected
 }
 
 // selectorsForFamily filters selectors down to those belonging to family, by cross-referencing
