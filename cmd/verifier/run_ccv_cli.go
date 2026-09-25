@@ -13,6 +13,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/cli/chainstatuses"
 	"github.com/smartcontractkit/chainlink-ccv/cli/jobqueue"
 	"github.com/smartcontractkit/chainlink-ccv/cli/migrate"
+	"github.com/smartcontractkit/chainlink-ccv/cli/quiesce"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vsecrets"
@@ -111,6 +112,11 @@ func RunCCVCLI(args []string, secretsEnvVar, defaultSecretsPath string) {
 					Name:        "migrate",
 					Usage:       "CL-to-standalone migration: export keys from a Chainlink node and inspect them",
 					Subcommands: migrate.InitMigrateCommands(lggr),
+				},
+				{
+					Name:        "quiesce",
+					Usage:       "Pause and resume the verifier service process running in this container",
+					Subcommands: quiesce.InitQuiesceCommands(),
 				},
 			},
 		},

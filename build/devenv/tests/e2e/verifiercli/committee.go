@@ -42,7 +42,7 @@ func (c *CommitteeClient) VerifierID() string { return c.verifierID }
 // callers must not mutate it.
 func (c *CommitteeClient) Members() []*Client { return c.members }
 
-// ResumeAllBestEffort sends pkill -CONT to every member, ignoring
+// ResumeAllBestEffort resumes (SIGCONT) every member, ignoring
 // errors. Intended for t.Cleanup paths where we just want a healthy
 // environment even if an earlier step failed mid-Pause.
 func (c *CommitteeClient) ResumeAllBestEffort(ctx context.Context) {

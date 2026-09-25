@@ -503,21 +503,30 @@ it, at which point the maintenanceMode entry from the step 4 PR holds the node a
 
 Comment `.deploy stage` on the step 4 PR and confirm. Then check what is checkable now. No job
 exists yet, so the app ports (8100/8101) serve nothing and bootstrap `/ready` stays 503; that is
-expected here. The images ship busybox wget, not curl.
+expected here. The images are distroless (no shell, no wget), so probe over a
+port-forward with curl from your workstation.
 
 ```sh
-kubectl --context $CTX -n $NS exec deploy/$VER -- wget -qO- http://localhost:9988/health   # {"status":"ok"}
-kubectl --context $CTX -n $NS exec deploy/$EXE -- wget -qO- http://localhost:9988/health
-kubectl --context $CTX -n $NS logs deploy/$VER | grep -i expected_id                       # must print nothing
+kubectl --context $CTX -n $NS port-forward deploy/$VER 9988:9988 & PF=$!
+sleep 2
+curl -s http://localhost:9988/health   # verifier {"status":"ok"}
+kill $PF
+kubectl --context $CTX -n $NS port-forward deploy/$EXE 9988:9988 & PF=$!
+sleep 2
+curl -s http://localhost:9988/health   # executor
+kill $PF
+kubectl --context $CTX -n $NS logs deploy/$VER | grep -i expected_id     # must print nothing
 ```
 
 ### 7. CSA handoff
 
 ```sh
 for R in $VER $EXE; do
-  kubectl --context $CTX -n $NS exec deploy/$R -- wget -qO- \
-    --post-data='{"KeyNames":["bootstrap_default_csa_key"]}' \
+  kubectl --context $CTX -n $NS port-forward deploy/$R 9988:9988 & PF=$!
+  sleep 2
+  curl -s -d '{"KeyNames":["bootstrap_default_csa_key"]}' \
     http://localhost:9988/keystore/reader/getkeys; echo
+  kill $PF
 done
 # PublicKey in the response is base64; JD takes hex:
 echo '<PublicKey>' | base64 -d | xxd -p -c 999
@@ -605,9 +614,14 @@ nothing needs accepting in the JD UI. Once the jobs start:
 
 ```sh
 kubectl --context $CTX -n $NS logs deploy/$VER | grep -i signer_address    # must print nothing
-kubectl --context $CTX -n $NS exec deploy/$VER -- wget -qO- http://localhost:8100/health
-kubectl --context $CTX -n $NS exec deploy/$EXE -- wget -qO- http://localhost:8101/health
-kubectl --context $CTX -n $NS exec deploy/$VER -- wget -qO- http://localhost:9988/ready   # now 200
+kubectl --context $CTX -n $NS port-forward deploy/$VER 8100:8100 & PF1=$!
+kubectl --context $CTX -n $NS port-forward deploy/$EXE 8101:8101 & PF2=$!
+kubectl --context $CTX -n $NS port-forward deploy/$VER 9988:9988 & PF3=$!
+sleep 2
+curl -s http://localhost:8100/health
+curl -s http://localhost:8101/health
+curl -s http://localhost:9988/ready   # now 200
+kill $PF1 $PF2 $PF3
 ```
 
 ### 10. Re-apply disabled chains, if step 1 recorded any
@@ -618,7 +632,7 @@ the verifier container hits the right database. The flag is read at start, hence
 
 ```sh
 kubectl --context $CTX -n $NS exec deploy/$VER -- /bin/verifier ccv chain-statuses list   # note verifier_id
-kubectl --context $CTX -n $NS exec deploy/$VER -- pkill -STOP -f verifier                 # quiesce
+kubectl --context $CTX -n $NS exec deploy/$VER -- /bin/verifier ccv quiesce pause           # quiesce
 kubectl --context $CTX -n $NS exec deploy/$VER -- /bin/verifier ccv chain-statuses disable \
   --chain-selector <sel> --verifier-id <standalone-verifier-id>
 kubectl --context $CTX -n $NS rollout restart deploy/$VER

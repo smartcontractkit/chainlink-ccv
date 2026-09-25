@@ -1,0 +1,19 @@
+version: 2
+updates:
+  # Keeps the digest-pinned base images in the production Dockerfiles current;
+  # dependabot proposes the new tag/digest as a PR.
+  - package-ecosystem: docker
+    directories:
+      - /aggregator
+      - /executor
+      - /indexer
+      - /pricer
+      - /verifier
+      - /build/devenv/fakes
+    schedule:
+      interval: weekly
+    # One weekly PR for all base-image digest bumps instead of six.
+    groups:
+      docker-base-images:
+        patterns:
+          - "*"
