@@ -45,7 +45,7 @@ func signalService(procRoot string, sig syscall.Signal) error {
 	if err := kill(pid, sig); err != nil {
 		return fmt.Errorf("cannot signal verifier service (pid %d): %w", pid, err)
 	}
-	fmt.Printf("sent %s to verifier service (pid %d)\n", sig, pid)
+	fmt.Printf("sent %s to verifier service (pid %d)\n", sig, pid) //nolint:forbidigo // CLI user output
 	return nil
 }
 
@@ -71,6 +71,7 @@ func findServicePID(procRoot string, self int, name string) (int, error) {
 		if err != nil || pid == self {
 			continue
 		}
+		// #nosec G304 -- the path is enumerated from procRoot, which is the point of the scan
 		comm, err := os.ReadFile(filepath.Join(procRoot, e.Name(), "comm"))
 		if err != nil {
 			continue

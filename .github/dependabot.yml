@@ -12,3 +12,8 @@ updates:
       - /build/devenv/fakes
     schedule:
       interval: weekly
+    # One weekly PR for all base-image digest bumps instead of six.
+    groups:
+      docker-base-images:
+        patterns:
+          - "*"

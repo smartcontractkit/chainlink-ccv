@@ -107,7 +107,7 @@ func (c *Client) CLIJSON(ctx context.Context, subcommand []string, args ...strin
 // Pause is safe to call multiple times; a STOP on an already-stopped
 // process is a no-op.
 func (c *Client) Pause(ctx context.Context) error {
-	_, err := c.Exec(ctx, c.binaryPath, "ccv", "quiesce", "pause")
+	_, err := c.CLI(ctx, []string{"ccv", "quiesce"}, "pause")
 	return err
 }
 
@@ -116,7 +116,7 @@ func (c *Client) Pause(ctx context.Context) error {
 // even when the test fails between Pause and the logical resume.
 // A best-effort helper for cleanup paths is ResumeBestEffort.
 func (c *Client) Resume(ctx context.Context) error {
-	_, err := c.Exec(ctx, c.binaryPath, "ccv", "quiesce", "resume")
+	_, err := c.CLI(ctx, []string{"ccv", "quiesce"}, "resume")
 	return err
 }
 
@@ -124,7 +124,7 @@ func (c *Client) Resume(ctx context.Context) error {
 // t.Cleanup hooks where the test has already recorded its failure and
 // we just want the container back to a usable state.
 func (c *Client) ResumeBestEffort(ctx context.Context) {
-	_, _ = c.Exec(ctx, c.binaryPath, "ccv", "quiesce", "resume")
+	_, _ = c.CLI(ctx, []string{"ccv", "quiesce"}, "resume")
 }
 
 // RestartAndWaitReady restarts the verifier container via `docker
