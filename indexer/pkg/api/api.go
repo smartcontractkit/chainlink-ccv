@@ -55,10 +55,7 @@ func NewV1API(lggr logger.Logger, cfg *config.Config, storage common.IndexerStor
 	for _, hr := range healthReporters {
 		healthManager.Register(hr)
 	}
-	healthHandler := health.NewHealthStatus(healthManager)
-	router.GET("/health/live", healthHandler.HandleLiveness)
-	router.GET("/health/ready", healthHandler.HandleReadiness)
-	router.GET("/health", healthHandler.HandleReadiness)
+	health.RegisterOn(healthManager, router)
 
 	return router
 }

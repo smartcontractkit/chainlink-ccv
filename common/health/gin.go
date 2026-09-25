@@ -17,6 +17,14 @@ func NewHealthStatus(manager *Manager) *Status {
 	}
 }
 
+// RegisterOn mounts the standard liveness/readiness routes for manager onto router.
+func RegisterOn(manager *Manager, router gin.IRoutes) {
+	status := NewHealthStatus(manager)
+	router.GET("/health/live", status.HandleLiveness)
+	router.GET("/health/ready", status.HandleReadiness)
+	router.GET("/health", status.HandleReadiness)
+}
+
 // HandleLiveness checks if the service is alive and responding.
 // This is a simple check - if the HTTP server can respond, the process is alive.
 // Kubernetes will restart the pod if this fails.

@@ -435,10 +435,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig, aggMonito
 	var healthHTTPServer *http.Server
 	if config.HealthCheck.Enabled {
 		healthRouter := gin.New()
-		healthHandler := health.NewHealthStatus(healthManager)
-		healthRouter.GET("/health/live", healthHandler.HandleLiveness)
-		healthRouter.GET("/health/ready", healthHandler.HandleReadiness)
-		healthRouter.GET("/health", healthHandler.HandleReadiness)
+		health.RegisterOn(healthManager, healthRouter)
 
 		healthHTTPServer = &http.Server{
 			Addr:         ":" + config.HealthCheck.Port,
