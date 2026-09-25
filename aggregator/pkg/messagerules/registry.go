@@ -9,6 +9,7 @@ import (
 	"time"
 
 	shared "github.com/smartcontractkit/chainlink-ccv/common/messagerules"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -42,9 +43,12 @@ type Registry struct {
 	activeRuleMetricLabels map[string][]string
 	lggr                   logger.SugaredLogger
 	ready                  bool
+	lastRefreshErr         error
 }
 
 var _ shared.Checker = (*Registry)(nil)
+
+var _ protocol.HealthReporter = (*Registry)(nil)
 
 func NewRegistry(store shared.Store, lggr logger.SugaredLogger, opts ...RegistryOption) *Registry {
 	r := &Registry{
@@ -67,7 +71,9 @@ func (r *Registry) Refresh(ctx context.Context) error {
 			"error", err,
 			"active_rule_count", r.ActiveRuleCount(),
 		)
-		return fmt.Errorf("failed to list message disablement rules: %w", err)
+		wrapped := fmt.Errorf("failed to list message disablement rules: %w", err)
+		r.setRefreshErr(wrapped)
+		return wrapped
 	}
 
 	compiled, err := shared.CompileRules(rules)
@@ -78,6 +84,7 @@ func (r *Registry) Refresh(ctx context.Context) error {
 			"loaded_rule_count", len(rules),
 			"active_rule_count", r.ActiveRuleCount(),
 		)
+		r.setRefreshErr(err)
 		return err
 	}
 
@@ -88,6 +95,7 @@ func (r *Registry) Refresh(ctx context.Context) error {
 	r.activeRules = compiled
 	r.activeRuleMetricLabels = metricLabels
 	r.ready = true
+	r.lastRefreshErr = nil
 	r.mu.Unlock()
 
 	r.metrics.SetMessageDisablementRulesRefreshFailure(ctx, 0)
@@ -97,6 +105,34 @@ func (r *Registry) Refresh(ctx context.Context) error {
 	)
 
 	return nil
+}
+
+func (r *Registry) setRefreshErr(err error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.lastRefreshErr = err
+}
+
+// Ready reports the outcome of the most recent refresh. Never having refreshed successfully
+// counts as not ready, since IsDisabled would otherwise run against an empty rule set.
+func (r *Registry) Ready() error {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	if !r.ready {
+		return fmt.Errorf("message disablement rules registry has not completed an initial refresh")
+	}
+	return r.lastRefreshErr
+}
+
+func (r *Registry) HealthReport() map[string]error {
+	return map[string]error{
+		r.Name(): r.Ready(),
+	}
+}
+
+func (r *Registry) Name() string {
+	return "message_disablement_registry"
 }
 
 func (r *Registry) IsDisabled(report shared.MessageReport) bool {

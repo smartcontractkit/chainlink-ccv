@@ -3,6 +3,8 @@ package protocol
 import (
 	"context"
 	"math/big"
+
+	"github.com/smartcontractkit/chainlink-ccv/common/health"
 )
 
 // ChainStatusInfo represents chain status with selector, block height and disabled state.
@@ -23,20 +25,9 @@ type ChainStatusManager interface {
 	ReadChainStatuses(ctx context.Context, chainSelectors []ChainSelector) (map[ChainSelector]*ChainStatusInfo, error)
 }
 
-// HealthReporter should be implemented by any type requiring health checks.
-type HealthReporter interface {
-	// Ready should return nil if ready, or an error message otherwise. From the k8s docs:
-	// > ready means it's initialized and healthy means that it can accept traffic in kubernetes
-	// See: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
-	Ready() error
-	// HealthReport returns a full health report of the callee including its dependencies.
-	// Keys are based on Name(), with nil values when healthy or errors otherwise.
-	// Use CopyHealth to collect reports from sub-services.
-	// This should run very fast, so avoid doing computation and instead prefer reporting pre-calculated state.
-	HealthReport() map[string]error
-	// Name returns the fully qualified name of the component. Usually the logger name.
-	Name() string
-}
+// HealthReporter is an alias for the shared health.HealthReporter interface, kept for
+// backwards compatibility with existing protocol.HealthReporter references.
+type HealthReporter = health.HealthReporter
 
 // Service represents a long-running service inside the Application.
 //

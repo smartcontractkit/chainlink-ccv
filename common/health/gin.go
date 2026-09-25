@@ -2,26 +2,34 @@ package health
 
 import (
 	"github.com/gin-gonic/gin"
-
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common/health"
 )
 
+// Status is a gin adapter over Manager, for services that mount their health routes
+// on an existing gin router (e.g. token-verifier, indexer) rather than owning their
+// own HTTP server.
 type Status struct {
-	healthReporters []protocol.HealthReporter
+	manager *Manager
 }
 
-func NewHealthStatus(healthReporters []protocol.HealthReporter) *Status {
+func NewHealthStatus(manager *Manager) *Status {
 	return &Status{
-		healthReporters: healthReporters,
+		manager: manager,
 	}
+}
+
+// RegisterOn mounts the standard liveness/readiness routes for manager onto router.
+func RegisterOn(manager *Manager, router gin.IRoutes) {
+	status := NewHealthStatus(manager)
+	router.GET("/health/live", status.HandleLiveness)
+	router.GET("/health/ready", status.HandleReadiness)
+	router.GET("/health", status.HandleReadiness)
 }
 
 // HandleLiveness checks if the service is alive and responding.
 // This is a simple check - if the HTTP server can respond, the process is alive.
 // Kubernetes will restart the pod if this fails.
 func (h *Status) HandleLiveness(c *gin.Context) {
-	response := health.NewAliveResponse()
+	response := h.manager.CheckLiveness(c.Request.Context())
 	c.JSON(
 		response.StatusCode(), response,
 	)
@@ -32,17 +40,7 @@ func (h *Status) HandleLiveness(c *gin.Context) {
 // Note: 0 health reporters is a valid idle state and the service is considered ready.
 // Kubernetes will remove the pod from service endpoints if this fails.
 func (h *Status) HandleReadiness(c *gin.Context) {
-	reporterStatuses := make([]health.ServicesHealth, 0, len(h.healthReporters))
-
-	// 0 health reporters is a valid idle state - service can still accept API requests
-	for _, reporter := range h.healthReporters {
-		reporterStatuses = append(
-			reporterStatuses,
-			health.NewServiceHealth(reporter),
-		)
-	}
-
-	response := health.NewReadinessResponse(reporterStatuses)
+	response := h.manager.CheckReadiness(c.Request.Context())
 	c.JSON(
 		response.StatusCode(),
 		response,

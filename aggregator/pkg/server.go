@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/recovery"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/selector"
@@ -26,13 +27,13 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/aggregation"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/handlers"
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/health"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/heartbeat"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/messagerules"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/middlewares"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/quorum"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage"
+	"github.com/smartcontractkit/chainlink-ccv/common/health"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
@@ -69,7 +70,7 @@ type Server struct {
 	heartbeatHandler                          *handlers.HeartbeatHandler
 	grpcServer                                *grpc.Server
 	batchWriteCommitVerifierNodeResultHandler *handlers.BatchWriteCommitVerifierNodeResultHandler
-	httpHealthServer                          *health.HTTPHealthServer
+	healthHTTPServer                          *http.Server
 	healthManager                             *health.Manager
 	runGroup                                  *run.Group
 	stopChan                                  chan struct{}
@@ -205,16 +206,17 @@ func (s *Server) Start(lis net.Listener) error {
 		healthManagerCancel()
 	})
 
-	if s.httpHealthServer != nil {
+	if s.healthHTTPServer != nil {
 		g.Add(func() error {
-			if err := s.httpHealthServer.Start(); err != nil && err != http.ErrServerClosed {
+			s.l.Infow("Starting HTTP health server", "addr", s.healthHTTPServer.Addr)
+			if err := s.healthHTTPServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				return err
 			}
 			return nil
 		}, func(error) {
 			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer shutdownCancel()
-			_ = s.httpHealthServer.Stop(shutdownCtx)
+			_ = s.healthHTTPServer.Shutdown(shutdownCtx)
 		})
 	}
 
@@ -422,18 +424,25 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig, aggMonito
 	healthManager.Register(store)
 	healthManager.Register(rateLimitingMiddleware)
 	healthManager.Register(agg)
+	healthManager.Register(messageDisablementRegistry)
+	healthManager.Register(heartbeatStorage)
+	healthManager.Register(grpcServer)
 	if config.OrphanRecovery.Enabled {
 		recoverer = NewOrphanRecoverer(store, agg, config, l, aggMonitoring.Metrics())
 		healthManager.Register(recoverer)
 	}
 
-	var httpHealthServer *health.HTTPHealthServer
+	var healthHTTPServer *http.Server
 	if config.HealthCheck.Enabled {
-		httpHealthServer = health.NewHTTPHealthServer(
-			healthManager,
-			config.HealthCheck.Port,
-			l,
-		)
+		healthRouter := gin.New()
+		health.RegisterOn(healthManager, healthRouter)
+
+		healthHTTPServer = &http.Server{
+			Addr:         ":" + config.HealthCheck.Port,
+			Handler:      healthRouter,
+			ReadTimeout:  10 * time.Second,
+			WriteTimeout: 10 * time.Second,
+		}
 	}
 
 	server := &Server{
@@ -449,7 +458,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig, aggMonito
 		listMessageRulesHandler:              listMessageRulesHandler,
 		batchWriteCommitVerifierNodeResultHandler: batchWriteCommitVerifierNodeResultHandler,
 		heartbeatHandler: heartbeatHandler,
-		httpHealthServer: httpHealthServer,
+		healthHTTPServer: healthHTTPServer,
 		healthManager:    healthManager,
 		grpcServer:       grpcServer,
 		recoverer:        recoverer,

@@ -31,6 +31,30 @@ type MetricsAwareStorage struct {
 	slowQueryThreshold time.Duration
 }
 
+var _ protocol.HealthReporter = (*MetricsAwareStorage)(nil)
+
+// Ready forwards to inner if it reports health, otherwise it's always ready.
+func (s *MetricsAwareStorage) Ready() error {
+	if hr, ok := s.inner.(protocol.HealthReporter); ok {
+		return hr.Ready()
+	}
+	return nil
+}
+
+func (s *MetricsAwareStorage) HealthReport() map[string]error {
+	if hr, ok := s.inner.(protocol.HealthReporter); ok {
+		return hr.HealthReport()
+	}
+	return map[string]error{s.Name(): nil}
+}
+
+func (s *MetricsAwareStorage) Name() string {
+	if hr, ok := s.inner.(protocol.HealthReporter); ok {
+		return hr.Name()
+	}
+	return "indexer_storage"
+}
+
 type MetricsAwareStorageOption func(*MetricsAwareStorage)
 
 func WithSlowQueryThreshold(threshold time.Duration) MetricsAwareStorageOption {
