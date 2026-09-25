@@ -108,12 +108,36 @@ type CCTPCodec interface {
 	DecodeAddress(address string) (protocol.UnknownAddress, error)
 }
 
+// FeeQuoter provides chain-agnostic access to a chain's Fee Quoter and gas
+// prices. It isolates all chain-specific logic behind this interface so that
+// consumers (e.g. a standalone price reporting service) can interact with any
+// chain family uniformly.
+//
+// Thread-safety: All methods must be safe for concurrent calls.
+type FeeQuoter interface {
+	// GetFQState reads the current Fee Quoter on-chain state and returns it.
+	GetFQState(ctx context.Context) (protocol.FQState, error)
+	// GetGasPrice reads the chain's current native gas price from the RPC.
+	GetGasPrice(ctx context.Context) (protocol.GasPrice, error)
+	// MonitorFQ runs a goroutine that monitors the Fee Quoter on-chain state
+	// and streams a fresh FQState snapshot on the returned channel whenever it
+	// changes. The channel is closed when the context is canceled.
+	MonitorFQ(ctx context.Context) (<-chan protocol.FQState, error)
+	// UpdateFeeTokenPrices generates and broadcasts transactions for the given
+	// fee token price updates to the chain.
+	UpdateFeeTokenPrices(ctx context.Context, prices []protocol.FeeTokenPriceUpdate) error
+	// UpdateGasTokenPrices generates and broadcasts transactions for the given
+	// gas token price updates to the chain.
+	UpdateGasTokenPrices(ctx context.Context, prices []protocol.GasTokenPriceUpdate) error
+}
+
 // Accessor provides objects that in turn provide specific kinds of blockchain access.
 // It is scoped to a particular chain selector. All methods are optional: implementations
 // return an error for capabilities they do not support.
 //
 // A committee/verifier accessor typically provides only SourceReader.
 // An executor accessor typically provides only DestinationReader and ContractTransmitter.
+// A price reporting accessor typically provides only FeeQuoter.
 type Accessor interface {
 	// SourceReader returns the SourceReader for this chain, or an error if not available.
 	SourceReader() (SourceReader, error)
@@ -123,6 +147,8 @@ type Accessor interface {
 	ContractTransmitter() (ContractTransmitter, error)
 	// CCTPCodec returns the CCTPCodec for this chain, or an error if not available.
 	CCTPCodec() (CCTPCodec, error)
+	// FeeQuoter returns the FeeQuoter for this chain, or an error if not available.
+	FeeQuoter() (FeeQuoter, error)
 	// Close releases any background services the accessor started. Stateless accessors return nil.
 	Close() error
 

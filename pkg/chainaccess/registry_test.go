@@ -52,6 +52,10 @@ func (a *testAccessor) CCTPCodec() (chainaccess.CCTPCodec, error) {
 	return nil, errors.New("chain codec not available")
 }
 
+func (a *testAccessor) FeeQuoter() (chainaccess.FeeQuoter, error) {
+	return nil, errors.New("fee quoter not available")
+}
+
 func (a *testAccessor) Close() error {
 	return nil
 }
@@ -95,6 +99,22 @@ func TestNewRegistry_GetAccessor(t *testing.T) {
 	accessor, err := reg.GetAccessor(context.Background(), ethereumMainnetSelector)
 	require.NoError(t, err)
 	assert.NotNil(t, accessor)
+}
+
+func TestGetAccessor_FeeQuoterUnsupported(t *testing.T) {
+	lggr := logger.Test(t)
+	reg, err := chainaccess.NewRegistry(lggr, "")
+	require.NoError(t, err)
+
+	accessor, err := reg.GetAccessor(context.Background(), ethereumMainnetSelector)
+	require.NoError(t, err)
+
+	// The test accessor does not implement FeeQuoter, so it must return an
+	// unsupported error rather than a nil FeeQuoter.
+	fq, err := accessor.FeeQuoter()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "fee quoter not available")
+	assert.Nil(t, fq)
 }
 
 func TestRegister_PanicsOnDuplicate(t *testing.T) {
