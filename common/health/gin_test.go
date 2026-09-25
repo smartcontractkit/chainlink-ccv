@@ -8,15 +8,21 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
-
-	"github.com/smartcontractkit/chainlink-ccv/common/health"
 )
+
+func newManagerWith(reporters ...HealthReporter) *Manager {
+	m := NewManager()
+	for _, r := range reporters {
+		m.Register(r)
+	}
+	return m
+}
 
 func TestHealthStatus_HandleLiveness(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	t.Run("always returns alive", func(t *testing.T) {
-		handler := NewHealthStatus(nil)
+		handler := NewHealthStatus(newManagerWith())
 
 		router := gin.New()
 		router.GET("/health/live", handler.HandleLiveness)
@@ -30,8 +36,7 @@ func TestHealthStatus_HandleLiveness(t *testing.T) {
 	})
 
 	t.Run("works with health reporters", func(t *testing.T) {
-		healthReporters := make([]health.HealthReporter, 0)
-		handler := NewHealthStatus(healthReporters)
+		handler := NewHealthStatus(newManagerWith())
 
 		router := gin.New()
 		router.GET("/health/live", handler.HandleLiveness)
@@ -49,7 +54,7 @@ func TestHealthStatus_HandleReadiness(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	t.Run("ready when no health reporters (idle state)", func(t *testing.T) {
-		handler := NewHealthStatus([]health.HealthReporter{})
+		handler := NewHealthStatus(newManagerWith())
 
 		router := gin.New()
 		router.GET("/health/ready", handler.HandleReadiness)
@@ -64,8 +69,7 @@ func TestHealthStatus_HandleReadiness(t *testing.T) {
 
 	t.Run("ready when single reporter is ready", func(t *testing.T) {
 		reporter := newFakeHealthReporter("coordinator-1", nil, nil)
-		healthReporters := []health.HealthReporter{reporter}
-		handler := NewHealthStatus(healthReporters)
+		handler := NewHealthStatus(newManagerWith(reporter))
 
 		router := gin.New()
 		router.GET("/health/ready", handler.HandleReadiness)
@@ -85,8 +89,7 @@ func TestHealthStatus_HandleReadiness(t *testing.T) {
 
 	t.Run("not ready when single reporter is not ready", func(t *testing.T) {
 		reporter := newFakeHealthReporter("coordinator-1", errors.New("state machine not started"), nil)
-		healthReporters := []health.HealthReporter{reporter}
-		handler := NewHealthStatus(healthReporters)
+		handler := NewHealthStatus(newManagerWith(reporter))
 
 		router := gin.New()
 		router.GET("/health/ready", handler.HandleReadiness)
@@ -108,8 +111,7 @@ func TestHealthStatus_HandleReadiness(t *testing.T) {
 		reporter1 := newFakeHealthReporter("coordinator-1", nil, nil)
 		reporter2 := newFakeHealthReporter("coordinator-2", nil, nil)
 		reporter3 := newFakeHealthReporter("coordinator-3", nil, nil)
-		healthReporters := []health.HealthReporter{reporter1, reporter2, reporter3}
-		handler := NewHealthStatus(healthReporters)
+		handler := NewHealthStatus(newManagerWith(reporter1, reporter2, reporter3))
 
 		router := gin.New()
 		router.GET("/health/ready", handler.HandleReadiness)
@@ -133,8 +135,7 @@ func TestHealthStatus_HandleReadiness(t *testing.T) {
 		reporter1 := newFakeHealthReporter("coordinator-1", nil, nil)
 		reporter2 := newFakeHealthReporter("coordinator-2", errors.New("database connection lost"), nil)
 		reporter3 := newFakeHealthReporter("coordinator-3", nil, nil)
-		healthReporters := []health.HealthReporter{reporter1, reporter2, reporter3}
-		handler := NewHealthStatus(healthReporters)
+		handler := NewHealthStatus(newManagerWith(reporter1, reporter2, reporter3))
 
 		router := gin.New()
 		router.GET("/health/ready", handler.HandleReadiness)
@@ -157,8 +158,7 @@ func TestHealthStatus_HandleReadiness(t *testing.T) {
 	t.Run("not ready when all reporters are not ready", func(t *testing.T) {
 		reporter1 := newFakeHealthReporter("coordinator-1", errors.New("RPC node unreachable"), nil)
 		reporter2 := newFakeHealthReporter("coordinator-2", errors.New("curse detector failed"), nil)
-		healthReporters := []health.HealthReporter{reporter1, reporter2}
-		handler := NewHealthStatus(healthReporters)
+		handler := NewHealthStatus(newManagerWith(reporter1, reporter2))
 
 		router := gin.New()
 		router.GET("/health/ready", handler.HandleReadiness)
@@ -185,8 +185,7 @@ func TestHealthStatus_HandleReadiness(t *testing.T) {
 		reporter1 := newFakeHealthReporter("coordinator-1", nil, nil)
 		reporter2 := newFakeHealthReporter("coordinator-2", errors.New("not started"), healthReport)
 		reporter3 := newFakeHealthReporter("coordinator-3", nil, nil)
-		healthReporters := []health.HealthReporter{reporter1, reporter2, reporter3}
-		handler := NewHealthStatus(healthReporters)
+		handler := NewHealthStatus(newManagerWith(reporter1, reporter2, reporter3))
 
 		router := gin.New()
 		router.GET("/health/ready", handler.HandleReadiness)
@@ -201,8 +200,8 @@ func TestHealthStatus_HandleReadiness(t *testing.T) {
 			"services": [
 				{"name": "coordinator-1", "status": "ready"},
 				{
-					"name": "coordinator-2", 
-					"status": "not_ready", 
+					"name": "coordinator-2",
+					"status": "not_ready",
 					"error": "not started",
 					"report": {
 						"component1": "component error"

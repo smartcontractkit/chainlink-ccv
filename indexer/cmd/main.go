@@ -142,7 +142,12 @@ func main() {
 	}
 	pool.Start(ctx)
 
-	v1 := api.NewV1API(lggr, config, indexerStorage, indexerMonitoring)
+	var healthReporters []protocol.HealthReporter
+	if hr, ok := indexerStorage.(protocol.HealthReporter); ok {
+		healthReporters = append(healthReporters, hr)
+	}
+
+	v1 := api.NewV1API(lggr, config, indexerStorage, indexerMonitoring, healthReporters)
 	listenPort := config.API.ListenPort
 	if listenPort == 0 {
 		listenPort = 8100

@@ -5,14 +5,16 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/smartcontractkit/chainlink-ccv/common/health"
 	v1 "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api/handlers/v1"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	sharedmiddleware "github.com/smartcontractkit/chainlink-ccv/integration/pkg/api/middleware"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-func NewV1API(lggr logger.Logger, cfg *config.Config, storage common.IndexerStorage, monitoring common.IndexerMonitoring) *gin.Engine {
+func NewV1API(lggr logger.Logger, cfg *config.Config, storage common.IndexerStorage, monitoring common.IndexerMonitoring, healthReporters []protocol.HealthReporter) *gin.Engine {
 	router := gin.New()
 	router.Use(sharedmiddleware.GinLogger(lggr))
 	err := router.SetTrustedProxies(cfg.API.TrustedProxies)
@@ -48,10 +50,15 @@ func NewV1API(lggr logger.Logger, cfg *config.Config, storage common.IndexerStor
 	messagesHandler := v1.NewMessagesHandler(storage, lggr, monitoring, v1.MaxQueryLimit)
 	v1Group.GET("/messages", messagesHandler.Handle)
 
-	// App readiness and health endpoints
-	healthHandler := v1.NewHealthHandler(storage, lggr, monitoring)
-	router.GET("/health", healthHandler.Handle)
-	router.GET("/ready", healthHandler.HandleReady)
+	// App liveness and readiness endpoints
+	healthManager := health.NewManager()
+	for _, hr := range healthReporters {
+		healthManager.Register(hr)
+	}
+	healthHandler := health.NewHealthStatus(healthManager)
+	router.GET("/health/live", healthHandler.HandleLiveness)
+	router.GET("/health/ready", healthHandler.HandleReadiness)
+	router.GET("/health", healthHandler.HandleReadiness)
 
 	return router
 }

@@ -20,6 +20,8 @@ import (
 
 var _ common.IndexerStorage = (*PostgresStorage)(nil)
 
+var _ protocol.HealthReporter = (*PostgresStorage)(nil)
+
 const (
 	// maxBatchSizeCCVData is the maximum number of CCV data rows that can be inserted in a single query
 	// to avoid Postgres bind parameter overflow (65535 limit). With 11 parameters per row, 5000 rows = 55000 parameters.
@@ -80,6 +82,25 @@ func NewPostgresStorage(ctx context.Context, lggr logger.Logger, monitoring comm
 		lggr:       lggr,
 		monitoring: monitoring,
 	}, nil
+}
+
+// Ready checks database connectivity with a lightweight query.
+func (d *PostgresStorage) Ready() error {
+	var count int
+	if err := d.ds.GetContext(context.Background(), &count, "SELECT 1"); err != nil {
+		return fmt.Errorf("indexer database health check failed: %w", err)
+	}
+	return nil
+}
+
+func (d *PostgresStorage) HealthReport() map[string]error {
+	return map[string]error{
+		d.Name(): d.Ready(),
+	}
+}
+
+func (d *PostgresStorage) Name() string {
+	return "indexer_postgres_storage"
 }
 
 // GetCCVData performs a lookup by messageID in the database.
