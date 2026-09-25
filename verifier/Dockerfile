@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-FROM golang:1.26.6-alpine AS builder
+FROM golang:1.26.6-alpine@sha256:3889b425f035be855a72fb4755265311293b6d414521f0a519d819df32222d83 AS builder
 WORKDIR /
 
 # Copy module files first to maximize cache reuse across apps
@@ -17,19 +17,17 @@ RUN --mount=type=cache,target=/root/.cache/go-build,id=ccv-go-build \
     --mount=type=cache,target=/go/pkg/mod,id=ccv-go-mod \
     CGO_ENABLED=0 go build -ldflags='-s -w' -o /bin/verifier main.go
 
-FROM alpine:3.23
-RUN apk --no-cache upgrade libcrypto3 libssl3 && apk --no-cache add ca-certificates tini
+# Static tini for the final image, which has no package manager
+RUN apk --no-cache add tini-static
 
-# Create a non-root user and group for running the application
-RUN addgroup -S verifier && adduser -S verifier -G verifier
+# 65532 is the nonroot user provided by the distroless base image.
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
 
-COPY --chown=verifier:verifier --from=builder /bin/verifier /bin/
+COPY --from=builder /sbin/tini-static /sbin/tini
+COPY --chown=65532:65532 --from=builder /bin/verifier /bin/
 COPY --from=builder /verifier/LICENSE /licenses/chainlink-ccv/LICENSE
-USER verifier:verifier
+USER 65532:65532
 
-# tini is needed here because the verifier would otherwise run as PID 1
-# and we wouldn't be able to pause it with pkill -STOP.
-# Sometimes that is required because we have to run a CLI command to
-# set the finalized height in order to replay messages that were dropped
-# under a curse.
+# tini stays PID 1 because namespace init ignores SIGSTOP; quiescing the
+# verifier (`/bin/verifier ccv quiesce pause`) only works on a child process.
 ENTRYPOINT ["/sbin/tini", "--", "/bin/verifier"]
