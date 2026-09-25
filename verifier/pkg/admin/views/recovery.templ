@@ -1,0 +1,520 @@
+package views
+
+import "time"
+
+// RecoveryPageNodeVM is one selectable node on the recovery form.
+type RecoveryPageNodeVM struct {
+	Name string
+}
+
+// RecoveryPreviewVM is the per-node capability view for the selected action.
+type RecoveryPreviewVM struct {
+	Mode          string
+	SubmitEnabled bool
+	Nodes         []RecoveryPreviewNodeVM
+}
+
+// RecoveryPreviewNodeVM is one node's capability finding. Error non-empty means the
+// node could not be inspected at all; the finding must not be treated as approval.
+type RecoveryPreviewNodeVM struct {
+	NodeName        string
+	Error           string
+	Registered      bool
+	ReaderDisabled  bool
+	LatestHead      string
+	HeadStale       bool
+	FinalizedHeight string
+	ActiveResetID   string
+	RangeText       string
+	Warnings        []string
+	Allowed         bool
+	BlockedReason   string
+}
+
+// RecoverySubmitNodeVM is the per-node outcome of one submission attempt.
+type RecoverySubmitNodeVM struct {
+	NodeName    string
+	Error       string
+	OperationID string
+	State       string
+	ToBlock     string
+}
+
+// RecoveryOperationVM is one durable recovery operation as rendered in a table row.
+type RecoveryOperationVM struct {
+	ID, Mode, State          string
+	RangeFrom, RangeTo       string
+	Progress, Counters       string
+	Actor, Note, LastError   string
+	ResetApplied             bool
+	CanCancel, CanResume     bool
+	RowError                 string
+	UpdatedAt                time.Time
+}
+
+// RecoveryOpsNodeVM is one node's operations table (or its lookup failure).
+type RecoveryOpsNodeVM struct {
+	NodeName string
+	Error    string
+	Ops      []RecoveryOperationVM
+}
+
+// RecoveryOperationsVM is the full operations fragment. InFlight drives 5s polling.
+type RecoveryOperationsVM struct {
+	Nodes    []RecoveryOpsNodeVM
+	InFlight bool
+}
+
+// RecoveryEvidenceNodeVM is one node's retained R4 evidence page plus reader state.
+type RecoveryEvidenceNodeVM struct {
+	NodeName      string
+	Error         string
+	Coverage      string
+	RetainedSince string
+	NextCursor    string
+	Readers       []RecoveryReaderVM
+	Events        []RecoveryEventVM
+}
+
+// RecoveryReaderVM is one ccv_recovery_readers row as evidence context.
+type RecoveryReaderVM struct {
+	NodeID, Disabled, LatestBlock, HeadObservedAt string
+	LastSeenAt, HistoryStartedAt                  string
+	ActiveResetID, AuditFailures                  string
+}
+
+// RecoveryEventVM is one retained drop/incident/reset event. Empty strings render as —.
+type RecoveryEventVM struct {
+	Kind, Stage, Reason                     string
+	SourceBlock, MessageID                  string
+	TxHash, BlockHash, IncidentID           string
+	Observations                            string
+	FirstObserved, LastObserved, Expires    string
+}
+
+// RecoveryPage is the source-range recovery console: one form for both actions, with
+// evidence and durable operations below. Ordinary replay never clears a finality block.
+templ RecoveryPage(csrfToken string, nodes []RecoveryPageNodeVM) {
+	@Layout("Source recovery") {
+		<h1>Source-range recovery</h1>
+		<p>Re-read a source block range through the verifier's durable recovery machinery — every action is previewed before submission.</p>
+		<details class="explain">
+			<summary>How recovery works: replay vs reset-reader, and bounds</summary>
+			<p>
+				<strong>replay</strong> re-reads an inclusive source block range and re-runs admission and
+				verification for the events found there. It never rewinds the normal reader checkpoint and never
+				re-enables a disabled reader.
+			</p>
+			<p>
+				<strong>reset-reader</strong> is the investigated recovery action for a finality-blocked
+				(disabled) reader: it records your operator identity and boundary evidence, re-initializes the
+				finality checker at <code>from-block − 1</code>, re-enables the reader, and recovers the range.
+				Submit it only after establishing the canonical chain and a known-good boundary. It requires a
+				disabled reader; an enabled reader takes <strong>replay</strong> instead.
+			</p>
+			<p>
+				Bounds: at most 100 blocks and 1,000 events per chunk; recovery pauses while an owner has
+				10,000 active verification jobs. A range covers every lane on the source chain. Operations are
+				durable in the node database and survive reloads and console restarts.
+			</p>
+		</details>
+		<div class="card">
+			<form id="recovery-form">
+				@CSRFField(csrfToken)
+				<fieldset>
+					<legend>Nodes (the operation is submitted once per selected node)</legend>
+					for _, n := range nodes {
+						<label><input type="checkbox" name="nodes" value={ n.Name }/> <code>{ n.Name }</code></label>
+					}
+				</fieldset>
+				<p>
+					<label>Verifier owner <input type="text" name="owner" size="40"/></label>
+					<label>Source chain selector <input type="number" name="chain" min="0" step="1"/></label>
+				</p>
+				<p>
+					<label>From block (inclusive) <input type="number" name="from_block" min="0" step="1"/></label>
+					<label>
+						To block (inclusive, optional)
+						<input type="number" name="to_block" min="0" step="1"/>
+					</label>
+					<br/>
+					<small>Omitting to-block captures the reader's advertised head at submission; the target never follows later chain progress.</small>
+				</p>
+				<fieldset>
+					<legend>Action</legend>
+					<label><input type="radio" name="mode" value="replay" checked/> replay — re-verify a range; does not enable a finality-blocked reader</label>
+					<br/>
+					<label><input type="radio" name="mode" value="reset-reader"/> reset-reader — investigated reset: re-enables a disabled reader and recovers the range</label>
+				</fieldset>
+				<p>
+					<label>
+						Recovery note (required — the reason and the investigated boundary evidence)<br/>
+						<textarea name="note" placeholder="Incident reference; canonical headers checked through block …"></textarea>
+					</label>
+				</p>
+				<p>
+					<label>
+						Request ID (optional UUID)
+						<input type="text" name="request_id" size="40"/>
+					</label>
+					<br/>
+					<small>
+						Leave empty for a fresh request. After a disconnected submission, resubmit only failed nodes, or
+						reuse the shown request ID: a node that already accepted it returns its original operation.
+					</small>
+				</p>
+				<button type="button" hx-post="/recovery/preview" hx-target="#recovery-preview" hx-swap="innerHTML">
+					Preview capability
+				</button>
+				<div id="recovery-preview"></div>
+			</form>
+		</div>
+		<div id="recovery-submit-result"></div>
+		<h2>Evidence</h2>
+		<p>Retained drops, incidents and reader resets for the chosen owner/chain — load them before choosing a range.</p>
+		<details class="explain">
+			<summary>What the evidence can and cannot tell you</summary>
+			A detected finality mismatch marks where detection happened — it is evidence, not automatically
+			the earliest affected block; scope the range from canonical-chain investigation.
+		</details>
+		<button type="button" hx-get="/recovery/evidence" hx-include="#recovery-form" hx-target="#recovery-evidence" hx-swap="innerHTML">
+			Load evidence for the selected nodes
+		</button>
+		<div id="recovery-evidence"></div>
+		<h2>Operations</h2>
+		<p>
+			<small>Read fresh from each node's database on every render; the list polls while work is in flight.</small>
+		</p>
+		<form id="recovery-ops-filter">
+			<label>Owner <input type="text" name="owner" size="40"/></label>
+			<label>Source chain <input type="number" name="chain" min="0" step="1"/></label>
+			<button type="button" hx-get="/recovery/operations" hx-include="#recovery-ops-filter" hx-target="#recovery-operations" hx-swap="innerHTML">
+				Refresh
+			</button>
+		</form>
+		<div id="recovery-operations" hx-get="/recovery/operations" hx-trigger="load" hx-target="#recovery-operations" hx-swap="innerHTML"></div>
+	}
+}
+
+// RecoveryPreviewError renders a rejected preview request (bad form input).
+templ RecoveryPreviewError(detail string) {
+	<div class="error">{ detail }</div>
+}
+
+// RecoveryPreview is the capability fragment; it carries the only submit button, so a
+// blocked action (e.g. replay against a disabled reader) has no enabled submit path.
+templ RecoveryPreview(vm RecoveryPreviewVM) {
+	<h3>Capability check — { vm.Mode }</h3>
+	for _, n := range vm.Nodes {
+		<h4><code>{ n.NodeName }</code></h4>
+		if n.Error != "" {
+			<div class="error">Could not inspect this node: { n.Error }. Treat its capability as unknown.</div>
+		} else {
+			<ul>
+				<li>
+					Reader for this owner/chain:
+					if n.Registered {
+						registered
+					} else {
+						<strong>not registered</strong> — submission will be rejected by the node
+					}
+				</li>
+				<li>
+					Reader state:
+					if n.ReaderDisabled {
+						<span class="state-unreachable">disabled (finality-blocked)</span>
+					} else {
+						<span class="state-ready">enabled</span>
+					}
+				</li>
+				<li>
+					Latest observed head: { n.LatestHead }
+					if n.HeadStale {
+						(stale — older than one minute)
+					}
+				</li>
+				<li>Current finalized height: { n.FinalizedHeight }</li>
+				if n.ActiveResetID != "" {
+					<li>Active reset holding normal polling: <code class="mid">{ n.ActiveResetID }</code></li>
+				}
+				<li>{ n.RangeText }</li>
+			</ul>
+			for _, w := range n.Warnings {
+				<div class="banner">{ w }</div>
+			}
+			if n.Allowed {
+				<p class="state-ready">{ vm.Mode } can be submitted to this node.</p>
+			} else {
+				<div class="error">{ n.BlockedReason }</div>
+			}
+		}
+	}
+	if vm.SubmitEnabled {
+		<button type="button" hx-post="/recovery/submit" hx-target="#recovery-submit-result" hx-swap="innerHTML">
+			Submit { vm.Mode } to the selected nodes
+		</button>
+	} else {
+		<button type="button" disabled>Submit unavailable — resolve the per-node findings above</button>
+	}
+	<details class="explain">
+		<summary>The capability view is a snapshot</summary>
+		Re-run the preview after changing any input. The submit path re-checks every finding on the
+		server before touching a node.
+	</details>
+}
+
+// RecoverySubmitError renders a rejected submission (validation or read-only mode).
+templ RecoverySubmitError(detail string) {
+	<div class="error">{ detail }</div>
+}
+
+// RecoverySubmitResult renders per-node outcomes of one submission round.
+templ RecoverySubmitResult(nodes []RecoverySubmitNodeVM, requestID string) {
+	<h3>Submission results</h3>
+	<p>
+		Request ID: <code class="mid">{ requestID }</code> — reuse it only to complete a disconnected
+		submission; do not resubmit nodes that succeeded below.
+	</p>
+	for _, n := range nodes {
+		<h4><code>{ n.NodeName }</code></h4>
+		if n.Error != "" {
+			<div class="error">{ n.Error }</div>
+		} else {
+			<p>
+				Operation <code class="mid">{ n.OperationID }</code> — state { n.State }, target to-block
+				{ n.ToBlock }. Track it under Operations below.
+			</p>
+		}
+	}
+}
+
+// RecoveryOperations is the operations fragment; it self-polls every 5s while any
+// operation is accepted or running.
+templ RecoveryOperations(vm RecoveryOperationsVM, csrfToken string) {
+	<div
+		if vm.InFlight {
+			hx-get="/recovery/operations"
+			hx-include="#recovery-ops-filter"
+			hx-trigger="every 5s"
+			hx-target="#recovery-operations"
+			hx-swap="innerHTML"
+		}
+	>
+		for _, n := range vm.Nodes {
+			<h3><code>{ n.NodeName }</code></h3>
+			if n.Error != "" {
+				<div class="error">Operations unavailable: { n.Error }. Treat this node's operation state as unknown.</div>
+			} else if len(n.Ops) == 0 {
+				<p><em>No recovery operations recorded for this filter.</em></p>
+			} else {
+				<div class="table-wrap">
+					<table>
+						<thead>
+							<tr>
+								<th>Operation</th>
+								<th>Mode</th>
+								<th>State</th>
+								<th>Range</th>
+								<th>Progress</th>
+								<th>Counters</th>
+								<th>Reset applied</th>
+								<th>Updated (UTC)</th>
+								<th></th>
+							</tr>
+						</thead>
+						<tbody>
+							for _, op := range n.Ops {
+								@RecoveryOperationRow(n.NodeName, op, csrfToken)
+							}
+						</tbody>
+					</table>
+				</div>
+			}
+		}
+	</div>
+}
+
+// RecoveryOperationRow renders one operation; cancel/resume swap this row in place.
+templ RecoveryOperationRow(nodeName string, op RecoveryOperationVM, csrfToken string) {
+	if op.RowError != "" {
+		<tr>
+			<td colspan="9">
+				<div class="error">
+					{ op.RowError } Refresh the operations list to see the current state.
+				</div>
+			</td>
+		</tr>
+	} else {
+		<tr>
+			<td>
+				<code class="mid">{ op.ID }</code>
+				<br/>
+				<small>actor { op.Actor }</small>
+				if op.Note != "" {
+					<br/>
+					<small>{ op.Note }</small>
+				}
+			</td>
+			<td>{ op.Mode }</td>
+			<td>
+				{ op.State }
+				if op.LastError != "" {
+					<br/>
+					<small class="state-unreachable">{ op.LastError }</small>
+				}
+			</td>
+			<td>{ op.RangeFrom }–{ op.RangeTo }</td>
+			<td>{ op.Progress }</td>
+			<td><small>{ op.Counters }</small></td>
+			<td>
+				if op.ResetApplied {
+					yes
+				} else {
+					no
+				}
+			</td>
+			<td><small>{ op.UpdatedAt.UTC().Format(time.RFC3339) }</small></td>
+			<td>
+				if op.CanCancel {
+					<form class="inline">
+						@CSRFField(csrfToken)
+						<input type="hidden" name="node" value={ nodeName }/>
+						<button
+							type="button"
+							hx-post={ "/recovery/operations/" + op.ID + "/cancel" }
+							hx-target="closest tr"
+							hx-swap="outerHTML"
+							hx-confirm="Cancel this recovery operation? Committed work remains; resume continues at its next block."
+						>
+							Cancel
+						</button>
+					</form>
+				}
+				if op.CanResume {
+					<form class="inline">
+						@CSRFField(csrfToken)
+						<input type="hidden" name="node" value={ nodeName }/>
+						<button
+							type="button"
+							hx-post={ "/recovery/operations/" + op.ID + "/resume" }
+							hx-target="closest tr"
+							hx-swap="outerHTML"
+						>
+							Resume
+						</button>
+					</form>
+				}
+			</td>
+		</tr>
+	}
+}
+
+// RecoveryEvidence is the R4 evidence fragment for the selected nodes.
+templ RecoveryEvidence(nodes []RecoveryEvidenceNodeVM) {
+	for _, n := range nodes {
+		<h3><code>{ n.NodeName }</code></h3>
+		if n.Error != "" {
+			<div class="error">Evidence unavailable: { n.Error }. Treat this node's evidence as unknown, not as "no incidents".</div>
+		} else {
+			if len(n.Readers) > 0 {
+				<div class="table-wrap">
+					<table>
+						<thead>
+							<tr>
+								<th>Reader node</th>
+								<th>Disabled</th>
+								<th>Latest head</th>
+								<th>Head observed</th>
+								<th>Last seen</th>
+								<th>History since</th>
+								<th>Active reset</th>
+								<th>Audit failures</th>
+							</tr>
+						</thead>
+						<tbody>
+							for _, r := range n.Readers {
+								<tr>
+									<td><code>{ r.NodeID }</code></td>
+									<td>{ r.Disabled }</td>
+									<td>{ r.LatestBlock }</td>
+									<td><small>{ r.HeadObservedAt }</small></td>
+									<td><small>{ r.LastSeenAt }</small></td>
+									<td><small>{ r.HistoryStartedAt }</small></td>
+									<td><code class="mid">{ r.ActiveResetID }</code></td>
+									<td>{ r.AuditFailures }</td>
+								</tr>
+							}
+						</tbody>
+					</table>
+				</div>
+			}
+			<div class="banner">
+				{ n.Coverage }
+				<br/>
+				History retained since { n.RetainedSince } (events expire 30 days after last observation).
+			</div>
+			if len(n.Events) == 0 {
+				<p>
+					<em>
+						No retained events for this filter. Absence of evidence never proves there was no affected
+						traffic — disabled intervals, downtime, audit failures and expired history leave gaps. You may
+						still scope and submit a manual range from canonical-chain investigation.
+					</em>
+				</p>
+			} else {
+				<div class="table-wrap">
+					<table>
+						<thead>
+							<tr>
+								<th>Kind</th>
+								<th>Reason</th>
+								<th>Stage</th>
+								<th>Source block</th>
+								<th>Message ID</th>
+								<th>Tx hash</th>
+								<th>Block hash</th>
+								<th>Incident</th>
+								<th>Observed</th>
+								<th>Expires (UTC)</th>
+							</tr>
+						</thead>
+						<tbody>
+							for _, e := range n.Events {
+								<tr>
+									<td>{ e.Kind }</td>
+									<td>{ e.Reason }</td>
+									<td>{ e.Stage }</td>
+									<td>{ e.SourceBlock }</td>
+									<td><code class="mid">{ e.MessageID }</code></td>
+									<td><code class="mid">{ e.TxHash }</code></td>
+									<td><code class="mid">{ e.BlockHash }</code></td>
+									<td><code class="mid">{ e.IncidentID }</code></td>
+									<td>
+										<small>
+											×{ e.Observations }<br/>
+											{ e.FirstObserved }<br/>
+											{ e.LastObserved }
+										</small>
+									</td>
+									<td><small>{ e.Expires }</small></td>
+								</tr>
+							}
+						</tbody>
+					</table>
+				</div>
+				if n.NextCursor != "" {
+					<button
+						type="button"
+						hx-get="/recovery/evidence"
+						hx-include="#recovery-form"
+						hx-vals={ `{"before_id":"` + n.NextCursor + `"}` }
+						hx-target="#recovery-evidence"
+						hx-swap="innerHTML"
+					>
+						Older events
+					</button>
+				}
+			}
+		}
+	}
+}

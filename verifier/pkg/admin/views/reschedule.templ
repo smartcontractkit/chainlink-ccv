@@ -1,0 +1,214 @@
+package views
+
+// RescheduleTargetVM is one preview row: the rechecked state of a requested target.
+// Excluded and unknown targets render disabled — unknown is never proof a replay is
+// needed. Target is the original pipe-encoded form value, resubmitted on execute.
+type RescheduleTargetVM struct {
+	Target          string
+	NodeName        string
+	OwnerID         string
+	Queue           string
+	JobID           string
+	MessageID       string
+	FailureCategory string
+	Status          string // "ready" | "excluded" | "unknown"
+	Detail          string
+	Executable      bool
+}
+
+// RescheduleResultVM is one executed target's outcome, plus its original target value
+// so failed/skipped targets can be resubmitted as a retry.
+type RescheduleResultVM struct {
+	Target    string
+	NodeName  string
+	OwnerID   string
+	Queue     string
+	JobID     string
+	MessageID string
+	Outcome   string // "success" | "failed" | "skipped"
+	Detail    string
+}
+
+func hasExecutable(targets []RescheduleTargetVM) bool {
+	for _, t := range targets {
+		if t.Executable {
+			return true
+		}
+	}
+	return false
+}
+
+// retryTargets are the non-success outcomes a retry=failed submission re-checks.
+func retryTargets(results []RescheduleResultVM) []RescheduleResultVM {
+	var out []RescheduleResultVM
+	for _, r := range results {
+		if r.Outcome != "success" {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// ReschedulePreview renders the preview: a full page for plain form posts, a fragment
+// replacing #reschedule-region for htmx requests.
+templ ReschedulePreview(csrfToken string, targets []RescheduleTargetVM, errDetail string, fullPage bool) {
+	if fullPage {
+		@Layout("Reschedule preview") {
+			@reschedulePreviewContent(csrfToken, targets, errDetail)
+		}
+	} else {
+		@reschedulePreviewContent(csrfToken, targets, errDetail)
+	}
+}
+
+templ reschedulePreviewContent(csrfToken string, targets []RescheduleTargetVM, errDetail string) {
+	<div id="reschedule-region">
+		<h2>Reschedule preview</h2>
+		if errDetail != "" {
+			<div class="error">{ errDetail }</div>
+		} else {
+			<details class="explain">
+				<summary>What reschedule does</summary>
+				Rescheduling a <strong>task-verifier</strong> job asks the policy endpoint again (re-verifies the message).
+				Rescheduling a <strong>storage-writer</strong> job retries delivering the saved verification result.
+				Neither re-checks source-chain finality.
+			</details>
+			if hasExecutable(targets) {
+				<form method="post" action="/reschedule/execute">
+					@CSRFField(csrfToken)
+					@reschedulePreviewTable(targets)
+					<p>
+						<label>Retry window: <input type="text" name="retry_duration" value="1h"/></label>
+						<button type="submit">Reschedule selected</button>
+					</p>
+				</form>
+			} else {
+				@reschedulePreviewTable(targets)
+				<div class="banner">No executable targets — nothing to reschedule.</div>
+			}
+		}
+	</div>
+}
+
+templ reschedulePreviewTable(targets []RescheduleTargetVM) {
+	<div class="table-wrap">
+		<table>
+			<thead>
+				<tr>
+					<th></th>
+					<th>Node</th>
+					<th>Owner</th>
+					<th>Queue</th>
+					<th>Job ID</th>
+					<th>Message ID</th>
+					<th>Failure</th>
+					<th>What will change</th>
+					<th>Status</th>
+				</tr>
+			</thead>
+			<tbody>
+				for _, t := range targets {
+					<tr>
+						<td>
+							if t.Executable {
+								<input type="checkbox" name="target" value={ t.Target } checked/>
+							} else {
+								<input type="checkbox" disabled/>
+							}
+						</td>
+						<td>{ t.NodeName }</td>
+						<td><code>{ t.OwnerID }</code></td>
+						<td>{ t.Queue }</td>
+						<td><code>{ t.JobID }</code></td>
+						<td><code class="mid">{ t.MessageID }</code></td>
+						<td>{ t.FailureCategory }</td>
+						<td>
+							if t.Executable {
+								archive → active; attempts reset; new retry deadline
+							} else {
+								—
+							}
+						</td>
+						<td>
+							<strong class={ "status-" + t.Status }>{ t.Status }</strong>
+							if t.Detail != "" {
+								<br/>
+								<small>{ t.Detail }</small>
+							}
+						</td>
+					</tr>
+				}
+			</tbody>
+		</table>
+	</div>
+}
+
+// RescheduleResults renders per-target outcomes after an execute post; failed/skipped
+// targets get a retry form that resubmits them marked retry=failed.
+templ RescheduleResults(csrfToken string, results []RescheduleResultVM, retryDuration string, auditDetail string, errDetail string, fullPage bool) {
+	if fullPage {
+		@Layout("Reschedule results") {
+			@rescheduleResultsContent(csrfToken, results, retryDuration, auditDetail, errDetail)
+		}
+	} else {
+		@rescheduleResultsContent(csrfToken, results, retryDuration, auditDetail, errDetail)
+	}
+}
+
+templ rescheduleResultsContent(csrfToken string, results []RescheduleResultVM, retryDuration string, auditDetail string, errDetail string) {
+	<div id="reschedule-region">
+		<h2>Reschedule results</h2>
+		if errDetail != "" {
+			<div class="error">{ errDetail }</div>
+		} else {
+			if auditDetail != "" {
+				<div class="error">Action log write failed — the mutation happened but was not fully audited: { auditDetail }</div>
+			}
+			<div class="table-wrap">
+				<table>
+					<thead>
+						<tr>
+							<th>Node</th>
+							<th>Owner</th>
+							<th>Queue</th>
+							<th>Job ID</th>
+							<th>Message ID</th>
+							<th>Outcome</th>
+							<th>Detail</th>
+						</tr>
+					</thead>
+					<tbody>
+						for _, r := range results {
+							<tr>
+								<td>{ r.NodeName }</td>
+								<td><code>{ r.OwnerID }</code></td>
+								<td>{ r.Queue }</td>
+								<td><code>{ r.JobID }</code></td>
+								<td><code class="mid">{ r.MessageID }</code></td>
+								if r.Outcome == "success" {
+									<td class="state-ready">{ r.Outcome }</td>
+								} else if r.Outcome == "failed" {
+									<td class="state-unreachable">{ r.Outcome }</td>
+								} else {
+									<td>{ r.Outcome }</td>
+								}
+								<td><small>{ r.Detail }</small></td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			</div>
+			if len(retryTargets(results)) > 0 {
+				<form method="post" action="/reschedule/execute">
+					@CSRFField(csrfToken)
+					for _, r := range retryTargets(results) {
+						<input type="hidden" name="target" value={ r.Target }/>
+					}
+					<input type="hidden" name="retry" value="failed"/>
+					<input type="hidden" name="retry_duration" value={ retryDuration }/>
+					<button type="submit">Retry failed/skipped targets</button>
+				</form>
+			}
+		}
+	</div>
+}

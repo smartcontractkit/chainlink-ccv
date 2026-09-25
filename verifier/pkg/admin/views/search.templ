@@ -1,0 +1,113 @@
+package views
+
+import (
+	"encoding/hex"
+	"fmt"
+	"time"
+
+	"github.com/smartcontractkit/chainlink-ccv/cli/jobqueue"
+)
+
+// SearchNodeVM is one node's search outcome: rows found, genuinely empty, or
+// unreachable/failed lookup (UnreachableDetail non-empty) — never conflated.
+type SearchNodeVM struct {
+	NodeName          string
+	UnreachableDetail string
+	Jobs              []jobqueue.ArchivedJob
+}
+
+// ArchiveRetention is the verifier's archive sweep window, for age/expiry display.
+const ArchiveRetention = 30 * 24 * time.Hour
+
+// SearchPage renders the search form and, after a search, the per-node results.
+templ SearchPage(csrfToken string, results []SearchNodeVM, searchedIDs [][]byte) {
+	@Layout("Message search") {
+		<h1>Message search</h1>
+		<p>Search every configured node's failed-job archive at once.</p>
+		<div class="card">
+			<form method="post" action="/search">
+				@CSRFField(csrfToken)
+				<textarea name="message_ids" placeholder="0x… 0x…"></textarea>
+				<br/>
+				<button type="submit">Search</button>
+			</form>
+			<details class="explain">
+				<summary>Message ID format</summary>
+				Full 32-byte hex IDs, space or comma separated.
+			</details>
+		</div>
+		if searchedIDs != nil {
+			<h2>Results</h2>
+			@SearchResultsList(results)
+		}
+	}
+}
+
+// SearchResults is the fragment returned for htmx search posts.
+templ SearchResults(results []SearchNodeVM, errDetail string) {
+	if errDetail != "" {
+		<div class="error">{ errDetail }</div>
+	} else {
+		@SearchResultsList(results)
+	}
+}
+
+templ SearchResultsList(results []SearchNodeVM) {
+	for _, node := range results {
+		<h3>{ node.NodeName }</h3>
+		if node.UnreachableDetail != "" {
+			<div class="error">Lookup unavailable: { node.UnreachableDetail }. This node was not searched — treat its absence as unknown, not empty.</div>
+		} else if len(node.Jobs) == 0 {
+			<p><em>No archived (failed) jobs for these message IDs on this node.</em></p>
+		} else {
+			<div class="table-wrap">
+				<table>
+					<thead>
+						<tr>
+							<th>Message ID</th>
+							<th>Queue</th>
+							<th>Owner</th>
+							<th>Failure</th>
+							<th>Attempts</th>
+							<th>Archived</th>
+							<th>Archive expires</th>
+							<th></th>
+						</tr>
+					</thead>
+					<tbody>
+						for _, job := range node.Jobs {
+							<tr>
+								<td><code class="mid">{ messageIDHex(job.MessageID) }</code></td>
+								<td>{ string(job.Queue) }</td>
+								<td><code>{ job.OwnerID }</code></td>
+								<td>{ job.FailureCategory }</td>
+								<td>{ fmt.Sprint(job.AttemptCount) }</td>
+								<td>{ formatTime(job.ArchivedAt) }</td>
+								<td>{ archiveExpiry(job.ArchivedAt) }</td>
+								<td>
+									<a href={ templ.SafeURL("/nodes/" + node.NodeName + "/messages/" + messageIDHex(job.MessageID)) }>detail</a>
+								</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			</div>
+		}
+	}
+}
+
+func messageIDHex(id []byte) string { return "0x" + hex.EncodeToString(id) }
+
+func formatTime(t *time.Time) string {
+	if t == nil {
+		return "—"
+	}
+	return t.UTC().Format(time.RFC3339)
+}
+
+func archiveExpiry(archivedAt *time.Time) string {
+	if archivedAt == nil {
+		return "—"
+	}
+	return archivedAt.Add(ArchiveRetention).UTC().Format(time.RFC3339)
+}

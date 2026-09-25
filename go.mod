@@ -7,6 +7,7 @@ replace github.com/fbsobreira/gotron-sdk => github.com/smartcontractkit/chainlin
 require (
 	cloud.google.com/go/kms v1.33.0
 	github.com/BurntSushi/toml v1.6.0
+	github.com/a-h/templ v0.3.1020
 	github.com/aws/aws-sdk-go-v2/service/kms v1.54.0
 	github.com/beevik/ntp v1.5.0
 	github.com/ethereum/go-ethereum v1.17.4
