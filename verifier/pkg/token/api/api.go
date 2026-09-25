@@ -3,9 +3,9 @@ package api
 import (
 	"github.com/gin-gonic/gin"
 
+	"github.com/smartcontractkit/chainlink-ccv/common/health"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/api/middleware"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/api/health"
 	v1 "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/api/v1"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -21,7 +21,11 @@ func NewHTTPAPI(
 	router.Use(middleware.GinLogger(lggr))
 	router.Use(middleware.SecureRecovery(lggr))
 
-	healthHandler := health.NewHealthStatus(healthReporters)
+	healthManager := health.NewManager()
+	for _, hr := range healthReporters {
+		healthManager.Register(hr)
+	}
+	healthHandler := health.NewHealthStatus(healthManager)
 	router.GET("/health/live", healthHandler.HandleLiveness)
 	router.GET("/health/ready", healthHandler.HandleReadiness)
 	router.GET("/health", healthHandler.HandleReadiness)

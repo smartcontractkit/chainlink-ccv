@@ -506,7 +506,7 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 		Env: envVars,
 		// Aggregator listens on 50051 internally, nginx proxies TLS to it
 		ExposedPorts: []string{"50051/tcp", "8080/tcp"},
-		WaitingFor:   wait.ForHTTP("/health/live").WithPort("8080/tcp"),
+		WaitingFor:   wait.ForHTTP("/health/ready").WithPort("8080/tcp"),
 	}
 
 	// If ExposedHostPort is set, expose the gRPC port directly to the host
