@@ -48,15 +48,15 @@ func TestConfigForFamily(t *testing.T) {
 	require.Equal(t, map[string]string{local: "local-onramp"}, scoped.OnRampAddresses)
 	require.Equal(t, map[string]string{local: "local-rmn"}, scoped.RMNRemoteAddresses)
 	require.Len(t, scoped.TokenVerifiers, 2)
-	require.Equal(t, map[string]any{local: "local-sender"}, scoped.TokenVerifiers[0].CCTPConfig.Verifiers)
+	require.Equal(t, map[string]any{local: "local-sender"}, scoped.TokenVerifiers[0].Verifiers)
 	require.Equal(t, generated.TokenVerifiers[0].CCTPConfig.VerifierResolvers, scoped.TokenVerifiers[0].CCTPConfig.VerifierResolvers)
 	require.Equal(t, generated.TokenVerifiers[1].LombardConfig.VerifierResolvers, scoped.TokenVerifiers[1].LombardConfig.VerifierResolvers)
 
 	scoped.OnRampAddresses[local] = "changed"
 	scoped.RMNRemoteAddresses[local] = "changed"
-	scoped.TokenVerifiers[0].CCTPConfig.Verifiers[local] = "changed"
+	scoped.TokenVerifiers[0].Verifiers[local] = "changed"
 	require.Equal(t, "local-onramp", generated.OnRampAddresses[local])
 	require.Equal(t, "local-rmn", generated.RMNRemoteAddresses[local])
-	require.Equal(t, "local-sender", generated.TokenVerifiers[0].CCTPConfig.Verifiers[local])
+	require.Equal(t, "local-sender", generated.TokenVerifiers[0].Verifiers[local])
 	require.Len(t, generated.TokenVerifiers, 3)
 }
