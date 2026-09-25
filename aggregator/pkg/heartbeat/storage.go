@@ -10,6 +10,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -38,6 +39,8 @@ type RedisStorage struct {
 	keyPrefix string
 	ttl       time.Duration
 }
+
+var _ protocol.HealthReporter = (*RedisStorage)(nil)
 
 func NewStorageFromConfig(l logger.SugaredLogger, c model.HeartbeatConfig) Storage {
 	if c.StoreType == model.HeartbeatStoreTypeRedis {
@@ -193,6 +196,27 @@ func (s *RedisStorage) GetMaxBlockHeights(ctx context.Context, chainSelectors []
 	}
 
 	return result, nil
+}
+
+// Ready checks Redis connectivity.
+func (s *RedisStorage) Ready() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := s.client.Ping(ctx).Err(); err != nil {
+		return fmt.Errorf("redis heartbeat storage health check failed: %w", err)
+	}
+	return nil
+}
+
+func (s *RedisStorage) HealthReport() map[string]error {
+	return map[string]error{
+		s.Name(): s.Ready(),
+	}
+}
+
+func (s *RedisStorage) Name() string {
+	return "heartbeat_redis_storage"
 }
 
 // buildKey creates a Redis key for a specific caller and chain.

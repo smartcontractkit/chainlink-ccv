@@ -26,13 +26,13 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/aggregation"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/handlers"
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/health"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/heartbeat"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/messagerules"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/middlewares"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/quorum"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage"
+	"github.com/smartcontractkit/chainlink-ccv/common/health"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
@@ -207,7 +207,7 @@ func (s *Server) Start(lis net.Listener) error {
 
 	if s.httpHealthServer != nil {
 		g.Add(func() error {
-			if err := s.httpHealthServer.Start(); err != nil && err != http.ErrServerClosed {
+			if err := s.httpHealthServer.Start(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				return err
 			}
 			return nil
@@ -422,6 +422,9 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig, aggMonito
 	healthManager.Register(store)
 	healthManager.Register(rateLimitingMiddleware)
 	healthManager.Register(agg)
+	healthManager.Register(messageDisablementRegistry)
+	healthManager.Register(heartbeatStorage)
+	healthManager.Register(grpcServer)
 	if config.OrphanRecovery.Enabled {
 		recoverer = NewOrphanRecoverer(store, agg, config, l, aggMonitoring.Metrics())
 		healthManager.Register(recoverer)

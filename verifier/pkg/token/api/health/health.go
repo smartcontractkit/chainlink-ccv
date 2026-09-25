@@ -3,15 +3,14 @@ package health
 import (
 	"github.com/gin-gonic/gin"
 
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common/health"
+	"github.com/smartcontractkit/chainlink-ccv/common/health"
 )
 
 type Status struct {
-	healthReporters []protocol.HealthReporter
+	healthReporters []health.HealthReporter
 }
 
-func NewHealthStatus(healthReporters []protocol.HealthReporter) *Status {
+func NewHealthStatus(healthReporters []health.HealthReporter) *Status {
 	return &Status{
 		healthReporters: healthReporters,
 	}
@@ -38,7 +37,7 @@ func (h *Status) HandleReadiness(c *gin.Context) {
 	for _, reporter := range h.healthReporters {
 		reporterStatuses = append(
 			reporterStatuses,
-			health.NewServiceHealth(reporter),
+			health.CheckServiceHealth(reporter),
 		)
 	}
 
