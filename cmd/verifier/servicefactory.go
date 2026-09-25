@@ -9,12 +9,14 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/grafana/pyroscope-go"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
+	"github.com/smartcontractkit/chainlink-ccv/common/health"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/messagerules"
@@ -429,28 +431,19 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 
 	verifierMonitoring.RecordServiceStarted(ctx)
 
-	// Dedicated mux per Start(): JD job replacement calls Start again after Stop. Using
-	// http.HandleFunc would register on DefaultServeMux, which is never cleared — second
-	// Start panics with conflicting pattern "/".
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	// Dedicated router per Start(): JD job replacement calls Start again after Stop, and a
+	// fresh gin.New() avoids any route-registration state carrying over between starts.
+	router := gin.New()
+	router.GET("/", func(c *gin.Context) {
 		lggr.Infow("CCV Verifier is running!\n")
 		lggr.Infow("Verifier ID: %s\n", coordinatorConfig.VerifierID)
 	})
 
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		for serviceName, err := range coordinator.HealthReport() {
-			if err != nil {
-				w.WriteHeader(http.StatusServiceUnavailable)
-				lggr.Infow("Unhealthy service: %s, error: %s\n", serviceName, err.Error())
-				return
-			}
-		}
-		w.WriteHeader(http.StatusOK)
-		lggr.Infow("Healthy\n")
-	})
+	healthManager := health.NewManager()
+	healthManager.Register(coordinator)
+	health.RegisterOn(healthManager, router)
 
-	mux.HandleFunc("/stats", func(w http.ResponseWriter, r *http.Request) {
+	router.GET("/stats", func(c *gin.Context) {
 		stats := fanOutWriter.GetStats()
 		lggr.Infow("Storage Statistics:\n")
 		for key, value := range stats {
@@ -465,13 +458,13 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	}
 	server := &http.Server{
 		Addr:         ":" + strconv.Itoa(listenPort),
-		Handler:      mux,
+		Handler:      router,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 	}
 	go func() {
 		lggr.Infow("🌐 HTTP server starting", "port", listenPort)
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			lggr.Errorw("HTTP server error", "error", err)
 		}
 	}()
