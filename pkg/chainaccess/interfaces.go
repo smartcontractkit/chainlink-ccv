@@ -117,8 +117,8 @@ type CCTPCodec interface {
 type FeeQuoter interface {
 	// GetFQState reads the current Fee Quoter on-chain state and returns it.
 	GetFQState(ctx context.Context) (protocol.FQState, error)
-	// GetGasPrice reads the current native gas price for the given chain selector from the RPC.
-	GetGasPrice(ctx context.Context, chainSelector protocol.ChainSelector) (protocol.GasPrice, error)
+	// GetGasPrice reads the chain's current native gas price from the RPC.
+	GetGasPrice(ctx context.Context) (protocol.GasPrice, error)
 	// MonitorFQ runs a goroutine that monitors the Fee Quoter on-chain state
 	// and streams a fresh FQState snapshot on the returned channel whenever it
 	// changes. The channel is closed when the context is canceled.
