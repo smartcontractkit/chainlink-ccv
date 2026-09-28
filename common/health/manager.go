@@ -6,26 +6,20 @@ import (
 	"time"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-)
 
-// logTypeKey and logTypeServiceStatus mirror protocol.LogTypeKey/LogTypeServiceStatus.
-// Duplicated as literals here (rather than imported) to avoid an import cycle with protocol,
-// which embeds HealthReporter from this package.
-const (
-	logTypeKey           = "log_type"
-	logTypeServiceStatus = "service_status"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
 // Manager coordinates health checks across multiple components.
 type Manager struct {
-	components []HealthReporter
+	components []protocol.HealthReporter
 	mu         sync.RWMutex
 }
 
 // NewManager creates a new health check manager.
 func NewManager() *Manager {
 	return &Manager{
-		components: make([]HealthReporter, 0),
+		components: make([]protocol.HealthReporter, 0),
 	}
 }
 
@@ -34,7 +28,7 @@ func (m *Manager) Register(component any) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if checker, ok := component.(HealthReporter); ok {
+	if checker, ok := component.(protocol.HealthReporter); ok {
 		m.components = append(m.components, checker)
 	}
 }
@@ -84,7 +78,7 @@ func (m *Manager) StartPeriodicHealthLogging(ctx context.Context, l logger.Sugar
 
 			// SERVICE LOG (status): periodic health summary; Debug when healthy, Warn otherwise.
 			logFn("Service health summary",
-				logTypeKey, logTypeServiceStatus,
+				protocol.LogTypeKey, protocol.LogTypeServiceStatus,
 				"overall_status", response.Status,
 				"components", componentStatus,
 			)
