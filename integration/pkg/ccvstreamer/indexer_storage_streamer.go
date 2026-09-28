@@ -18,6 +18,7 @@ import (
 // Ensure IndexerStorageStreamer implements the MessageSubscriber interface.
 var (
 	_ executor.MessageSubscriber = &IndexerStorageStreamer{}
+	_ protocol.HealthReporter    = &IndexerStorageStreamer{}
 )
 
 // readMessagesTimeout is the timeout for reading messages from the indexer. This is used to prevent hanging if the
@@ -76,6 +77,7 @@ type IndexerStorageStreamer struct {
 	cleanInterval     time.Duration
 	timeProvider      common.TimeProvider
 	enabledDestChains []protocol.ChainSelector
+	lastPollErr       error
 }
 
 func (oss *IndexerStorageStreamer) IsRunning() bool {
@@ -156,17 +158,20 @@ func (oss *IndexerStorageStreamer) Start(
 				case err != nil:
 					// Error occurred: backoff and retry with same parameters
 					oss.lggr.Errorw("IndexerStorageStreamer read error", "error", err)
+					oss.setLastPollErr(err)
 					nextQueryTimer.Reset(oss.backoff)
 					errors <- fmt.Errorf("IndexerStorageStreamer read error: %w", err)
 				case uint64(len(responses)) == oss.queryLimit:
 					// Hit query limit: query again immediately with same time range but incremented offset
 					oss.lggr.Infow("IndexerStorageStreamer hit query limit, there may be more results to read", "limit", oss.queryLimit)
 					oss.offset += uint64(len(responses))
+					oss.setLastPollErr(nil)
 					nextQueryTimer.Reset(0)
 				default:
 					// Complete result set received: update query window and reset for next polling cycle
 					oss.offset = 0
 					oss.lastQueryTime = oss.latestSeenTime
+					oss.setLastPollErr(nil)
 					nextQueryTimer.Reset(oss.pollingInterval)
 				}
 			}
@@ -174,4 +179,33 @@ func (oss *IndexerStorageStreamer) Start(
 	}()
 
 	return results, errors, nil
+}
+
+func (oss *IndexerStorageStreamer) setLastPollErr(err error) {
+	oss.mu.Lock()
+	defer oss.mu.Unlock()
+	oss.lastPollErr = err
+}
+
+// Name returns the fully qualified name of the streamer.
+func (oss *IndexerStorageStreamer) Name() string {
+	return "executor.IndexerStorageStreamer"
+}
+
+// Ready reports not-ready while the poll loop is stopped or the last indexer poll failed.
+func (oss *IndexerStorageStreamer) Ready() error {
+	oss.mu.RLock()
+	defer oss.mu.RUnlock()
+	if !oss.running {
+		return fmt.Errorf("IndexerStorageStreamer not running")
+	}
+	if oss.lastPollErr != nil {
+		return fmt.Errorf("last indexer poll failed: %w", oss.lastPollErr)
+	}
+	return nil
+}
+
+// HealthReport returns a health report for the streamer.
+func (oss *IndexerStorageStreamer) HealthReport() map[string]error {
+	return map[string]error{oss.Name(): oss.Ready()}
 }
