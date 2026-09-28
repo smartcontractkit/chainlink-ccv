@@ -2,6 +2,7 @@ package api
 
 import (
 	"fmt"
+	"net/http"
 
 	"github.com/gin-gonic/gin"
 
@@ -56,6 +57,16 @@ func NewV1API(lggr logger.Logger, cfg *config.Config, storage common.IndexerStor
 		healthManager.Register(hr)
 	}
 	health.RegisterOn(healthManager, router)
+	// Legacy /ready alias, still published in the OpenAPI contract. The generated client decodes
+	// any JSON body here as ErrorResponse, so a ready response must stay empty.
+	router.GET("/ready", func(c *gin.Context) {
+		response := healthManager.CheckReadiness(c.Request.Context())
+		if response.StatusCode() != http.StatusOK {
+			c.JSON(http.StatusServiceUnavailable, v1.ServiceUnavailable)
+			return
+		}
+		c.Status(http.StatusOK)
+	})
 
 	return router
 }
