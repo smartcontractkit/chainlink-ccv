@@ -8,9 +8,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
-func newManagerWith(reporters ...HealthReporter) *Manager {
+func newManagerWith(reporters ...protocol.HealthReporter) *Manager {
 	m := NewManager()
 	for _, r := range reporters {
 		m.Register(r)
