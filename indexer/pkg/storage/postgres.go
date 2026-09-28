@@ -87,7 +87,10 @@ func NewPostgresStorage(ctx context.Context, lggr logger.Logger, monitoring comm
 // Ready checks database connectivity with a lightweight query.
 func (d *PostgresStorage) Ready() error {
 	var count int
-	if err := d.ds.GetContext(context.Background(), &count, "SELECT 1"); err != nil {
+	ctx, cancelFunc := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelFunc()
+
+	if err := d.ds.GetContext(ctx, &count, "SELECT 1"); err != nil {
 		return fmt.Errorf("indexer database health check failed: %w", err)
 	}
 	return nil

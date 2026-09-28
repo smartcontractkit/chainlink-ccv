@@ -43,10 +43,6 @@ func (m *mockUnhealthyComponent) Name() string {
 	return m.name
 }
 
-type nonHealthCheckableComponent struct {
-	name string
-}
-
 func TestManager_RegisterHealthCheckable(t *testing.T) {
 	manager := NewManager()
 
@@ -54,15 +50,6 @@ func TestManager_RegisterHealthCheckable(t *testing.T) {
 	manager.Register(healthy)
 
 	require.Len(t, manager.components, 1)
-}
-
-func TestManager_RegisterNonHealthCheckable(t *testing.T) {
-	manager := NewManager()
-
-	nonHealthy := &nonHealthCheckableComponent{name: "test"}
-	manager.Register(nonHealthy)
-
-	require.Len(t, manager.components, 0)
 }
 
 func TestManager_CheckLiveness(t *testing.T) {
@@ -96,10 +83,9 @@ func TestManager_CheckReadiness_CriticalUnhealthy(t *testing.T) {
 	require.Len(t, response.Services, 2)
 }
 
-func TestManager_CheckReadiness_MixedWithNonHealthCheckable(t *testing.T) {
+func TestManager_CheckReadiness_MultipleHealthy(t *testing.T) {
 	manager := NewManager()
 	manager.Register(&mockHealthyComponent{name: "comp1"})
-	manager.Register(&nonHealthCheckableComponent{name: "ignored"})
 	manager.Register(&mockHealthyComponent{name: "comp2"})
 
 	response := manager.CheckReadiness(t.Context())

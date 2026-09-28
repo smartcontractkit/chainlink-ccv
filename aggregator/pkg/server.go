@@ -426,7 +426,6 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig, aggMonito
 	healthManager.Register(agg)
 	healthManager.Register(messageDisablementRegistry)
 	healthManager.Register(heartbeatStorage)
-	healthManager.Register(grpcServer)
 	if config.OrphanRecovery.Enabled {
 		recoverer = NewOrphanRecoverer(store, agg, config, l, aggMonitoring.Metrics())
 		healthManager.Register(recoverer)

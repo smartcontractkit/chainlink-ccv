@@ -24,13 +24,11 @@ func NewManager() *Manager {
 }
 
 // Register adds a component to be monitored for health checks.
-func (m *Manager) Register(component any) {
+func (m *Manager) Register(component protocol.HealthReporter) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if checker, ok := component.(protocol.HealthReporter); ok {
-		m.components = append(m.components, checker)
-	}
+	m.components = append(m.components, component)
 }
 
 // CheckLiveness returns the basic liveness status of the service.
