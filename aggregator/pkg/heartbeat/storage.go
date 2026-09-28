@@ -23,6 +23,8 @@ const (
 
 // Storage defines the interface for storing and retrieving heartbeat data.
 type Storage interface {
+	protocol.HealthReporter
+
 	// StoreBlockHeight stores the block height for a caller on a specific chain.
 	StoreBlockHeight(ctx context.Context, callerID string, chainSelector, blockHeight uint64) error
 	// GetBlockHeights returns the block heights for all callers on a specific chain.
@@ -339,6 +341,17 @@ func (s *InMemoryStorage) GetMaxBlockHeights(ctx context.Context, chainSelectors
 	return result, nil
 }
 
+// In-memory storage has no external dependency to probe, so it is always ready.
+func (s *InMemoryStorage) Ready() error { return nil }
+
+func (s *InMemoryStorage) HealthReport() map[string]error {
+	return map[string]error{s.Name(): nil}
+}
+
+func (s *InMemoryStorage) Name() string {
+	return "heartbeat_memory_storage"
+}
+
 // NoopStorage is a no-op implementation of Storage.
 type NoopStorage struct{}
 
@@ -361,4 +374,14 @@ func (n *NoopStorage) GetMaxBlockHeight(ctx context.Context, chainSelector uint6
 
 func (n *NoopStorage) GetMaxBlockHeights(ctx context.Context, chainSelectors []uint64) (map[uint64]uint64, error) {
 	return make(map[uint64]uint64), nil
+}
+
+func (n *NoopStorage) Ready() error { return nil }
+
+func (n *NoopStorage) HealthReport() map[string]error {
+	return map[string]error{n.Name(): nil}
+}
+
+func (n *NoopStorage) Name() string {
+	return "heartbeat_noop_storage"
 }
