@@ -13,6 +13,8 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/cctp"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/lombard"
+
+	"github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 )
 
 func quorum(addr string, threshold uint8, signers ...string) *model.QuorumConfig {
@@ -234,4 +236,160 @@ func TestMergeTokenVerifierConfig_AccumulatesPerChain(t *testing.T) {
 	require.Equal(t, map[string]any{"1": "0xcctpres1", "2": "0xcctpres2"}, gotCCTP.VerifierResolvers)
 	gotLombard := byID["lombard-q"].LombardConfig
 	require.Equal(t, map[string]any{"1": "0xlomres1", "2": "0xlomres2"}, gotLombard.VerifierResolvers)
+}
+
+func testProposal(id string, revision int64, status shared.JobProposalStatus) shared.ProposalRevision {
+	return shared.ProposalRevision{ProposalID: id, Revision: revision, Status: status, Spec: "spec-" + id}
+}
+
+// TestJobInfo_PruneProposals pins the retention rule: persisted jobs keep the
+// active proposal and the latest by revision, so the env-metadata blob does not
+// grow with JD's full proposal history.
+func TestJobInfo_PruneProposals(t *testing.T) {
+	t.Parallel()
+
+	t.Run("keeps active and latest when they differ", func(t *testing.T) {
+		t.Parallel()
+
+		job := shared.JobInfo{
+			ActiveProposalID: "p1",
+			Proposals: map[string]shared.ProposalRevision{
+				"p1": testProposal("p1", 1, shared.JobProposalStatusApproved),
+				"p2": testProposal("p2", 2, shared.JobProposalStatusRejected),
+				"p3": testProposal("p3", 3, shared.JobProposalStatusPending),
+			},
+		}
+		job.PruneProposals()
+
+		require.Len(t, job.Proposals, 2)
+		require.Contains(t, job.Proposals, "p1")
+		require.Contains(t, job.Proposals, "p3")
+	})
+
+	t.Run("keeps only latest when active is the latest", func(t *testing.T) {
+		t.Parallel()
+
+		job := shared.JobInfo{
+			ActiveProposalID: "p3",
+			Proposals: map[string]shared.ProposalRevision{
+				"p1": testProposal("p1", 1, shared.JobProposalStatusApproved),
+				"p3": testProposal("p3", 3, shared.JobProposalStatusApproved),
+			},
+		}
+		job.PruneProposals()
+
+		require.Len(t, job.Proposals, 1)
+		require.Contains(t, job.Proposals, "p3")
+	})
+
+	t.Run("keeps only latest when no active is set", func(t *testing.T) {
+		t.Parallel()
+
+		job := shared.JobInfo{
+			Proposals: map[string]shared.ProposalRevision{
+				"p1": testProposal("p1", 1, shared.JobProposalStatusRevoked),
+				"p2": testProposal("p2", 2, shared.JobProposalStatusRevoked),
+			},
+		}
+		job.PruneProposals()
+
+		require.Len(t, job.Proposals, 1)
+		require.Contains(t, job.Proposals, "p2")
+	})
+
+	t.Run("ignores an active ID that is not stored", func(t *testing.T) {
+		t.Parallel()
+
+		job := shared.JobInfo{
+			ActiveProposalID: "missing",
+			Proposals: map[string]shared.ProposalRevision{
+				"p1": testProposal("p1", 1, shared.JobProposalStatusApproved),
+				"p2": testProposal("p2", 2, shared.JobProposalStatusApproved),
+			},
+		}
+		job.PruneProposals()
+
+		require.Len(t, job.Proposals, 1)
+		require.Contains(t, job.Proposals, "p2")
+	})
+
+	t.Run("single proposal and empty proposals are no-ops", func(t *testing.T) {
+		t.Parallel()
+
+		one := shared.JobInfo{Proposals: map[string]shared.ProposalRevision{"p1": testProposal("p1", 1, shared.JobProposalStatusPending)}}
+		one.PruneProposals()
+		require.Len(t, one.Proposals, 1)
+
+		empty := shared.JobInfo{}
+		empty.PruneProposals()
+		require.Empty(t, empty.Proposals)
+	})
+
+	t.Run("does not mutate a map shared with the caller", func(t *testing.T) {
+		t.Parallel()
+
+		proposals := map[string]shared.ProposalRevision{
+			"p1": testProposal("p1", 1, shared.JobProposalStatusApproved),
+			"p3": testProposal("p3", 3, shared.JobProposalStatusPending),
+		}
+		job := shared.JobInfo{ActiveProposalID: "p1", Proposals: proposals}
+		job.PruneProposals()
+
+		require.Len(t, job.Proposals, 2) // pruned copy
+		require.Len(t, proposals, 2)     // caller's map untouched
+	})
+}
+
+// TestSaveJob_PrunesProposalHistory verifies the persistence seam prunes: what
+// lands in the datastore is the retention set, not the full history.
+func TestSaveJob_PrunesProposalHistory(t *testing.T) {
+	t.Parallel()
+
+	ds := datastore.NewMemoryDataStore()
+	job := shared.JobInfo{
+		JobID:            "job-1",
+		NOPAlias:         "nop-1",
+		Spec:             "current-spec",
+		ActiveProposalID: "p1",
+		Proposals: map[string]shared.ProposalRevision{
+			"p1": testProposal("p1", 1, shared.JobProposalStatusApproved),
+			"p2": testProposal("p2", 2, shared.JobProposalStatusRejected),
+			"p3": testProposal("p3", 3, shared.JobProposalStatusPending),
+		},
+	}
+	require.NoError(t, SaveJob(ds, job))
+
+	got, err := GetJob(ds.Seal(), "nop-1", "job-1")
+	require.NoError(t, err)
+	require.Len(t, got.Proposals, 2)
+	require.Contains(t, got.Proposals, "p1")
+	require.Contains(t, got.Proposals, "p3")
+	require.Equal(t, "p3", got.LatestProposal().ProposalID)
+}
+
+// TestSaveJobs_PrunesProposalHistory covers the batch seam used by
+// manage-job-proposals.
+func TestSaveJobs_PrunesProposalHistory(t *testing.T) {
+	t.Parallel()
+
+	ds := datastore.NewMemoryDataStore()
+	jobs := []shared.JobInfo{
+		{
+			JobID:            "job-1",
+			NOPAlias:         "nop-1",
+			ActiveProposalID: "p2",
+			Proposals: map[string]shared.ProposalRevision{
+				"p1": testProposal("p1", 1, shared.JobProposalStatusApproved),
+				"p2": testProposal("p2", 2, shared.JobProposalStatusApproved),
+				"p3": testProposal("p3", 3, shared.JobProposalStatusPending),
+			},
+		},
+	}
+	require.NoError(t, SaveJobs(ds, jobs))
+
+	got, err := GetAllJobs(ds.Seal())
+	require.NoError(t, err)
+	require.Len(t, got["nop-1"]["job-1"].Proposals, 2)
+	require.Contains(t, got["nop-1"]["job-1"].Proposals, "p2")
+	require.Contains(t, got["nop-1"]["job-1"].Proposals, "p3")
 }
