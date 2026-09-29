@@ -97,6 +97,17 @@ func (p *EvmExecutionAttemptPoller) Ready() error {
 	return nil
 }
 
+// Healthy returns the recorded fatal error, if any; unlike Ready it stays nil during backfill.
+func (p *EvmExecutionAttemptPoller) Healthy() error {
+	if err := p.StateMachine.Healthy(); err != nil {
+		return err
+	}
+	if fatalErr := p.fatalErr.Load(); fatalErr != nil {
+		return *fatalErr
+	}
+	return nil
+}
+
 func (p *EvmExecutionAttemptPoller) Name() string {
 	return strings.Join([]string{p.chainSelector.String(), evmExecutionAttemptPollerServiceName}, ".")
 }
@@ -156,7 +167,7 @@ func (p *EvmExecutionAttemptPoller) Start(ctx context.Context) error {
 
 // runStartupSequence performs the full startup: find the start block, backfill
 // historical events, then switch to WS or HTTP polling mode. If getStartBlock
-// fails the error is stored as a fatal error (surfaced via Healthy/HealthReport)
+// fails the error is stored as a fatal error (surfaced via Healthy and Ready)
 // and backfillComplete is never set, so Ready() will continue to return an error.
 // Context cancellation (e.g. from Close) is not treated as a fatal error.
 func (p *EvmExecutionAttemptPoller) runStartupSequence(ctx context.Context) {
