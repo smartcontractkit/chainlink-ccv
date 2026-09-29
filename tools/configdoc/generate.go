@@ -19,15 +19,18 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/BurntSushi/toml"
 	"golang.org/x/mod/modfile"
 
 	"github.com/smartcontractkit/chainlink-common/x/config/commentparsing"
+	"github.com/smartcontractkit/chainlink-common/x/config/markup/tomlmarkup"
 )
 
 // Generator renders documentation targets to commented TOML. ModuleRoot is the
@@ -72,9 +75,9 @@ func modulePath(gomod []byte) (string, error) {
 	return "", errors.New("no module directive in go.mod")
 }
 
-// Stale describes a target whose committed doc differs from freshly generated
-// output (or is missing). Want is the freshly generated content; Got is the
-// committed content ("" when Missing).
+// Stale describes a generated file whose committed copy differs from fresh output (or is
+// missing). Want is the fresh content; Got is the committed content ("" when Missing).
+// A DocComments file has no target, so Target carries only its path relative to the module root.
 type Stale struct {
 	Target  Target
 	Path    string
@@ -101,9 +104,8 @@ func (g *Generator) Write(targets []Target, outDir string) ([]string, error) {
 		return nil, err
 	}
 
-	// Run writes the DocComments methods for every package the walk reached alongside these docs,
-	// out of the one discovery walk both need. That is what lets a downstream module document a
-	// config field whose type is declared in this one.
+	// One walk feeds both these docs and the DocComments methods Run writes beside them, which is
+	// what lets a downstream module document a field whose type is declared in this one.
 	if err := commentparsing.Run(g.runArgs(targets), g.Files(targets, rel)); err != nil {
 		return nil, err
 	}
@@ -122,6 +124,7 @@ func (g *Generator) Write(targets []Target, outDir string) ([]string, error) {
 func (g *Generator) runArgs(targets []Target) commentparsing.RunArgs {
 	return commentparsing.RunArgs{
 		Roots:       Roots(targets),
+		Markup:      tomlmarkup.New(),
 		Dir:         g.ModuleRoot,
 		LocalPrefix: g.ModulePath,
 		Tool:        g.ModulePath + "/tools/configdoc",
@@ -158,7 +161,8 @@ func (g *Generator) relative(outDir string) (string, error) {
 	return rel, nil
 }
 
-// files renders every target from one discovery walk, keyed by the path each is committed at.
+// files renders every target and DocComments file from one discovery walk, keyed by the path each
+// is committed at.
 //
 // It goes through commentparsing.Files rather than Run so that checking whether the committed docs
 // are up to date does not write the answer it is about to compare against.
@@ -173,48 +177,75 @@ func (g *Generator) files(targets []Target, outDir string) (map[string]string, e
 		return nil, fmt.Errorf("loading comments: %w", err)
 	}
 
-	// Keyed by the paths the caller built from outDir, not the module-root-relative ones the run
-	// was anchored to, because those are what it compares against.
-	files := make(map[string]string, len(targets))
+	// A target's doc is keyed by the path the caller built from outDir; everything else by its
+	// path under the module root.
+	files := make(map[string]string, len(generated))
+	for path, content := range generated {
+		files[filepath.Join(g.ModuleRoot, path)] = content
+	}
 	for _, t := range targets {
 		out := filepath.FromSlash(t.Out)
-		files[filepath.Join(outDir, out)] = generated[filepath.Join(rel, out)]
+		root := filepath.Join(g.ModuleRoot, rel, out)
+		content := files[root]
+		delete(files, root)
+		files[filepath.Join(outDir, out)] = content
 	}
 	return files, nil
 }
 
-// Check renders every target and compares it against the committed file under
-// outDir, returning the targets that are stale or missing (empty when all are
-// fresh). outDir is restricted as Write's is. A render error aborts and is returned. This is the engine behind both
-// the CLI's -check mode and each repo's freshness test.
+// Check renders every target and DocComments file and compares each against its committed copy,
+// returning the stale or missing ones (empty when all are fresh). outDir is restricted as Write's
+// is. Stale targets come first, in target order, then DocComments files sorted by path.
 func (g *Generator) Check(targets []Target, outDir string) ([]Stale, error) {
 	files, err := g.files(targets, outDir)
 	if err != nil {
 		return nil, err
 	}
 
-	// Only the targets are compared. The DocComments files written alongside them have no Target
-	// to name, and are guarded the way any other generated Go in the repo is: the repo-hygiene job
-	// runs `just generate` and fails on a dirty tree, which covers whatever a run rewrites. A
-	// consumer repo needs that same regenerate-and-diff step, because this check alone would pass
-	// with a stale committed DocComments method that its own dependents then read.
+	// A DocComments file Run would delete is not caught here; the regenerate-and-diff CI job does.
 	var stale []Stale
 	for _, t := range targets {
 		path := filepath.Join(outDir, filepath.FromSlash(t.Out))
-		want := files[path]
-		got, err := os.ReadFile(path) //nolint:gosec // G304: path is built from the trusted target list + outDir, not user input
+		s, err := compare(path, files[path])
 		if err != nil {
-			if errors.Is(err, fs.ErrNotExist) {
-				stale = append(stale, Stale{Target: t, Path: path, Want: want, Missing: true})
-				continue
-			}
 			return nil, err
 		}
-		if string(got) != want {
-			stale = append(stale, Stale{Target: t, Path: path, Want: want, Got: string(got)})
+		if s != nil {
+			s.Target = t
+			stale = append(stale, *s)
+		}
+		delete(files, path)
+	}
+	for _, path := range slices.Sorted(maps.Keys(files)) {
+		s, err := compare(path, files[path])
+		if err != nil {
+			return nil, err
+		}
+		if s != nil {
+			rel, err := filepath.Rel(g.ModuleRoot, path)
+			if err != nil {
+				return nil, err
+			}
+			s.Target = Target{Out: filepath.ToSlash(rel)}
+			stale = append(stale, *s)
 		}
 	}
 	return stale, nil
+}
+
+// compare returns nil when the file at path already holds want.
+func compare(path, want string) (*Stale, error) {
+	got, err := os.ReadFile(path) //nolint:gosec // G304: path comes from the generated file set, not user input
+	if errors.Is(err, fs.ErrNotExist) {
+		return &Stale{Path: path, Want: want, Missing: true}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if string(got) == want {
+		return nil, nil
+	}
+	return &Stale{Path: path, Want: want, Got: string(got)}, nil
 }
 
 // Render produces the documented TOML for one target: it TOML-encodes the
@@ -222,11 +253,11 @@ func (g *Generator) Check(targets []Target, outDir string) ([]Stale, error) {
 // walking), loads the doc comments for the packages the instance's structs live
 // in, and injects those comments into the encoded output.
 func (g *Generator) Render(t Target) (string, error) {
-	pkgs, err := commentparsing.Discover(g.ModuleRoot, t.New())
+	files, err := g.files([]Target{t}, g.ModuleRoot)
 	if err != nil {
-		return "", fmt.Errorf("%s: loading comments: %w", t.Name, err)
+		return "", err
 	}
-	return g.render(t, commentsFrom(pkgs))
+	return files[filepath.Join(g.ModuleRoot, filepath.FromSlash(t.Out))], nil
 }
 
 // render is Render with the comments already resolved, so several targets sharing a type resolve
