@@ -232,6 +232,26 @@ func (j *JobInfo) AddProposal(p ProposalRevision) {
 	j.Proposals[p.ProposalID] = p
 }
 
+// PruneProposals drops every proposal except the active one (when set) and the
+// latest by revision; status and spec-drift checks only consume those two. It
+// replaces j.Proposals, leaving any map shared with the caller untouched.
+func (j *JobInfo) PruneProposals() {
+	if len(j.Proposals) <= 1 {
+		return
+	}
+
+	keep := make(map[string]ProposalRevision, 2)
+	if j.ActiveProposalID != "" {
+		if active, ok := j.Proposals[j.ActiveProposalID]; ok {
+			keep[active.ProposalID] = active
+		}
+	}
+	if latest := j.LatestProposal(); latest != nil {
+		keep[latest.ProposalID] = *latest
+	}
+	j.Proposals = keep
+}
+
 func (j *JobInfo) SetActiveProposal(proposalID string) {
 	j.ActiveProposalID = proposalID
 }
