@@ -135,7 +135,7 @@ type FeeQuoter interface {
 // Thread-safety: All methods must be safe for concurrent calls.
 type GasPriceReader interface {
 	// GetGasPrice reads the chain's current native gas price.
-	GetGasPrice(ctx context.Context) (protocol.GasPrice, error)
+	GetGasPrice(ctx context.Context) (protocol.NativeGasPrice, error)
 }
 
 // Accessor provides objects that in turn provide specific kinds of blockchain access.

@@ -8,12 +8,24 @@ import (
 // Token is the SoT symbol identifying a fee token.
 type Token string
 
-// GasPrice represents the gas price for a chain, split into execution and data
-// availability (DA) fees.
-type GasPrice struct {
-	// ExecutionFee is the base execution fee.
+// NativeGasPrice is a chain's gas price in its native units, split into
+// execution and data availability (DA) fees.
+type NativeGasPrice struct {
+	// ExecutionFee is the base execution fee, in the chain's native gas price
+	// unit (e.g. wei per gas on EVM, microlamports per compute unit on Solana).
 	ExecutionFee *big.Int
-	// DAFee is the data availability fee, if the chain has one.
+	// DAFee is the data availability fee, if the chain has one, in the chain's
+	// native gas price unit.
+	DAFee *big.Int
+}
+
+// USDGasPrice is a gas price in USD, split into execution and data availability
+// (DA) fees.
+type USDGasPrice struct {
+	// ExecutionFee is the base execution fee, in 1e18 USD per gas unit.
+	ExecutionFee *big.Int
+	// DAFee is the data availability fee, if the chain has one, in 1e18 USD per
+	// gas unit.
 	DAFee *big.Int
 }
 
@@ -27,7 +39,7 @@ type FeeToken struct {
 
 // FeeTokenPrice is a fee token's price and when it was updated.
 type FeeTokenPrice struct {
-	// Price is the token's price.
+	// Price is the token's price, in 1e18 USD per token.
 	Price *big.Int
 	// UpdatedAt is when the price was last updated on-chain.
 	UpdatedAt time.Time
@@ -36,7 +48,7 @@ type FeeTokenPrice struct {
 // GasTokenPrice is a chain's gas price and when it was updated.
 type GasTokenPrice struct {
 	// GasPrice is the chain's gas price.
-	GasPrice GasPrice
+	GasPrice USDGasPrice
 	// UpdatedAt is when the gas price was last updated on-chain.
 	UpdatedAt time.Time
 }
@@ -59,7 +71,7 @@ type FQState struct {
 type FeeTokenPriceUpdate struct {
 	// Address is the on-chain address of the fee token to update.
 	Address UnknownAddress
-	// Price is the new price for the token.
+	// Price is the new price for the token, in 1e18 USD per token.
 	Price *big.Int
 }
 
@@ -68,5 +80,5 @@ type GasTokenPriceUpdate struct {
 	// ChainSelector is the destination chain to update.
 	ChainSelector ChainSelector
 	// GasPrice is the new gas price for the chain.
-	GasPrice GasPrice
+	GasPrice USDGasPrice
 }
