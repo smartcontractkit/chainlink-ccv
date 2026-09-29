@@ -183,7 +183,7 @@ func (r *SourceReader) SetCriticalSourceInvariantCallback(callback func(context.
 // keyed by block number. Requests are batched into a single eth_getBlockByNumber
 // batch per chunk (instead of one RPC request per block) to reduce RPC load.
 // Batches are chunked to avoid an oversized single payload.
-func (r *SourceReader) GetBlocksHeaders(ctx context.Context, blockNumbers []*big.Int) (map[uint64]protocol.BlockHeader, error) {
+func (r *SourceReader) GetBlocksHeaders(ctx context.Context, blockNumbers []uint64) (map[uint64]protocol.BlockHeader, error) {
 	headers := make(map[uint64]protocol.BlockHeader, len(blockNumbers))
 	batchSize := sourceReaderHeaderFetchBatchSize(r.sourceReaderHeaderFetchBatchSize)
 	for bn := 0; bn < len(blockNumbers); bn += batchSize {
@@ -202,13 +202,13 @@ func (r *SourceReader) GetBlocksHeaders(ctx context.Context, blockNumbers []*big
 // and returns the resulting headers keyed by block number. Individual batch
 // element failures are logged and skipped so a single bad block does not discard
 // the whole batch.
-func (r *SourceReader) fetchHeadBatch(ctx context.Context, blockNumbers []*big.Int) (map[uint64]protocol.BlockHeader, error) {
+func (r *SourceReader) fetchHeadBatch(ctx context.Context, blockNumbers []uint64) (map[uint64]protocol.BlockHeader, error) {
 	batch := make([]rpc.BatchElem, 0, len(blockNumbers))
 	for _, n := range blockNumbers {
 		var head *evmtypes.Head
 		batch = append(batch, rpc.BatchElem{
 			Method: "eth_getBlockByNumber",
-			Args:   []any{client.ToBlockNumArg(n), false},
+			Args:   []any{client.ToBlockNumArg(new(big.Int).SetUint64(n)), false},
 			Result: &head,
 		})
 	}
@@ -220,12 +220,12 @@ func (r *SourceReader) fetchHeadBatch(ctx context.Context, blockNumbers []*big.I
 	headers := make(map[uint64]protocol.BlockHeader, len(batch))
 	for i, elem := range batch {
 		if elem.Error != nil {
-			r.lggr.Warnw("Failed to get block header", "blockNumber", blockNumbers[i].String(), "error", elem.Error)
+			r.lggr.Warnw("Failed to get block header", "blockNumber", blockNumbers[i], "error", elem.Error)
 			continue
 		}
 		headPtr, ok := elem.Result.(**evmtypes.Head)
 		if !ok || headPtr == nil || *headPtr == nil {
-			r.lggr.Warnw("Nil block header", "blockNumber", blockNumbers[i].String())
+			r.lggr.Warnw("Nil block header", "blockNumber", blockNumbers[i])
 			continue
 		}
 		header := *headPtr
@@ -244,11 +244,16 @@ func (r *SourceReader) fetchHeadBatch(ctx context.Context, blockNumbers []*big.I
 }
 
 // FetchMessageSentEvents returns MessageSentEvents in the given block range.
-// The toBlock parameter can be nil to query up to the latest block.
-func (r *SourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, toBlock *big.Int) ([]protocol.MessageSentEvent, error) {
+// A toBlock of 0 queries up to the latest block.
+func (r *SourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, toBlock uint64) ([]protocol.MessageSentEvent, error) {
+	// ethereum.FilterQuery uses nil for an open-ended upper bound; the interface's 0 maps to it.
+	var toBlockArg *big.Int
+	if toBlock != 0 {
+		toBlockArg = new(big.Int).SetUint64(toBlock)
+	}
 	rangeQuery := ethereum.FilterQuery{
-		FromBlock: fromBlock,
-		ToBlock:   toBlock,
+		FromBlock: new(big.Int).SetUint64(fromBlock),
+		ToBlock:   toBlockArg,
 		Addresses: []common.Address{r.onRampAddress},
 		Topics:    [][]common.Hash{{common.HexToHash(r.ccipMessageSentTopic)}},
 	}
