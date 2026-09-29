@@ -77,19 +77,24 @@ type EvmExecutionAttemptPoller struct {
 
 func (p *EvmExecutionAttemptPoller) HealthReport() map[string]error {
 	report := make(map[string]error)
-	report[p.Name()] = p.Healthy()
+	report[p.Name()] = p.Ready()
 	return report
 }
 
-// Healthy returns nil when the poller is operating normally. If a permanent
-// failure has been recorded (e.g. getStartBlock failed), the stored fatal
-// error is returned on every call so the failure surfaces persistently in
-// HealthReport.
-func (p *EvmExecutionAttemptPoller) Healthy() error {
-	if errPtr := p.fatalErr.Load(); errPtr != nil {
-		return *errPtr
+// Ready returns nil when the poller has completed its initial backfill and is
+// fully operational. Returns ErrBackfillInProgress while the backfill is still
+// running, or an errNotStarted error if the service hasn't been started.
+func (p *EvmExecutionAttemptPoller) Ready() error {
+	if err := p.StateMachine.Ready(); err != nil {
+		return err
 	}
-	return p.StateMachine.Healthy()
+	if fatalErr := p.fatalErr.Load(); fatalErr != nil {
+		return *fatalErr
+	}
+	if !p.backfillComplete.Load() {
+		return ErrBackfillInProgress
+	}
+	return nil
 }
 
 func (p *EvmExecutionAttemptPoller) Name() string {
@@ -147,19 +152,6 @@ func (p *EvmExecutionAttemptPoller) Start(ctx context.Context) error {
 
 		return nil
 	})
-}
-
-// Ready returns nil when the poller has completed its initial backfill and is
-// fully operational. Returns ErrBackfillInProgress while the backfill is still
-// running, or an errNotStarted error if the service hasn't been started.
-func (p *EvmExecutionAttemptPoller) Ready() error {
-	if err := p.StateMachine.Ready(); err != nil {
-		return err
-	}
-	if !p.backfillComplete.Load() {
-		return ErrBackfillInProgress
-	}
-	return nil
 }
 
 // runStartupSequence performs the full startup: find the start block, backfill
