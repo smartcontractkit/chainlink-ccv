@@ -110,8 +110,7 @@ type CCTPCodec interface {
 
 // FeeQuoter provides chain-agnostic access to a chain's Fee Quoter contract.
 // It isolates all chain-specific logic behind this interface so that consumers
-// (e.g. a standalone price reporting service) can interact with any chain family
-// uniformly.
+// can interact with any chain family uniformly.
 //
 // Thread-safety: All methods must be safe for concurrent calls.
 type FeeQuoter interface {
@@ -144,7 +143,7 @@ type GasPriceReader interface {
 //
 // A committee/verifier accessor typically provides only SourceReader.
 // An executor accessor typically provides only DestinationReader and ContractTransmitter.
-// A price reporting accessor typically provides only FeeQuoter.
+// A price reporting accessor typically provides only FeeQuoter and GasPriceReader.
 type Accessor interface {
 	// SourceReader returns the SourceReader for this chain, or an error if not available.
 	SourceReader() (SourceReader, error)

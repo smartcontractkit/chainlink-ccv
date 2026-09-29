@@ -121,6 +121,22 @@ func TestGetAccessor_FeeQuoterUnsupported(t *testing.T) {
 	assert.Nil(t, fq)
 }
 
+func TestGetAccessor_GasPriceReaderUnsupported(t *testing.T) {
+	lggr := logger.Test(t)
+	reg, err := chainaccess.NewRegistry(lggr, "")
+	require.NoError(t, err)
+
+	accessor, err := reg.GetAccessor(context.Background(), ethereumMainnetSelector)
+	require.NoError(t, err)
+
+	// The test accessor does not implement GasPriceReader, so it must return an
+	// unsupported error rather than a nil GasPriceReader.
+	gpr, err := accessor.GasPriceReader()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "gas price reader not available")
+	assert.Nil(t, gpr)
+}
+
 func TestRegister_PanicsOnDuplicate(t *testing.T) {
 	assert.Panics(t, func() {
 		chainaccess.Register("evm", func(_ logger.Logger, _ chainaccess.GenericConfig) (chainaccess.AccessorFactory, error) {
