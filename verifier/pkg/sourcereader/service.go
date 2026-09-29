@@ -222,6 +222,10 @@ func (r *Service) HealthReport() map[string]error {
 	return report
 }
 
+func (r *Service) Ready() error {
+	return r.StateMachine.Ready() && !r.finalityBlocked.Load()
+}
+
 func (r *Service) eventMonitoringLoop() {
 	ctx, cancel := r.stopCh.NewCtx()
 	defer cancel()
