@@ -335,8 +335,9 @@ func TestIndexerStorageStreamerReadiness(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		_, errorsChan, err := oss.Start(ctx)
 		require.NoError(t, err)
+		// Drain errors so the poll loop is not blocked on the unbuffered channel.
 		go func() {
-			for range errorsChan { //nolint:revive // drain so the poll loop is not blocked
+			for range errorsChan {
 			}
 		}()
 		// Stop the poll loop before the test ends; it logs, and the test logger rejects
@@ -370,8 +371,9 @@ func TestIndexerStorageStreamerReadiness(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		_, errorsChan, err := oss.Start(ctx)
 		require.NoError(t, err)
+		// Drain errors so the poll loop is not blocked on the unbuffered channel.
 		go func() {
-			for range errorsChan { //nolint:revive // drain so the poll loop is not blocked
+			for range errorsChan {
 			}
 		}()
 		// Stop the poll loop before the test ends; it logs, and the test logger rejects
