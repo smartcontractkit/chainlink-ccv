@@ -108,27 +108,34 @@ type CCTPCodec interface {
 	DecodeAddress(address string) (protocol.UnknownAddress, error)
 }
 
-// FeeQuoter provides chain-agnostic access to a chain's Fee Quoter and gas
-// prices. It isolates all chain-specific logic behind this interface so that
-// consumers (e.g. a standalone price reporting service) can interact with any
-// chain family uniformly.
+// FeeQuoter provides chain-agnostic access to a chain's Fee Quoter contract.
+// It isolates all chain-specific logic behind this interface so that consumers
+// (e.g. a standalone price reporting service) can interact with any chain family
+// uniformly.
 //
 // Thread-safety: All methods must be safe for concurrent calls.
 type FeeQuoter interface {
 	// GetFQState reads the current Fee Quoter on-chain state and returns it.
 	GetFQState(ctx context.Context) (protocol.FQState, error)
-	// GetGasPrice reads the chain's current native gas price from the RPC.
-	GetGasPrice(ctx context.Context) (protocol.GasPrice, error)
-	// MonitorFQ runs a goroutine that monitors the Fee Quoter on-chain state
-	// and streams a fresh FQState snapshot on the returned channel whenever it
-	// changes. The channel is closed when the context is canceled.
-	MonitorFQ(ctx context.Context) (<-chan protocol.FQState, error)
+	// MonitorFQ runs a goroutine that monitors the Fee Quoter on-chain state and
+	// streams a fresh FQState snapshot on the returned channel whenever it changes.
+	// Errors encountered while monitoring are sent on the error channel. Both
+	// channels are closed when the context is canceled.
+	MonitorFQ(ctx context.Context) (<-chan protocol.FQState, <-chan error, error)
 	// UpdateFeeTokenPrices generates and broadcasts transactions for the given
 	// fee token price updates to the chain.
 	UpdateFeeTokenPrices(ctx context.Context, prices []protocol.FeeTokenPriceUpdate) error
 	// UpdateGasTokenPrices generates and broadcasts transactions for the given
 	// gas token price updates to the chain.
 	UpdateGasTokenPrices(ctx context.Context, prices []protocol.GasTokenPriceUpdate) error
+}
+
+// GasPriceReader reads a chain's current native gas price from the RPC.
+//
+// Thread-safety: All methods must be safe for concurrent calls.
+type GasPriceReader interface {
+	// GetGasPrice reads the chain's current native gas price.
+	GetGasPrice(ctx context.Context) (protocol.GasPrice, error)
 }
 
 // Accessor provides objects that in turn provide specific kinds of blockchain access.
@@ -149,6 +156,8 @@ type Accessor interface {
 	CCTPCodec() (CCTPCodec, error)
 	// FeeQuoter returns the FeeQuoter for this chain, or an error if not available.
 	FeeQuoter() (FeeQuoter, error)
+	// GasPriceReader returns the GasPriceReader for this chain, or an error if not available.
+	GasPriceReader() (GasPriceReader, error)
 	// Close releases any background services the accessor started. Stateless accessors return nil.
 	Close() error
 

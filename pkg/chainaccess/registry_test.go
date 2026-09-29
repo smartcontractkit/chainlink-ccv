@@ -56,6 +56,10 @@ func (a *testAccessor) FeeQuoter() (chainaccess.FeeQuoter, error) {
 	return nil, errors.New("fee quoter not available")
 }
 
+func (a *testAccessor) GasPriceReader() (chainaccess.GasPriceReader, error) {
+	return nil, errors.New("gas price reader not available")
+}
+
 func (a *testAccessor) Close() error {
 	return nil
 }
