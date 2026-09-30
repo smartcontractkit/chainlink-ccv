@@ -2,6 +2,7 @@ package sourcereader
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/big"
 	"runtime/debug"
@@ -218,6 +219,16 @@ func (r *Service) HealthReport() map[string]error {
 	report := make(map[string]error)
 	report[r.Name()] = r.Ready()
 	return report
+}
+
+func (r *Service) Ready() error {
+	if err := r.StateMachine.Ready(); err != nil {
+		return err
+	}
+	if r.finalityBlocked.Load() {
+		return errors.New("finality blocked")
+	}
+	return nil
 }
 
 func (r *Service) eventMonitoringLoop() {

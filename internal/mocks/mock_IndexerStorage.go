@@ -306,6 +306,53 @@ func (_c *MockIndexerStorage_GetProcessingMessages_Call) RunAndReturn(run func(c
 	return _c
 }
 
+// HealthReport provides a mock function with no fields
+func (_m *MockIndexerStorage) HealthReport() map[string]error {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for HealthReport")
+	}
+
+	var r0 map[string]error
+	if rf, ok := ret.Get(0).(func() map[string]error); ok {
+		r0 = rf()
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(map[string]error)
+		}
+	}
+
+	return r0
+}
+
+// MockIndexerStorage_HealthReport_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'HealthReport'
+type MockIndexerStorage_HealthReport_Call struct {
+	*mock.Call
+}
+
+// HealthReport is a helper method to define mock.On call
+func (_e *MockIndexerStorage_Expecter) HealthReport() *MockIndexerStorage_HealthReport_Call {
+	return &MockIndexerStorage_HealthReport_Call{Call: _e.mock.On("HealthReport")}
+}
+
+func (_c *MockIndexerStorage_HealthReport_Call) Run(run func()) *MockIndexerStorage_HealthReport_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockIndexerStorage_HealthReport_Call) Return(_a0 map[string]error) *MockIndexerStorage_HealthReport_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockIndexerStorage_HealthReport_Call) RunAndReturn(run func() map[string]error) *MockIndexerStorage_HealthReport_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // InsertVerifierResults provides a mock function with given fields: ctx, verifierResults
 func (_m *MockIndexerStorage) InsertVerifierResults(ctx context.Context, verifierResults []common.VerifierResultWithMetadata) error {
 	ret := _m.Called(ctx, verifierResults)
@@ -349,6 +396,51 @@ func (_c *MockIndexerStorage_InsertVerifierResults_Call) Return(_a0 error) *Mock
 }
 
 func (_c *MockIndexerStorage_InsertVerifierResults_Call) RunAndReturn(run func(context.Context, []common.VerifierResultWithMetadata) error) *MockIndexerStorage_InsertVerifierResults_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// Name provides a mock function with no fields
+func (_m *MockIndexerStorage) Name() string {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for Name")
+	}
+
+	var r0 string
+	if rf, ok := ret.Get(0).(func() string); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+
+	return r0
+}
+
+// MockIndexerStorage_Name_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Name'
+type MockIndexerStorage_Name_Call struct {
+	*mock.Call
+}
+
+// Name is a helper method to define mock.On call
+func (_e *MockIndexerStorage_Expecter) Name() *MockIndexerStorage_Name_Call {
+	return &MockIndexerStorage_Name_Call{Call: _e.mock.On("Name")}
+}
+
+func (_c *MockIndexerStorage_Name_Call) Run(run func()) *MockIndexerStorage_Name_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockIndexerStorage_Name_Call) Return(_a0 string) *MockIndexerStorage_Name_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockIndexerStorage_Name_Call) RunAndReturn(run func() string) *MockIndexerStorage_Name_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -524,6 +616,51 @@ func (_c *MockIndexerStorage_QueryMessages_Call) Return(_a0 []common.MessageWith
 }
 
 func (_c *MockIndexerStorage_QueryMessages_Call) RunAndReturn(run func(context.Context, int64, int64, []protocol.ChainSelector, []protocol.ChainSelector, uint64, uint64) ([]common.MessageWithMetadata, error)) *MockIndexerStorage_QueryMessages_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// Ready provides a mock function with no fields
+func (_m *MockIndexerStorage) Ready() error {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for Ready")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func() error); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockIndexerStorage_Ready_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Ready'
+type MockIndexerStorage_Ready_Call struct {
+	*mock.Call
+}
+
+// Ready is a helper method to define mock.On call
+func (_e *MockIndexerStorage_Expecter) Ready() *MockIndexerStorage_Ready_Call {
+	return &MockIndexerStorage_Ready_Call{Call: _e.mock.On("Ready")}
+}
+
+func (_c *MockIndexerStorage_Ready_Call) Run(run func()) *MockIndexerStorage_Ready_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockIndexerStorage_Ready_Call) Return(_a0 error) *MockIndexerStorage_Ready_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockIndexerStorage_Ready_Call) RunAndReturn(run func() error) *MockIndexerStorage_Ready_Call {
 	_c.Call.Return(run)
 	return _c
 }

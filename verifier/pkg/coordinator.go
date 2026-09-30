@@ -544,10 +544,23 @@ func (vc *Coordinator) HealthReport() map[string]error {
 	}
 	if vc.sourceReaderServices != nil {
 		for _, srs := range vc.sourceReaderServices {
-			if hr, ok := srs.(protocol.HealthReporter); ok {
-				maps.Copy(report, hr.HealthReport())
-			}
+			maps.Copy(report, srs.HealthReport())
 		}
+	}
+	if vc.curseDetector != nil {
+		maps.Copy(report, vc.curseDetector.HealthReport())
+	}
+	if vc.chainStatusBatcher != nil {
+		maps.Copy(report, vc.chainStatusBatcher.HealthReport())
+	}
+	if vc.heartbeatReporter != nil {
+		maps.Copy(report, vc.heartbeatReporter.HealthReport())
+	}
+	if vc.taskQueueObserver != nil {
+		maps.Copy(report, vc.taskQueueObserver.HealthReport())
+	}
+	if vc.resultQueueObserver != nil {
+		maps.Copy(report, vc.resultQueueObserver.HealthReport())
 	}
 	return report
 }
