@@ -21,11 +21,14 @@ import (
 	evmclient "github.com/smartcontractkit/chainlink-evm/pkg/client"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client/clienttest"
 	"github.com/smartcontractkit/chainlink-evm/pkg/heads"
+	"github.com/smartcontractkit/chainlink-evm/pkg/logpoller"
+	lpmocks "github.com/smartcontractkit/chainlink-evm/pkg/logpoller/mocks"
 	evmtypes "github.com/smartcontractkit/chainlink-evm/pkg/types"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_6_0/rmn_remote"
 
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
@@ -201,44 +204,148 @@ func TestFetchMessageSentEvents_SourceMetadata(t *testing.T) {
 				TxHash:         common.HexToHash("0xdeadbeef"),
 				BlockHash:      common.HexToHash("0xb10c"),
 			}
-			// Only FilterLogs is implemented: an added block or transaction RPC fails the test.
-			calls := 0
-			chainClient := &mockFilterLogsClient{
-				filterLogsFunc: func(context.Context, ethereum.FilterQuery) ([]types.Log, error) {
-					calls++
-					return []types.Log{log}, nil
-				},
+			// Both read paths must decode the same log into the same event.
+			for _, viaLogPoller := range []bool{false, true} {
+				t.Run(map[bool]string{false: "rpc", true: "log poller"}[viaLogPoller], func(t *testing.T) {
+					// Configured inline rather than through newTestSourceReader: the reader has to agree
+					// with the log this test builds on the onramp address and the source selector.
+					reader := &SourceReader{
+						lggr:                 logger.Test(t),
+						onRampAddress:        onRampAddress,
+						chainSelector:        protocol.ChainSelector(1337),
+						onRampABI:            onRampABI,
+						ccipMessageSentTopic: onRampABI.Events["CCIPMessageSent"].ID.Hex(),
+					}
+					if viaLogPoller {
+						lp := lpmocks.NewLogPoller(t)
+						lp.EXPECT().LogsWithSigs(mock.Anything, int64(90), int64(100),
+							[]common.Hash{onRampABI.Events["CCIPMessageSent"].ID}, onRampAddress).
+							Return([]logpoller.Log{toLogPollerLog(log)}, nil).Once()
+						reader.lp = lp
+					} else {
+						// Only FilterLogs is implemented: an added block or transaction RPC fails the test.
+						calls := 0
+						t.Cleanup(func() { require.Equal(t, 1, calls) })
+						reader.chainClient = &mockFilterLogsClient{
+							filterLogsFunc: func(context.Context, ethereum.FilterQuery) ([]types.Log, error) {
+								calls++
+								return []types.Log{log}, nil
+							},
+						}
+					}
+					reader.SetCriticalSourceInvariantCallback(func(context.Context) { t.Error("unexpected invalid event") })
+					events, err := reader.FetchMessageSentEvents(t.Context(), 90, 100)
+					require.NoError(t, err)
+					require.Len(t, events, 1)
+					require.Equal(t, protocol.UnknownAddress(tc.feeToken.Bytes()), events[0].FeeToken)
+					require.Equal(t, messageID, events[0].MessageID)
+					require.Equal(t, protocol.ByteSlice(common.HexToHash("0xb10c").Bytes()), events[0].BlockHash)
+					require.Equal(t, *message, events[0].Message)
+					// The reader surfaces the raw event. Normalizing it into the published policy view
+					// happens in verifier/pkg/policy and is covered there.
+					for i, receipt := range receipts {
+						require.Equal(t, receipt.FeeTokenAmount, events[0].Receipts[i].FeeTokenAmount)
+					}
+					if tc.timestamp == 0 {
+						require.True(t, events[0].BlockTimestamp.IsZero())
+					} else {
+						require.Equal(t, time.Unix(1700000000, 0).UTC(), events[0].BlockTimestamp)
+					}
+				})
 			}
-			// Configured inline rather than through newTestSourceReader: the reader has to agree
-			// with the log this test builds on the onramp address and the source selector, and
-			// the shared helper only supplies a client and a logger.
-			reader := &SourceReader{
-				chainClient:          chainClient,
-				lggr:                 logger.Test(t),
-				onRampAddress:        onRampAddress,
-				chainSelector:        protocol.ChainSelector(1337),
-				onRampABI:            onRampABI,
-				ccipMessageSentTopic: onRampABI.Events["CCIPMessageSent"].ID.Hex(),
+		})
+	}
+}
+
+// toLogPollerLog is l as the log poller stores it, the form LogsWithSigs returns.
+func toLogPollerLog(l types.Log) logpoller.Log {
+	out := logpoller.Log{
+		Address:     l.Address,
+		BlockNumber: int64(l.BlockNumber), // #nosec G115 -- test block numbers are small
+		BlockHash:   l.BlockHash,
+		TxHash:      l.TxHash,
+		Data:        l.Data,
+		EventSig:    l.Topics[0],
+	}
+	for _, topic := range l.Topics {
+		out.Topics = append(out.Topics, topic.Bytes())
+	}
+	if l.BlockTimestamp != 0 {
+		out.BlockTimestamp = time.Unix(int64(l.BlockTimestamp), 0) // #nosec G115 -- test timestamps are small
+	}
+	return out
+}
+
+func TestFetchMessageSentEvents_LogPollerRange(t *testing.T) {
+	topic := common.HexToHash("0x01")
+	onRamp := common.HexToAddress("0x1234")
+	newReader := func(t *testing.T, processed int64) (*SourceReader, *lpmocks.LogPoller) {
+		lp := lpmocks.NewLogPoller(t)
+		lp.EXPECT().LatestBlock(mock.Anything).Return(logpoller.Block{BlockNumber: processed}, nil).Once()
+		return &SourceReader{lggr: logger.Test(t), lp: lp, onRampAddress: onRamp, ccipMessageSentTopic: topic.Hex()}, lp
+	}
+
+	t.Run("open range ends at the log poller block", func(t *testing.T) {
+		r, lp := newReader(t, 120)
+		lp.EXPECT().LogsWithSigs(mock.Anything, int64(90), int64(120), []common.Hash{topic}, onRamp).
+			Return(nil, nil).Once()
+		_, err := r.FetchMessageSentEvents(t.Context(), 90, 0)
+		require.NoError(t, err)
+	})
+
+	t.Run("range the log poller has not reached is not queried", func(t *testing.T) {
+		r, _ := newReader(t, 80)
+		events, err := r.FetchMessageSentEvents(t.Context(), 90, 0)
+		require.NoError(t, err)
+		require.Empty(t, events)
+	})
+}
+
+// stubHeadTracker serves fixed heads; any other Tracker call panics on the nil embedded interface.
+type stubHeadTracker struct {
+	heads.Tracker
+	latest, finalized, safe int64
+}
+
+func (s stubHeadTracker) LatestAndFinalizedBlock(context.Context) (*evmtypes.Head, *evmtypes.Head, error) {
+	return &evmtypes.Head{Number: s.latest}, &evmtypes.Head{Number: s.finalized}, nil
+}
+
+func (s stubHeadTracker) LatestSafeBlock(context.Context) (*evmtypes.Head, error) {
+	return &evmtypes.Head{Number: s.safe}, nil
+}
+
+// The verifier must never advance past blocks whose logs the log poller has not indexed yet.
+func TestBlocksAreCappedAtLogPollerBlock(t *testing.T) {
+	for _, tc := range []struct {
+		name                    string
+		processed               int64
+		latest, finalized, safe uint64
+	}{
+		{name: "log poller caught up", processed: 150, latest: 100, finalized: 80, safe: 90},
+		{name: "log poller between finalized and latest", processed: 85, latest: 85, finalized: 80, safe: 85},
+		{name: "log poller below finalized", processed: 50, latest: 50, finalized: 50, safe: 50},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			lp := lpmocks.NewLogPoller(t)
+			lp.EXPECT().LatestBlock(mock.Anything).Return(logpoller.Block{BlockNumber: tc.processed}, nil)
+			// A capped block is re-read by number; when nothing is capped no header RPC is allowed.
+			var cc evmclient.Client = clienttest.NewClient(t)
+			if tc.processed < 100 {
+				cc = newBatchFillingClient(t, "")
 			}
-			reader.SetCriticalSourceInvariantCallback(func(context.Context) { t.Error("unexpected invalid event") })
-			events, err := reader.FetchMessageSentEvents(t.Context(), 90, 100)
+			r := newTestSourceReader(t, cc)
+			r.headTracker = stubHeadTracker{latest: 100, finalized: 80, safe: 90}
+			r.lp = lp
+
+			latest, finalized, err := r.LatestAndFinalizedBlock(t.Context())
 			require.NoError(t, err)
-			require.Equal(t, 1, calls)
-			require.Len(t, events, 1)
-			require.Equal(t, protocol.UnknownAddress(tc.feeToken.Bytes()), events[0].FeeToken)
-			require.Equal(t, messageID, events[0].MessageID)
-			require.Equal(t, protocol.ByteSlice(common.HexToHash("0xb10c").Bytes()), events[0].BlockHash)
-			require.Equal(t, *message, events[0].Message)
-			// The reader surfaces the raw event. Normalizing it into the published policy view
-			// happens in verifier/pkg/policy and is covered there.
-			for i, receipt := range receipts {
-				require.Equal(t, receipt.FeeTokenAmount, events[0].Receipts[i].FeeTokenAmount)
-			}
-			if tc.timestamp == 0 {
-				require.True(t, events[0].BlockTimestamp.IsZero())
-			} else {
-				require.Equal(t, time.Unix(1700000000, 0).UTC(), events[0].BlockTimestamp)
-			}
+			require.Equal(t, tc.latest, latest.Number)
+			require.Equal(t, tc.finalized, finalized.Number)
+
+			safe, err := r.LatestSafeBlock(t.Context())
+			require.NoError(t, err)
+			require.Equal(t, tc.safe, safe.Number)
 		})
 	}
 }
@@ -432,4 +539,38 @@ func TestGetRMNCursedSubjects_RetriesDerivationAndCaches(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, want, subjects)
 	require.Equal(t, int32(3), staticConfigCalls.Load())
+}
+
+func TestNewEVMSourceReader_LogPollerFilter(t *testing.T) {
+	onRamp := common.HexToAddress("0x1234")
+	topic := common.HexToHash("0x01")
+	newReader := func(t *testing.T, lp logpoller.LogPoller) (chainaccess.SourceReader, error) {
+		return NewEVMSourceReader(t.Context(), clienttest.NewClient(t), heads.NullTracker, onRamp,
+			common.Address{}, topic.Hex(), protocol.ChainSelector(1337), logger.Test(t), 25, nil,
+			&LogPollerConfig{LogPoller: lp, VerifierID: "verifier-1", Retention: time.Hour})
+	}
+
+	t.Run("registers the onramp filter and reads from the log poller", func(t *testing.T) {
+		lp := lpmocks.NewLogPoller(t)
+		lp.EXPECT().RegisterFilter(mock.Anything, mock.MatchedBy(func(f logpoller.Filter) bool {
+			return f.Name != "" && len(f.Addresses) == 1 && f.Addresses[0] == onRamp &&
+				len(f.EventSigs) == 1 && f.EventSigs[0] == topic && f.Retention == time.Hour
+		})).Return(nil).Once()
+		reader, err := newReader(t, lp)
+		require.NoError(t, err)
+		require.Equal(t, lp, reader.(*SourceReader).lp)
+	})
+
+	t.Run("registration failure fails construction", func(t *testing.T) {
+		lp := lpmocks.NewLogPoller(t)
+		lp.EXPECT().RegisterFilter(mock.Anything, mock.Anything).Return(errors.New("db down")).Once()
+		_, err := newReader(t, lp)
+		require.ErrorContains(t, err, "db down")
+	})
+
+	t.Run("disabled log poller falls back to rpc", func(t *testing.T) {
+		reader, err := newReader(t, logpoller.LogPollerDisabled)
+		require.NoError(t, err)
+		require.Nil(t, reader.(*SourceReader).lp)
+	})
 }
