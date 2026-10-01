@@ -12,6 +12,7 @@ import (
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client/clienttest"
 	"github.com/smartcontractkit/chainlink-evm/pkg/heads"
+	"github.com/smartcontractkit/chainlink-evm/pkg/logpoller"
 
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -20,8 +21,8 @@ import (
 )
 
 // stubChain implements only the slice of legacyevm.Chain that NewVerificationCoordinator uses
-// (Client and HeadTracker). The embedded nil interface covers the rest: any call beyond those
-// two panics, which is exactly the desired outcome if the constructor starts reaching further.
+// (Client, HeadTracker and LogPoller). The embedded nil interface covers the rest: any call beyond
+// those panics, which is exactly the desired outcome if the constructor starts reaching further.
 type stubChain struct {
 	legacyevm.Chain
 	chainClient client.Client
@@ -29,6 +30,9 @@ type stubChain struct {
 
 func (c stubChain) Client() client.Client      { return c.chainClient }
 func (c stubChain) HeadTracker() heads.Tracker { return heads.NullTracker }
+
+// LogPoller returns the disabled log poller, so the source reader reads logs over RPC.
+func (c stubChain) LogPoller() logpoller.LogPoller { return logpoller.LogPollerDisabled }
 
 // stubDataSource satisfies sqlutil.DataSource with no database. NewVerificationCoordinator only
 // requires a non-nil DataSource at construction — every consumer hands it to stores that defer

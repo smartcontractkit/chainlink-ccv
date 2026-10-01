@@ -148,6 +148,7 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 			chainLggr,
 			runtime.SourceReaderHeaderFetchBatchSize(),
 			nil,
+			nil, // standalone verifier has no log poller, it reads logs over rpc
 		)
 		if err != nil {
 			closeErr := runtime.Close()

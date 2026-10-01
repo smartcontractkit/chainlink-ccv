@@ -141,6 +141,11 @@ func NewVerificationCoordinator(
 			func(ctx context.Context) {
 				chainMetrics.IncrementCriticalSourceInvariantViolations(ctx)
 			},
+			&evm.LogPollerConfig{
+				LogPoller:  chain.LogPoller(),
+				VerifierID: cfg.VerifierID,
+				Retention:  evm.DefaultMessageSentLogRetention,
+			},
 		)
 		if err != nil {
 			// A failure to build one chain's reader must not stop the remaining chains from
