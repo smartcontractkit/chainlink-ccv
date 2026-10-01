@@ -329,6 +329,7 @@ func TestNewEVMSourceReader_NoEagerRPCAtConstruction(t *testing.T) {
 		logger.Test(t),
 		25,
 		nil,
+		nil,
 	)
 	require.NoError(t, err, "construction must not fail even when the RPC is unavailable")
 	require.NotNil(t, reader)
@@ -403,6 +404,7 @@ func TestGetRMNCursedSubjects_RetriesDerivationAndCaches(t *testing.T) {
 		protocol.ChainSelector(1337),
 		logger.Test(t),
 		25,
+		nil,
 		nil,
 	)
 	require.NoError(t, err)

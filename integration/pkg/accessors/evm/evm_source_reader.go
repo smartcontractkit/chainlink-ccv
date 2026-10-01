@@ -13,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/rpc"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
@@ -21,6 +22,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 	"github.com/smartcontractkit/chainlink-evm/pkg/heads"
+	"github.com/smartcontractkit/chainlink-evm/pkg/logpoller"
 	evmtypes "github.com/smartcontractkit/chainlink-evm/pkg/types"
 
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/rmnremotereader"
@@ -33,6 +35,18 @@ var (
 	_ chainaccess.SourceReader                          = (*SourceReader)(nil)
 	_ chainaccess.CriticalSourceInvariantCallbackSetter = (*SourceReader)(nil)
 )
+
+// DefaultMessageSentLogRetention is how long the log poller keeps CCIPMessageSent logs. It must
+// exceed the longest expected verifier outage, or logs the verifier has not read yet are pruned.
+const DefaultMessageSentLogRetention = 30 * 24 * time.Hour
+
+// LogPollerConfig makes the source reader read CCIPMessageSent logs from the Chainlink node's log
+// poller instead of eth_getLogs.
+type LogPollerConfig struct {
+	LogPoller  logpoller.LogPoller
+	VerifierID string
+	Retention  time.Duration
+}
 
 type SourceReader struct {
 	chainClient   client.Client
@@ -48,6 +62,9 @@ type SourceReader struct {
 	onRampABI                        *abi.ABI // Cached ABI to avoid re-parsing
 	onCriticalInvariant              func(context.Context)
 	sourceReaderHeaderFetchBatchSize int
+
+	// lp is the node's log poller, nil when logs are read over RPC (e.g. the standalone verifier).
+	lp logpoller.LogPoller
 }
 
 func NewEVMSourceReader(
@@ -66,6 +83,8 @@ func NewEVMSourceReader(
 	lggr logger.Logger,
 	headerFetchBatchSize int,
 	onCriticalInvariant func(context.Context),
+	// lpCfg makes the reader read logs from the node's log poller; nil reads logs over RPC.
+	lpCfg *LogPollerConfig,
 ) (chainaccess.SourceReader, error) {
 	var errs []error
 	appendIfNil := func(field any, fieldName string) {
@@ -86,6 +105,9 @@ func NewEVMSourceReader(
 	}
 	if chainSelector == 0 {
 		errs = append(errs, fmt.Errorf("chainSelector is not set"))
+	}
+	if lpCfg != nil && lpCfg.VerifierID == "" {
+		errs = append(errs, fmt.Errorf("log poller verifierID is not set"))
 	}
 
 	if len(errs) > 0 {
@@ -147,7 +169,35 @@ func NewEVMSourceReader(
 		sourceReaderHeaderFetchBatchSize: sourceReaderHeaderFetchBatchSize(headerFetchBatchSize),
 	}
 	reader.SetCriticalSourceInvariantCallback(onCriticalInvariant)
+
+	if lpCfg != nil && lpCfg.LogPoller != nil && lpCfg.LogPoller != logpoller.LogPollerDisabled {
+		if err := reader.registerLogPollerFilter(ctx, lpCfg); err != nil {
+			return nil, err
+		}
+	}
 	return reader, nil
+}
+
+// registerLogPollerFilter registers the CCIPMessageSent filter with the log poller and switches
+// the reader to read logs from it.
+func (r *SourceReader) registerLogPollerFilter(ctx context.Context, lpCfg *LogPollerConfig) error {
+	name := logpoller.FilterName(lpCfg.VerifierID, r.onRampAddress.Hex())
+
+	// RegisterFilter writes to the DB; bound it since the node entry point passes context.Background().
+	regCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if err := lpCfg.LogPoller.RegisterFilter(regCtx, logpoller.Filter{
+		Name:      name,
+		Addresses: []common.Address{r.onRampAddress},
+		EventSigs: []common.Hash{common.HexToHash(r.ccipMessageSentTopic)},
+		Retention: lpCfg.Retention,
+	}); err != nil {
+		return fmt.Errorf("failed to register log poller filter %s: %w", name, err)
+	}
+
+	r.lp = lpCfg.LogPoller
+	r.lggr.Infow("Reading CCIPMessageSent logs from the log poller", "filter", name)
+	return nil
 }
 
 // onRampStaticConfigGetter is the slice of the OnRamp binding the source reader needs, defined
@@ -244,8 +294,24 @@ func (r *SourceReader) fetchHeadBatch(ctx context.Context, blockNumbers []*big.I
 }
 
 // FetchMessageSentEvents returns MessageSentEvents in the given block range.
-// The toBlock parameter can be nil to query up to the latest block.
+// The toBlock parameter can be nil to query up to the latest block; with a log poller, that is
+// the last block the log poller has processed.
 func (r *SourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, toBlock *big.Int) ([]protocol.MessageSentEvent, error) {
+	var logs []types.Log
+	var err error
+	if r.lp != nil {
+		logs, err = r.logPollerLogs(ctx, fromBlock, toBlock)
+	} else {
+		logs, err = r.rpcLogs(ctx, fromBlock, toBlock)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return r.parseMessageSentLogs(ctx, logs), nil
+}
+
+// rpcLogs reads CCIPMessageSent logs in the given block range with eth_getLogs.
+func (r *SourceReader) rpcLogs(ctx context.Context, fromBlock, toBlock *big.Int) ([]types.Log, error) {
 	rangeQuery := ethereum.FilterQuery{
 		FromBlock: fromBlock,
 		ToBlock:   toBlock,
@@ -257,7 +323,58 @@ func (r *SourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, to
 		r.lggr.Warnw("Failed to filter logs", "error", err)
 		return nil, err
 	}
+	return logs, nil
+}
 
+// logPollerLogs reads CCIPMessageSent logs in the given block range from the log poller.
+func (r *SourceReader) logPollerLogs(ctx context.Context, fromBlock, toBlock *big.Int) ([]types.Log, error) {
+	end := toBlock
+	if end == nil {
+		processed, err := r.logPollerBlock(ctx)
+		if err != nil {
+			return nil, err
+		}
+		end = new(big.Int).SetUint64(processed)
+	}
+	if fromBlock.Cmp(end) > 0 {
+		// The log poller has not reached fromBlock yet.
+		return nil, nil
+	}
+
+	lpLogs, err := r.lp.LogsWithSigs(ctx, fromBlock.Int64(), end.Int64(),
+		[]common.Hash{common.HexToHash(r.ccipMessageSentTopic)}, r.onRampAddress)
+	if err != nil {
+		r.lggr.Warnw("Failed to query log poller", "error", err)
+		return nil, err
+	}
+
+	logs := make([]types.Log, 0, len(lpLogs))
+	for i := range lpLogs {
+		l := lpLogs[i].ToGethLog()
+		// ToGethLog drops the block timestamp, which parseMessageSentLogs reports as the source-block time.
+		if ts := lpLogs[i].BlockTimestamp; !ts.IsZero() {
+			l.BlockTimestamp = uint64(ts.Unix()) // #nosec G115 -- chain timestamps are positive
+		}
+		logs = append(logs, l)
+	}
+	return logs, nil
+}
+
+// logPollerBlock returns the last block the log poller has processed.
+func (r *SourceReader) logPollerBlock(ctx context.Context) (uint64, error) {
+	b, err := r.lp.LatestBlock(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get log poller latest block: %w", err)
+	}
+	if b.BlockNumber < 0 {
+		return 0, fmt.Errorf("log poller block number cannot be negative: %d", b.BlockNumber)
+	}
+	return uint64(b.BlockNumber), nil
+}
+
+// parseMessageSentLogs decodes and validates CCIPMessageSent logs. Invalid logs are reported
+// through onCriticalInvariant and skipped.
+func (r *SourceReader) parseMessageSentLogs(ctx context.Context, logs []types.Log) []protocol.MessageSentEvent {
 	results := make([]protocol.MessageSentEvent, 0, len(logs))
 
 	// Process found events
@@ -299,7 +416,7 @@ func (r *SourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, to
 		event.DestChainSelector = destChainSelector
 		event.MessageId = messageID
 		event.Sender = sender
-		err = r.onRampABI.UnpackIntoInterface(event, "CCIPMessageSent", log.Data)
+		err := r.onRampABI.UnpackIntoInterface(event, "CCIPMessageSent", log.Data)
 		if err != nil {
 			r.onCriticalInvariant(ctx)
 			r.lggr.Errorw("Failed to unpack CCIPMessageSent event payload", "error", err)
@@ -413,12 +530,54 @@ func (r *SourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, to
 			BlockTimestamp: blockTimestamp,
 		})
 	}
-	return results, nil
+	return results
 }
 
-// LatestAndFinalizedBlock returns the latest and finalized block headers.
+// LatestAndFinalizedBlock returns the latest and finalized block headers. With a log poller,
+// neither is above the last block the log poller has processed, so the verifier never advances
+// past logs that are not indexed yet.
 // Implements chainaccess.HeadTracker interface.
 func (r *SourceReader) LatestAndFinalizedBlock(ctx context.Context) (latest, finalized *protocol.BlockHeader, err error) {
+	latest, finalized, err = r.headTrackerBlocks(ctx)
+	if err != nil || r.lp == nil {
+		return latest, finalized, err
+	}
+
+	processed, err := r.logPollerBlock(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	if processed >= latest.Number {
+		return latest, finalized, nil
+	}
+	capped, err := r.headerAt(ctx, processed)
+	if err != nil {
+		return nil, nil, err
+	}
+	r.lggr.Debugw("Log poller is behind the head tracker, capping blocks",
+		"logPollerBlock", processed, "latest", latest.Number, "finalized", finalized.Number)
+	latest = capped
+	if processed < finalized.Number {
+		finalized = capped
+	}
+	return latest, finalized, nil
+}
+
+// headerAt returns the header of block n.
+func (r *SourceReader) headerAt(ctx context.Context, n uint64) (*protocol.BlockHeader, error) {
+	headers, err := r.GetBlocksHeaders(ctx, []*big.Int{new(big.Int).SetUint64(n)})
+	if err != nil {
+		return nil, err
+	}
+	h, ok := headers[n]
+	if !ok {
+		return nil, fmt.Errorf("header for block %d not found", n)
+	}
+	return &h, nil
+}
+
+// headTrackerBlocks returns the head tracker's latest and finalized block headers.
+func (r *SourceReader) headTrackerBlocks(ctx context.Context) (latest, finalized *protocol.BlockHeader, err error) {
 	latestHead, finalizedHead, err := r.headTracker.LatestAndFinalizedBlock(ctx)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get latest and finalized blocks: %w", err)
@@ -449,10 +608,29 @@ func (r *SourceReader) LatestAndFinalizedBlock(ctx context.Context) (latest, fin
 	return latest, finalized, nil
 }
 
-// LatestSafeBlock returns the latest safe block header.
+// LatestSafeBlock returns the latest safe block header. With a log poller, it is not above the
+// last block the log poller has processed.
 // Returns nil without an error when the underlying chain does not support the safe tag.
 // Implements chainaccess.HeadTracker interface.
 func (r *SourceReader) LatestSafeBlock(ctx context.Context) (*protocol.BlockHeader, error) {
+	safe, err := r.headTrackerSafeBlock(ctx)
+	if err != nil || safe == nil || r.lp == nil {
+		return safe, err
+	}
+
+	processed, err := r.logPollerBlock(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if processed >= safe.Number {
+		return safe, nil
+	}
+	return r.headerAt(ctx, processed)
+}
+
+// headTrackerSafeBlock returns the head tracker's safe block header, nil when the chain does not
+// support the safe tag.
+func (r *SourceReader) headTrackerSafeBlock(ctx context.Context) (*protocol.BlockHeader, error) {
 	safeHead, err := r.headTracker.LatestSafeBlock(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get safe block: %w", err)
