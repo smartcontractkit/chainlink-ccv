@@ -450,7 +450,7 @@ func TestE2EReorg(t *testing.T) {
 		committee, err := verifiercli.NewCommitteeClient(verifierID, members...)
 		require.NoError(t, err)
 
-		// A prior iteration may have left a committee process paused by pkill -STOP;
+		// A prior iteration may have left a committee process paused (SIGSTOP);
 		// resume now and again on cleanup so we don't leak a paused process.
 		committee.ResumeAllBestEffort(ctx)
 		t.Cleanup(func() { committee.ResumeAllBestEffort(ctx) })
