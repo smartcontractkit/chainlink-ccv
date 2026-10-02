@@ -255,41 +255,41 @@ func (r *SourceReader) GetBlocksHeaders(ctx context.Context, blockNumbers []uint
 // element failures are logged and skipped so a single bad block does not discard
 // the whole batch.
 func (r *SourceReader) fetchHeadBatch(ctx context.Context, blockNumbers []uint64) (map[uint64]protocol.BlockHeader, error) {
-	batch := make([]rpc.BatchElem, 0, len(blockNumbers))
-	for _, n := range blockNumbers {
+	batch := make([]rpc.BatchElem, len(blockNumbers))
+	for i, n := range blockNumbers {
 		var head *evmtypes.Head
-		batch = append(batch, rpc.BatchElem{
+		batch[i] = rpc.BatchElem{
 			Method: "eth_getBlockByNumber",
 			Args:   []any{client.ToBlockNumArg(new(big.Int).SetUint64(n)), false},
 			Result: &head,
-		})
+		}
 	}
 
 	if err := r.chainClient.BatchCallContext(ctx, batch); err != nil {
 		return nil, err
 	}
 
-	headers := make(map[uint64]protocol.BlockHeader, len(batch))
-	for i, elem := range batch {
-		if elem.Error != nil {
-			r.lggr.Warnw("Failed to get block header", "blockNumber", blockNumbers[i], "error", elem.Error)
+	headers := make(map[uint64]protocol.BlockHeader, len(blockNumbers))
+	for i, n := range blockNumbers {
+		if batch[i].Error != nil {
+			r.lggr.Warnw("Failed to get block header", "blockNumber", n, "error", batch[i].Error)
 			continue
 		}
-		headPtr, ok := elem.Result.(**evmtypes.Head)
+		headPtr, ok := batch[i].Result.(**evmtypes.Head)
 		if !ok || headPtr == nil || *headPtr == nil {
-			r.lggr.Warnw("Nil block header", "blockNumber", blockNumbers[i])
+			r.lggr.Warnw("Nil block header", "blockNumber", n)
 			continue
 		}
-		header := *headPtr
-		if header.Number < 0 {
-			return nil, fmt.Errorf("block number cannot be negative: %d", header.Number)
+		head := *headPtr
+		if head.Number < 0 {
+			return nil, fmt.Errorf("block number cannot be negative: %d", head.Number)
 		}
-		blockNum := uint64(header.Number)
+		blockNum := uint64(head.Number)
 		headers[blockNum] = protocol.BlockHeader{
 			Number:     blockNum,
-			Hash:       protocol.Bytes32(header.Hash),
-			ParentHash: protocol.Bytes32(header.ParentHash),
-			Timestamp:  header.Timestamp,
+			Hash:       protocol.Bytes32(head.Hash),
+			ParentHash: protocol.Bytes32(head.ParentHash),
+			Timestamp:  head.Timestamp,
 		}
 	}
 	return headers, nil
