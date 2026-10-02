@@ -12,16 +12,16 @@
 
 | Symbol | Kind | Search | Location | Section |
 |---|---|---|---|---|
-| `verifiercli.Client.Pause` | behavior-changed | `\.Pause\(` | `build/devenv/tests/e2e/verifiercli/client.go:109` | [#pause--resume-via-quiesce](#pause--resume-via-quiesce) |
-| `verifiercli.Client.Resume` | behavior-changed | `\.Resume\(` | `build/devenv/tests/e2e/verifiercli/client.go:118` | [#pause--resume-via-quiesce](#pause--resume-via-quiesce) |
-| `verifiercli.WithProcessMatch` | removed | `WithProcessMatch` | — | [#pause--resume-via-quiesce](#pause--resume-via-quiesce) |
-| `verifiercli.DefaultProcessMatch` | removed | `DefaultProcessMatch` | — | [#pause--resume-via-quiesce](#pause--resume-via-quiesce) |
-| `quiesce.InitQuiesceCommands` | added | `InitQuiesceCommands` | `cli/quiesce/quiesce.go:21` | [#quiesce-commands](#quiesce-commands) |
-| `quiesce.findServicePID` | added | `findServicePID` | `cli/quiesce/quiesce.go:63` | [#quiesce-commands](#quiesce-commands) |
-| `ccv quiesce pause` / `ccv quiesce resume` | added | `quiesce (pause|resume)` | `cmd/verifier/run_ccv_cli.go:117` | [#quiesce-commands](#quiesce-commands) |
-| production Dockerfile final stages | behavior-changed | `distroless/static-debian12` | `verifier/Dockerfile` and siblings | [#distroless-final-stages](#distroless-final-stages) |
-| image run users | behavior-changed | `USER 65532:65532` | same | [#distroless-final-stages](#distroless-final-stages) |
-| build contexts | behavior-changed | `^build/devenv/\*` | `.dockerignore` | [#dockerignore](#dockerignore) |
+| `verifiercli.Client.Pause` | behavior-changed | `\.Pause\(` | `build/devenv/tests/e2e/verifiercli/client.go:121` | [#migration-guide](#migration-guide) |
+| `verifiercli.Client.Resume` | behavior-changed | `\.Resume\(` | `build/devenv/tests/e2e/verifiercli/client.go:130` | [#migration-guide](#migration-guide) |
+| `verifiercli.WithProcessMatch` | removed | `WithProcessMatch` | — | [#migration-guide](#migration-guide) |
+| `verifiercli.DefaultProcessMatch` | removed | `DefaultProcessMatch` | — | [#migration-guide](#migration-guide) |
+| `quiesce.InitQuiesceCommands` | added | `InitQuiesceCommands` | `cli/quiesce/quiesce.go:21` | [#new-features--additions](#new-features--additions) |
+| `quiesce.findServicePID` | added | `findServicePID` | `cli/quiesce/quiesce.go:63` | [#new-features--additions](#new-features--additions) |
+| `ccv quiesce pause` / `ccv quiesce resume` | added | `quiesce (pause|resume)` | `cmd/verifier/run_ccv_cli.go:137` | [#new-features--additions](#new-features--additions) |
+| production Dockerfile final stages | behavior-changed | `distroless/static-debian12` | `verifier/Dockerfile` and siblings | [#distroless-final-stages-no-shell-nonroot-user](#distroless-final-stages-no-shell-nonroot-user) |
+| image run users | behavior-changed | `USER 65532:65532` | same | [#distroless-final-stages-no-shell-nonroot-user](#distroless-final-stages-no-shell-nonroot-user) |
+| build contexts | behavior-changed | `^build/devenv/\*` | `.dockerignore` | [#new-features--additions](#new-features--additions) |
 
 ## Breaking Changes
 
@@ -60,7 +60,7 @@
 
 ## New Features / Additions
 
-- **`ccv quiesce pause|resume`** (`cli/quiesce`) — SIGSTOP/SIGCONT the verifier service in the same container, for curse replay and CLI mutations that must not race the running service. See [#quiesce-commands](#quiesce-commands).
+- **`ccv quiesce pause|resume`** (`cli/quiesce`) — SIGSTOP/SIGCONT the verifier service in the same container, for curse replay and CLI mutations that must not race the running service. See [Migration Guide](#migration-guide) step 2.
 - **Dependabot for base images** (`.github/dependabot.yml`) — weekly docker updates for all six production Dockerfiles, grouped into a single PR.
 - **`.dockerignore`** — VCS dirs, `docs/`, `changelog/`, local keystores, `.env*` files, and `build/devenv/*` (except the fakes module, which the fakes image builds) never enter a build context.
 

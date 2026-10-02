@@ -101,6 +101,18 @@ func (c *Client) CLIJSON(ctx context.Context, subcommand []string, args ...strin
 	return out, nil
 }
 
+// ProcessIdentity identifies the container's PID 1 by its host PID and start time,
+// so tests can assert the service process was or was not replaced. The final images
+// are distroless and have no `cat`, so this reads `docker inspect`, not /proc/1/stat.
+func (c *Client) ProcessIdentity(ctx context.Context) (string, error) {
+	cmd := exec.CommandContext(ctx, "docker", "inspect", "-f", "{{.State.Pid}}:{{.State.StartedAt}}", c.containerName)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("docker inspect %s: %w (output: %s)", c.containerName, err, string(out))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
 // Pause stops the committee process via `ccv quiesce pause` (SIGSTOP). Tests
 // use this before CLI mutations so the running verifier does not race the
 // mutation (e.g. overwrite a freshly disabled chain status).

@@ -152,6 +152,7 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 				},
 				Labels: framework.DefaultTCLabels(),
 				HostConfigModifier: func(h *container.HostConfig) {
+					h.ExtraHosts = append(h.ExtraHosts, HostGatewayExtraHost)
 					h.PortBindings = network.PortMap{
 						network.MustParsePort("5432/tcp"): []network.PortBinding{
 							{HostPort: strconv.Itoa(in.DB.Port)},
@@ -232,6 +233,7 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 		// add more internal ports here with /tcp suffix, ex.: 9222/tcp
 		ExposedPorts: []string{"8100/tcp"},
 		HostConfigModifier: func(h *container.HostConfig) {
+			h.ExtraHosts = append(h.ExtraHosts, HostGatewayExtraHost)
 			h.PortBindings = network.PortMap{
 				// add more internal/external pairs here, ex.: 9222/tcp as a key and HostPort is the exposed port (no /tcp prefix!)
 				network.MustParsePort("8100/tcp"): []network.PortBinding{

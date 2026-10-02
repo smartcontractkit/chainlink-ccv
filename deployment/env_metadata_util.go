@@ -604,6 +604,7 @@ func SaveJob(ds datastore.MutableDataStore, job shared.JobInfo) error {
 		ccvMeta.OffchainConfigs.NOPJobs[job.NOPAlias] = make(map[shared.JobID]shared.JobInfo)
 	}
 
+	job.PruneProposals()
 	ccvMeta.OffchainConfigs.NOPJobs[job.NOPAlias][job.JobID] = job
 
 	return persistCCVEnvMetadata(ds, ccvMeta)
@@ -627,6 +628,7 @@ func SaveJobs(ds datastore.MutableDataStore, jobs []shared.JobInfo) error {
 	}
 
 	for _, job := range jobs {
+		job.PruneProposals()
 		if ccvMeta.OffchainConfigs.NOPJobs[job.NOPAlias] == nil {
 			ccvMeta.OffchainConfigs.NOPJobs[job.NOPAlias] = make(map[shared.JobID]shared.JobInfo)
 		}
