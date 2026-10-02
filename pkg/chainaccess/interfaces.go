@@ -2,7 +2,6 @@ package chainaccess
 
 import (
 	"context"
-	"math/big"
 
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -37,18 +36,17 @@ type HeadTracker interface {
 // Thread-safety: All methods must be safe for concurrent calls.
 type SourceReader interface {
 	// FetchMessageSentEvents returns MessageSentEvents in the given block range.
-	// The toBlock parameter can be nil to query up to the latest block.
+	// A toBlock of 0 queries up to the latest block.
 	// Readers return the decoded Message with its receipts and fee asset, and nothing derived
 	// from them: a consumer that needs a normalized view builds it at its own boundary. The
 	// Message is what signing and message IDs are computed over and must be returned unchanged.
-	FetchMessageSentEvents(ctx context.Context, fromBlock, toBlock *big.Int) ([]protocol.MessageSentEvent, error)
+	FetchMessageSentEvents(ctx context.Context, fromBlock, toBlock uint64) ([]protocol.MessageSentEvent, error)
 
 	// GetBlocksHeaders returns the full block headers for a batch of block numbers.
 	// This is more efficient than individual calls when building the chain tail.
 	// If a block is not found or RPC call fails for a specific block, it will be omitted from the result.
 	// Callers should check if all requested blocks are present in the returned map.
-	// The returned map keys are block numbers as uint64 for safe lookups (avoiding pointer identity issues).
-	GetBlocksHeaders(ctx context.Context, blockNumber []*big.Int) (map[uint64]protocol.BlockHeader, error)
+	GetBlocksHeaders(ctx context.Context, blockNumbers []uint64) (map[uint64]protocol.BlockHeader, error)
 
 	// HeadTracker Embed HeadTracker for blockchain head tracking functionality.
 	HeadTracker
