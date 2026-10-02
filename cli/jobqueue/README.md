@@ -20,7 +20,7 @@ verifier ccv job-queue list --message-id 0x<FULL_ID_1>,0x<FULL_ID_2> \
 
 Without a message filter, listing retains its previous behavior. Ordering is by original `created_at` descending, then job ID. A filtered lookup can find a matching row older than the newest 50 unfiltered rows.
 
-JSON includes `queue`, `job_id`, full `message_id`, `owner_id`, decimal-string `source_chain_selector`, `attempts`, full `last_error`, persisted `failure_category`, `created_at`, `archived_at`, and `retry_deadline`. Timestamps are RFC3339; an absent archive timestamp is null and an absent error is an empty string. Diagnostics go to stderr, leaving stdout suitable for JSON consumers. Large selectors retain their exact value in JavaScript clients. The table can shorten diagnostic text; use JSON for complete errors.
+JSON includes `queue`, `job_id`, full `message_id`, `owner_id`, decimal-string `source_chain_selector`, `attempts`, full `last_error`, `failure_category`, `created_at`, `archived_at`, and `retry_deadline`. Timestamps are RFC3339; an absent archive timestamp is null and an absent error is an empty string. Diagnostics go to stderr, leaving stdout suitable for JSON consumers. Large selectors retain their exact value in JavaScript clients. The table can shorten diagnostic text; use JSON for complete errors.
 
 ## Restore a saved job
 
@@ -42,10 +42,12 @@ An explicit owner is always honored; a wrong owner never falls back to another o
 
 The restored job is pending with attempts reset and a new positive retry duration (default 1 hour). The running verifier normally picks it up on its queue fallback poll within about 30 seconds. `task-verifier` runs verification and policy again. `storage-writer` retries writing the saved result. Neither path re-reads source events or repeats source-reader finality, curse or disablement admission checks.
 
-For changed canonical source data, pre-admission drops or expired archives, rewind the source checkpoint as described in the [remediation runbook](../../docs/runbooks/remediating-stuck-or-dropped-messages.md#4-rewind-the-checkpoint-for-a-range). Already attested messages are not reconciled against old archive rows; verify the aggregator/indexer result before restoring a candidate.
+For changed canonical source data, pre-admission drops or expired archives, use [live source recovery](../recovery/README.md); the [remediation runbook](../../docs/runbooks/remediating-stuck-or-dropped-messages.md#4-rewind-the-checkpoint-for-a-range) describes the manual checkpoint-rewind fallback. Replayed and already attested messages are not reconciled against old archive rows; verify the aggregator/indexer result before restoring a candidate.
 
 ## Retention and monitoring
 
 Automatic retry remains 7 days. Non-retryable failures archive immediately. Archive cleanup remains 30 days after `archived_at` (`completed_at` in SQL), swept every 4 hours.
 
-Retained failed-job inventory metrics are not part of this change; see the [remediation runbook](../../docs/runbooks/remediating-stuck-or-dropped-messages.md) for the manual procedure.
+Both queues now export retained failed inventory once per minute, with a 7-day warning lead (archive age at least 23 days). Categories are derived at read time from a bounded vocabulary: `policy_rejected`, `retry_window_expired`, `validation_error`, `storage_failure`, and `unknown`. Known validation/deserialization errors take precedence over generic storage failures; expired retries use `retry_window_expired`. Rows matching nothing known classify as `unknown`. Classification is advisory and never determines whether a replay is safe.
+
+See [archive inventory monitoring](../../docs/monitoring/verifier-archive-inventory.md), [recovery monitoring](../../docs/monitoring/verifier-recovery.md) and the [remediation runbook](../../docs/runbooks/remediating-stuck-or-dropped-messages.md). Inventory counts retained failed **jobs**, which may contain repeated or already recovered messages; it does not count distinct affected messages.
