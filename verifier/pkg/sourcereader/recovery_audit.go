@@ -36,6 +36,7 @@ func (r *Service) dropEvent(task verifier.VerificationTask, reason, incident str
 
 func (r *Service) auditFailure(ctx context.Context, err error) {
 	r.recovery.failedAuditWrites.Add(1)
+	r.recovery.metrics.AuditFailure(ctx)
 	r.logger.Errorw("Recovery evidence write failed; history is incomplete", "error", err)
 }
 

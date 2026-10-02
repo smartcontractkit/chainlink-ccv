@@ -13,6 +13,13 @@ This directory holds the config and secrets reference for every CCV app, one
 | indexer | `indexer/config.documented.toml`, `indexer/secrets.documented.toml` |
 | bootstrap | `bootstrap/config.documented.toml`, `bootstrap/secrets.documented.toml` |
 | monitoring (shared) | `common/monitoring.documented.toml` |
+| admin console | `admin-console/config.documented.toml` |
+
+`admin-console/config.documented.toml` is the exception to the generation rule below: it is
+hand-written in the same style until a `tools/configdoc` target is registered for
+`verifier/pkg/admin` (that package has fields without doc comments, which the completeness
+gate rejects). Keep it in sync with the struct by hand; replace it with generated output
+once the target exists.
 
 Each file is a working TOML document: the values are the app's defaults where a
 default exists, and illustrative examples otherwise, and every field is annotated

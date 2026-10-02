@@ -1,8 +1,10 @@
 # Runbook: Remediating a Stuck or Dropped Message
 
-_Last reviewed: 2026-09-10._
+_Last reviewed: 2026-09-23._
 
-Use after [unverified-message triage](./unverified-message-after-15-minutes.md) or [unexecuted-message triage](./unexecuted-message-after-15-minutes.md) identifies the affected owner, source and messages. Recovery is per affected committee member and database. Cross-node discovery/fan-out remains an operator or deployment-layer responsibility.
+Use after [unverified-message triage](./unverified-message-after-15-minutes.md) or [unexecuted-message triage](./unexecuted-message-after-15-minutes.md) identifies the affected owner, source and messages. Recovery is per affected committee member and database.
+
+When the [admin console](../verifier/admin-console.md) is deployed, it is the primary path: it searches all of your configured verifier databases at once and drives every action below from the browser, recording each mutation in its action log. The CLI steps in this runbook remain the documented fallback, and the only option for databases the console is not configured for. Cross-node fan-out beyond the console's configured node list remains an operator or deployment-layer responsibility.
 
 ## 1. Pick the Lever
 
@@ -16,6 +18,8 @@ Use after [unverified-message triage](./unverified-message-after-15-minutes.md) 
 | Block/unblock a class of traffic | Aggregator disablement rules (step 5), followed by source recovery for already dropped traffic. |
 
 **Reschedule uses the saved payload and skips source-reader finality, curse and disablement admission checks.** It is unsuitable for deciding whether an event remains canonical after a reorg. Source recovery re-reads events that still exist on the chain and enters ordinary verification/policy processing after admission. Neither path bypasses policy. Indexer backfill refreshes the indexer's view of results; it does not re-admit verifier source events or retry policy decisions.
+
+In plain language: use a **reschedule** when the verifier already holds the message — a failed job retained in its archive — and the fix is to run verification and policy (or just persistence) again on the saved payload. Use **source replay** when the verifier never admitted the message (curse/rule drop, missed interval, expired archive) and the source chain must be re-read to decide. Use the **investigated reader reset** for the replay special case of a finality-disabled reader, and **indexer backfill** when the verifier and aggregator are fine and only the indexer's view needs repair. [The admin console guide](../verifier/admin-console.md#the-recovery-actions) walks through what each action does and does not do; in the console these are the actions on the message detail and source recovery pages rather than CLI invocations.
 
 ## 2. Check the Time Windows
 
@@ -39,6 +43,8 @@ monitoring is covered by the inventory dashboard above.
 Drop evidence is separate from archives. It is retained for 30 days since its last observation and includes coverage limitations. Expired archive rows can no longer be rescheduled; source recovery remains possible when canonical source data is available.
 
 ## 3. Reschedule a Single Dropped Message
+
+**Console path:** search the full message ID on the console's message search page, open the message detail, and use the reschedule action there. The preview shows the exact nodes, owners and jobs the reschedule will touch and rechecks attestation state before anything mutates; the action is recorded in the console's action log. The CLI steps below are the fallback.
 
 1. Resolve the cause first. A policy endpoint must return PASS for the message before replay can succeed. Confirm that the source event remains valid and the message has not already been attested through another path.
 2. Point the CLI at the affected member's database and find the full message IDs:
@@ -64,6 +70,8 @@ See the [job-queue command reference](../../cli/jobqueue/README.md) and [policy 
 <a id="4-rewind-the-checkpoint-for-a-range"></a>
 
 ## 4. Recover a Source Range
+
+**Console path:** the console's source recovery page queries the same drop/incident evidence and submits an ordinary replay or an investigated reader reset with the actor filled from your session and an evidence note required. Operations are durable, so progress, cancel and resume survive page reloads and console restarts. The CLI steps below are the fallback and remain the reference for exact semantics.
 
 ### Establish the scope
 
@@ -144,4 +152,4 @@ Use [aggregator message-disablement rules](../../aggregator/cli/messagedisableme
 
 ## 6. Deployment and Coverage Limits
 
-The new recovery/job-queue commands are exposed by the standalone verifier. Wiring them into Chainlink core, cross-node fan-out, indexer engine changes and an admin UI are outside this change. Owner inference is local to one selected archive queue/database; source recovery always requires an explicit owner. There is no per-message policy bypass. Keep canonical-chain investigation and final-result verification in the operator workflow.
+The new recovery/job-queue commands are exposed by the standalone verifier. Wiring them into Chainlink core and indexer engine changes are outside this change; the [admin console](../verifier/admin-console.md) now provides the UI over these flows and the cross-node discovery for one operator's configured verifier databases. Owner inference is local to one selected archive queue/database; source recovery always requires an explicit owner. There is no per-message policy bypass. Keep canonical-chain investigation and final-result verification in the operator workflow.

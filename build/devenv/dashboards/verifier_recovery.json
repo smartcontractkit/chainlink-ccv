@@ -1,0 +1,294 @@
+{
+  "id": null,
+  "uid": "verifier-source-recovery",
+  "title": "Verifier Source Recovery",
+  "tags": [
+    "ccv",
+    "verifier",
+    "recovery"
+  ],
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "timezone": "browser",
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "editable": true,
+  "panels": [
+    {
+      "id": 7,
+      "title": "Retained recovery operations by state",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 20
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "expr": "verifier_recovery_operations{verifier_id=~\"$verifier_id\"}",
+          "legendFormat": "{{node_id}} / {{verifier_id}} / {{source_chain}} / {{state}}",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Recovery blocks remaining by state",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 28
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "expr": "verifier_recovery_remaining_blocks{verifier_id=~\"$verifier_id\"}",
+          "legendFormat": "{{node_id}} / {{verifier_id}} / {{source_chain}} / {{state}}",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Audit write failures in 15 minutes",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 28
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "expr": "increase(verifier_recovery_audit_failures_total{verifier_id=~\"$verifier_id\"}[15m])",
+          "legendFormat": "{{node_id}} / {{verifier_id}} / {{source_chain}}",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "title": "Recovery collection success (1 = healthy)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 36
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "expr": "verifier_recovery_collection_success{verifier_id=~\"$verifier_id\"}",
+          "legendFormat": "{{node_id}} / {{verifier_id}} / {{source_chain}}",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "title": "Seconds since successful recovery collection",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 36
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "expr": "time() - verifier_recovery_last_success_timestamp{verifier_id=~\"$verifier_id\"}",
+          "legendFormat": "{{node_id}} / {{verifier_id}} / {{source_chain}}",
+          "range": true
+        }
+      ]
+    }
+  ],
+  "links": [
+    {
+      "title": "Remediation runbook",
+      "url": "https://github.com/smartcontractkit/chainlink-ccv/blob/main/docs/runbooks/remediating-stuck-or-dropped-messages.md",
+      "type": "link",
+      "targetBlank": true
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "verifier_id",
+        "label": "Verifier owner",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "victoriametrics"
+        },
+        "definition": "label_values(verifier_archive_collection_success, verifier_id)",
+        "query": "label_values(verifier_archive_collection_success, verifier_id)",
+        "refresh": 1,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "queue",
+        "type": "custom",
+        "query": "task-verifier,storage-writer",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      }
+    ]
+  }
+}

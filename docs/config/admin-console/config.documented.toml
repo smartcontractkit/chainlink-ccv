@@ -1,0 +1,43 @@
+# Admin console configuration reference. Values shown are defaults or illustrative examples.
+# Hand-written in the generated style pending a tools/configdoc target; keep in sync with
+# verifier/pkg/admin/config.go until one is registered. Served by `verifier ccv admin serve`.
+
+# listen_address is the bind address; loopback by default. A non-loopback address requires
+# access.actor_header: serving a page grants privileged actions, so actor identity must come
+# from an authenticating proxy.
+listen_address = "127.0.0.1:8105"
+
+# console configures the console's own state (the action log). Without a database the
+# console runs read-only.
+[console]
+  # secrets_path is the console secrets file (same schema as the verifier secrets file); its
+  # [db].url enables the action log. Resolved from CCV_ADMIN_SECRETS_PATH, then
+  # /etc/ccv-admin/secrets.toml, when empty.
+  secrets_path = "/etc/ccv-admin/secrets.toml"
+
+# access configures how the console identifies who is acting.
+[access]
+  # actor_header names the HTTP header carrying an authenticated identity from a fronting
+  # proxy (shared hosting). Empty means self-hosted loopback: actor "local".
+  actor_header = "X-Authenticated-User"
+
+# nodes are the verifier databases this console administers. Nodes must belong to the same
+# operator; each entry is one verifier's application database. At least one is required and
+# names must be unique.
+[[nodes]]
+  # name is the display and action-log identity for this node. Required.
+  name = "committee-verifier-1"
+  # secrets_path is this node's verifier secrets file, which carries its [db].url. Required.
+  secrets_path = "/etc/ccv-admin/node-secrets/committee-verifier-1.toml"
+  # aggregator_address (optional, host:port) enables attestation freshness checks via the
+  # aggregator's unauthenticated GetVerifierResultsForMessage.
+  aggregator_address = "aggregator-1:50051"
+  # indexer_url (optional base URL) enables the indexer's verification-result lookup.
+  indexer_url = "http://indexer:8100"
+  # indexer_config_path (optional) points at an owned indexer's config file and enables the
+  # indexer-data backfill workflow. Leave empty when you do not run the indexer; the console
+  # then hides that workflow.
+  indexer_config_path = "/etc/indexer/config.toml"
+  # trace_url (optional) is a base URL to your trace viewer, linked from the message detail
+  # page when set.
+  trace_url = "https://traces.example.com"

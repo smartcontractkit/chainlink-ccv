@@ -1,0 +1,309 @@
+{
+  "id": null,
+  "uid": "verifier-archive-inventory",
+  "title": "Verifier Archive Inventory",
+  "tags": [
+    "ccv",
+    "verifier",
+    "recovery"
+  ],
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "timezone": "browser",
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "editable": true,
+  "panels": [
+    {
+      "id": 1,
+      "title": "Read inventory with collection health",
+      "type": "text",
+      "gridPos": {
+        "h": 4,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "Retained failed **jobs**, not distinct messages or automatic replay recommendations. The 7-day warning begins 23 days after archiving; retention stays 30 days. Check collection success/freshness before treating an empty inventory as zero. A failed collection keeps the last good values. [Remediation runbook](https://github.com/smartcontractkit/chainlink-ccv/blob/main/docs/runbooks/remediating-stuck-or-dropped-messages.md)"
+      }
+    },
+    {
+      "id": 2,
+      "title": "Retained failed jobs by category",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "expr": "verifier_archive_failed_jobs{verifier_id=~\"$verifier_id\",queue=~\"$queue\"}",
+          "legendFormat": "{{node_id}} / {{verifier_id}} / {{queue}} / {{source_chain}} / {{reason}}",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Jobs within 7 days of retention eligibility",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "expr": "verifier_archive_expiring_jobs{verifier_id=~\"$verifier_id\",queue=~\"$queue\"}",
+          "legendFormat": "{{node_id}} / {{verifier_id}} / {{queue}} / {{source_chain}} / {{reason}}",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Oldest retained failed archive age",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 12
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "expr": "verifier_archive_oldest_age_seconds{verifier_id=~\"$verifier_id\",queue=~\"$queue\"}",
+          "legendFormat": "{{node_id}} / {{verifier_id}} / {{queue}} / {{source_chain}} / {{reason}}",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Archive collection success (1 = healthy)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 12
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "expr": "verifier_archive_collection_success{verifier_id=~\"$verifier_id\",queue=~\"$queue\"}",
+          "legendFormat": "{{node_id}} / {{verifier_id}} / {{queue}}",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Seconds since last successful archive collection",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 20
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "expr": "time() - verifier_archive_last_success_timestamp{verifier_id=~\"$verifier_id\",queue=~\"$queue\"}",
+          "legendFormat": "{{node_id}} / {{verifier_id}} / {{queue}}",
+          "range": true
+        }
+      ]
+    }
+  ],
+  "links": [
+    {
+      "title": "Remediation runbook",
+      "url": "https://github.com/smartcontractkit/chainlink-ccv/blob/main/docs/runbooks/remediating-stuck-or-dropped-messages.md",
+      "type": "link",
+      "targetBlank": true
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "verifier_id",
+        "label": "Verifier owner",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "victoriametrics"
+        },
+        "definition": "label_values(verifier_archive_collection_success, verifier_id)",
+        "query": "label_values(verifier_archive_collection_success, verifier_id)",
+        "refresh": 1,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "queue",
+        "type": "custom",
+        "query": "task-verifier,storage-writer",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      }
+    ]
+  }
+}
