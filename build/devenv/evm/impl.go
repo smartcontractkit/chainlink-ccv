@@ -35,10 +35,12 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/deployment/finality"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/create2_factory"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/advanced_pool_hooks"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/erc20_lock_box"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/executor"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/lock_release_token_pool"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/proxy"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/token_pool"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/sequences"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/versioned_verifier_resolver"
 
@@ -1367,11 +1369,48 @@ func (m *CCIP17EVMConfig) PostTokenDeploy(
 	fundAmount := new(big.Int).Div(deployerBalance, big.NewInt(10))
 
 	for _, ref := range deployedRefs {
+		if devenvcommon.IsCCVAwarePoolVersion(ref.Version.String()) {
+			if err := m.wireAdvancedPoolHooks(env, selector, ref); err != nil {
+				return fmt.Errorf("failed to wire advanced pool hooks for %s token: %w", ref.Qualifier, err)
+			}
+		}
 		if ref.Type == datastore.ContractType(lock_release_token_pool.ContractType) {
 			if err := m.fundLockReleaseTokenPool(env, selector, ref, fundAmount); err != nil {
 				return fmt.Errorf("failed to fund lock-release token pool for %s token: %w", ref.Qualifier, err)
 			}
 		}
+	}
+	return nil
+}
+
+// wireAdvancedPoolHooks deploys an AdvancedPoolHooks contract for a 2.0.0 pool and sets it on the pool.
+// TokenExpansion makes pools without hooks, and the pool CCV config is stored on the hooks.
+func (m *CCIP17EVMConfig) wireAdvancedPoolHooks(env *deployment.Environment, selector uint64, poolRef datastore.AddressRef) error {
+	chain := env.BlockChains.EVMChains()[selector]
+	poolAddr := common.HexToAddress(poolRef.Address)
+	qualifier := poolRef.Qualifier
+
+	report, err := operations.ExecuteOperation(env.OperationsBundle, advanced_pool_hooks.Deploy, chain,
+		contract.DeployInput[advanced_pool_hooks.ConstructorArgs]{
+			TypeAndVersion: deployment.NewTypeAndVersion(advanced_pool_hooks.ContractType, *advanced_pool_hooks.Version),
+			ChainSelector:  selector,
+			Args: advanced_pool_hooks.ConstructorArgs{
+				ThresholdAmountForAdditionalCCVs: big.NewInt(0),
+				AuthorizedCallers:                []common.Address{poolAddr},
+			},
+			Qualifier: &qualifier,
+		})
+	if err != nil {
+		return fmt.Errorf("deploy advanced pool hooks: %w", err)
+	}
+
+	if _, err := operations.ExecuteOperation(env.OperationsBundle, token_pool.UpdateAdvancedPoolHooks, chain,
+		contract.FunctionInput[common.Address]{
+			ChainSelector: selector,
+			Address:       poolAddr,
+			Args:          common.HexToAddress(report.Output.Address),
+		}); err != nil {
+		return fmt.Errorf("set advanced pool hooks on pool %s: %w", poolAddr, err)
 	}
 	return nil
 }

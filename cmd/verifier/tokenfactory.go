@@ -239,14 +239,15 @@ func (tvf *tokenVerifierFactory) MetricViews() []sdkmetric.View {
 	return monitoring.MetricViews()
 }
 
-// cctpCodecsFor extracts the CCTP codec of every source chain this CCTP verifier serves.
-// A source chain with no resolved accessor or no codec fails the verifier at startup.
+// cctpCodecsFor gets CCTP codecs for source chains in verifier_addresses.
+// The CCV writer gets the source and destination verifier addresses from verifier_resolver_addresses.
+// A source chain with no accessor or codec fails the verifier at startup.
 func cctpCodecsFor(
 	accessors map[protocol.ChainSelector]chainaccess.Accessor,
 	cctpConfig *cctp.CCTPConfig,
 ) (map[protocol.ChainSelector]chainaccess.CCTPCodec, error) {
-	cctpCodecs := make(map[protocol.ChainSelector]chainaccess.CCTPCodec, len(cctpConfig.ParsedVerifierResolvers))
-	for selector := range cctpConfig.ParsedVerifierResolvers {
+	cctpCodecs := make(map[protocol.ChainSelector]chainaccess.CCTPCodec, len(cctpConfig.ParsedVerifiers))
+	for selector := range cctpConfig.ParsedVerifiers {
 		accessor, ok := accessors[selector]
 		if !ok {
 			return nil, fmt.Errorf("no accessor resolved for CCTP source chain selector %d", selector)
@@ -254,6 +255,9 @@ func cctpCodecsFor(
 		codec, err := accessor.CCTPCodec()
 		if err != nil {
 			return nil, fmt.Errorf("no CCTP chain codec for source chain selector %d: %w", selector, err)
+		}
+		if codec == nil {
+			return nil, fmt.Errorf("no CCTP chain codec for source chain selector %d", selector)
 		}
 		cctpCodecs[selector] = codec
 	}

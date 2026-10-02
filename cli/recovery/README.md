@@ -4,6 +4,8 @@ The standalone verifier accepts durable recovery requests through its existing P
 
 A server-rendered admin console wrapping these flows ships as `verifier ccv admin serve`; see `docs/verifier/admin-console.md`.
 
+Idle readers check for new recovery operations every 15 seconds (`sourcereader.RecoveryPollInterval`), so a submission can take up to that long to be picked up; an active operation runs at full event-loop speed. The coarse idle cadence keeps the control-plane database reads negligible.
+
 ## Submit and control a range
 
 ```bash

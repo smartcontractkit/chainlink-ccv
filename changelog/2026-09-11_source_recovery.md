@@ -31,13 +31,13 @@ Read each matching row's section when adapting a downstream consumer. Unlisted s
 | `verifier.WithSourceRecovery` / `jobqueue.FailureCategory` CLI exposure | added | `WithSourceRecovery|failure_category` | `verifier/pkg/coordinator.go:70` | [#live-source-recovery](#live-source-recovery) |
 | `sourcereader.Service admission and finality audit` | behavior-changed | `sourcereader\.NewService` | `verifier/pkg/sourcereader/service.go:647` | [#drop-and-incident-history](#drop-and-incident-history) |
 | `sourcereader.FinalityViolationCheckerService.UpdateFinalized` | behavior-changed | `\.UpdateFinalized\(` | `verifier/pkg/sourcereader/finality_checker.go:86` | [#live-source-recovery](#live-source-recovery) |
-| `ccv_task_verifier_jobs_archive / ccv_storage_writer_jobs_archive schema` | unchanged | `failureCategorySQL` | no migration; classification is read-time in `verifier/pkg/jobqueue/archive.go` | [#archive-inventory](#archive-inventory) |
+| `ccv_task_verifier_jobs_archive / ccv_storage_writer_jobs_archive schema` | unchanged | `archivecategory\.SQL` | no migration; classification is read-time in `verifier/pkg/jobqueue/archivecategory/category.go` | [#archive-inventory](#archive-inventory) |
 | `protocol.MessageSentEvent.BlockHash` | added | `MessageSentEvent\s*\{` | `protocol/common_types.go:357` | [#reader-metadata](#reader-metadata) |
 | `vtypes.VerificationTask.SourceBlockHash` | added | `VerificationTask\s*\{` | `verifier/pkg/vtypes/types.go:17` | [#reader-metadata](#reader-metadata) |
 | `jobqueue.ArchivedJob.FailureCategory` | added | `ArchivedJob\b` | `cli/jobqueue/store.go:44` | [#archive-inventory](#archive-inventory) |
 | `jobqueue.ParseMessageIDs` | added | `ParseMessageID` | `cli/jobqueue/commands.go:240` | [#archive-cli](#archive-cli) |
 | `jobqueue.PostgresStore.ListFailedFiltered / Reschedule` | added | `NewPostgresStore` | `cli/jobqueue/postgres_store.go:47` | [#archive-cli](#archive-cli) |
-| `jobqueue.FailureCategory / CollectArchiveMetrics` | added | `NewPostgresJobQueue` | `verifier/pkg/jobqueue/archive.go:24` | [#archive-inventory](#archive-inventory) |
+| `jobqueue.FailureCategory / CollectArchiveMetrics` | added | `NewPostgresJobQueue` | `verifier/pkg/jobqueue/archive.go:90` | [#archive-inventory](#archive-inventory) |
 | `jobqueue.PostgresJobQueue.PublishInTransaction / NotifyPublished` | added | `NewPostgresJobQueue` | `verifier/pkg/jobqueue/postgres_queue.go:106` | [#live-source-recovery](#live-source-recovery) |
 | `recovery.Store operations, history and metrics` | added | `ccv recovery|recovery\.NewStore` | `verifier/pkg/recovery/store.go:16` | [#live-source-recovery](#live-source-recovery) |
 | `ccv recovery CLI / recovery.InitCommandsWithFactory` | added | `RunCCVCLI|Subcommands` | `cli/recovery/commands.go:28` | [#live-source-recovery](#live-source-recovery) |
@@ -79,7 +79,7 @@ A task-verifier restore repeats normal verification/policy on the saved payload.
 
 ## Archive Inventory
 
-R1: no migration. `failureCategorySQL` maps archived rows onto a bounded failure vocabulary at read time — policy rejection, retry expiry, known validation/deserialization failure, storage failure and unknown — so the archive schema is unchanged. The same expression backs the inventory metrics and the `failure_category` field emitted by `ccv job-queue list --json`. Rows matching nothing known classify as unknown; classification is advisory and does not change retry/policy decisions.
+R1: no migration. `archivecategory.SQL` maps archived rows onto a bounded failure vocabulary at read time — policy rejection, retry expiry, known validation/deserialization failure, storage failure and unknown — so the archive schema is unchanged. The same expression backs the inventory metrics and the `failure_category` field emitted by `ccv job-queue list --json`. Rows matching nothing known classify as unknown; classification is advisory and does not change retry/policy decisions.
 
 Both queue observers collect retained failed inventory at startup and every minute, separately from ten-second active queue-size collection. The query has a two-second timeout and avoids JSON/error-text decoding. Metrics expose failed count, count within seven days of the unchanged 30-day retention cutoff, oldest archive age, collection success and last successful timestamp. Removed groups emit zero after successful collection; query failure leaves last-good inventory and exposes stale/failed collection. Empty startup groups have no series until observed; use collection health to interpret absence. No message IDs or raw errors are labels.
 
@@ -96,6 +96,8 @@ Unknown admission state is waiting, not a drop. The rules checker returns only a
 ## Live Source Recovery
 
 R5: `ccv recovery replay` submits an explicit owner/source and inclusive range, actor/note and optional UUID idempotency key. An omitted target captures the reader's advertised head at submission if its observation is less than one minute old. The fixed target is returned in durable JSON; it never follows later heads. List/status/cancel/resume expose progress and admission/drop/conflict/filter/error counts.
+
+An idle reader checks for submitted operations every `sourcereader.RecoveryPollInterval` (15 seconds), so a submission can take up to that long to be picked up; once an operation is active the reader runs it at full event-loop speed, one chunk per tick. The coarse idle cadence keeps the control-plane reads (two small indexed lookups) negligible even across many readers.
 
 The reader reuses normal event filtering, message-ID validation, curse/rules and finality admission, then publishes ordinary verification tasks. Normal replay leaves normal checkpoints intact. One chunk per owner runs at a time in the process, with database serialization per owner/source. Chunks are capped by configured MaxBlockRange and 100 blocks, 1,000 returned events, source poll timeout and 10,000 active verification jobs per owner. Queue writes, evidence and progress commit together. Cancellation waits for an in-flight chunk, and abrupt failure resumes from the last committed cursor. Active uniqueness prevents duplicate active jobs; completed/attested messages can be verified again and archives are not reconciled.
 

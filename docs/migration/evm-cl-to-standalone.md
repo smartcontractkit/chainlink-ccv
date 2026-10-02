@@ -132,15 +132,24 @@ docker run --rm -v "$PWD:/cfg" <verifier-image> \
 ```
 
 This runs the same conversion the standalone processes run at startup and prints what each chain
-will effectively run: finality, the TXM block time (`txm_block_time_is_default: true` flags the 2s
-fallback, which is wrong for a slow chain), head-tracker persistence, and the RPC node set. Go
-through the output with Chainlink Labs. Two kinds of finding come out of it, and they are handled
-differently:
+will effectively run: finality, the TXM block time (`txm_block_time_source` says whether the value
+came from your config, the chain's curated default, or the generic 2s fallback), head-tracker
+persistence, and the RPC node set. Go through the output with Chainlink Labs. Three kinds of
+finding come out of it, and they are handled differently:
 
+- `failed_chains` names any chain the conversion skipped whole — an unknown chain ID, a node with
+  no HTTPURL, an unservable finality mode — with the reason. Those chains will not be served at
+  all. If a chain you serve is listed, fix its `[[EVM]]` section before continuing: the standalone
+  processes refuse to boot when a chain declared in the bootstrap `[[chains]]` cannot be served by
+  the mounted config. A leftover chain you no longer serve needs nothing, but delete its section so
+  the startup skip warning stays meaningful.
 - The `warnings` list names settings your node config carries that standalone has no equivalent for
-  (`GasEstimator.Mode`, `HeadTracker.HistoryDepth`, send-only nodes, and so on). There is nothing to
-  correct in the config for these: standalone will not read them whatever you write. Record that you
-  accept each one, or raise it with Chainlink Labs if a deviation is not acceptable.
+  (`GasEstimator.Mode`, `HeadTracker.HistoryDepth`, send-only nodes, and so on), and
+  `ignored_top_level_sections` names the non-EVM sections (`Log`, `WebServer`, `P2P`, …) the
+  conversion does not read at all. The warnings are read from your file directly, so a setting too
+  new for this tool — or a typo of a real one — is named too. There is nothing to correct in the
+  config for these: standalone will not read them whatever you write. Record that you accept each
+  one, or raise it with Chainlink Labs if a deviation is not acceptable.
 - The per-chain settings standalone does honor are worth changing now if they are wrong. Those are
   the TXM block time and the finality pair, and they carry over from the node config, so an agreed
   value goes in as `[EVM.Transactions.TransactionManagerV2] BlockTime` or `FinalityDepth` /
@@ -160,7 +169,10 @@ Start both.
 
 **Check:** both are running and healthy, neither is restarting, and the verifier's log does not
 mention an `expected_id` mismatch. Healthy means the process's own `/health` endpoint answers 200 —
-see [Health and readiness endpoints](#health-and-readiness-endpoints). If the verifier refuses to
+see [Health and readiness endpoints](#health-and-readiness-endpoints). A process that refuses to
+boot with `declares EVM chains the mounted EVM config cannot serve` is telling you the bootstrap
+`[[chains]]` list and the mounted node config disagree — the error names the chain and the reason;
+fix the mount or the declaration rather than working around it. If the verifier refuses to
 start, do not work around it — go to [If something goes wrong](#if-something-goes-wrong). The
 `signer_address` check runs when the job starts in step 9.
 
@@ -383,7 +395,8 @@ executor published, and the operator's funding in step 7 confirms it is the inte
 ## Why the node's TOML is reused as-is
 
 The `[[EVM]]` and `[[EVM.Nodes]]` sections are translated at startup and chain IDs resolved to chain
-selectors; every other section is ignored. Reusing the file rather than rewriting it is what keeps
+selectors; every other section is ignored, and named both at startup and in the report's
+`ignored_top_level_sections`. Reusing the file rather than rewriting it is what keeps
 finality behavior identical across the cutover — the node's own chain defaults are applied before
 translating, so a chain that was never configured explicitly keeps the behavior it had instead of
 moving onto finality tags.
@@ -395,19 +408,45 @@ Chain-level tuning beyond finality — gas estimation, node pool, head tracker, 
 transaction-manager settings — does not carry over, with one exception:
 `Transactions.TransactionManagerV2.BlockTime`. Whatever the node config sets that the conversion
 drops is logged by name at startup, so custom tuning surfaces instead of silently reverting to
-chain defaults.
+chain defaults. The set-detection reads the file itself, so a setting this tool's chainlink-evm
+version predates — or a typo of a real setting — is named rather than missed.
 
-If the node config sets no TXM v2 block time, standalone runs a 2-second block time, which retries
-and fee-bumps far more aggressively than the node did on a slow chain. The fallback is loud: the
-process that writes to a chain logs it at warn when that chain's TXM starts (a chain it only reads
-from runs no TXM and says nothing), and `ccv migrate inspect-config` flags it as
-`txm_block_time_is_default` in the step 3 diff, for every chain, before anything starts. Agree a
-per-chain value with Chainlink Labs before the cutover; the
-[TXM v2 assessment](txm-v2-assessment.md) explains the fallback.
+If the node config sets no TXM v2 block time, the value comes from a curated per-chain table when
+the chain's real block interval is above the two-second floor upstream validation enforces —
+Ethereum and its testnets at 12s, Rootstock at 30s, Gnosis at 5s, and similar — and from the
+generic 2-second fallback otherwise, which is already the best legal value for a fast chain. The
+source is always visible: `txm_block_time_source` in the step 3 diff reads `operator`,
+`curated_chain_default`, or `generic_fallback`, and the process that writes to a chain logs the
+source when that chain's TXM starts (warn for the generic fallback, info for a curated default; a
+chain it only reads from runs no TXM and says nothing). A chain still reporting `generic_fallback`
+that is actually slow wants an explicit value agreed with Chainlink Labs before the cutover; the
+[TXM v2 assessment](txm-v2-assessment.md) explains the cadence math.
 
 Send-only nodes and the per-node `HTTPURLExtraWrite` and `IsLoadBalancedRPC` settings have no
-standalone equivalent and are dropped. Each one is logged at startup. An operator relying on a
-send-only endpoint should add it as a full node.
+standalone equivalent and are dropped, as is any other per-node setting beyond the endpoint URLs,
+the name, and the selection order. Each one is named at startup: a setting dropped from a node that
+is otherwise carried gets its own line, and a send-only node's settings are named on the line that
+reports the node itself being dropped, since the node is not carried at all. An operator relying on
+a send-only endpoint should add it as a full node.
+
+## A declared chain missing from the config fails the boot
+
+The bootstrap config's `[[chains]]` entries declare the chains the operator runs — they are what
+registers the signing key in JD. Every EVM entry is checked against the mounted EVM config at boot:
+a declared chain with no section in the config, one whose section fails to convert (no usable RPC
+endpoint, an unknown chain ID), or one whose section is present but cannot serve the chain — no RPC
+nodes, or settings the chainlink-evm validator rejects — stops the startup with an error naming the
+chain, its selector, and the reason. The check builds each declared chain the same way the accessor
+factory does at job start, with no network calls, so a section that merely decodes is not mistaken
+for a working one. Without the check, that gap would surface only when the first message for the
+chain arrived.
+
+Inside the conversion itself an unservable chain is skipped, not fatal: the remaining chains still
+convert, and the skip is logged at warn and shown in the step 3 diff under `failed_chains`. That
+split is deliberate — a leftover `[[EVM]]` block for a chain the operator no longer serves must not
+take down every other chain, while a chain the operator declared as serving is a hard error. The
+reverse direction is allowed without complaint: a chain present in the EVM config but not declared
+in `[[chains]]` simply sits unused unless a job spec references it.
 
 ## Finality checking stays on
 

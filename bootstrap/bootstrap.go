@@ -297,6 +297,16 @@ func NewBootstrapper(
 		b.localConfigPath = b.config.LocalAppConfigPath
 	}
 
+	// A declared chain the family's mounted config cannot serve fails here, at boot, rather than
+	// when the first message for it arrives. Runs in both modes: the declaration is wrong either
+	// way, and the local mode's config watcher would otherwise hide it behind a waiting service.
+	// The check is the family's own — bootstrap only groups the declaration by family; a family
+	// that registered no coverage checker (chainaccess.RegisterDeclaredChainCoverageChecker) has
+	// no family-local config contract to enforce and is skipped.
+	if err := chainaccess.CheckDeclaredChainCoverage(declaredChainsByFamily(b.config.Chains)); err != nil {
+		return nil, err
+	}
+
 	// Inject the default CSA key when the caller did not declare one and this mode/backend
 	// combination calls for one (see needsCSAKey).
 	if !hasCSAKey(b.keys) && b.needsCSAKey() {
@@ -349,6 +359,20 @@ func chainTypeFromString(s string) (pb.ChainType, error) {
 		return pb.ChainType(v), nil
 	}
 	return pb.ChainType_CHAIN_TYPE_UNSPECIFIED, fmt.Errorf("unknown chain type %q", s)
+}
+
+// declaredChainsByFamily groups the bootstrap config's [[chains]] entries by chain family, keyed
+// the way chainaccess registers families (the lower-cased chain type matches the chain-selectors
+// family string the drivers register under, e.g. "EVM" -> "evm"). It is the only translation the
+// declared-chain coverage check needs from bootstrap: everything family-specific sits behind the
+// family's registered checker.
+func declaredChainsByFamily(chains []ChainRegistration) map[chainaccess.ChainFamily][]string {
+	byFamily := make(map[chainaccess.ChainFamily][]string)
+	for _, chain := range chains {
+		family := chainaccess.ChainFamily(strings.ToLower(chain.Type))
+		byFamily[family] = append(byFamily[family], chain.ID)
+	}
+	return byFamily
 }
 
 // buildUpdateNodeRequest constructs the UpdateNodeRequest to send to JD on connect.

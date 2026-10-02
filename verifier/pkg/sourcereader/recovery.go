@@ -35,11 +35,22 @@ type recoveryRuntime struct {
 	nodeID            string
 	metrics           *recovery.Metrics
 	rebuildingID      string
+	replayRunning     bool
 	registered        bool
+	lastControlPoll   time.Time
+	lastRangePoll     time.Time
 	lastHeartbeat     time.Time
 	lastCleanup       time.Time
 	failedAuditWrites atomic.Int64
 }
+
+// RecoveryPollInterval is how often an idle reader checks for submitted recovery
+// operations. Deliberately coarse relative to the event loop: recovery is an
+// investigated operator action, so a pickup delay within the interval is acceptable,
+// and the control-plane reads stay negligible even with many readers. An active
+// operation runs at full loop speed — recovery executes one chunk per tick, so
+// execution must never be throttled.
+const RecoveryPollInterval = 15 * time.Second
 
 // ConfigureRecovery is called before Start. All recovery and reader mutations run
 // on the existing event loop; slots bound recovery concurrency across this owner.
@@ -109,6 +120,13 @@ func (r *Service) recoveryControl(ctx context.Context) {
 	if r.disabled.Load() {
 		r.recoveryHeartbeat(ctx, nil)
 	}
+	// Idle readers check for submitted work at RecoveryPollInterval; once an operation
+	// is active (rebuildingID set, or "unknown" while a store read is being retried)
+	// control runs on every tick so chunk execution is never throttled.
+	if p.rebuildingID == "" && time.Since(p.lastControlPoll) < RecoveryPollInterval {
+		return
+	}
+	p.lastControlPoll = time.Now()
 	ctx, cancel := context.WithTimeout(ctx, r.pollTimeout)
 	defer cancel()
 	activeReset, err := p.store.ActiveReset(ctx, r.verifierID, r.chainSelector.String())
@@ -146,6 +164,24 @@ func (r *Service) recoveryControl(ctx context.Context) {
 			r.logger.Errorw("Failed to record blocked recovery", "error", err)
 		}
 	}
+}
+
+// recoveryOpsDue throttles idle replay pickups to RecoveryPollInterval. While an
+// operation is in flight (replayRunning, or a reset rebuilding) the reader keeps full
+// loop speed: execution is one chunk per tick and must never be throttled.
+func (r *Service) recoveryOpsDue() bool {
+	p := r.recovery
+	if p == nil {
+		return false
+	}
+	if p.replayRunning || p.rebuildingID != "" {
+		return true
+	}
+	if time.Since(p.lastRangePoll) < RecoveryPollInterval {
+		return false
+	}
+	p.lastRangePoll = time.Now()
+	return true
 }
 
 func (r *Service) resetReader(ctx context.Context, requested recovery.Operation) error {
@@ -258,8 +294,15 @@ func (r *Service) recoverRange(ctx context.Context, latest, safe, finalized *pro
 		}
 	} else {
 		o, err = p.store.Next(ctx, r.verifierID, r.chainSelector.String())
+		if err == nil && o.Mode == "replay" {
+			// Replay picked up: keep full loop speed until it leaves accepted/running.
+			p.replayRunning = true
+		}
 	}
 	if errors.Is(err, sql.ErrNoRows) {
+		// Nothing pending: the picked-up operation finished, failed, or was canceled
+		// (state left accepted/running). Back to the slow idle pickup cadence.
+		p.replayRunning = false
 		return
 	}
 	if err != nil {
