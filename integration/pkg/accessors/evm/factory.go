@@ -275,6 +275,14 @@ func (a *accessor) ContractTransmitter() (chainaccess.ContractTransmitter, error
 	return a.contractTransmitter, nil
 }
 
+func (a *accessor) FeeQuoter() (chainaccess.FeeQuoter, error) {
+	return nil, errors.New("fee quoter not available")
+}
+
+func (a *accessor) GasPriceReader() (chainaccess.GasPriceReader, error) {
+	return nil, errors.New("gas price reader not available")
+}
+
 // Close releases the production services owned by this accessor.
 func (a *accessor) Close() error {
 	if a == nil || a.runtime == nil {
