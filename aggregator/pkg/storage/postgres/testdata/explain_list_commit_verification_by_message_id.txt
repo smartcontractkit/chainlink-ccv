@@ -1,0 +1,24 @@
+=== EXPLAIN ANALYZE: ListCommitVerificationByMessageID ===
+Limit  (cost=66.41..66.53 rows=16 width=97) (actual time=0.038..0.044 rows=32 loops=1)
+  Output: message_id, signer_identifier, aggregation_key, ccv_version, signature, message_ccv_addresses, message_executor_address, message_data, id, created_at, seq_num
+  Buffers: shared hit=5
+  ->  Unique  (cost=66.41..66.53 rows=16 width=97) (actual time=0.037..0.041 rows=32 loops=1)
+        Output: message_id, signer_identifier, aggregation_key, ccv_version, signature, message_ccv_addresses, message_executor_address, message_data, id, created_at, seq_num
+        Buffers: shared hit=5
+        ->  Sort  (cost=66.41..66.45 rows=16 width=97) (actual time=0.037..0.038 rows=32 loops=1)
+              Output: message_id, signer_identifier, aggregation_key, ccv_version, signature, message_ccv_addresses, message_executor_address, message_data, id, created_at, seq_num
+              Sort Key: commit_verification_records.aggregation_key, commit_verification_records.signer_identifier, commit_verification_records.seq_num DESC
+              Sort Method: quicksort  Memory: 29kB
+              Buffers: shared hit=5
+              ->  Bitmap Heap Scan on public.commit_verification_records  (cost=4.55..66.09 rows=16 width=97) (actual time=0.014..0.017 rows=32 loops=1)
+                    Output: message_id, signer_identifier, aggregation_key, ccv_version, signature, message_ccv_addresses, message_executor_address, message_data, id, created_at, seq_num
+                    Recheck Cond: (commit_verification_records.message_id = '0xexplain-target'::text)
+                    Heap Blocks: exact=2
+                    Buffers: shared hit=5
+                    ->  Bitmap Index Scan on idx_verification_aggregation_key  (cost=0.00..4.54 rows=16 width=0) (actual time=0.010..0.010 rows=32 loops=1)
+                          Index Cond: (commit_verification_records.message_id = '0xexplain-target'::text)
+                          Buffers: shared hit=3
+Planning:
+  Buffers: shared hit=67
+Planning Time: 0.150 ms
+Execution Time: 0.077 ms

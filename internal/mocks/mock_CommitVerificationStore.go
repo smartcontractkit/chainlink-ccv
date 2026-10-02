@@ -142,6 +142,65 @@ func (_c *MockCommitVerificationStore_ListCommitVerificationByAggregationKey_Cal
 	return _c
 }
 
+// ListCommitVerificationByMessageID provides a mock function with given fields: ctx, messageID
+func (_m *MockCommitVerificationStore) ListCommitVerificationByMessageID(ctx context.Context, messageID []byte) (map[string][]*model.CommitVerificationRecord, error) {
+	ret := _m.Called(ctx, messageID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListCommitVerificationByMessageID")
+	}
+
+	var r0 map[string][]*model.CommitVerificationRecord
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, []byte) (map[string][]*model.CommitVerificationRecord, error)); ok {
+		return rf(ctx, messageID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, []byte) map[string][]*model.CommitVerificationRecord); ok {
+		r0 = rf(ctx, messageID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(map[string][]*model.CommitVerificationRecord)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, []byte) error); ok {
+		r1 = rf(ctx, messageID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockCommitVerificationStore_ListCommitVerificationByMessageID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListCommitVerificationByMessageID'
+type MockCommitVerificationStore_ListCommitVerificationByMessageID_Call struct {
+	*mock.Call
+}
+
+// ListCommitVerificationByMessageID is a helper method to define mock.On call
+//   - ctx context.Context
+//   - messageID []byte
+func (_e *MockCommitVerificationStore_Expecter) ListCommitVerificationByMessageID(ctx interface{}, messageID interface{}) *MockCommitVerificationStore_ListCommitVerificationByMessageID_Call {
+	return &MockCommitVerificationStore_ListCommitVerificationByMessageID_Call{Call: _e.mock.On("ListCommitVerificationByMessageID", ctx, messageID)}
+}
+
+func (_c *MockCommitVerificationStore_ListCommitVerificationByMessageID_Call) Run(run func(ctx context.Context, messageID []byte)) *MockCommitVerificationStore_ListCommitVerificationByMessageID_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].([]byte))
+	})
+	return _c
+}
+
+func (_c *MockCommitVerificationStore_ListCommitVerificationByMessageID_Call) Return(_a0 map[string][]*model.CommitVerificationRecord, _a1 error) *MockCommitVerificationStore_ListCommitVerificationByMessageID_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockCommitVerificationStore_ListCommitVerificationByMessageID_Call) RunAndReturn(run func(context.Context, []byte) (map[string][]*model.CommitVerificationRecord, error)) *MockCommitVerificationStore_ListCommitVerificationByMessageID_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ListOrphanedKeys provides a mock function with given fields: ctx, newerThan, pageSize
 func (_m *MockCommitVerificationStore) ListOrphanedKeys(ctx context.Context, newerThan time.Time, pageSize int) (<-chan model.OrphanedKey, <-chan error) {
 	ret := _m.Called(ctx, newerThan, pageSize)

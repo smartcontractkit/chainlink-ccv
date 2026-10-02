@@ -19,6 +19,9 @@ type CommitVerificationStore interface {
 	// ListCommitVerificationByAggregationKey returns the latest verification record per signer for a
 	// given (message_id, aggregation_key). Used to collect quorum inputs before aggregation.
 	ListCommitVerificationByAggregationKey(ctx context.Context, messageID model.MessageID, aggregationKey model.AggregationKey) ([]*model.CommitVerificationRecord, error)
+	// ListCommitVerificationByMessageID returns the latest verification record per signer for a message ID,
+	// grouped by aggregation key. Returns ErrTooManyRecords when the rows are more than the fixed maximum.
+	ListCommitVerificationByMessageID(ctx context.Context, messageID model.MessageID) (map[model.AggregationKey][]*model.CommitVerificationRecord, error)
 	// ListOrphanedKeys streams (message_id, aggregation_key) pairs that have verification records but
 	// no matching aggregated report. Joins on both columns so a CCV version change correctly surfaces
 	// the new key as orphaned even when a report exists for the old key.

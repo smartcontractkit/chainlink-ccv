@@ -65,6 +65,7 @@ type Server struct {
 	writeCommitVerifierNodeResultHandler      *handlers.WriteCommitVerifierNodeResultHandler
 	getMessagesSinceHandler                   *handlers.GetMessagesSinceHandler
 	getVerifierResultsForMessageHandler       *handlers.GetVerifierResultsForMessageHandler
+	getMessageStatusHandler                   *handlers.GetMessageStatusHandler
 	listMessageRulesHandler                   *handlers.ListMessageRulesHandler
 	heartbeatHandler                          *handlers.HeartbeatHandler
 	grpcServer                                *grpc.Server
@@ -93,6 +94,10 @@ func (s *Server) ReadCommitteeVerifierNodeResult(ctx context.Context, req *commi
 
 func (s *Server) GetVerifierResultsForMessage(ctx context.Context, req *verifierpb.GetVerifierResultsForMessageRequest) (*verifierpb.GetVerifierResultsForMessageResponse, error) {
 	return s.getVerifierResultsForMessageHandler.Handle(ctx, req)
+}
+
+func (s *Server) GetMessageStatus(ctx context.Context, req *committeepb.GetMessageStatusRequest) (*committeepb.GetMessageStatusResponse, error) {
+	return s.getMessageStatusHandler.Handle(ctx, req)
 }
 
 func (s *Server) GetMessagesSince(ctx context.Context, req *msgdiscoverypb.GetMessagesSinceRequest) (*msgdiscoverypb.GetMessagesSinceResponse, error) {
@@ -348,6 +353,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig, aggMonito
 	readCommitVerifierNodeResultHandler := handlers.NewReadCommitVerifierNodeResultHandler(store, l)
 	getMessagesSinceHandler := handlers.NewGetMessagesSinceHandler(store, config.Committee, l, aggMonitoring)
 	getVerifierResultsForMessageHandler := handlers.NewGetVerifierResultsForMessageHandler(store, config.Committee, config.MaxMessageIDsPerBatch, l)
+	getMessageStatusHandler := handlers.NewGetMessageStatusHandler(store, config.Committee, l)
 	listMessageRulesHandler := handlers.NewListMessageRulesHandler(messageDisablementRegistry, l)
 	batchWriteCommitVerifierNodeResultHandler := handlers.NewBatchWriteCommitVerifierNodeResultHandler(writeCommitVerifierNodeResultHandler, config.MaxCommitVerifierNodeResultRequestsPerBatch)
 
@@ -373,8 +379,10 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig, aggMonito
 		l.Fatalf("Failed to initialize rate limiting middleware: %v", err)
 	}
 
-	isVerifierResultAPI := func(callMeta interceptors.CallMeta) bool {
-		return callMeta.Service == verifierpb.Verifier_ServiceDesc.ServiceName
+	// GetMessageStatus is the only public method of the CommitteeVerifier service.
+	isAnonymousAPI := func(callMeta interceptors.CallMeta) bool {
+		return callMeta.Service == verifierpb.Verifier_ServiceDesc.ServiceName ||
+			callMeta.FullMethod() == committeepb.CommitteeVerifier_GetMessageStatus_FullMethodName
 	}
 
 	aggMonitoring.Metrics().IncrementPendingAggregationsChannelBuffer(context.Background(), config.Aggregation.ChannelBufferSize) // Pre-increment the buffer size metric
@@ -392,11 +400,11 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig, aggMonito
 		metricsMiddleware.Intercept,
 		hmacAuthMiddleware.Intercept,
 
-		// Anonymous auth fallback - only for VerifierResultAPI service when HMAC didn't authenticate
+		// Anonymous auth fallback - only for public read services when HMAC didn't authenticate
 		selector.UnaryServerInterceptor(
 			anonymousAuthMiddleware.Intercept,
 			selector.MatchFunc(func(ctx context.Context, callMeta interceptors.CallMeta) bool {
-				return isVerifierResultAPI(callMeta)
+				return isAnonymousAPI(callMeta)
 			}),
 		),
 
@@ -446,6 +454,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig, aggMonito
 		writeCommitVerifierNodeResultHandler: writeCommitVerifierNodeResultHandler,
 		getMessagesSinceHandler:              getMessagesSinceHandler,
 		getVerifierResultsForMessageHandler:  getVerifierResultsForMessageHandler,
+		getMessageStatusHandler:              getMessageStatusHandler,
 		listMessageRulesHandler:              listMessageRulesHandler,
 		batchWriteCommitVerifierNodeResultHandler: batchWriteCommitVerifierNodeResultHandler,
 		heartbeatHandler: heartbeatHandler,

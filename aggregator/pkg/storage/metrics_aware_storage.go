@@ -15,6 +15,7 @@ const (
 	saveOp        = "SaveCommitVerification"
 	getOp         = "GetCommitVerification"
 	listByMsgIDOp = "ListCommitVerificationByMessageID"
+	listAllKeysOp = "ListCommitVerificationByMessageIDAllKeys"
 
 	queryAggregatedReportsOp = "QueryAggregatedReports"
 	getCCVDataOp             = "GetCCVData"
@@ -86,6 +87,12 @@ func (s *MetricsAwareStorage) GetCommitVerification(ctx context.Context, id mode
 func (s *MetricsAwareStorage) ListCommitVerificationByAggregationKey(ctx context.Context, messageID model.MessageID, aggregationKey model.AggregationKey) ([]*model.CommitVerificationRecord, error) {
 	return captureMetrics(ctx, s.metrics(ctx), s.logger(ctx), s.slowQueryThreshold, listByMsgIDOp, func() ([]*model.CommitVerificationRecord, error) {
 		return s.inner.ListCommitVerificationByAggregationKey(ctx, messageID, aggregationKey)
+	})
+}
+
+func (s *MetricsAwareStorage) ListCommitVerificationByMessageID(ctx context.Context, messageID model.MessageID) (map[model.AggregationKey][]*model.CommitVerificationRecord, error) {
+	return captureMetrics(ctx, s.metrics(ctx), s.logger(ctx), s.slowQueryThreshold, listAllKeysOp, func() (map[model.AggregationKey][]*model.CommitVerificationRecord, error) {
+		return s.inner.ListCommitVerificationByMessageID(ctx, messageID)
 	})
 }
 

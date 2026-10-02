@@ -5,12 +5,14 @@ import (
 	"testing"
 	"time"
 
+	ethcommon "github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/auth"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/secrets"
 	"github.com/smartcontractkit/chainlink-ccv/common"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	hmacutil "github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 )
 
@@ -1767,4 +1769,27 @@ func TestHeartbeatConfig_Validate(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestQuorumConfig_IsSigner(t *testing.T) {
+	quorumConfig := &QuorumConfig{Signers: []Signer{
+		{Address: "0x00000000000000000000000000000000000000AB"},
+		{Address: "00000000000000000000000000000000000000cd"},
+	}}
+	tests := []struct {
+		name       string
+		identifier protocol.ByteSlice
+		want       bool
+	}{
+		{name: "checksum address matches lower case identifier", identifier: protocol.ByteSlice(ethcommon.HexToAddress("0xab").Bytes()), want: true},
+		{name: "address without 0x prefix matches", identifier: protocol.ByteSlice(ethcommon.HexToAddress("0xcd").Bytes()), want: true},
+		{name: "unknown identifier", identifier: protocol.ByteSlice(ethcommon.HexToAddress("0xef").Bytes()), want: false},
+		{name: "empty identifier", identifier: protocol.ByteSlice{}, want: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, quorumConfig.IsSigner(tc.identifier))
+		})
+	}
+	require.False(t, (&QuorumConfig{}).IsSigner(ethcommon.HexToAddress("0xab").Bytes()), "a quorum with no signers has no match")
 }

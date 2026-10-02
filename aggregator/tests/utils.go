@@ -201,6 +201,10 @@ func CreateServerOnlyWithMessageRulesControl(t *testing.T, options ...ConfigOpti
 				committeepb.CommitteeVerifier_ReadCommitteeVerifierNodeResult_FullMethodName:       {LimitPerSecond: 10000},
 				committeepb.CommitteeVerifier_WriteChainStatus_FullMethodName:                      {LimitPerSecond: 10000},
 				committeepb.CommitteeVerifier_ReadChainStatus_FullMethodName:                       {LimitPerSecond: 10000},
+				committeepb.CommitteeVerifier_GetMessageStatus_FullMethodName:                      {LimitPerSecond: 10000},
+			},
+			GlobalAnonymousLimits: map[string]model.RateLimitConfig{
+				committeepb.CommitteeVerifier_GetMessageStatus_FullMethodName: {LimitPerSecond: 10000},
 			},
 		},
 	}

@@ -217,6 +217,42 @@ func (d *DatabaseStorage) ListCommitVerificationByAggregationKey(ctx context.Con
 	return records, nil
 }
 
+// maxVerificationRecordsPerMessage limits the rows that ListCommitVerificationByMessageID reads.
+const maxVerificationRecordsPerMessage = 256
+
+var listCommitVerificationByMessageIDQuery = fmt.Sprintf(`SELECT DISTINCT ON (aggregation_key, signer_identifier) %s
+		FROM commit_verification_records
+		WHERE message_id = $1
+		ORDER BY aggregation_key, signer_identifier, seq_num DESC
+		LIMIT $2`, allVerificationRecordColumns)
+
+// ListCommitVerificationByMessageID returns the latest verification record per signer for a message ID,
+// grouped by aggregation key. Returns ErrTooManyRecords instead of a partial result. Used by the message status API.
+func (d *DatabaseStorage) ListCommitVerificationByMessageID(ctx context.Context, messageID model.MessageID) (map[model.AggregationKey][]*model.CommitVerificationRecord, error) {
+	ctx, cancel := d.withTimeout(ctx)
+	defer cancel()
+
+	var rows []commitVerificationRecordRow
+	err := d.ds.SelectContext(ctx, &rows, listCommitVerificationByMessageIDQuery, protocol.ByteSlice(messageID).String(), maxVerificationRecordsPerMessage+1)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query commit verification records: %w", err)
+	}
+	if len(rows) > maxVerificationRecordsPerMessage {
+		return nil, fmt.Errorf("message has more than %d verification records: %w", maxVerificationRecordsPerMessage, pkgcommon.ErrTooManyRecords)
+	}
+
+	recordsByKey := make(map[model.AggregationKey][]*model.CommitVerificationRecord)
+	for _, row := range rows {
+		record, err := rowToCommitVerificationRecord(&row)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert row to record: %w", err)
+		}
+		recordsByKey[row.AggregationKey] = append(recordsByKey[row.AggregationKey], record)
+	}
+
+	return recordsByKey, nil
+}
+
 // QueryAggregatedReports paginates through all aggregated reports starting from a sequence number.
 // No deduplication is applied: if multiple reports exist for the same (message_id, aggregation_key)
 // they are all returned, ordered by seq_num ASC. Scan failures on individual rows are logged and

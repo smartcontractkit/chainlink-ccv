@@ -1596,9 +1596,7 @@ func TestGetMessagesSince_ReturnsNilMetadataWhenSourceVerifierNotInCCVAddresses(
 		signer1 := testutil.NewSignerFixture(t, "node1")
 		signer2 := testutil.NewSignerFixture(t, "node2")
 		committee := testutil.NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
-		aggregatorClient, _, messageDiscoveryClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee))
-		t.Cleanup(cleanup)
-		require.NoError(t, err, "failed to create server and client")
+		aggregatorClient, _, messageDiscoveryClient, statusClient := createServerAndClientsWithStatus(t, WithCommitteeConfig(committee))
 
 		message := testutil.NewProtocolMessage(t)
 
@@ -1607,7 +1605,7 @@ func TestGetMessagesSince_ReturnsNilMetadataWhenSourceVerifierNotInCCVAddresses(
 			differentAddress[i] = 0xCD
 		}
 
-		ccvNodeData1, _ := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+		ccvNodeData1, messageId := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
 			testutil.WithCcvAddresses(t, [][]byte{differentAddress}),
 			testutil.WithCcvVersion(protocol.MessageDiscoveryVersion),
 			testutil.WithSignatureFrom(t, signer1))
@@ -1644,6 +1642,9 @@ func TestGetMessagesSince_ReturnsNilMetadataWhenSourceVerifierNotInCCVAddresses(
 			require.True(collect, bytes.Equal(protocol.MessageDiscoveryVersion, result.VerifierResult.CcvData[:protocol.MessageDiscoveryVersionLength]),
 				"CCV version in result should be MessageDiscoveryVersion")
 		}, 5*time.Second, 100*time.Millisecond, "should return nil metadata addresses when source verifier not in ccvAddresses")
+
+		// Message-discovery reports count as aggregated without the source verifier check.
+		requireMessageStatus(t, statusClient, messageId[:], 2, 2, true)
 	}
 
 	for _, storageType := range storageTypes {
@@ -1667,9 +1668,7 @@ func TestGetMessagesSince_ReturnsNoResultsWhenSourceVerifierNotInCCVAddressesAnd
 		signer1 := testutil.NewSignerFixture(t, "node1")
 		signer2 := testutil.NewSignerFixture(t, "node2")
 		committee := testutil.NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
-		aggregatorClient, _, messageDiscoveryClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee))
-		t.Cleanup(cleanup)
-		require.NoError(t, err, "failed to create server and client")
+		aggregatorClient, _, messageDiscoveryClient, statusClient := createServerAndClientsWithStatus(t, WithCommitteeConfig(committee))
 
 		message := testutil.NewProtocolMessage(t)
 
@@ -1678,7 +1677,7 @@ func TestGetMessagesSince_ReturnsNoResultsWhenSourceVerifierNotInCCVAddressesAnd
 			differentAddress[i] = 0xCD
 		}
 
-		ccvNodeData1, _ := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+		ccvNodeData1, messageId := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
 			testutil.WithCcvAddresses(t, [][]byte{differentAddress}),
 			testutil.WithSignatureFrom(t, signer1))
 
@@ -1701,6 +1700,9 @@ func TestGetMessagesSince_ReturnsNoResultsWhenSourceVerifierNotInCCVAddressesAnd
 			require.NoError(collect, err, "GetMessagesSince should succeed")
 			require.Len(collect, resp.Results, 0, "should have 0 results because aggregation was rejected (source verifier not in ccvAddresses with regular version)")
 		}, 5*time.Second, 100*time.Millisecond, "should return no results when source verifier not in ccvAddresses and regular version")
+
+		// The quorum count is reached, but no report exists.
+		requireMessageStatus(t, statusClient, messageId[:], 2, 2, false)
 	}
 
 	for _, storageType := range storageTypes {
@@ -1722,9 +1724,7 @@ func TestSourceVerifierInCCVAddresses_MetadataPopulated(t *testing.T) {
 		signer1 := testutil.NewSignerFixture(t, "node1")
 		signer2 := testutil.NewSignerFixture(t, "node2")
 		committee := testutil.NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
-		aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee))
-		t.Cleanup(cleanup)
-		require.NoError(t, err, "failed to create server and client")
+		aggregatorClient, ccvDataClient, messageDiscoveryClient, statusClient := createServerAndClientsWithStatus(t, WithCommitteeConfig(committee))
 
 		message := testutil.NewProtocolMessage(t)
 
@@ -1773,6 +1773,8 @@ func TestSourceVerifierInCCVAddresses_MetadataPopulated(t *testing.T) {
 			require.Equal(collect, sourceVerifierAddress, msgResult.VerifierResult.Metadata.VerifierSourceAddress, "VerifierSourceAddress should be populated")
 			require.Equal(collect, destVerifierAddress, msgResult.VerifierResult.Metadata.VerifierDestAddress, "VerifierDestAddress should be populated")
 		}, 5*time.Second, 100*time.Millisecond, "GetMessagesSince should return populated metadata")
+
+		requireMessageStatus(t, statusClient, messageId[:], 2, 2, true)
 	}
 
 	for _, storageType := range storageTypes {
