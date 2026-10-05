@@ -224,6 +224,7 @@ func NewIndexer(in *IndexerInput) (*IndexerOutput, error) {
 		testcontainers.WithName(dbContainerName),
 		testcontainers.WithExposedPorts("5432/tcp"),
 		testcontainers.WithHostConfigModifier(func(h *container.HostConfig) {
+			h.ExtraHosts = append(h.ExtraHosts, HostGatewayExtraHost)
 			h.PortBindings = network.PortMap{
 				network.MustParsePort("5432/tcp"): []network.PortBinding{
 					{HostPort: strconv.Itoa(in.DB.HostPort)},
@@ -269,6 +270,7 @@ func NewIndexer(in *IndexerInput) (*IndexerOutput, error) {
 		},
 		ExposedPorts: []string{internalPortStr + "/tcp"},
 		HostConfigModifier: func(h *container.HostConfig) {
+			h.ExtraHosts = append(h.ExtraHosts, HostGatewayExtraHost)
 			h.PortBindings = network.PortMap{
 				network.MustParsePort(internalPortStr + "/tcp"): []network.PortBinding{
 					{HostPort: strconv.Itoa(in.Port)},

@@ -408,6 +408,7 @@ func (r *SourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, to
 			Message:        *decodedMsg,
 			Receipts:       allReceipts, // Keep original order from OnRamp event
 			BlockNumber:    log.BlockNumber,
+			BlockHash:      log.BlockHash.Bytes(),
 			TxHash:         log.TxHash.Bytes(),
 			FeeToken:       event.FeeToken.Bytes(),
 			BlockTimestamp: blockTimestamp,
