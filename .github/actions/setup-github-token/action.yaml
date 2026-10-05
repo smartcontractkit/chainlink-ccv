@@ -1,0 +1,53 @@
+name: Setup GitHub Token
+description: >-
+  Calls smartcontractkit/.github's GATI token setup, or skips it when the GATI
+  secrets are unavailable. Dependabot and fork PR runs get no repo secrets, and
+  all module dependencies of these workflows are public, so the token is
+  optional there; the merge queue (merge_group) always runs with full secrets.
+
+inputs:
+  aws-role-arn:
+    description: ARN of role capable of getting token from GATI
+    required: false
+    default: ''
+  aws-lambda-url:
+    description: URL of GATI lambda function
+    required: false
+    default: ''
+  aws-region:
+    description: AWS region
+    required: false
+    default: ''
+  aws-role-duration-seconds:
+    description: Duration of role in seconds
+    required: false
+    default: '900'
+  role-session-name:
+    description: Session name to use when assuming the role.
+    required: false
+    default: '${{ github.run_id }}-${{ github.run_number }}-${{ github.job }}'
+  set-git-config:
+    description: Set git config
+    required: false
+    default: 'false'
+
+outputs:
+  access-token:
+    description: The github access token that has permissions reflecting the current AWS role value
+    value: ${{ steps.gati.outputs.access-token }}
+
+runs:
+  using: composite
+  steps:
+    # Empty inputs mean the run has no repo secrets (Dependabot or fork PR), so skip GATI.
+    - name: Setup GitHub Token
+      id: gati
+      if: inputs.aws-region != '' && inputs.aws-role-arn != '' && inputs.aws-lambda-url != ''
+      uses: smartcontractkit/.github/actions/setup-github-token@ef78fa97bf3c77de6563db1175422703e9e6674f # setup-github-token@0.2.1
+      with:
+        aws-role-arn: ${{ inputs.aws-role-arn }}
+        aws-lambda-url: ${{ inputs.aws-lambda-url }}
+        aws-region: ${{ inputs.aws-region }}
+        aws-role-duration-seconds: ${{ inputs.aws-role-duration-seconds }}
+        role-session-name: ${{ inputs.role-session-name }}
+        set-git-config: ${{ inputs.set-git-config }}

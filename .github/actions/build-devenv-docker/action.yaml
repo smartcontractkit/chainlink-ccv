@@ -3,11 +3,15 @@ description: Build CCV service images via just build-docker-ci
 
 inputs:
   ccv-iam-role:
-    description: 'AWS IAM role for CCV'
-    required: true
+    # Empty on secretless runs (Dependabot PRs); the ECR auth steps then self-skip,
+    # which is fine because these builds pull only public base images.
+    description: 'AWS IAM role for CCV. Empty skips ECR authentication.'
+    required: false
+    default: ''
   jd-registry:
     description: 'JD registry ID'
-    required: true
+    required: false
+    default: ''
 
 runs:
   using: composite

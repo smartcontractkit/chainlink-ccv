@@ -66,9 +66,12 @@ jobs:
             cat table.txt
             echo 'COVERAGE_REPORT_DELIM'
           } >> "$GITHUB_ENV"
+      # Dependabot PR runs get a read-only GITHUB_TOKEN that cannot write PR comments;
+      # the comment is best-effort so coverage results still gate the job.
       - name: Remove previous coverage comments
         uses: actions/github-script@v6
         if: github.event_name == 'pull_request'
+        continue-on-error: true
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -91,6 +94,7 @@ jobs:
       - name: Display coverage in PR comment
         uses: actions/github-script@v6
         if: github.event_name == 'pull_request'
+        continue-on-error: true
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
