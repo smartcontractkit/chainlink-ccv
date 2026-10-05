@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math/big"
 	"os"
 	"sync/atomic"
 	"time"
@@ -242,7 +241,7 @@ func (r *Service) resetReader(ctx context.Context, requested recovery.Operation)
 	r.pendingSince = make(map[string]time.Time)
 	r.sentTasks = make(map[string]verifier.VerificationTask)
 	r.reorgTracker = NewReorgTracker(r.logger, r.metrics())
-	r.lastProcessedFinalizedBlock.Store(new(big.Int).SetUint64(requested.FromBlock))
+	r.lastProcessedFinalizedBlock.Store(requested.FromBlock)
 	r.finalityBlocked.Store(false)
 	r.disabled.Store(false)
 	r.mu.Unlock()
@@ -349,7 +348,7 @@ func (r *Service) recoverRange(ctx context.Context, latest, safe, finalized *pro
 		// and the in-memory cursor is what the next poll reads. A fully finalized range still
 		// resumes at ToBlock+1.
 		next := min(o.ToBlock, finalized.Number) + 1
-		r.lastProcessedFinalizedBlock.Store(new(big.Int).SetUint64(next))
+		r.lastProcessedFinalizedBlock.Store(next)
 	}
 	if published {
 		p.queue.NotifyPublished()
@@ -375,7 +374,7 @@ func (r *Service) recoverChunk(ctx context.Context, tx *recovery.Store, o *recov
 		return nil, nil
 	}
 	end = min(end, latest.Number)
-	events, err := r.sourceReader.FetchMessageSentEvents(ctx, new(big.Int).SetUint64(o.NextBlock), new(big.Int).SetUint64(end))
+	events, err := r.sourceReader.FetchMessageSentEvents(ctx, o.NextBlock, end)
 	if err != nil {
 		return nil, err
 	}
@@ -393,15 +392,15 @@ func (r *Service) recoverChunk(ctx context.Context, tx *recovery.Store, o *recov
 			tracing.SpanFromContext(task.TraceContext).End()
 		}
 	}()
-	var safeBlock *big.Int
+	var latestSafeBlock uint64 // 0 = chain does not expose a safe head
 	if safe != nil {
-		safeBlock = new(big.Int).SetUint64(safe.Number)
+		latestSafeBlock = safe.Number
 	}
 	ready := make([]verifier.VerificationTask, 0, len(tasks))
 	drops := make([]recovery.Event, 0)
 	dropped := make([]verifier.VerificationTask, 0)
 	for _, task := range tasks {
-		decision, reason, err := r.admission(ctx, task, new(big.Int).SetUint64(latest.Number), safeBlock, new(big.Int).SetUint64(finalized.Number))
+		decision, reason, err := r.admission(ctx, task, latest.Number, latestSafeBlock, finalized.Number)
 		if err != nil || decision == admissionWait {
 			o.LastError = "waiting: " + reason
 			if err != nil {
