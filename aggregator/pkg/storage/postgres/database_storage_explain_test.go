@@ -16,7 +16,7 @@ const (
 	explainMessages         = 20000
 	explainSignersPerKey    = 16
 	explainTargetMessageID  = "0xexplain-target"
-	explainTargetKeyCount   = 2
+	explainTargetKeyCount   = 100
 	explainSeedVerification = `
 		INSERT INTO commit_verification_records
 			(message_id, signer_identifier, aggregation_key, message_data, ccv_version, signature,
@@ -53,8 +53,8 @@ func writeExplainOutput(t *testing.T, name, output string) {
 	require.NoError(t, os.WriteFile(filepath.Join("testdata", fmt.Sprintf("explain_%s.txt", name)), []byte(output), 0o644))
 }
 
-// TestExplainQueryPlans seeds 320k verification records and checks the plans of the message status queries.
-// Expected: an index scan on message_id, with no Seq Scan.
+// TestExplainQueryPlans seeds 320k records plus one message with 1,600 records, more than the 256 maximum.
+// Expected: an Index Scan on unique_verification that stops at the limit, with no Sort and no Seq Scan.
 func TestExplainQueryPlans(t *testing.T) {
 	_, db, cleanup := setupTestDBWithDatabase(t)
 	defer cleanup()
@@ -73,7 +73,8 @@ func TestExplainQueryPlans(t *testing.T) {
 		writeExplainOutput(t, "list_commit_verification_by_message_id", plan)
 
 		require.NotContains(t, plan, "Seq Scan", "the query must not scan the full table")
-		require.Contains(t, plan, "Index", "the query must use an index on message_id")
-		require.Contains(t, plan, fmt.Sprintf("rows=%d", explainTargetKeyCount*explainSignersPerKey))
+		require.NotContains(t, plan, "Sort", "the index must give the order, so the scan can stop at the limit")
+		require.Contains(t, plan, "Index Scan using unique_verification")
+		require.Contains(t, plan, fmt.Sprintf("rows=%d loops=1", maxVerificationRecordsPerMessage+1), "the scan must stop at the limit")
 	})
 }

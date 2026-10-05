@@ -220,10 +220,11 @@ func (d *DatabaseStorage) ListCommitVerificationByAggregationKey(ctx context.Con
 // maxVerificationRecordsPerMessage limits the rows that ListCommitVerificationByMessageID reads.
 const maxVerificationRecordsPerMessage = 256
 
-var listCommitVerificationByMessageIDQuery = fmt.Sprintf(`SELECT DISTINCT ON (aggregation_key, signer_identifier) %s
+// unique_verification gives one row per (signer, key) and its index gives this order, so the scan stops at the limit.
+var listCommitVerificationByMessageIDQuery = fmt.Sprintf(`SELECT %s
 		FROM commit_verification_records
 		WHERE message_id = $1
-		ORDER BY aggregation_key, signer_identifier, seq_num DESC
+		ORDER BY signer_identifier, aggregation_key
 		LIMIT $2`, allVerificationRecordColumns)
 
 // ListCommitVerificationByMessageID returns the latest verification record per signer for a message ID,

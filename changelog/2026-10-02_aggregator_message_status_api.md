@@ -102,16 +102,17 @@ The handler does no ECDSA signature recovery. The `aggregated` check uses the sa
 `DatabaseStorage.ListCommitVerificationByMessageID` runs one query:
 
 ```sql
-SELECT DISTINCT ON (aggregation_key, signer_identifier) ...
+SELECT ...
 FROM commit_verification_records
 WHERE message_id = $1
-ORDER BY aggregation_key, signer_identifier, seq_num DESC
+ORDER BY signer_identifier, aggregation_key
 LIMIT $2
 ```
 
-- The query reads `maxVerificationRecordsPerMessage + 1` rows (`maxVerificationRecordsPerMessage = 256`). If it gets more than 256, it returns `common.ErrTooManyRecords`.
-- The existing index `idx_verification_aggregation_key (message_id, aggregation_key, seq_num DESC)` covers the query. No migration is necessary.
-- `TestExplainQueryPlans` (`aggregator/pkg/storage/postgres/database_storage_explain_test.go`) seeds 320k records. It requires an index scan with no `Seq Scan`. The plan is in `aggregator/pkg/storage/postgres/testdata/explain_list_commit_verification_by_message_id.txt`.
+- The unique constraint `unique_verification (message_id, signer_identifier, aggregation_key)` allows one row for each signer and key, so the query needs no `DISTINCT`.
+- The index of that constraint gives the `ORDER BY` order. So the scan has no `Sort` step, and it stops after `maxVerificationRecordsPerMessage + 1` rows (`maxVerificationRecordsPerMessage = 256`). If it gets more than 256 rows, it returns `common.ErrTooManyRecords`. The work for each call stays small, also for a message with many keys.
+- No migration is necessary.
+- `TestExplainQueryPlans` (`aggregator/pkg/storage/postgres/database_storage_explain_test.go`) seeds 320k records plus one message with 1,600 records. It requires `Index Scan using unique_verification`, no `Sort`, no `Seq Scan`, and a scan that stops at 257 rows. The plan is in `aggregator/pkg/storage/postgres/testdata/explain_list_commit_verification_by_message_id.txt`.
 - The metrics wrapper records the query as `ListCommitVerificationByMessageIDAllKeys`. The existing label `ListCommitVerificationByMessageID` stays on `ListCommitVerificationByAggregationKey`.
 
 ### Anonymous access
