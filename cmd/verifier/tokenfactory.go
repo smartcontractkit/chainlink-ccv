@@ -309,6 +309,7 @@ func createCCTPCoordinator(
 		heartbeatclient.NewNoopHeartbeatClient(),
 		nil,
 		db,
+		verifier.WithSourceRecovery(),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create verification coordinator for cctp: %w", err)
@@ -363,6 +364,7 @@ func createLombardCoordinator(
 		heartbeatclient.NewNoopHeartbeatClient(),
 		nil,
 		db,
+		verifier.WithSourceRecovery(),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create verification coordinator for lombard: %w", err)

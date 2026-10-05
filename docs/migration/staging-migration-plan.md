@@ -38,16 +38,22 @@ operators. This document adapts it for staging, where one team does both halves.
   (A1-A4, B1-B7, C1-C5, D1-D6).
 - The cutover mechanism itself is tested end to end by `TestE2EMigration_CLToStandalone`
   (`chainlink-ccv/build/devenv/tests/e2e/smoke_migration_test.go`).
-- Migration tooling landed 20 Aug 2026. Note: this batch currently lives on the `tt/stagingPrep`
-  branch of chainlink-ccv, not on main. It has to merge before P2, since the images we deploy are
-  the ones CI publishes from main.
+- Migration tooling (`ccv migrate`): key export with an expected-address check, the
+  pre-cutover settings diff, and a per-chain warning when the generic TXM block-time
+  fallback fires.
   - `ccv migrate export --expected-id <addr>` fails the export if the exported key doesn't match
     the JD-registered signing address. This catches a wrong-bundle export while the node is
     still up.
   - `ccv migrate inspect-config --config <node.toml>` prints the effective per-chain settings the
-    standalone processes will run (finality, TXM block time with the 2s fallback flagged, node
-    set) plus every node setting the conversion drops. This is the pre-cutover settings diff.
-  - The 2s TXM block-time fallback now warns per chain at startup instead of applying silently.
+    standalone processes will run (finality, TXM block time, flagged when the 2s fallback
+    fired, node set) plus every node setting the conversion drops. This is the pre-cutover
+    settings diff.
+  - The TXM block-time fallback is a single generic 2s value, not a curated per-chain table;
+    it warns at startup on every chain that runs a TXM, and P5 sets real values per chain.
+  - Startup does not fail on a per-chain config problem: a chain whose reader fails to resolve
+    is logged and skipped, and the process refuses to start only when no chain is usable
+    (`cmd/verifier/servicefactory.go`). The step 2 diff is the guard against a silently
+    missing chain.
 
 ## Hard rules (from the runbook)
 
@@ -219,8 +225,8 @@ publishes `containers/chainlink-ccv-verifier:<sha>-rc` and
 secondary private ECRs. The staging aggregator and indexer values already pin images this way
 (`deploy/config/staging/aggregator/common.yaml`:
 `809128755817.dkr.ecr.us-west-2.amazonaws.com/containers/chainlink-ccv-aggregator:<sha>-rc`).
-So: merge `tt/stagingPrep`, take the merge commit's SHA, and pin `image.tag: <sha>-rc` in the P3
-values.
+So: take a recent main SHA that includes the migration tooling and pin
+`image.tag: <sha>-rc` in the P3 values.
 
 A release tag is the alternative. release-please cuts the root `vX.Y.Z` tag
 (`.release-please-manifest.json` is at 0.4.0, so the next is v0.5.0) and `release-publish.yaml`
@@ -503,21 +509,30 @@ it, at which point the maintenanceMode entry from the step 4 PR holds the node a
 
 Comment `.deploy stage` on the step 4 PR and confirm. Then check what is checkable now. No job
 exists yet, so the app ports (8100/8101) serve nothing and bootstrap `/ready` stays 503; that is
-expected here. The images ship busybox wget, not curl.
+expected here. The images are distroless (no shell, no wget), so probe over a
+port-forward with curl from your workstation.
 
 ```sh
-kubectl --context $CTX -n $NS exec deploy/$VER -- wget -qO- http://localhost:9988/health   # {"status":"ok"}
-kubectl --context $CTX -n $NS exec deploy/$EXE -- wget -qO- http://localhost:9988/health
-kubectl --context $CTX -n $NS logs deploy/$VER | grep -i expected_id                       # must print nothing
+kubectl --context $CTX -n $NS port-forward deploy/$VER 9988:9988 & PF=$!
+sleep 2
+curl -s http://localhost:9988/health   # verifier {"status":"ok"}
+kill $PF
+kubectl --context $CTX -n $NS port-forward deploy/$EXE 9988:9988 & PF=$!
+sleep 2
+curl -s http://localhost:9988/health   # executor
+kill $PF
+kubectl --context $CTX -n $NS logs deploy/$VER | grep -i expected_id     # must print nothing
 ```
 
 ### 7. CSA handoff
 
 ```sh
 for R in $VER $EXE; do
-  kubectl --context $CTX -n $NS exec deploy/$R -- wget -qO- \
-    --post-data='{"KeyNames":["bootstrap_default_csa_key"]}' \
+  kubectl --context $CTX -n $NS port-forward deploy/$R 9988:9988 & PF=$!
+  sleep 2
+  curl -s -d '{"KeyNames":["bootstrap_default_csa_key"]}' \
     http://localhost:9988/keystore/reader/getkeys; echo
+  kill $PF
 done
 # PublicKey in the response is base64; JD takes hex:
 echo '<PublicKey>' | base64 -d | xxd -p -c 999
@@ -605,9 +620,14 @@ nothing needs accepting in the JD UI. Once the jobs start:
 
 ```sh
 kubectl --context $CTX -n $NS logs deploy/$VER | grep -i signer_address    # must print nothing
-kubectl --context $CTX -n $NS exec deploy/$VER -- wget -qO- http://localhost:8100/health
-kubectl --context $CTX -n $NS exec deploy/$EXE -- wget -qO- http://localhost:8101/health
-kubectl --context $CTX -n $NS exec deploy/$VER -- wget -qO- http://localhost:9988/ready   # now 200
+kubectl --context $CTX -n $NS port-forward deploy/$VER 8100:8100 & PF1=$!
+kubectl --context $CTX -n $NS port-forward deploy/$EXE 8101:8101 & PF2=$!
+kubectl --context $CTX -n $NS port-forward deploy/$VER 9988:9988 & PF3=$!
+sleep 2
+curl -s http://localhost:8100/health
+curl -s http://localhost:8101/health
+curl -s http://localhost:9988/ready   # now 200
+kill $PF1 $PF2 $PF3
 ```
 
 ### 10. Re-apply disabled chains, if step 1 recorded any
@@ -618,7 +638,7 @@ the verifier container hits the right database. The flag is read at start, hence
 
 ```sh
 kubectl --context $CTX -n $NS exec deploy/$VER -- /bin/verifier ccv chain-statuses list   # note verifier_id
-kubectl --context $CTX -n $NS exec deploy/$VER -- pkill -STOP -f verifier                 # quiesce
+kubectl --context $CTX -n $NS exec deploy/$VER -- /bin/verifier ccv quiesce pause           # quiesce
 kubectl --context $CTX -n $NS exec deploy/$VER -- /bin/verifier ccv chain-statuses disable \
   --chain-selector <sel> --verifier-id <standalone-verifier-id>
 kubectl --context $CTX -n $NS rollout restart deploy/$VER

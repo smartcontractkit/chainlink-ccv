@@ -72,6 +72,7 @@ func NewFake(in *FakeInput) (*FakeOutput, error) {
 		},
 		ExposedPorts: []string{"9111/tcp"},
 		HostConfigModifier: func(h *container.HostConfig) {
+			h.ExtraHosts = append(h.ExtraHosts, HostGatewayExtraHost)
 			h.PortBindings = network.PortMap{
 				network.MustParsePort("9111/tcp"): []network.PortBinding{
 					{HostPort: strconv.Itoa(in.Port)},
