@@ -150,6 +150,13 @@ two-way isolation: the rollback path never depends on it. Sizing: the DON cluste
 `db.t4g.medium`. Start at the Canton shape, revisit after the first soak with real
 traffic. Map keys ≤ 43 chars; set `connectionSecret.name` explicitly.
 
+Revisit app-DB sizing again when the EVM logpoller ships: verifier-app databases gain the
+retained log window (30 days by default) of `CCIPMessageSent` logs per OnRamp served — 59
+chains per node here, so the app DB dominates the other two. Its tables arrive as
+forward-only goose migrations the verifier and the `verifier ccv` CLI both run on connect;
+an image downgrade does not roll them back. See the
+[Source logs](evm-cl-to-standalone.md#source-logs-rpc-today-the-logpoller-later) appendix.
+
 ### P5. Per-chain config review at 59-chain scale
 
 For each of the 59 EVM chains: run `ccv migrate inspect-config` against the node EVM
@@ -220,7 +227,14 @@ Every item from staging's validation, here under real traffic:
   stuck message. This is the production gate from the TXM v2 assessment; staging's run
   was rehearsal, this one counts.
 - **Head-tracker cold start** on a busy chain: measure the re-sync cost under real head
-  velocity; decide acceptability.
+  velocity; decide acceptability. Once the EVM logpoller ships, restarts resume from ingested
+  logs instead, and this measurement is obsolete — re-measure on the new reader before
+  prod-mainnet relies on it.
+- **Logpoller reader, if it ships mid-fleet:** a node cut over to it runs a different source
+  reader than the rest — spot-check at least one node on it before the go/no-go, add the
+  ingestion-lag signal to dashboards (`verifier_source_reader_last_processed_finalized_block`
+  against the chain head; a stalled poller reads healthy and stops advancing, with no
+  `poll_error`), and confirm a restart resumes from ingested logs without a full re-read.
 - **Rollback drill:** repeat once here even though staging drilled it — the prod contexts
   and release names differ, and the people on the prod-mainnet rotation should run it.
 - **Dashboards and alerts:** source-reader head gauges, critical-invariant counter,
@@ -239,6 +253,10 @@ Operator comms for prod-mainnet may start when all of these hold:
 - [ ] Two-week full-fleet soak with no sev and no unexplained transmit failure.
 - [ ] Canary restart, rollback drill, and alert verification results written down.
 - [ ] The per-chain config review (P5) archived; every deviation has an owner.
+- [ ] Source-read mode for prod-mainnet decided and documented in `evm-cl-to-standalone.md`
+      (`eth_getLogs` vs the EVM logpoller — the latter changes verifier app-DB sizing, restart
+      behavior, and the recovery runbook's retention bound and poller rewind), with the
+      operator-facing doc updated to match.
 - [ ] Runbook corrections from this environment fed back into
       `evm-cl-to-standalone.md` — prod-mainnet operators get the corrected doc.
 
