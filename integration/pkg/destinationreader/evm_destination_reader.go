@@ -59,8 +59,8 @@ func (dr *EvmDestinationReader) SetExecutorMonitoring(m monitoring.Monitoring) {
 
 func (dr *EvmDestinationReader) HealthReport() map[string]error {
 	report := make(map[string]error)
-	report[dr.Name()] = dr.Healthy()
-	report[dr.executionAttemptPoller.Name()] = dr.executionAttemptPoller.Healthy()
+	report[dr.Name()] = dr.Ready()
+	report[dr.executionAttemptPoller.Name()] = dr.executionAttemptPoller.Ready()
 	return report
 }
 

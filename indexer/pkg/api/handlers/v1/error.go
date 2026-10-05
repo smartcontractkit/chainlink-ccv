@@ -5,7 +5,7 @@ import (
 	"net/http"
 )
 
-var internalServiceUnavailable = makeErrorResponse(http.StatusServiceUnavailable,
+var ServiceUnavailable = makeErrorResponse(http.StatusServiceUnavailable,
 	"An unexpected error occurred. Please try again later.")
 
 type ErrorResponse struct {

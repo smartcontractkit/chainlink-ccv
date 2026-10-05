@@ -537,6 +537,7 @@ func baseImageRequest(in *Input, envVars map[string]string, bootstrapConfigFileP
 		// This is the container port, not the host port, so it can be the same across different containers.
 		ExposedPorts: []string{DefaultVerifierPortTCP, services.DefaultBootstrapListenPortTCP},
 		HostConfigModifier: func(h *container.HostConfig) {
+			h.ExtraHosts = append(h.ExtraHosts, services.HostGatewayExtraHost)
 			h.PortBindings = network.PortMap{
 				network.MustParsePort(DefaultVerifierPortTCP): []network.PortBinding{
 					{HostPort: ""}, // Docker assigns a random free host port.
@@ -690,6 +691,7 @@ func createDBContainer(ctx context.Context, in *Input, chainFamily string) (*pos
 				},
 				Labels: framework.DefaultTCLabels(),
 				HostConfigModifier: func(h *container.HostConfig) {
+					h.ExtraHosts = append(h.ExtraHosts, services.HostGatewayExtraHost)
 					h.PortBindings = network.PortMap{
 						network.MustParsePort("5432/tcp"): []network.PortBinding{
 							{HostPort: ""}, // Docker assigns a random free host port.

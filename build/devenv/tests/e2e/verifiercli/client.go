@@ -24,10 +24,6 @@ const (
 	// alternate layouts.
 	DefaultBinaryPath = "/bin/verifier"
 
-	// DefaultProcessMatch is the pgrep/pkill pattern that matches the
-	// running committee process inside the container.
-	DefaultProcessMatch = "verifier"
-
 	// defaultRestartReadyTimeout bounds how long RestartAndWaitReady
 	// will poll the CLI before giving up.
 	defaultRestartReadyTimeout = 60 * time.Second
@@ -41,7 +37,6 @@ const (
 type Client struct {
 	containerName string
 	binaryPath    string
-	processMatch  string
 }
 
 // Option configures a Client.
@@ -52,12 +47,6 @@ func WithBinaryPath(path string) Option {
 	return func(c *Client) { c.binaryPath = path }
 }
 
-// WithProcessMatch overrides the pgrep/pkill pattern used to target the
-// committee process for Pause/Resume.
-func WithProcessMatch(match string) Option {
-	return func(c *Client) { c.processMatch = match }
-}
-
 // NewClient returns a Client bound to containerName. Any leading slash
 // (as returned by Docker's container inspect output) is stripped so
 // callers can pass the name through unchanged.
@@ -65,7 +54,6 @@ func NewClient(containerName string, opts ...Option) *Client {
 	c := &Client{
 		containerName: strings.TrimPrefix(containerName, "/"),
 		binaryPath:    DefaultBinaryPath,
-		processMatch:  DefaultProcessMatch,
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -113,22 +101,34 @@ func (c *Client) CLIJSON(ctx context.Context, subcommand []string, args ...strin
 	return out, nil
 }
 
-// Pause sends pkill -STOP to the committee process. Tests use this
-// before CLI mutations so the running verifier does not race the
+// ProcessIdentity identifies the container's PID 1 by its host PID and start time,
+// so tests can assert the service process was or was not replaced. The final images
+// are distroless and have no `cat`, so this reads `docker inspect`, not /proc/1/stat.
+func (c *Client) ProcessIdentity(ctx context.Context) (string, error) {
+	cmd := exec.CommandContext(ctx, "docker", "inspect", "-f", "{{.State.Pid}}:{{.State.StartedAt}}", c.containerName)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("docker inspect %s: %w (output: %s)", c.containerName, err, string(out))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// Pause stops the committee process via `ccv quiesce pause` (SIGSTOP). Tests
+// use this before CLI mutations so the running verifier does not race the
 // mutation (e.g. overwrite a freshly disabled chain status).
 // Pause is safe to call multiple times; a STOP on an already-stopped
 // process is a no-op.
 func (c *Client) Pause(ctx context.Context) error {
-	_, err := c.Exec(ctx, "pkill", "-STOP", "-f", c.processMatch)
+	_, err := c.CLI(ctx, []string{"ccv", "quiesce"}, "pause")
 	return err
 }
 
-// Resume sends pkill -CONT. Callers should defer Resume (or call it in
-// t.Cleanup) to guarantee the environment is left healthy even when the
-// test fails between Pause and the logical resume.
+// Resume sends `ccv quiesce resume` (SIGCONT). Callers should defer Resume
+// (or call it in t.Cleanup) to guarantee the environment is left healthy
+// even when the test fails between Pause and the logical resume.
 // A best-effort helper for cleanup paths is ResumeBestEffort.
 func (c *Client) Resume(ctx context.Context) error {
-	_, err := c.Exec(ctx, "pkill", "-CONT", "-f", c.processMatch)
+	_, err := c.CLI(ctx, []string{"ccv", "quiesce"}, "resume")
 	return err
 }
 
@@ -136,7 +136,7 @@ func (c *Client) Resume(ctx context.Context) error {
 // t.Cleanup hooks where the test has already recorded its failure and
 // we just want the container back to a usable state.
 func (c *Client) ResumeBestEffort(ctx context.Context) {
-	_, _ = c.Exec(ctx, "pkill", "-CONT", "-f", c.processMatch)
+	_, _ = c.CLI(ctx, []string{"ccv", "quiesce"}, "resume")
 }
 
 // RestartAndWaitReady restarts the verifier container via `docker

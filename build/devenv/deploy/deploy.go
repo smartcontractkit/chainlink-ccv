@@ -286,6 +286,14 @@ func ConnectAllChainsCanonical(
 	}
 
 	for _, sel := range orderedSelectors {
+		// Post-connect is a fresh phase. Lane configuration (and earlier chains' post-connect)
+		// may have cached reads that predate their writes, so reset the reporter rather than
+		// serving stale results (e.g. a router OnRamp read before the ramp update).
+		e.OperationsBundle = operations.NewBundle(
+			e.OperationsBundle.GetContext,
+			e.OperationsBundle.Logger,
+			operations.NewMemoryReporter(),
+		)
 		entry := profiles[sel]
 		if err := entry.impl.PostConnect(e, sel, entry.remotes); err != nil {
 			return fmt.Errorf("post-connect for chain %d: %w", sel, err)

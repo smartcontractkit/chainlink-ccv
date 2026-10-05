@@ -1,4 +1,4 @@
-package evm
+package register
 
 import (
 	"os"
@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
 )
 
 // 5009297550715157269 is Ethereum mainnet (chain ID 1) and 4051577828743386545 is Polygon
@@ -38,7 +40,7 @@ func writeEVMConfigFile(t *testing.T, body string) string {
 func TestCheckDeclaredChainCoverage(t *testing.T) {
 	t.Run("declared chains covered by a standalone config", func(t *testing.T) {
 		path := writeEVMConfigFile(t, standaloneChainTOML(ethMainnetSelector)+standaloneChainTOML(polygonSelector))
-		t.Setenv(EVMConfigPathEnv, path)
+		t.Setenv(evmconfig.EVMConfigPathEnv, path)
 		require.NoError(t, checkDeclaredChainCoverage([]string{"1", "137"}))
 	})
 
@@ -50,13 +52,13 @@ ChainID = '1'
 Name = 'primary'
 HTTPURL = 'https://eth.example.com'
 `)
-		t.Setenv(EVMConfigPathEnv, path)
+		t.Setenv(evmconfig.EVMConfigPathEnv, path)
 		require.NoError(t, checkDeclaredChainCoverage([]string{"1"}))
 	})
 
 	t.Run("a declared chain missing from the config names the chain and its selector", func(t *testing.T) {
 		path := writeEVMConfigFile(t, standaloneChainTOML(ethMainnetSelector))
-		t.Setenv(EVMConfigPathEnv, path)
+		t.Setenv(evmconfig.EVMConfigPathEnv, path)
 		err := checkDeclaredChainCoverage([]string{"1", "137"})
 		require.ErrorContains(t, err, "cannot serve")
 		require.ErrorContains(t, err, "chain 137 (selector "+polygonSelector+")")
@@ -79,7 +81,7 @@ ChainID = '1'
 Name = 'ws-only'
 WSURL = 'wss://eth.example.com'
 `)
-		t.Setenv(EVMConfigPathEnv, path)
+		t.Setenv(evmconfig.EVMConfigPathEnv, path)
 		err := checkDeclaredChainCoverage([]string{"1"})
 		require.ErrorContains(t, err, "chain 1 (selector "+ethMainnetSelector+")")
 		require.ErrorContains(t, err, "did not convert")
@@ -88,7 +90,7 @@ WSURL = 'wss://eth.example.com'
 
 	t.Run("a declared id with no known chain selector is a config typo", func(t *testing.T) {
 		path := writeEVMConfigFile(t, standaloneChainTOML(ethMainnetSelector))
-		t.Setenv(EVMConfigPathEnv, path)
+		t.Setenv(evmconfig.EVMConfigPathEnv, path)
 		err := checkDeclaredChainCoverage([]string{"88888888888888"})
 		require.ErrorContains(t, err, "chain 88888888888888")
 		require.ErrorContains(t, err, "no known EVM chain selector")
@@ -96,7 +98,7 @@ WSURL = 'wss://eth.example.com'
 
 	t.Run("chains declared but the config file is absent", func(t *testing.T) {
 		absent := filepath.Join(t.TempDir(), "absent.toml")
-		t.Setenv(EVMConfigPathEnv, absent)
+		t.Setenv(evmconfig.EVMConfigPathEnv, absent)
 		err := checkDeclaredChainCoverage([]string{"1"})
 		require.ErrorContains(t, err, "cannot be loaded")
 		require.ErrorContains(t, err, absent, "the wrapped error names the path that was read")
@@ -106,7 +108,7 @@ WSURL = 'wss://eth.example.com'
 	// guard, failing only when the first accessor was built at job start.
 	t.Run("a declared chain whose section cannot serve it fails the boot", func(t *testing.T) {
 		path := writeEVMConfigFile(t, "[chains."+ethMainnetSelector+"]\n")
-		t.Setenv(EVMConfigPathEnv, path)
+		t.Setenv(evmconfig.EVMConfigPathEnv, path)
 		err := checkDeclaredChainCoverage([]string{"1"})
 		require.ErrorContains(t, err, "chain 1 (selector "+ethMainnetSelector+")")
 		require.ErrorContains(t, err, "cannot serve it")
@@ -115,7 +117,7 @@ WSURL = 'wss://eth.example.com'
 
 	t.Run("extra configured chains beyond the declaration are fine", func(t *testing.T) {
 		path := writeEVMConfigFile(t, standaloneChainTOML(ethMainnetSelector)+standaloneChainTOML(polygonSelector))
-		t.Setenv(EVMConfigPathEnv, path)
+		t.Setenv(evmconfig.EVMConfigPathEnv, path)
 		require.NoError(t, checkDeclaredChainCoverage([]string{"1"}))
 	})
 
@@ -137,12 +139,12 @@ Enabled = false
 Name = 'primary'
 HTTPURL = 'https://eth.example.com'
 `)
-		t.Setenv(EVMConfigPathEnv, path)
+		t.Setenv(evmconfig.EVMConfigPathEnv, path)
 		require.NoError(t, checkDeclaredChainCoverage([]string{"1", "137"}))
 	})
 
 	t.Run("no declared chains: nothing to check, the config need not exist", func(t *testing.T) {
-		t.Setenv(EVMConfigPathEnv, filepath.Join(t.TempDir(), "absent.toml"))
+		t.Setenv(evmconfig.EVMConfigPathEnv, filepath.Join(t.TempDir(), "absent.toml"))
 		require.NoError(t, checkDeclaredChainCoverage(nil))
 	})
 }

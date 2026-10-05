@@ -8,10 +8,12 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/grafana/pyroscope-go"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
+	"github.com/smartcontractkit/chainlink-ccv/common/health"
 	executorsvc "github.com/smartcontractkit/chainlink-ccv/executor"
 	adapter "github.com/smartcontractkit/chainlink-ccv/executor/pkg/adapter"
 	x "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
@@ -259,29 +261,20 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		return fmt.Errorf("failed to start execution coordinator: %w", err)
 	}
 
-	// Dedicated mux per Start(): JD job replacement calls Start again after Stop. Using
-	// http.HandleFunc would register on DefaultServeMux, which is never cleared — second
-	// Start panics with conflicting pattern "/".
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = fmt.Fprintf(w, "CCV Executor is running!\nExecutor ID: %s\n", executorConfig.ExecutorID)
+	// Dedicated router per Start(): JD job replacement calls Start again after Stop, and a
+	// fresh gin.New() avoids any route-registration state carrying over between starts.
+	router := gin.New()
+	router.GET("/", func(c *gin.Context) {
+		c.String(http.StatusOK, "CCV Executor is running!\nExecutor ID: %s\n", executorConfig.ExecutorID)
 	})
-	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
-		for serviceName, err := range f.coordinator.HealthReport() {
-			if err != nil {
-				w.WriteHeader(http.StatusServiceUnavailable)
-				_, _ = fmt.Fprintf(w, "Unhealthy service: %s, error: %s\n", serviceName, err.Error())
-				return
-			}
-		}
-		w.WriteHeader(http.StatusOK)
-		_, _ = fmt.Fprintln(w, "Healthy")
-	})
+
+	healthManager := health.NewManager()
+	healthManager.Register(f.coordinator)
+	health.RegisterOn(healthManager, router)
 
 	server := &http.Server{
 		Addr:         ":" + strconv.Itoa(executorConfig.HTTPListenPort),
-		Handler:      mux,
+		Handler:      router,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 	}
