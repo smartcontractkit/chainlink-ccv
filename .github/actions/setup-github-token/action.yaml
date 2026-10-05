@@ -1,9 +1,9 @@
 name: Setup GitHub Token
 description: >-
-  Calls smartcontractkit/.github's GATI token setup, or skips it when the GATI
-  secrets are unavailable. Dependabot and fork PR runs get no repo secrets, and
-  all module dependencies of these workflows are public, so the token is
-  optional there; the merge queue (merge_group) always runs with full secrets.
+  Calls smartcontractkit/.github's GATI token setup, or skips it when this is a
+  Dependabot/fork PR run with no repo secrets (all module dependencies here are
+  public). Any partial configuration, or missing secrets on a trusted run
+  (push, human PR, merge queue), fails closed so auth cannot silently degrade.
 
 inputs:
   aws-role-arn:
@@ -39,10 +39,33 @@ outputs:
 runs:
   using: composite
   steps:
-    # Empty inputs mean the run has no repo secrets (Dependabot or fork PR), so skip GATI.
+    - name: Validate GATI inputs
+      id: validate
+      shell: bash
+      env:
+        AWS_ROLE_ARN: ${{ inputs.aws-role-arn }}
+        AWS_LAMBDA_URL: ${{ inputs.aws-lambda-url }}
+        AWS_REGION: ${{ inputs.aws-region }}
+        # Dependabot and fork PR runs get no repo secrets; every other run is trusted.
+        SECRETLESS_RUN: ${{ github.event_name == 'pull_request' && (github.actor == 'dependabot[bot]' || github.event.pull_request.head.repo.fork == true) }}
+      run: |
+        present=0
+        if [[ -n "$AWS_ROLE_ARN" ]]; then present=$((present + 1)); fi
+        if [[ -n "$AWS_LAMBDA_URL" ]]; then present=$((present + 1)); fi
+        if [[ -n "$AWS_REGION" ]]; then present=$((present + 1)); fi
+        if [[ "$present" -eq 3 ]]; then
+          echo "run=true" >> "$GITHUB_OUTPUT"
+        elif [[ "$present" -eq 0 && "$SECRETLESS_RUN" == "true" ]]; then
+          echo "run=false" >> "$GITHUB_OUTPUT"
+          echo "Dependabot/fork PR without repo secrets; skipping GATI token setup."
+        else
+          echo "::error::GATI inputs incomplete (${present}/3 set); failing closed so auth cannot silently degrade."
+          exit 1
+        fi
+
     - name: Setup GitHub Token
       id: gati
-      if: inputs.aws-region != '' && inputs.aws-role-arn != '' && inputs.aws-lambda-url != ''
+      if: steps.validate.outputs.run == 'true'
       uses: smartcontractkit/.github/actions/setup-github-token@ef78fa97bf3c77de6563db1175422703e9e6674f # setup-github-token@0.2.1
       with:
         aws-role-arn: ${{ inputs.aws-role-arn }}

@@ -37,12 +37,17 @@ jobs:
           CCV_IAM_ROLE: ${{ secrets.CCV_IAM_ROLE }}
           JD_REGISTRY: ${{ secrets.JD_REGISTRY }}
           JD_IMAGE: ${{ secrets.JD_IMAGE }}
+          # Dependabot and fork PR runs get no repo secrets; every other run is trusted.
+          SECRETLESS_RUN: ${{ github.event_name == 'pull_request' && (github.actor == 'dependabot[bot]' || github.event.pull_request.head.repo.fork == true) }}
         run: |
           if [[ -n "$CCV_IAM_ROLE" && -n "$JD_REGISTRY" && -n "$JD_IMAGE" ]]; then
             echo "e2e_runnable=true" >> "$GITHUB_OUTPUT"
-          else
+          elif [[ -z "$CCV_IAM_ROLE" && -z "$JD_REGISTRY" && -z "$JD_IMAGE" && "$SECRETLESS_RUN" == "true" ]]; then
             echo "e2e_runnable=false" >> "$GITHUB_OUTPUT"
-            echo "CI secrets unavailable; e2e-smoke jobs will be skipped."
+            echo "Dependabot/fork PR without repo secrets; e2e-smoke jobs will be skipped (the merge queue runs the full suite)."
+          else
+            echo "::error::CI secrets incomplete (CCV_IAM_ROLE/JD_REGISTRY/JD_IMAGE); failing closed instead of silently skipping e2e."
+            exit 1
           fi
 
       - name: Setup GitHub Token

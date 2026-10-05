@@ -3,19 +3,34 @@ description: Build CCV service images via just build-docker-ci
 
 inputs:
   ccv-iam-role:
-    # Empty on secretless runs (Dependabot PRs); the ECR auth steps then self-skip,
-    # which is fine because these builds pull only public base images.
-    description: 'AWS IAM role for CCV. Empty skips ECR authentication.'
-    required: false
-    default: ''
+    description: 'AWS IAM role for CCV'
+    required: true
   jd-registry:
     description: 'JD registry ID'
-    required: false
-    default: ''
+    required: true
 
 runs:
   using: composite
   steps:
+    - name: Validate ECR inputs
+      id: validate
+      shell: bash
+      env:
+        CCV_IAM_ROLE: ${{ inputs.ccv-iam-role }}
+        JD_REGISTRY: ${{ inputs.jd-registry }}
+        # Dependabot and fork PR runs get no repo secrets; these builds pull only public base images.
+        SECRETLESS_RUN: ${{ github.event_name == 'pull_request' && (github.actor == 'dependabot[bot]' || github.event.pull_request.head.repo.fork == true) }}
+      run: |
+        if [[ -n "$CCV_IAM_ROLE" && -n "$JD_REGISTRY" ]]; then
+          echo "auth=true" >> "$GITHUB_OUTPUT"
+        elif [[ -z "$CCV_IAM_ROLE" && -z "$JD_REGISTRY" && "$SECRETLESS_RUN" == "true" ]]; then
+          echo "auth=false" >> "$GITHUB_OUTPUT"
+          echo "Dependabot/fork PR without repo secrets; skipping ECR authentication (builds pull only public base images)."
+        else
+          echo "::error::ECR inputs incomplete (ccv-iam-role/jd-registry); failing closed so auth cannot silently degrade."
+          exit 1
+        fi
+
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
 
@@ -25,6 +40,7 @@ runs:
         just-version: '1.40.0'
 
     - name: Authenticate to AWS ECR
+      if: steps.validate.outputs.auth == 'true'
       uses: ./.github/actions/aws-ecr-auth
       with:
         role-to-assume: ${{ inputs.ccv-iam-role }}
@@ -32,6 +48,7 @@ runs:
         registry-type: public
 
     - name: Authenticate to AWS ECR (JD)
+      if: steps.validate.outputs.auth == 'true'
       uses: ./.github/actions/aws-ecr-auth
       with:
         role-to-assume: ${{ inputs.ccv-iam-role }}

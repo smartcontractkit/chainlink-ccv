@@ -9,17 +9,14 @@ inputs:
     description: 'Test timeout duration'
     required: true
   ccv-iam-role:
-    description: 'AWS IAM role for CCV. Empty skips ECR authentication.'
-    required: false
-    default: ''
+    description: 'AWS IAM role for CCV'
+    required: true
   jd-registry:
-    description: 'JD registry ID. Empty skips the private ECR login.'
-    required: false
-    default: ''
+    description: 'JD registry ID'
+    required: true
   jd-image:
-    description: 'JD Docker image. Empty (secretless runs) fails the load test; gate those jobs instead.'
-    required: false
-    default: ''
+    description: 'JD Docker image'
+    required: true
   env_name:
     description: 'Environment name for CCV'
     required: false
