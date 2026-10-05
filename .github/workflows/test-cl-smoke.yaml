@@ -63,6 +63,12 @@ jobs:
       - name: Enable S3 Cache for Self-Hosted Runners
         uses: runs-on/action@cd2b598b0515d39d78c38a02d529db87d2196d1e # v2.0.3
 
+      # Local actions need the repo on disk, so checkout must precede the token setup.
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
       - name: Setup GitHub Token
         id: setup-github-token
         uses: ./.github/actions/setup-github-token
@@ -71,11 +77,6 @@ jobs:
           aws-lambda-url: ${{ secrets.GATI_LAMBDA_URL_RELENG }}
           aws-region: ${{ secrets.GATI_AWS_REGION }}
           set-git-config: true
-
-      - name: Checkout code
-        uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
 
       - name: Build CL Image For Ref
         uses: ./.github/actions/build-cl
@@ -104,6 +105,12 @@ jobs:
       - name: Enable S3 Cache for Self-Hosted Runners
         uses: runs-on/action@cd2b598b0515d39d78c38a02d529db87d2196d1e # v2.0.3
 
+      # Local actions need the repo on disk, so checkout must precede the token setup.
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
       - name: Detect CI secrets
         id: detect-secrets
         env:
@@ -126,11 +133,6 @@ jobs:
           aws-lambda-url: ${{ secrets.GATI_LAMBDA_URL_RELENG }}
           aws-region: ${{ secrets.GATI_AWS_REGION }}
           set-git-config: true
-
-      - name: Checkout code
-        uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
 
       - name: Build devenv Docker images
         uses: ./.github/actions/build-devenv-docker
@@ -169,6 +171,10 @@ jobs:
       - name: Enable S3 Cache for Self-Hosted Runners
         uses: runs-on/action@cd2b598b0515d39d78c38a02d529db87d2196d1e # v2.0.3
 
+      # Local actions need the repo on disk, so checkout must precede the token setup.
+      - name: Checkout code
+        uses: actions/checkout@v5
+
       - name: Setup GitHub Token
         id: setup-github-token
         uses: ./.github/actions/setup-github-token
@@ -177,9 +183,6 @@ jobs:
           aws-lambda-url: ${{ secrets.GATI_LAMBDA_URL_RELENG }}
           aws-region: ${{ secrets.GATI_AWS_REGION }}
           set-git-config: true
-
-      - name: Checkout code
-        uses: actions/checkout@v5
 
       # Keep this setup-go config identical to the e2e matrix jobs so it restores
       # the same (~1GB) build cache. The cache key is derived from
@@ -261,6 +264,12 @@ jobs:
       - name: Enable S3 Cache for Self-Hosted Runners
         uses: runs-on/action@cd2b598b0515d39d78c38a02d529db87d2196d1e # v2.0.3
 
+      # Local actions need the repo on disk, so checkout must precede the token setup.
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
       - name: Setup GitHub Token
         id: setup-github-token
         uses: ./.github/actions/setup-github-token
@@ -269,11 +278,6 @@ jobs:
           aws-lambda-url: ${{ secrets.GATI_LAMBDA_URL_RELENG }}
           aws-region: ${{ secrets.GATI_AWS_REGION }}
           set-git-config: true
-
-      - name: Checkout code
-        uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
 
       - name: Download Docker Image
         uses: actions/download-artifact@v4
@@ -395,6 +399,12 @@ jobs:
       - name: Enable S3 Cache for Self-Hosted Runners
         uses: runs-on/action@cd2b598b0515d39d78c38a02d529db87d2196d1e # v2.0.3
 
+      # Local actions need the repo on disk, so checkout must precede the token setup.
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
       - name: Setup GitHub Token
         id: setup-github-token
         uses: ./.github/actions/setup-github-token
@@ -403,11 +413,6 @@ jobs:
           aws-lambda-url: ${{ secrets.GATI_LAMBDA_URL_RELENG }}
           aws-region: ${{ secrets.GATI_AWS_REGION }}
           set-git-config: true
-
-      - name: Checkout code
-        uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
 
       - name: Download Docker Image
         uses: actions/download-artifact@v4
