@@ -114,9 +114,9 @@ func (q *QuorumConfig) GetSourceVerifierAddress() protocol.UnknownAddress {
 
 // IsSigner reports whether the identifier belongs to a signer of this quorum.
 func (q *QuorumConfig) IsSigner(identifier protocol.ByteSlice) bool {
-	key := normalizeHexAddress(identifier.String())
+	key := strings.TrimPrefix(strings.ToLower(identifier.String()), "0x")
 	for _, signer := range q.Signers {
-		if normalizeHexAddress(signer.Address) == key {
+		if strings.TrimPrefix(strings.ToLower(signer.Address), "0x") == key {
 			return true
 		}
 	}
