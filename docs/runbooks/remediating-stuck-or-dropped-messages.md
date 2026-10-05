@@ -107,7 +107,7 @@ have no archived job to reschedule; use step 4.
    archived again.
 4. What to expect: the job returns to the active queue as `pending` with its attempt count
    reset, and the running node picks it up within about 30 seconds. That is the queue's
-   fallback poll, `DefaultPendingFallbackInterval` in `verifier/pkg/jobqueue/signal.go`; the
+   fallback poll, `DefaultPendingFallbackInterval` in `common/jobqueue/signal.go`; the
    CLI cannot signal the in-process consumer, so the row waits for that poll. No restart is
    needed. For `task-verifier`, verification starts over and the policy endpoint is asked
    again. Source-reader finality and admission checks do not run again. For `storage-writer`,

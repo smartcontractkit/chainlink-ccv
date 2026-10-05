@@ -45,11 +45,11 @@ const (
 // Run against a local Postgres:
 //
 //	TEST_POSTGRES_URL="postgres://user:pass@localhost:5432/ccv_test?sslmode=disable" \
-//	  go test -v -run TestExplainQueryPlans -timeout 120s ./verifier/pkg/jobqueue/
+//	  go test -v -run TestExplainQueryPlans -timeout 120s ./common/jobqueue/
 //
 // Run with testcontainer (no env var needed):
 //
-//	go test -v -run TestExplainQueryPlans -timeout 120s ./verifier/pkg/jobqueue/
+//	go test -v -run TestExplainQueryPlans -timeout 120s ./common/jobqueue/
 func getExplainDB(t *testing.T) *sqlx.DB {
 	t.Helper()
 	if url := os.Getenv("TEST_POSTGRES_URL"); url != "" {
