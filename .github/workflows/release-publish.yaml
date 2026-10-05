@@ -155,3 +155,33 @@ jobs:
     secrets:
       AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID_SDLC }}
       AWS_ROLE_PUBLISH_ARN: ${{ secrets.CCV_IAM_ROLE_SDLC }}
+
+  dispatch:
+    name: Dispatch once images are published
+    runs-on: ubuntu-latest
+    needs: [build, build-marketplace-gcp, build-public, compute-tags]
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Setup GitHub Token
+        id: setup-github-token
+        uses: smartcontractkit/.github/actions/setup-github-token@setup-github-token/v1
+        with:
+          profile: workflow-trigger
+
+      - name: Dispatch marketplace-release (no `v` prefix)
+        uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+        with:
+          token: ${{ steps.setup-github-token.outputs.access-token }}
+          repository: smartcontractkit/chainlink-ccv-starter-kit
+          event-type: marketplace-release
+          client-payload: '{"tag": "${{ needs.compute-tags.outputs.bare-version }}"}'
+
+      - name: Dispatch image-bump (with `v` prefix)
+        uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+        with:
+          token: ${{ steps.setup-github-token.outputs.access-token }}
+          repository: smartcontractkit/chainlink-ccv-starter-kit
+          event-type: image-bump
+          client-payload: '{"tag": "${{ github.ref_name }}"}'
