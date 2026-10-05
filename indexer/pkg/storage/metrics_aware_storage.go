@@ -31,6 +31,19 @@ type MetricsAwareStorage struct {
 	slowQueryThreshold time.Duration
 }
 
+// Health is reported by the wrapped storage; the metrics wrapper adds no state of its own.
+func (s *MetricsAwareStorage) Ready() error {
+	return s.inner.Ready()
+}
+
+func (s *MetricsAwareStorage) HealthReport() map[string]error {
+	return s.inner.HealthReport()
+}
+
+func (s *MetricsAwareStorage) Name() string {
+	return s.inner.Name()
+}
+
 type MetricsAwareStorageOption func(*MetricsAwareStorage)
 
 func WithSlowQueryThreshold(threshold time.Duration) MetricsAwareStorageOption {
