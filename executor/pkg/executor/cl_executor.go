@@ -132,7 +132,7 @@ func (cle *ChainlinkExecutor) Name() string {
 }
 
 func (cle *ChainlinkExecutor) Ready() error {
-	return cle.Healthy()
+	return cle.StateMachine.Ready()
 }
 
 func (cle *ChainlinkExecutor) CheckValidMessage(ctx context.Context, message protocol.Message) error {
