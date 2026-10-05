@@ -6,7 +6,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	cmdexecutor "github.com/smartcontractkit/chainlink-ccv/cmd/executor"
-	_ "github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm" // evm accessor driver
+	_ "github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm/register" // evm accessor driver
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/contracttransmitter"
 	"github.com/smartcontractkit/chainlink-common/keystore"
 )
