@@ -45,8 +45,8 @@ type FeeTokenPrice struct {
 
 // GasTokenPrice is a chain's gas price and when it was updated.
 type GasTokenPrice struct {
-	// GasPrice is the chain's gas price.
-	GasPrice USDGasPrice
+	// USDGasPrice is the chain's gas price, in 1e18 USD per gas unit.
+	USDGasPrice USDGasPrice
 	// UpdatedAt is when the gas price was last updated on-chain.
 	UpdatedAt time.Time
 }
@@ -79,6 +79,6 @@ type FeeTokenPriceUpdate struct {
 type GasTokenPriceUpdate struct {
 	// ChainSelector is the destination chain to update.
 	ChainSelector ChainSelector
-	// GasPrice is the new gas price for the chain.
-	GasPrice USDGasPrice
+	// USDGasPrice is the new gas price for the chain, in 1e18 USD per gas unit.
+	USDGasPrice USDGasPrice
 }
