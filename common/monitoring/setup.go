@@ -41,6 +41,12 @@ func SetupBeholder(config BeholderConfig, signer crypto.Signer, metricViews []sd
 		MetricReaderInterval:     time.Second * time.Duration(config.MetricReaderInterval),
 		TraceSampleRatio:         config.TraceSampleRatio,
 		TraceBatchTimeout:        time.Second * time.Duration(config.TraceBatchTimeout),
+		// Chip ingress: setting an endpoint enables the dual-source emitter, so custom
+		// events reach both the OTel collector and CHIP Ingress. Mirrors the core node
+		// mapping of Telemetry.ChipIngressEndpoint onto the beholder client config.
+		ChipIngressEmitterEnabled:      config.ChipIngressEndpoint != "",
+		ChipIngressEmitterGRPCEndpoint: config.ChipIngressEndpoint,
+		ChipIngressInsecureConnection:  config.ChipIngressInsecureConnection,
 	}
 
 	if signer != nil {
@@ -58,11 +64,7 @@ func SetupBeholder(config BeholderConfig, signer crypto.Signer, metricViews []sd
 	}
 
 	if len(config.TelemetryAttributes) > 0 {
-		attrs := make([]attribute.KeyValue, 0, len(config.TelemetryAttributes))
-		for k, v := range config.TelemetryAttributes {
-			attrs = append(attrs, attribute.String(k, v))
-		}
-		beholderConfig.ResourceAttributes = attrs
+		beholderConfig.ResourceAttributes = ResourceAttributes(config.TelemetryAttributes)
 	}
 
 	if len(metricViews) > 0 {
@@ -84,6 +86,15 @@ func SetupBeholder(config BeholderConfig, signer crypto.Signer, metricViews []sd
 }
 
 var _ beholder.Signer = (*beholderSigner)(nil)
+
+// ResourceAttributes converts config telemetry attributes into OTel resource attributes.
+func ResourceAttributes(attrs map[string]string) []attribute.KeyValue {
+	out := make([]attribute.KeyValue, 0, len(attrs))
+	for k, v := range attrs {
+		out = append(out, attribute.String(k, v))
+	}
+	return out
+}
 
 type beholderSigner struct {
 	signer crypto.Signer

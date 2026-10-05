@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
+	"strconv"
 	"time"
 
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -100,12 +102,14 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 	// details are supplied independently by each chain family's local config.
 	chainSelectors := chainaccess.Infos[string](cfg.OnRampAddresses).GetAllChainSelectors()
 	sourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
+	accessors := make(map[protocol.ChainSelector]chainaccess.Accessor)
 	for _, selector := range chainSelectors {
 		accessor, err := deps.Registry.GetAccessor(ctx, selector)
 		if err != nil {
 			tvf.lggr.Errorw("Skipping chain, failed to get accessor for chain selector", "error", err, "chainSelector", selector)
 			continue
 		}
+		accessors[selector] = accessor
 		reader, err := accessor.SourceReader()
 		if err != nil {
 			tvf.lggr.Warnw("Skipping chain, source reader not available", "chainSelector", selector, "error", err)
@@ -146,11 +150,13 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 		)
 
 		var coordinator *verifier.Coordinator
-		if verifierConfig.IsLombard() {
-			if coordinator, err = createLombardCoordinator(
+		switch {
+		case verifierConfig.IsLombard():
+			coordinator, err = createLombardCoordinator(
 				ctx,
 				verifierConfig.VerifierID,
 				verifierConfig.LombardConfig,
+				cfg.DisableFinalityCheckers,
 				tvf.lggr,
 				sourceReaders,
 				storage.NewCCVWriter(
@@ -162,16 +168,20 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 				verifierMonitoring,
 				monitoredChainStatusManager,
 				db,
-			); err != nil {
-				return fmt.Errorf("failed to create verification coordinator for lombard: %w", err)
+			)
+		case verifierConfig.IsCCTP():
+			cctpCodecs, codecErr := cctpCodecsFor(accessors, verifierConfig.CCTPConfig)
+			if codecErr != nil {
+				return fmt.Errorf("failed to create verification coordinator for cctp: %w", codecErr)
 			}
-		} else if verifierConfig.IsCCTP() {
-			if coordinator, err = createCCTPCoordinator(
+			coordinator, err = createCCTPCoordinator(
 				ctx,
 				verifierConfig.VerifierID,
 				verifierConfig.CCTPConfig,
+				cfg.DisableFinalityCheckers,
 				tvf.lggr,
 				sourceReaders,
+				cctpCodecs,
 				storage.NewCCVWriter(
 					tvf.lggr,
 					verifierConfig.CCTPConfig.ParsedVerifierResolvers,
@@ -181,12 +191,13 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 				verifierMonitoring,
 				monitoredChainStatusManager,
 				db,
-			); err != nil {
-				return fmt.Errorf("failed to create verification coordinator for cctp: %w", err)
-			}
-		} else {
+			)
+		default:
 			tvf.lggr.Fatalw("Unknown verifier type", "type", verifierConfig.Type)
 			continue
+		}
+		if err != nil {
+			return fmt.Errorf("failed to create verification coordinator for %s: %w", verifierConfig.Type, err)
 		}
 
 		tvf.coordinators = append(tvf.coordinators, coordinator)
@@ -228,21 +239,48 @@ func (tvf *tokenVerifierFactory) MetricViews() []sdkmetric.View {
 	return monitoring.MetricViews()
 }
 
+// cctpCodecsFor gets CCTP codecs for source chains in verifier_addresses.
+// The CCV writer gets the source and destination verifier addresses from verifier_resolver_addresses.
+// A source chain with no accessor or codec fails the verifier at startup.
+func cctpCodecsFor(
+	accessors map[protocol.ChainSelector]chainaccess.Accessor,
+	cctpConfig *cctp.CCTPConfig,
+) (map[protocol.ChainSelector]chainaccess.CCTPCodec, error) {
+	cctpCodecs := make(map[protocol.ChainSelector]chainaccess.CCTPCodec, len(cctpConfig.ParsedVerifiers))
+	for selector := range cctpConfig.ParsedVerifiers {
+		accessor, ok := accessors[selector]
+		if !ok {
+			return nil, fmt.Errorf("no accessor resolved for CCTP source chain selector %d", selector)
+		}
+		codec, err := accessor.CCTPCodec()
+		if err != nil {
+			return nil, fmt.Errorf("no CCTP chain codec for source chain selector %d: %w", selector, err)
+		}
+		if codec == nil {
+			return nil, fmt.Errorf("no CCTP chain codec for source chain selector %d", selector)
+		}
+		cctpCodecs[selector] = codec
+	}
+	return cctpCodecs, nil
+}
+
 func createCCTPCoordinator(
 	ctx context.Context,
 	verifierID string,
 	cctpConfig *cctp.CCTPConfig,
+	disableFinalityCheckers []string,
 	lggr logger.Logger,
 	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
+	cctpCodecs map[protocol.ChainSelector]chainaccess.CCTPCodec,
 	ccvStorage protocol.CCVNodeDataWriter,
 	messageTracker verifier.MessageLatencyTracker,
 	verifierMonitoring verifier.Monitoring,
 	chainStatusManager protocol.ChainStatusManager,
 	db sqlutil.DataSource,
 ) (*verifier.Coordinator, error) {
-	cctpSourceConfigs := createSourceConfigs(cctpConfig.ParsedVerifierResolvers)
+	cctpSourceConfigs := createSourceConfigs(cctpConfig.ParsedVerifierResolvers, disableFinalityCheckers)
 
-	attestationService, err := cctp.NewAttestationService(lggr, verifierMonitoring, *cctpConfig)
+	attestationService, err := cctp.NewAttestationService(lggr, verifierMonitoring, *cctpConfig, cctpCodecs)
 	if err != nil {
 		lggr.Errorw("Failed to create CCTP attestation service", "error", err)
 		return nil, fmt.Errorf("failed to create CCTP attestation service: %w", err)
@@ -271,6 +309,7 @@ func createCCTPCoordinator(
 		heartbeatclient.NewNoopHeartbeatClient(),
 		nil,
 		db,
+		verifier.WithSourceRecovery(),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create verification coordinator for cctp: %w", err)
@@ -282,6 +321,7 @@ func createLombardCoordinator(
 	_ context.Context,
 	verifierID string,
 	lombardConfig *lombard.LombardConfig,
+	disableFinalityCheckers []string,
 	lggr logger.Logger,
 	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
 	ccvStorage protocol.CCVNodeDataWriter,
@@ -290,7 +330,7 @@ func createLombardCoordinator(
 	chainStatusManager protocol.ChainStatusManager,
 	db sqlutil.DataSource,
 ) (*verifier.Coordinator, error) {
-	sourceConfigs := createSourceConfigs(lombardConfig.ParsedVerifierResolvers)
+	sourceConfigs := createSourceConfigs(lombardConfig.ParsedVerifierResolvers, disableFinalityCheckers)
 	attestationService, err := lombard.NewAttestationService(lggr, verifierMonitoring, *lombardConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Lombard attestation service: %w", err)
@@ -324,6 +364,7 @@ func createLombardCoordinator(
 		heartbeatclient.NewNoopHeartbeatClient(),
 		nil,
 		db,
+		verifier.WithSourceRecovery(),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create verification coordinator for lombard: %w", err)
@@ -332,14 +373,19 @@ func createLombardCoordinator(
 	return coordinator, nil
 }
 
-func createSourceConfigs(verifiers map[protocol.ChainSelector]protocol.UnknownAddress) map[protocol.ChainSelector]verifier.SourceConfig {
+func createSourceConfigs(
+	verifiers map[protocol.ChainSelector]protocol.UnknownAddress,
+	disableFinalityCheckers []string,
+) map[protocol.ChainSelector]verifier.SourceConfig {
 	sourceConfigs := make(map[protocol.ChainSelector]verifier.SourceConfig)
 	for selector, address := range verifiers {
+		strSelector := strconv.FormatUint(uint64(selector), 10)
 		sourceConfigs[selector] = verifier.SourceConfig{
 			VerifierAddress:        address,
 			DefaultExecutorAddress: nil,
 			PollInterval:           verifier.SourceReaderPollInterval,
 			ChainSelector:          selector,
+			DisableFinalityChecker: slices.Contains(disableFinalityCheckers, strSelector),
 		}
 	}
 	return sourceConfigs

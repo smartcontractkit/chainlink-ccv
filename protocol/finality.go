@@ -1,10 +1,5 @@
 package protocol
 
-import (
-	"errors"
-	"math/big"
-)
-
 // Finality is the per-message finality value encoded in the wire format.
 // It mirrors the bytes4 finality field from FinalityCodec.sol (MSB on the left):
 //
@@ -26,6 +21,25 @@ import (
 //		  0x00000001..0x0000FFFF — wait for N block confirmations (lower 16 bits).
 type Finality uint32
 
+// FinalityMode identifies the decoded readiness requirement.
+type FinalityMode string
+
+const (
+	// FinalityModeFinalized waits for a finalized or safe head.
+	FinalityModeFinalized FinalityMode = "finalized"
+
+	// FinalityModeBlockDepth waits for confirmations, capped by full finality.
+	FinalityModeBlockDepth FinalityMode = "blockDepth"
+)
+
+// FinalityRequirement is a decoded finality requirement, independent of any API contract.
+// Safe requests fall back to full finality when the chain does not expose a safe head.
+type FinalityRequirement struct {
+	Mode       FinalityMode `json:"mode"`
+	BlockDepth uint16       `json:"block_depth"`
+	Safe       bool         `json:"safe"`
+}
+
 const (
 	// FinalityWaitForFinality signals waiting for full on-chain finality (default, safest).
 	FinalityWaitForFinality Finality = 0x00000000
@@ -41,6 +55,20 @@ const (
 // Use it as the single entry point for all builder chains.
 func NewFinality() Finality { return FinalityWaitForFinality }
 
+// Requirement reports the semantics used by IsMessageReady. Unsupported flags or
+// flag/depth combinations require full finality, rather than a partially decoded requirement.
+func (f Finality) Requirement() FinalityRequirement {
+	out := FinalityRequirement{Mode: FinalityModeFinalized}
+	switch {
+	case f == FinalityWaitForSafe:
+		out.Safe = true
+	case f != FinalityWaitForFinality && f&FinalityFlagMask == 0:
+		out.Mode = FinalityModeBlockDepth
+		out.BlockDepth = uint16(f & FinalityBlockDepthMask)
+	}
+	return out
+}
+
 // WithSafe sets the safe-head flag (bit 16).
 func (f Finality) WithSafe() Finality { return f | FinalityWaitForSafe }
 
@@ -55,47 +83,39 @@ func (f Finality) ToBytes() [4]byte {
 	return [4]byte{byte(f >> 24), byte(f >> 16), byte(f >> 8), byte(f)}
 }
 
-// ErrNilBlock is returned by IsMessageReady when a required block argument is nil.
-var ErrNilBlock = errors.New("block must not be nil")
-
 // IsMessageReady reports whether a message included in msgBlock has satisfied its
 // finality requirement given the current chain head state.
 //
-// msgBlock, latestBlock and latestFinalizedBlock are required; passing nil for any
-// of them returns ErrNilBlock. latestSafeBlock may be nil — a nil value means the
-// chain does not expose a safe head, and FinalityWaitForSafe falls back to full
-// finality in that case.
+// latestSafeBlock of 0 means the chain does not expose a safe head, and
+// FinalityWaitForSafe falls back to full finality in that case.
 //
 // The three modes mirror the FinalityCodec.sol bit layout:
 //   - FinalityWaitForFinality (0x00000000): ready when msgBlock ≤ latestFinalizedBlock.
 //   - FinalityWaitForSafe    (0x00010000): ready when msgBlock ≤ latestSafeBlock.
-//     Falls back to full-finality semantics when latestSafeBlock is nil.
+//     Falls back to full-finality semantics when latestSafeBlock is 0.
 //   - Block-depth (0x00000001-0x0000FFFF): ready when msgBlock + depth ≤ latestBlock,
 //     OR capped: msgBlock ≤ latestFinalizedBlock (prevents depth from exceeding finality).
-func (f Finality) IsMessageReady(msgBlock, latestBlock, latestSafeBlock, latestFinalizedBlock *big.Int) (bool, error) {
-	if msgBlock == nil || latestBlock == nil || latestFinalizedBlock == nil {
-		return false, ErrNilBlock
-	}
-
+func (f Finality) IsMessageReady(msgBlock, latestBlock, latestSafeBlock, latestFinalizedBlock uint64) bool {
 	switch {
 	case f == FinalityWaitForFinality:
-		return msgBlock.Cmp(latestFinalizedBlock) <= 0, nil
+		return msgBlock <= latestFinalizedBlock
 
 	case f == FinalityWaitForSafe:
-		if latestSafeBlock == nil {
+		if latestSafeBlock == 0 {
 			// Safe head unavailable on this chain — fall back to full finality.
-			return msgBlock.Cmp(latestFinalizedBlock) <= 0, nil
+			return msgBlock <= latestFinalizedBlock
 		}
-		return msgBlock.Cmp(latestSafeBlock) <= 0, nil
+		return msgBlock <= latestSafeBlock
 
 	case f&FinalityFlagMask == 0:
 		// Block-depth mode: no flag bits set, lower 16 bits are the confirmation count.
 		depth := uint64(f & FinalityBlockDepthMask)
-		required := new(big.Int).Add(msgBlock, new(big.Int).SetUint64(depth))
-		return required.Cmp(latestBlock) <= 0 || msgBlock.Cmp(latestFinalizedBlock) <= 0, nil
+		// Prove msgBlock <= latestBlock before subtracting: msgBlock+depth wraps at
+		// MaxUint64, which would report an unconfirmed message as ready.
+		return (msgBlock <= latestBlock && latestBlock-msgBlock >= depth) || msgBlock <= latestFinalizedBlock
 
 	default:
 		// Unknown flag bits set, require full finality as the safest fallback.
-		return msgBlock.Cmp(latestFinalizedBlock) <= 0, nil
+		return msgBlock <= latestFinalizedBlock
 	}
 }

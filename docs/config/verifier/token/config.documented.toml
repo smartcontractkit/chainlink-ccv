@@ -4,6 +4,11 @@
 # pyroscope_url is the Pyroscope server URL for continuous profiling; empty disables it.
 pyroscope_url = ""
 
+# disable_finality_checkers lists chain selectors, as strings, whose finality violation checker
+# is disabled. Solana needs it: a skipped slot has no block, which the checker reports as a
+# missing block header. Mirrors commit.Config.DisableFinalityCheckers.
+disable_finality_checkers = []
+
 # token_verifiers is a list of token verifier configurations. Each entry defines a token verifier instance with its own type, version and configuration.
 [[token_verifiers]]
   # verifier_id is the unique identifier for this token verifier instance.
@@ -68,6 +73,13 @@ pyroscope_url = ""
     OtelExporterGRPCEndpoint = ""
     # OtelExporterHTTPEndpoint is the endpoint for the beholder client to export to the collector.
     OtelExporterHTTPEndpoint = ""
+    # ChipIngressEndpoint is the gRPC endpoint of the CHIP Ingress server. Setting it publishes
+    # beholder custom events (e.g. the chain plugin config used to detect shared RPC endpoints)
+    # to CHIP Ingress in addition to the OTel collector. Mirrors the core node field's name.
+    ChipIngressEndpoint = ""
+    # ChipIngressInsecureConnection disables TLS for the CHIP Ingress connection. It is
+    # independent of InsecureConnection, which covers the OTel exporter connection.
+    ChipIngressInsecureConnection = false
     # LogStreamingEnabled enables log streaming to the collector.
     LogStreamingEnabled = false
     # LogStreamingLevel specifies the level above which logs are streamed to beholder

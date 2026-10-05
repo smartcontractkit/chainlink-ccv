@@ -37,6 +37,8 @@ type ArchivedJob struct {
 	ArchivedAt *time.Time
 	// RetryDeadline is the original retry deadline (now exceeded for failed jobs).
 	RetryDeadline time.Time
+	// FailureCategory is the bounded failure vocabulary value derived at read time.
+	FailureCategory string
 	// Queue is the queue this job belongs to.
 	Queue QueueType
 }
@@ -47,9 +49,13 @@ type Store interface {
 	// Pass an empty queues slice to list from both queues.
 	// Pass an empty ownerID to list across all verifier IDs.
 	ListFailed(ctx context.Context, queues []QueueType, ownerID string, limit int) ([]ArchivedJob, error)
+	// ListFailedFiltered applies exact message IDs before ordering and limiting.
+	ListFailedFiltered(ctx context.Context, queues []QueueType, ownerID string, messageIDs [][]byte, limit int) ([]ArchivedJob, error)
 
-	// RescheduleByJobID moves a failed job from the archive back to the active table,
-	// giving it a fresh retry window of retryDuration from now.
+	// Reschedule resolves the owner and restores one failed job atomically.
+	Reschedule(ctx context.Context, queue QueueType, ownerID, jobID string, messageID []byte, retryDuration time.Duration) (ArchivedJob, error)
+
+	// RescheduleByJobID restores a job for an explicit owner with a fresh retry window.
 	RescheduleByJobID(ctx context.Context, queue QueueType, ownerID, jobID string, retryDuration time.Duration) error
 
 	// RescheduleByMessageID moves a failed job from the archive back to the active table

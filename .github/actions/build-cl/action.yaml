@@ -8,7 +8,7 @@ runs:
       uses: actions/checkout@v5
       with:
         repository: smartcontractkit/chainlink
-        ref: 29c7d7a75249fe70822df05bea7a4273ffd6f310
+        ref: 9bb04449c87a12a9a45286b24ea512c2b78ab8a2
         path: chainlink-repo
 
     - name: Setup path to go.mod

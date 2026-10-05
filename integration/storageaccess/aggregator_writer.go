@@ -9,8 +9,10 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	insecuregrpc "google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/proto"
 
+	commontracing "github.com/smartcontractkit/chainlink-ccv/common/monitoring/tracing"
 	v1 "github.com/smartcontractkit/chainlink-ccv/integration/pkg/api/v1"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
@@ -207,15 +209,27 @@ func (a *AggregatorWriter) splitIntoBatches(requests []requestWithSize) [][]requ
 	return batches
 }
 
+// expandHeaderPairs repeats key once per value, in order, for metadata.AppendToOutgoingContext.
+func expandHeaderPairs(key string, values []string) []string {
+	pairs := make([]string, 0, len(values)*2)
+	for _, v := range values {
+		pairs = append(pairs, key, v)
+	}
+	return pairs
+}
+
 // sendBatch sends a single batch to the aggregator and updates results.
 func (a *AggregatorWriter) sendBatch(ctx context.Context, batch []requestWithSize, results []protocol.WriteResult) error {
 	requests := make([]*committeepb.WriteCommitteeVerifierNodeResultRequest, len(batch))
+	traceParents := make([]string, len(batch))
 	for i, item := range batch {
 		if item.req == nil {
 			return fmt.Errorf("internal error: nil WriteCommitteeVerifierNodeResultRequest in batch at position %d", i)
 		}
 		requests[i] = item.req
+		traceParents[i] = item.ccvData.TraceParent
 	}
+	ctx = metadata.AppendToOutgoingContext(ctx, expandHeaderPairs(commontracing.ItemTraceParentMetadataHeader, traceParents)...)
 
 	responses, err := a.client.BatchWriteCommitteeVerifierNodeResult(
 		ctx, &committeepb.BatchWriteCommitteeVerifierNodeResultRequest{

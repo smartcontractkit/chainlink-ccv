@@ -1114,6 +1114,9 @@ func (c *AggregatorConfig) Validate() error {
 // environment — the backwards-compatible path. Client credentials are resolved per client:
 // a client for which the file supplies any pairs takes those and ignores its env-var pairs entirely.
 func (c *AggregatorConfig) ResolveSecrets(s *secrets.Secrets) error {
+	if c.Storage == nil || c.Storage.StorageType == "" {
+		return errors.New("aggregator [storage] section is missing from config.toml or sets no type: add [storage] with type = \"postgres\"")
+	}
 	if c.Storage.StorageType == StorageTypePostgreSQL {
 		storageURL := s.StorageURL()
 		if storageURL == "" {

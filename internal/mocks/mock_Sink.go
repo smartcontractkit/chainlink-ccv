@@ -23,21 +23,31 @@ func (_m *MockSink) EXPECT() *MockSink_Expecter {
 }
 
 // SubmitAggregatedReport provides a mock function with given fields: ctx, report
-func (_m *MockSink) SubmitAggregatedReport(ctx context.Context, report *model.CommitAggregatedReport) error {
+func (_m *MockSink) SubmitAggregatedReport(ctx context.Context, report *model.CommitAggregatedReport) (bool, error) {
 	ret := _m.Called(ctx, report)
 
 	if len(ret) == 0 {
 		panic("no return value specified for SubmitAggregatedReport")
 	}
 
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, *model.CommitAggregatedReport) error); ok {
+	var r0 bool
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, *model.CommitAggregatedReport) (bool, error)); ok {
+		return rf(ctx, report)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, *model.CommitAggregatedReport) bool); ok {
 		r0 = rf(ctx, report)
 	} else {
-		r0 = ret.Error(0)
+		r0 = ret.Get(0).(bool)
 	}
 
-	return r0
+	if rf, ok := ret.Get(1).(func(context.Context, *model.CommitAggregatedReport) error); ok {
+		r1 = rf(ctx, report)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
 }
 
 // MockSink_SubmitAggregatedReport_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SubmitAggregatedReport'
@@ -59,12 +69,12 @@ func (_c *MockSink_SubmitAggregatedReport_Call) Run(run func(ctx context.Context
 	return _c
 }
 
-func (_c *MockSink_SubmitAggregatedReport_Call) Return(_a0 error) *MockSink_SubmitAggregatedReport_Call {
-	_c.Call.Return(_a0)
+func (_c *MockSink_SubmitAggregatedReport_Call) Return(inserted bool, err error) *MockSink_SubmitAggregatedReport_Call {
+	_c.Call.Return(inserted, err)
 	return _c
 }
 
-func (_c *MockSink_SubmitAggregatedReport_Call) RunAndReturn(run func(context.Context, *model.CommitAggregatedReport) error) *MockSink_SubmitAggregatedReport_Call {
+func (_c *MockSink_SubmitAggregatedReport_Call) RunAndReturn(run func(context.Context, *model.CommitAggregatedReport) (bool, error)) *MockSink_SubmitAggregatedReport_Call {
 	_c.Call.Return(run)
 	return _c
 }

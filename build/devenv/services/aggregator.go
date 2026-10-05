@@ -264,6 +264,8 @@ func (a *AggregatorInput) GenerateConfigs(generatedConfigFileName string) (*Gene
 		config.Monitoring.Beholder.OtelExporterHTTPEndpoint = a.MonitoringOtelExporterHTTPEndpoint
 	}
 
+	config.Monitoring.Beholder.TelemetryAttributes["service.instance.id"] = fmt.Sprintf("%s-%s", a.InstanceName(), AggregatorContainerNameSuffix)
+
 	// Override aggregation channel buffer size if specified (useful for pentest)
 	if a.AggregationChannelBufferSize > 0 {
 		config.Aggregation.ChannelBufferSize = a.AggregationChannelBufferSize
@@ -425,6 +427,7 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 				},
 				Labels: framework.DefaultTCLabels(),
 				HostConfigModifier: func(h *container.HostConfig) {
+					h.ExtraHosts = append(h.ExtraHosts, HostGatewayExtraHost)
 					h.PortBindings = network.PortMap{
 						network.MustParsePort(DefaultDBContainerPort): []network.PortBinding{
 							// The host port must be unique across all containers.
@@ -452,6 +455,7 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 		},
 		Labels: framework.DefaultTCLabels(),
 		HostConfigModifier: func(h *container.HostConfig) {
+			h.ExtraHosts = append(h.ExtraHosts, HostGatewayExtraHost)
 			h.PortBindings = network.PortMap{
 				network.MustParsePort(DefaultRedisContainerPort): []network.PortBinding{
 					// The host port must be unique across all containers.
@@ -504,12 +508,13 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 		Env: envVars,
 		// Aggregator listens on 50051 internally, nginx proxies TLS to it
 		ExposedPorts: []string{"50051/tcp", "8080/tcp"},
-		WaitingFor:   wait.ForHTTP("/health/live").WithPort("8080/tcp"),
+		WaitingFor:   wait.ForHTTP("/health/ready").WithPort("8080/tcp"),
 	}
 
 	// If ExposedHostPort is set, expose the gRPC port directly to the host
 	if in.ExposedHostPort > 0 {
 		req.HostConfigModifier = func(h *container.HostConfig) {
+			h.ExtraHosts = append(h.ExtraHosts, HostGatewayExtraHost)
 			h.PortBindings = network.PortMap{
 				network.MustParsePort("50051/tcp"): []network.PortBinding{
 					{HostPort: strconv.Itoa(in.ExposedHostPort)},
@@ -571,6 +576,7 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 		},
 		ExposedPorts: []string{DefaultNginxTLSPort},
 		HostConfigModifier: func(h *container.HostConfig) {
+			h.ExtraHosts = append(h.ExtraHosts, HostGatewayExtraHost)
 			h.PortBindings = network.PortMap{
 				network.MustParsePort(DefaultNginxTLSPort): []network.PortBinding{
 					{HostPort: strconv.Itoa(in.HostPort)},

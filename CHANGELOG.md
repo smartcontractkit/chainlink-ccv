@@ -1,5 +1,49 @@
 # Changelog
 
+## [0.13.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.12.0...v0.13.0) (2026-09-17)
+
+
+### Features
+
+* **verifier:** job-queue archive lookup by message ID, JSON output, and owner inference ([#1443](https://github.com/smartcontractkit/chainlink-ccv/issues/1443)) ([6c81605](https://github.com/smartcontractkit/chainlink-ccv/commit/6c81605673b594accf94b929a1a733b8a0e07e7f))
+
+
+### Bug Fixes
+
+* **aggregator:** storage config nil guard ([#1458](https://github.com/smartcontractkit/chainlink-ccv/issues/1458)) ([e1a6985](https://github.com/smartcontractkit/chainlink-ccv/commit/e1a698523cfba0ad6c6d91c99f88b6a6fa9ff1bb))
+* bump chainlink-proto dependency ([#1457](https://github.com/smartcontractkit/chainlink-ccv/issues/1457)) ([1b32fa7](https://github.com/smartcontractkit/chainlink-ccv/commit/1b32fa7e6d5643411fff7146cab31083e76e26a6))
+* **deps:** bump chain-selectors ([#1448](https://github.com/smartcontractkit/chainlink-ccv/issues/1448)) ([e8913fc](https://github.com/smartcontractkit/chainlink-ccv/commit/e8913fc2a59078d8371debcb7ff84ce2ef12ddfb))
+* devenv grafana service log ([#1452](https://github.com/smartcontractkit/chainlink-ccv/issues/1452)) ([8713af5](https://github.com/smartcontractkit/chainlink-ccv/commit/8713af57b8983c9177e77d675a6df5bcdf5368c7))
+* **dockerfiles:** upgrade openssl to patch CVEs ([#1453](https://github.com/smartcontractkit/chainlink-ccv/issues/1453)) ([ecac495](https://github.com/smartcontractkit/chainlink-ccv/commit/ecac49513535a06f4b8c35b02736e99b56f64f17))
+* indexer scheduler backoff overflow  ([#1456](https://github.com/smartcontractkit/chainlink-ccv/issues/1456)) ([e345c02](https://github.com/smartcontractkit/chainlink-ccv/commit/e345c02e2097a6064421664ce95aad9bfa2684a9))
+* **tokenverifier:** bump defaultStartupTimeout to 2 min ([#1463](https://github.com/smartcontractkit/chainlink-ccv/issues/1463)) ([3cef5e4](https://github.com/smartcontractkit/chainlink-ccv/commit/3cef5e491ceaf9b0af76c70ee611199956da6679))
+
+## [0.12.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.11.0...v0.12.0) (2026-09-14)
+
+
+### ⚠ BREAKING CHANGES
+
+* **verifier:** composable verifier gates via vtypes.Chain ([#1417](https://github.com/smartcontractkit/chainlink-ccv/issues/1417))
+
+### Features
+
+* **hooks:** policy hook followups ([#1437](https://github.com/smartcontractkit/chainlink-ccv/issues/1437)) ([1703932](https://github.com/smartcontractkit/chainlink-ccv/commit/1703932e82679ca01afad527788d6e6fa5d08810))
+* support resilient reader config for indexer and add retry policy ([#1364](https://github.com/smartcontractkit/chainlink-ccv/issues/1364)) ([02af09e](https://github.com/smartcontractkit/chainlink-ccv/commit/02af09e86d1b5f552625003b9eab95ca421766a5))
+
+
+### Bug Fixes
+
+* **indexer:** anchor generate-docs.sh to its own directory ([#1420](https://github.com/smartcontractkit/chainlink-ccv/issues/1420)) ([177abec](https://github.com/smartcontractkit/chainlink-ccv/commit/177abecf0a631cb2ad6b7df01c999a2d5de24cf5))
+* **indexer:** unsigned selector and sequence number in client response models ([#1419](https://github.com/smartcontractkit/chainlink-ccv/issues/1419)) ([4238033](https://github.com/smartcontractkit/chainlink-ccv/commit/423803322296347cb879a14107289978311dfda8))
+* reduce `maxFilterBlockRange` to 1000 ([#1446](https://github.com/smartcontractkit/chainlink-ccv/issues/1446)) ([7cdff50](https://github.com/smartcontractkit/chainlink-ccv/commit/7cdff50bd78dac70b09fd0daf56653455824b796))
+* **verifier:** grow policy hook retry delay with attempt count ([#1416](https://github.com/smartcontractkit/chainlink-ccv/issues/1416)) ([dd536f0](https://github.com/smartcontractkit/chainlink-ccv/commit/dd536f08756ef37aef0a354bba9677f0775bce36))
+* **verifier:** option to disable finality checker in token verifier ([#1438](https://github.com/smartcontractkit/chainlink-ccv/issues/1438)) ([554fc9a](https://github.com/smartcontractkit/chainlink-ccv/commit/554fc9ab0becaa17f63c05ddd37f0dc25cba14c9))
+
+
+### Code Refactoring
+
+* **verifier:** composable verifier gates via vtypes.Chain ([#1417](https://github.com/smartcontractkit/chainlink-ccv/issues/1417)) ([f920c80](https://github.com/smartcontractkit/chainlink-ccv/commit/f920c808e0ba7c886ca07aec50d3013dc360381b))
+
 ## [0.11.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.10.1...v0.11.0) (2026-09-09)
 
 

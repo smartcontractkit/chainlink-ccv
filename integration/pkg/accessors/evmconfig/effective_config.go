@@ -19,9 +19,11 @@ type EffectiveChain struct {
 	// TXMBlockTime and NewHeadsPollInterval are duration strings ("12s"): this report is read by
 	// a human running a diff, not by another program.
 	TXMBlockTime string `json:"txm_block_time"`
-	// TXMBlockTimeIsDefault is true when the operator set no block time and the 2-second
-	// fallback fired — the value to check first on a slow chain before a cutover.
+	// TXMBlockTimeIsDefault is true when the operator set no block time — the value to check
+	// first on a slow chain before a cutover. TXMBlockTimeSource says which default fired:
+	// the chain's curated value or the generic 2s fallback.
 	TXMBlockTimeIsDefault  bool            `json:"txm_block_time_is_default"`
+	TXMBlockTimeSource     string          `json:"txm_block_time_source"`
 	HeadTrackerPersistence bool            `json:"head_tracker_persistence"`
 	NewHeadsPollInterval   string          `json:"new_heads_poll_interval,omitempty"`
 	Nodes                  []EffectiveNode `json:"nodes"`
@@ -55,9 +57,11 @@ func EffectiveChainConfigs(cfg Config) (map[string]EffectiveChain, error) {
 
 func projectEffectiveChain(info Info, tomlConfig *evmtoml.EVMConfig) EffectiveChain {
 	chain := tomlConfig.Chain
+	_, blockTimeSource := ResolveTXMBlockTime(info)
 	projected := EffectiveChain{
 		ChainID:                info.ChainID,
-		TXMBlockTimeIsDefault:  info.TXMBlockTime == 0,
+		TXMBlockTimeIsDefault:  blockTimeSource != TXMBlockTimeOperator,
+		TXMBlockTimeSource:     string(blockTimeSource),
 		HeadTrackerPersistence: chain.HeadTracker.PersistenceEnabled != nil && *chain.HeadTracker.PersistenceEnabled,
 		FinalityTagEnabled:     chain.FinalityTagEnabled != nil && *chain.FinalityTagEnabled,
 		Nodes:                  make([]EffectiveNode, 0, len(tomlConfig.Nodes)),

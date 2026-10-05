@@ -50,7 +50,7 @@ func BenchmarkSubmitAggregatedReport(b *testing.B) {
 	for b.Loop() {
 		start := time.Now()
 		for _, r := range reports {
-			if err := storage.SubmitAggregatedReport(ctx, r); err != nil {
+			if _, err := storage.SubmitAggregatedReport(ctx, r); err != nil {
 				b.Fatalf("submit aggregated report: %v", err)
 			}
 		}
@@ -93,7 +93,7 @@ func BenchmarkQueryAggregatedReports(b *testing.B) {
 			AggregationKey: aggKey,
 			Verifications:  []*model.CommitVerificationRecord{r1, r2},
 		}
-		if err := storage.SubmitAggregatedReport(ctx, report); err != nil {
+		if _, err := storage.SubmitAggregatedReport(ctx, report); err != nil {
 			b.Fatalf("submit aggregated report: %v", err)
 		}
 	}
@@ -159,7 +159,7 @@ func BenchmarkQueryAggregatedReports_GrowingVolume(b *testing.B) {
 				AggregationKey: aggKey,
 				Verifications:  []*model.CommitVerificationRecord{r1, r2},
 			}
-			if err := storage.SubmitAggregatedReport(ctx, report); err != nil {
+			if _, err := storage.SubmitAggregatedReport(ctx, report); err != nil {
 				b.Fatalf("submit aggregated report: %v", err)
 			}
 		}

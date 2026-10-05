@@ -1,0 +1,29 @@
+name: Build ccv CLI
+description: >-
+  Build the ccv CLI once and upload it so E2E matrix jobs can reuse the binary
+  instead of recompiling it. Expects the Go toolchain to already be set up
+  (e.g. via the build-devenv-docker action).
+
+inputs:
+  artifact-name:
+    description: Name of the uploaded ccv CLI artifact
+    required: false
+    default: ccv-cli
+
+runs:
+  using: composite
+  steps:
+    - name: Build ccv CLI
+      shell: bash
+      working-directory: build/devenv
+      run: |
+        set -euo pipefail
+        mkdir -p "$RUNNER_TEMP/ccv-bin"
+        go build -o "$RUNNER_TEMP/ccv-bin/ccv" ./cmd/ccv
+
+    - name: Upload ccv CLI
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: ${{ runner.temp }}/ccv-bin/ccv
+        retention-days: 1

@@ -32,6 +32,8 @@ type (
 	MessageV1 = policyapi.Message
 	// TokenTransferV1 is the token transfer attached to a message, as published in v1.
 	TokenTransferV1 = policyapi.TokenTransfer
+	// FinalityV1 is the decoded finality requirement as applied by the verifier.
+	FinalityV1 = policyapi.Finality
 	// Decision is the verdict an endpoint returns. Only PASS and FAIL are implemented in v1;
 	// any other value is treated as an unusable response, which retries rather than drops.
 	Decision = policyapi.EvaluateResponseDecision
@@ -61,9 +63,13 @@ const (
 	DecisionHold Decision = policyapi.HOLD
 )
 
-// NewEvaluateRequest builds the v1 request for a verification task.
+// NewEvaluateRequest serializes the task into the v1 request.
+//
+// The published shape — addresses padded to a single width, the fee total, decoded finality — is
+// produced here and nowhere else. Every input is already on the task, so there is one place that
+// decides what an endpoint sees and no second copy of the message to keep in step with it.
 func NewEvaluateRequest(verifierID string, task *vtypes.VerificationTask) EvaluateRequest {
-	return EvaluateRequest{
+	req := EvaluateRequest{
 		SchemaVersion:        SchemaVersion,
 		VerifierId:           verifierID,
 		MessageId:            task.MessageID,
@@ -73,6 +79,19 @@ func NewEvaluateRequest(verifierID string, task *vtypes.VerificationTask) Evalua
 		BlockDepth:           blockDepth(task.BlockNumber, task.FinalizedBlockAtReady),
 		Message:              newMessageV1(task.Message),
 	}
+	if len(task.FeeToken) > 0 {
+		feeToken := hexPadded(task.FeeToken)
+		req.FeeToken = &feeToken
+	}
+	if total := totalFeeTokenAmount(task.ReceiptBlobs); total != nil {
+		amount := total.String()
+		req.FeeTokenAmount = &amount
+	}
+	if !task.SourceBlockTimestamp.IsZero() {
+		timestamp := task.SourceBlockTimestamp.UTC()
+		req.SourceBlockTimestamp = &timestamp
+	}
+	return req
 }
 
 // blockDepth reports how far below the finalized head the message's block sits, measured against
@@ -87,51 +106,81 @@ func blockDepth(blockNumber, finalizedBlock uint64) uint64 {
 }
 
 func newMessageV1(message protocol.Message) MessageV1 {
+	finality := message.Finality.Requirement()
 	out := MessageV1{
 		Version:             message.Version,
 		SourceChainSelector: message.SourceChainSelector.String(),
 		DestChainSelector:   message.DestChainSelector.String(),
 		SequenceNumber:      uint64(message.SequenceNumber),
-		OnRampAddress:       hexAddress(message.OnRampAddress),
-		OffRampAddress:      hexAddress(message.OffRampAddress),
-		Sender:              hexAddress(message.Sender),
-		Receiver:            hexAddress(message.Receiver),
+		OnRampAddress:       hexPadded(message.OnRampAddress),
+		OffRampAddress:      hexPadded(message.OffRampAddress),
+		Sender:              hexPadded(message.Sender),
+		Receiver:            hexPadded(message.Receiver),
 		Data:                hexBytes(message.Data),
 		DestBlob:            hexBytes(message.DestBlob),
 		ExecutionGasLimit:   message.ExecutionGasLimit,
 		CcipReceiveGasLimit: message.CcipReceiveGasLimit,
-		Finality:            uint32(message.Finality),
-		CcvAndExecutorHash:  message.CcvAndExecutorHash.String(),
+		Finality: FinalityV1{
+			Mode:       policyapi.FinalityMode(finality.Mode),
+			BlockDepth: finality.BlockDepth,
+			Safe:       finality.Safe,
+		},
+		CcvAndExecutorHash: message.CcvAndExecutorHash.String(),
 	}
 	if message.TokenTransfer != nil {
 		tt := message.TokenTransfer
 		out.TokenTransfer = &TokenTransferV1{
 			Version:            tt.Version,
 			Amount:             decimalAmount(tt.Amount),
-			SourcePoolAddress:  hexBytes(tt.SourcePoolAddress),
-			SourceTokenAddress: hexBytes(tt.SourceTokenAddress),
-			DestTokenAddress:   hexBytes(tt.DestTokenAddress),
-			TokenReceiver:      hexBytes(tt.TokenReceiver),
+			SourcePoolAddress:  hexPadded(tt.SourcePoolAddress),
+			SourceTokenAddress: hexPadded(tt.SourceTokenAddress),
+			DestTokenAddress:   hexPadded(tt.DestTokenAddress),
+			TokenReceiver:      hexPadded(tt.TokenReceiver),
 			ExtraData:          hexBytes(tt.ExtraData),
 		}
 	}
 	return out
 }
 
+// hexPadded renders an address left-padded to at least 32 bytes, the single width the contract
+// publishes so that a 20-byte EVM address and its 32-byte form are one string at an endpoint.
+// The rule is chain-independent: no registry lookup, no native-address conversion. An address
+// longer than 32 bytes keeps every byte, leading zeros included, and an absent one is "0x".
+//
+// Padding happens on the way out, so nothing hands a caller a slice that aliases the message.
+func hexPadded(address []byte) string {
+	if len(address) == 0 {
+		return "0x"
+	}
+	padded := make([]byte, max(32, len(address)))
+	copy(padded[len(padded)-len(address):], address)
+	return hexBytes(padded)
+}
+
+// totalFeeTokenAmount sums every receipt, token, executor and network fee alike. No receipts or
+// a receipt without an amount means the total is unknown, which the contract publishes by
+// omitting the field; a known zero stays a zero.
+func totalFeeTokenAmount(receipts []protocol.ReceiptWithBlob) *big.Int {
+	if len(receipts) == 0 {
+		return nil
+	}
+	total := new(big.Int)
+	for _, receipt := range receipts {
+		if receipt.FeeTokenAmount == nil {
+			return nil
+		}
+		total.Add(total, receipt.FeeTokenAmount)
+	}
+	return total
+}
+
 // hexBytes renders a byte slice as 0x-prefixed hex. An absent value renders as "0x" rather than
 // an empty string so every byte field in the contract has the same shape.
-func hexBytes(b protocol.ByteSlice) string {
+func hexBytes(b []byte) string {
 	if len(b) == 0 {
 		return "0x"
 	}
-	return b.String()
-}
-
-func hexAddress(a protocol.UnknownAddress) string {
-	if len(a) == 0 {
-		return "0x"
-	}
-	return a.String()
+	return protocol.ByteSlice(b).String()
 }
 
 func decimalAmount(amount *big.Int) string {

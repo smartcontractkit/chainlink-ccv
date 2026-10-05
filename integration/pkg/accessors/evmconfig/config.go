@@ -40,9 +40,11 @@ type ChainConfig struct {
 	// FinalityDepth is the number of blocks required before a head is considered final.
 	// Zero enables finality-tag mode; a positive value uses confirmation-depth mode.
 	FinalityDepth uint32 `toml:"finality_depth,omitempty"`
-	// TXMBlockTime controls TXM v2's retry cadence. It is not the chain's actual block
-	// time and is not used outside the transaction manager. Zero uses the standalone
-	// default; non-zero values must be at least two seconds.
+	// TXMBlockTime controls TXM v2's retry cadence: a transaction rebroadcasts once it is
+	// RetryBlockThreshold times this value old, so it should track the chain's real block
+	// interval. It is not used outside the transaction manager. Zero takes the chain's curated
+	// default block interval when one exists and DefaultTXMBlockTime otherwise; upstream
+	// validation rejects values below two seconds.
 	TXMBlockTime time.Duration `toml:"txm_block_time,omitempty"`
 	// SourceReaderHeaderFetchBatchSize caps how many eth_getBlockByNumber requests
 	// are sent in a single JSON-RPC batch when the source reader fetches block

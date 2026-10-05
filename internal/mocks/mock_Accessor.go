@@ -20,6 +20,63 @@ func (_m *MockAccessor) EXPECT() *MockAccessor_Expecter {
 	return &MockAccessor_Expecter{mock: &_m.Mock}
 }
 
+// CCTPCodec provides a mock function with no fields
+func (_m *MockAccessor) CCTPCodec() (chainaccess.CCTPCodec, error) {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for CCTPCodec")
+	}
+
+	var r0 chainaccess.CCTPCodec
+	var r1 error
+	if rf, ok := ret.Get(0).(func() (chainaccess.CCTPCodec, error)); ok {
+		return rf()
+	}
+	if rf, ok := ret.Get(0).(func() chainaccess.CCTPCodec); ok {
+		r0 = rf()
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(chainaccess.CCTPCodec)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func() error); ok {
+		r1 = rf()
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockAccessor_CCTPCodec_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CCTPCodec'
+type MockAccessor_CCTPCodec_Call struct {
+	*mock.Call
+}
+
+// CCTPCodec is a helper method to define mock.On call
+func (_e *MockAccessor_Expecter) CCTPCodec() *MockAccessor_CCTPCodec_Call {
+	return &MockAccessor_CCTPCodec_Call{Call: _e.mock.On("CCTPCodec")}
+}
+
+func (_c *MockAccessor_CCTPCodec_Call) Run(run func()) *MockAccessor_CCTPCodec_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockAccessor_CCTPCodec_Call) Return(_a0 chainaccess.CCTPCodec, _a1 error) *MockAccessor_CCTPCodec_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockAccessor_CCTPCodec_Call) RunAndReturn(run func() (chainaccess.CCTPCodec, error)) *MockAccessor_CCTPCodec_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Close provides a mock function with no fields
 func (_m *MockAccessor) Close() error {
 	ret := _m.Called()

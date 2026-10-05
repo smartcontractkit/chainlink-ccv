@@ -172,6 +172,7 @@ func tokenVerifierConfigInstance() any {
 		TokenVerifiers: []token.VerifierConfig{
 			{VerifierID: "token-verifier-1", Type: "cctp", Version: "2.0"},
 		},
+		DisableFinalityCheckers: []string{},
 		CommitteeConfig: chainaccess.CommitteeConfig{
 			OnRampAddresses:    map[string]string{"1": "0x00000000000000000000000000000000000000a1"},
 			RMNRemoteAddresses: map[string]string{"1": "0x00000000000000000000000000000000000000b1"},
@@ -344,17 +345,19 @@ func monitoringConfig() *monitoring.Config {
 			URL:     "http://pyroscope:4040",
 		},
 		Beholder: monitoring.BeholderConfig{
-			Enabled:                  false,
-			InsecureConnection:       true,
-			CACertFile:               "/etc/ssl/certs/otel-collector.pem",
-			OtelExporterGRPCEndpoint: "otel-collector:4317",
-			OtelExporterHTTPEndpoint: "otel-collector:4318",
-			LogStreamingEnabled:      false,
-			LogStreamingLevel:        "info",
-			MetricReaderInterval:     60,
-			TraceSampleRatio:         0.1,
-			TraceBatchTimeout:        5,
-			TelemetryAttributes:      map[string]string{"env": "production"},
+			Enabled:                       false,
+			InsecureConnection:            true,
+			CACertFile:                    "/etc/ssl/certs/otel-collector.pem",
+			OtelExporterGRPCEndpoint:      "otel-collector:4317",
+			OtelExporterHTTPEndpoint:      "otel-collector:4318",
+			ChipIngressEndpoint:           "chip-ingress:9090",
+			ChipIngressInsecureConnection: false,
+			LogStreamingEnabled:           false,
+			LogStreamingLevel:             "info",
+			MetricReaderInterval:          60,
+			TraceSampleRatio:              0.1,
+			TraceBatchTimeout:             5,
+			TelemetryAttributes:           map[string]string{"env": "production"},
 		},
 	}
 }

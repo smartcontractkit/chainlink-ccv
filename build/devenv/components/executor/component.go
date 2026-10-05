@@ -102,6 +102,7 @@ func (c *component) RunPhase3(
 			exec.Bootstrap = &services.BootstrapInput{}
 		}
 		m := monitoring
+		m.Beholder.TelemetryAttributes = services.TelemetryAttrs(monitoring.Beholder.TelemetryAttributes, "executor", exec.ContainerName)
 		exec.Bootstrap.Monitoring = &m
 		if exec.Mode != services.Standalone {
 			continue

@@ -1110,12 +1110,12 @@ func TestHealthy_ReturnsFatalError_WhenGetStartBlockFails(t *testing.T) {
 	healthErr2 := poller.Healthy()
 	assert.ErrorContains(t, healthErr2, "failed to get start block")
 
-	// Ready should return ErrBackfillInProgress since backfillComplete was never set.
-	assert.ErrorIs(t, poller.Ready(), ErrBackfillInProgress)
+	// Ready should surface the fatal error rather than ErrBackfillInProgress.
+	assert.ErrorContains(t, poller.Ready(), "failed to get start block")
 
 	// HealthReport should surface the fatal error.
 	report := poller.HealthReport()
-	assert.Error(t, report[poller.Name()])
+	assert.ErrorContains(t, report[poller.Name()], "failed to get start block")
 
 	cancel()
 	require.NoError(t, poller.Close())

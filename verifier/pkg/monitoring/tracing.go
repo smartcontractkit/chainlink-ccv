@@ -6,18 +6,17 @@ package monitoring
 // literals at each call site.
 const (
 	// sourcereader.
-	EventChainEventDiscovered    = "event_discovered"
-	EventTaskFormed              = "task_formed"
-	EventReorgRemovedPending     = "reorg_removed_pending"
-	EventReorgRemovedSent        = "reorg_removed_sent"
-	EventAddedToPending          = "added_to_pending"
-	EventCursedDropped           = "cursed_dropped"
-	EventDisabledDropped         = "disabled_dropped"
-	EventNotReadyForVerification = "not_ready_for_verification"
-	EventReadyForVerification    = "ready_for_verification"
-	EventTaskPublished           = "task_published"
-	EventAlreadyTracked          = "already_tracked"
-	EventAlreadySent             = "already_sent"
+	EventChainEventDiscovered = "event_discovered"
+	EventReorgRemovedPending  = "reorg_removed_pending"
+	EventReorgRemovedSent     = "reorg_removed_sent"
+	EventAddedToPending       = "added_to_pending"
+	EventCursedDropped        = "cursed_dropped"
+	EventDisabledDropped      = "disabled_dropped"
+	EventReadyForVerification = "ready_for_verification"
+	EventTaskPublished        = "task_published"
+	EventAlreadyTracked       = "already_tracked"
+	EventAlreadySent          = "already_sent"
+	EventFinalityBlocked      = "finality_blocked"
 
 	// taskverifier.
 	EventJobDiscovered   = "job_discovered"
@@ -49,14 +48,6 @@ func TokenAttestationSpanName(verifierID string) string {
 // to the verifier instance identified by verifierID.
 func MessageDiscoverySpanName(verifierID string) string {
 	return "verifier.message.discovery@" + verifierID
-}
-
-// MessageTaskSendSpanName returns the name of the span opened by the verifier's
-// sourcereader for each pending-task send attempt (curse/disablement checks
-// and, if the task is ready, publish to the task verifier queue), scoped to
-// the verifier instance identified by verifierID.
-func MessageTaskSendSpanName(verifierID string) string {
-	return "verifier.message.task_send@" + verifierID
 }
 
 // TaskVerifierAttemptSpanName returns the name of the span opened by the task

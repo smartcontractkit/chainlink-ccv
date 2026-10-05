@@ -16,7 +16,7 @@ Token transfers in CCIP require off-chain attestations from the token protocol's
 Key differences from the committee verifier:
 
 | | Committee Verifier | Token Verifier |
-|---|---|---|
+| --- | --- | --- |
 | Verification method | ECDSA signing | External attestation API |
 | Result destination | Aggregator (gRPC) | Local PostgreSQL |
 | Consumer | Downstream executors via Aggregator | Indexer via HTTP API |
@@ -100,16 +100,17 @@ Attestations are matched back to tasks by comparing `AttestationResponse.Message
 Possible outcomes per task:
 
 | Condition | Result |
-|---|---|
+| --- | --- |
 | No verifier resolver configured for source chain | Task skipped; attestation marked as missing |
 | No matching blob in `ReceiptBlobs` | Task skipped; attestation marked as missing |
 | Matching attestation found with `APPROVED` status | Attestation ready for processing |
 | Matching attestation found but status ≠ `APPROVED` | Attestation not ready → retry after 30 s |
 | No matching entry in API response | Attestation missing → retry after 30 s |
 
-## Attestation Payload Format
+## Lombard Attestation Payload Format
 
 The Lombard API returns the attestation ABI-encoded as `abi.encode(bytes, bytes)`:
+
 - First `bytes`: `rawPayload` — the canonical Lombard message content
 - Second `bytes`: `proof` — the cryptographic proof
 
@@ -135,10 +136,10 @@ Unlike Lombard, CCTP uses the source **transaction hash** to look up attestation
 AttestationService.Fetch(ctx, txHash, message) → Attestation
 ```
 
-`sourceDomain` is derived from the message's `SourceChainSelector` using Circle's domain mapping:
+`sourceDomain` is derived from the message's `SourceChainSelector` using Circle's domain mapping. The source chain's chain accessor supplies the mapping through `CCTPCodec.Domain`:
 
 | Chain | Domain |
-|---|---|
+| --- | --- |
 | Ethereum | 0 |
 | Avalanche | 1 |
 | Optimism | 2 |
@@ -147,7 +148,22 @@ AttestationService.Fetch(ctx, txHash, message) → Attestation
 | Polygon | 7 |
 | ... | ... |
 
-The full domain table is defined in `verifier/pkg/token/cctp/consts.go`.
+The EVM catalog is defined in `verifier/pkg/token/cctp/consts.go`. Every other chain family supplies its own table through `CCTPCodec` on its chain accessor; for Solana that table lives in `chainlink-ccip-solana/pkg/accessors`.
+
+## Source Chain Encoding
+
+Circle's API uses the source chain's native string formats. The source chain's `CCTPCodec` converts between them and the verifier's raw bytes:
+
+| Field | EVM source | Solana source | Codec method |
+| --- | --- | --- | --- |
+| `transactionHash` query parameter | `0x`-prefixed hex | base58 signature | `EncodeTxHash` |
+| `messageSender` in the response | `0x`-prefixed hex | base58 address | `DecodeAddress` |
+
+A Solana signature sent as hex returns 404, which the client reports as "token data not ready".
+
+The config files always use `0x`-prefixed hex, for every chain family. For a Solana source, `verifier_addresses` holds the CCTP token pool's signer PDA, because that PDA signs `deposit_for_burn_with_hook` and Circle records it as the `messageSender`.
+
+The verifier needs a `CCTPCodec` for every source chain in `verifier_addresses`. A source chain without a chain accessor or a codec fails the verifier at startup.
 
 ## Per-Message API Call
 
@@ -165,14 +181,14 @@ The response contains potentially multiple CCTP messages from the same transacti
 The CCTP response can contain multiple messages per transaction. The verifier matches the correct one by checking all of the following:
 
 1. **CCTP version**: Message must be V2 (`DecodedMessage.Version == 2`)
-2. **Sender address**: `DecodedMessage.DecodedMessageBody.MessageSender` must equal the configured `verifier_addresses[sourceChainSelector]` — the address of the CCV verifier contract on the source chain
+2. **Sender address**: `DecodedMessage.DecodedMessageBody.MessageSender`, decoded by the source chain's `CCTPCodec`, must equal the configured `verifier_addresses[sourceChainSelector]` — the address that sends the burn on the source chain (see [Source Chain Encoding](#source-chain-encoding))
 3. **Hook data**: `DecodedMessage.DecodedMessageBody.HookData` must equal `[4-byte verifierVersion][32-byte messageID]`
    - The verifier version (`0x91b3338e` = `bytes4(keccak256("CCTPVerifier 2.1.0"))` by default) binds the attestation to the specific verifier contract
    - The `messageID` is computed from the CCIP message — this uniquely ties the CCTP attestation to a specific CCIP transfer
 
 If no message in the response matches all criteria, the verification fails with a retryable error (retry after 5 s).
 
-## Attestation Payload Format
+## CCTP Attestation Payload Format
 
 The CCTP verifier payload format is:
 
@@ -181,6 +197,7 @@ The CCTP verifier payload format is:
 ```
 
 Where:
+
 - `verifierVersion` = `0x91b3338e` (default)
 - `encodedCCTPMessage` = the raw ABI-encoded CCTP message bytes from the API response
 - `attestation` = Circle's ECDSA attestation bytes from the API response
@@ -190,6 +207,7 @@ This binary payload is stored as `Signature` in `VerifierNodeResult`.
 ## Attestation Readiness
 
 The Circle API uses `status` field values:
+
 - `complete` → attestation is ready
 - Any other value → attestation is pending; retry after 30 s
 
@@ -198,7 +216,7 @@ The Circle API uses `status` field values:
 Both Lombard and CCTP verifiers classify errors into two categories:
 
 | Error type | Retry delay | Condition |
-|---|---|---|
+| --- | --- | --- |
 | Attestation not ready | 30 s | Status ≠ approved/complete; attestation missing from response |
 | Any other error | 5 s | API call failed; ABI decode failed; format error |
 
@@ -219,7 +237,7 @@ Each write is wrapped in a transaction. The `INSERT ... ON CONFLICT (message_id)
 ### Entry Schema (`verifier_node_results` table)
 
 | Column | Type | Description |
-|---|---|---|
+| --- | --- | --- |
 | `message_id` | `bytea` (32 bytes) | CCIP message ID — primary key |
 | `message` | `jsonb` | Full serialised `protocol.Message` |
 | `ccv_version` | `bytea` | CCV protocol version bytes |
@@ -253,6 +271,7 @@ GET /v1/verifications?messageID=0xabc123...&messageID=0xdef456...
 ```
 
 **Constraints**:
+
 - At least one `messageID` is required
 - Maximum **20** message IDs per request
 
@@ -277,7 +296,7 @@ GET /v1/verifications?messageID=0xabc123...&messageID=0xdef456...
 **Status codes**:
 
 | Condition | Status |
-|---|---|
+| --- | --- |
 | At least one result found | `200 OK` with partial `errors` for not-found IDs |
 | All requested IDs not found | `404 Not Found` |
 | Invalid `messageID` format | `400 Bad Request` |
@@ -307,7 +326,7 @@ GET /v1/verifications?messageID=0xabc123...&messageID=0xdef456...
 Each `[[token_verifiers]]` block requires `type`, `version`, and `verifier_id`. The type+version combination selects the concrete verifier implementation:
 
 | `type` | `version` | Implementation |
-|---|---|---|
+| --- | --- | --- |
 | `"lombard"` | `"1.0"` | `lombard.Verifier` |
 | `"cctp"` | `"2.0"` | `cctp.Verifier` |
 
@@ -316,25 +335,25 @@ Each `[[token_verifiers]]` block requires `type`, `version`, and `verifier_id`. 
 ## Lombard config fields (`type = "lombard"`, `version = "1.0"`)
 
 | Field | Default | Description |
-|---|---|---|
+| --- | --- | --- |
 | `attestation_api` | required | Base URL of the Lombard attestation API |
 | `attestation_api_timeout` | `1s` | HTTP request timeout |
 | `attestation_api_interval` | `100ms` | Minimum interval between API calls (rate limiting) |
 | `attestation_api_batch_size` | `20` | Max blobs per API call (0 = unlimited) |
 | `verifier_version` | `0x5b9253ce` | 4-byte version tag included in the payload |
-| `verifier_resolver_addresses` | required | Map of chain selector → verifier resolver contract address; used for receipt blob matching and result storage |
+| `verifier_resolver_addresses` | required | Map of chain selector → verifier resolver contract address; used for receipt blob matching and result storage. Must list every source chain and every destination chain: result storage writes the destination chain's resolver address, and the executor matches it |
 
 ## CCTP config fields (`type = "cctp"`, `version = "2.0"`)
 
 | Field | Default | Description |
-|---|---|---|
+| --- | --- | --- |
 | `attestation_api` | required | Base URL of Circle's Attestation API |
 | `attestation_api_timeout` | `1s` | HTTP request timeout |
 | `attestation_api_interval` | `100ms` | Minimum interval between API calls |
 | `attestation_api_cooldown` | `5m` | Backoff duration when rate-limited by Circle's API |
 | `verifier_version` | `0x91b3338e` | 4-byte version tag; must match the deployed `CCTPVerifier` contract version |
-| `verifier_addresses` | required | Map of chain selector → CCV verifier contract address on that chain; used for CCTP message sender matching |
-| `verifier_resolver_addresses` | required | Map of chain selector → verifier resolver contract address; used for `SourceConfig` and result storage |
+| `verifier_addresses` | required | Map of **source** chain selector → the address Circle reports as the burn's `messageSender` on that chain (EVM: the CCTP verifier contract; Solana: the CCTP token pool signer PDA). Used only for message sender matching. List only the chains this instance reads from; each one needs a `CCTPCodec` |
+| `verifier_resolver_addresses` | required | Map of chain selector → verifier resolver contract address; used for `SourceConfig` and result storage. Must list every source chain and every destination chain: result storage writes the destination chain's resolver address, and the executor matches it |
 
 ## Example TOML snippet
 

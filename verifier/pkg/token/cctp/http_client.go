@@ -65,7 +65,8 @@ func NewHTTPClient(
 }
 
 // GetMessages fetches CCTP v2 messages and attestations for the given transaction.
-// sourceDomainID is the Circle domain ID of the blockchain. See Domains in consts.go.
+// sourceDomainID is the Circle domain ID of the blockchain. The source chain accessor
+// supplies it through chainaccess.CCTPCodec.Domain.
 func (c *HTTPClientImpl) GetMessages(
 	ctx context.Context,
 	sourceDomainID uint32,

@@ -79,17 +79,62 @@ func NewVerifierWithConfig(
 	}
 }
 
+// taskSpan pairs a per-task attestation span with the context it was started under.
+type taskSpan struct {
+	ctx  context.Context
+	span oteltrace.Span
+}
+
 func (v *Verifier) VerifyMessages(
 	ctx context.Context,
 	tasks []verifier.VerificationTask,
 ) []verifier.VerificationResult {
-	// 1. Fetch attestations in batch
-	attestations, err := v.attestationService.Fetch(ctx, tasks)
+	// Open every task's attestation span before the batched fetch, so the single HTTP
+	// call underneath it can be attached to a real span instead of rooting its own trace.
+	spans := make(map[string]taskSpan, len(tasks))
+	for _, task := range tasks {
+		// The attempt span is carried by the task's TraceContext; inject it into ctx
+		// (which keeps its deadline/cancellation) rather than using task.TraceContext
+		// directly, since that is derived from context.WithoutCancel.
+		parentCtx := ctx
+		if task.TraceContext != nil {
+			if attemptSC := oteltrace.SpanContextFromContext(task.TraceContext); attemptSC.IsValid() {
+				parentCtx = oteltrace.ContextWithSpanContext(ctx, attemptSC)
+			}
+		}
+		messageID, _ := protocol.NewBytes32FromString(task.MessageID)
+		spanOpts := []tracing.SpanOption{
+			tracing.WithAttributes(
+				tracing.TokenProviderKey, provider,
+				tracing.SourceChainSelectorKey, task.Message.SourceChainSelector.String(),
+				tracing.SourceChainNameKey, task.Message.SourceChainSelector.ChainName(),
+			),
+		}
+		// Always sample the 5 attempts so every task is visible at least once.
+		if task.AttemptCount <= 5 {
+			spanOpts = append(spanOpts, tracing.AlwaysSampled())
+		}
+		fetchCtx, span := v.monitoring.Tracing().StartMessageSpan(
+			parentCtx,
+			monitoring.TokenAttestationSpanName(v.verifierID),
+			messageID,
+			spanOpts...,
+		)
+		spans[task.MessageID] = taskSpan{ctx: fetchCtx, span: span}
+	}
+
+	// 1. Fetch attestations in batch, attached under the first task's span - the batch is
+	// one HTTP call covering every task, so only one of them can be its real parent.
+	attestations, err := v.attestationService.Fetch(spans[tasks[0].MessageID].ctx, tasks)
 	if err != nil {
 		// Mark all tasks as retriable errors if fetching attestations failed
 		results := make([]verifier.VerificationResult, 0, len(tasks))
 		for _, task := range tasks {
 			v.monitoring.Metrics().IncrementTokenAttestationFetch(ctx, provider, monitoring.TokenAttestationFetchOutcomeError)
+			ts := spans[task.MessageID]
+			ts.span.RecordError(err)
+			ts.span.SetStatus(codes.Error, err.Error())
+			ts.span.End()
 			verificationError := v.errorRetry(err, task)
 			results = append(results, verifier.VerificationResult{Error: &verificationError})
 		}
@@ -102,33 +147,15 @@ func (v *Verifier) VerifyMessages(
 		lggr := logger.With(v.lggr, protocol.LogKeyMessageID, task.MessageID, "txHash", task.TxHash)
 		lggr.Debugw("Verifying Lombard task")
 
-		// Open a child span under the task-verifier attempt span so this
-		// attestation fetch extends the base message trace opened by the source reader.
-		// The attempt span is carried by the task's TraceContext; inject it into ctx
-		// (which keeps its deadline/cancellation) rather than using task.TraceContext
-		// directly, since that is derived from context.WithoutCancel.
-		parentCtx := ctx
-		if task.TraceContext != nil {
-			if attemptSC := oteltrace.SpanContextFromContext(task.TraceContext); attemptSC.IsValid() {
-				parentCtx = oteltrace.ContextWithSpanContext(ctx, attemptSC)
-			}
-		}
-		messageID, _ := protocol.NewBytes32FromString(task.MessageID)
-		fetchCtx, span := v.monitoring.Tracing().StartMessageSpan(
-			parentCtx,
-			monitoring.TokenAttestationSpanName(v.verifierID),
-			messageID,
-			attribute.String(tracing.TokenProviderKey, provider),
-			attribute.String(tracing.SourceChainSelectorKey, task.Message.SourceChainSelector.String()),
-			attribute.String(tracing.SourceChainNameKey, task.Message.SourceChainSelector.ChainName()),
-		)
+		ts := spans[task.MessageID]
+		fetchCtx, span := ts.ctx, ts.span
 		fetchStartedAt := time.Now()
 		// spans must be recorded against the span-started context, not the raw ctx
 		recordOutcome := func(outcome string) {
 			v.monitoring.Metrics().IncrementTokenAttestationFetch(fetchCtx, provider, outcome)
 			v.monitoring.Metrics().RecordTokenAttestationDuration(fetchCtx, provider, time.Since(fetchStartedAt))
 			// Semantic result of the fetch (success/not_ready/not_found/error), which is
-			// independent of the HTTP outcome recorded on the token_http_request span.
+			// independent of the HTTP outcome recorded on the fetch_attestation span.
 			span.SetAttributes(attribute.String(tracing.TokenOutcomeKey, outcome))
 		}
 

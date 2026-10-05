@@ -2,16 +2,21 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"strconv"
 
+	"go.opentelemetry.io/otel/attribute"
+	oteltrace "go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/auth"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
 	messagerules "github.com/smartcontractkit/chainlink-ccv/common/messagerules"
+	commontracing "github.com/smartcontractkit/chainlink-ccv/common/monitoring/tracing"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
@@ -71,8 +76,15 @@ func (h *WriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *
 	ctx = scope.WithMessageID(ctx, record.MessageID)
 	reqLogger = h.logger(ctx)
 
+	ctx, span := h.m.Tracing().StartMessageSpan(ctx, monitoring.WriteSpanName, monitoring.MessageIDToBytes32(record.MessageID),
+		commontracing.AlwaysSampled(),
+		commontracing.WithAttributes(commontracing.CallerIDKey, identity.CallerID),
+	)
+	defer span.End()
+
 	if h.disablementChecker.IsDisabled(record) {
 		reqLogger.Infow("Rejected write: message matched a disablement rule")
+		span.AddEvent(monitoring.EventDisablementRejected)
 		return &committeepb.WriteCommitteeVerifierNodeResultResponse{
 			Status: committeepb.WriteStatus_FAILED,
 		}, status.Error(codes.FailedPrecondition, "message processing is disabled")
@@ -81,21 +93,25 @@ func (h *WriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *
 	validationResult, err := h.signatureValidator.ValidateSignature(ctx, record)
 	if err != nil {
 		reqLogger.Errorw("signature validation failed", "error", err)
+		span.RecordError(err)
 		return &committeepb.WriteCommitteeVerifierNodeResultResponse{
 			Status: committeepb.WriteStatus_FAILED,
 		}, status.Error(codes.InvalidArgument, "signature validation failed")
 	}
+	span.AddEvent(monitoring.EventSignatureValidated)
 
 	reqLogger.Debugf("Signature validated successfully")
 
 	aggregationKey, err := h.signatureValidator.DeriveAggregationKey(ctx, record)
 	if err != nil {
 		reqLogger.Errorw("failed to derive aggregation key", "error", err)
+		span.RecordError(err)
 		return &committeepb.WriteCommitteeVerifierNodeResultResponse{
 			Status: committeepb.WriteStatus_FAILED,
 		}, status.Error(codes.Internal, "failed to process verification record")
 	}
 	ctx = scope.WithAggregationKey(ctx, aggregationKey)
+	span.SetAttributes(attribute.String(commontracing.AggregationKeyKey, aggregationKey))
 
 	signerCtx := scope.WithAddress(ctx, validationResult.Signer.Identifier)
 
@@ -104,10 +120,12 @@ func (h *WriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *
 	err = h.storage.SaveCommitVerification(signerCtx, record, aggregationKey)
 	if err != nil {
 		h.logger(signerCtx).Errorw("failed to save commit verification record", "error", err)
+		span.RecordError(err)
 		return &committeepb.WriteCommitteeVerifierNodeResultResponse{
 			Status: committeepb.WriteStatus_FAILED,
 		}, status.Error(codes.Internal, "failed to save verification record")
 	}
+	span.AddEvent(monitoring.EventVerificationSaved)
 	// PER-MESSAGE LOG (status): one per verifier node; quorum may not be met yet.
 	h.logger(signerCtx).Infow("Verification received", protocol.LogTypeKey, protocol.LogTypeMessageStatus, protocol.LogKeyMessageID, protocol.ByteSlice(record.MessageID).String(), "callerID", identity.CallerID)
 
@@ -118,19 +136,23 @@ func (h *WriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *
 	)
 	metrics.IncrementVerificationsTotal(ctx)
 
-	if err := h.aggregator.CheckAggregation(ctx, record.MessageID, aggregationKey, model.ChannelKey(identity.CallerID)); err != nil {
-		if err == common.ErrAggregationChannelFull {
+	channelKey := model.ChannelKey(identity.CallerID)
+	if err := h.aggregator.CheckAggregation(ctx, record.MessageID, aggregationKey, channelKey); err != nil {
+		if errors.Is(err, common.ErrAggregationChannelFull) {
 			reqLogger.Errorf("Aggregation channel is full")
+			span.RecordError(err)
 			return &committeepb.WriteCommitteeVerifierNodeResultResponse{
 				Status: committeepb.WriteStatus_FAILED,
 			}, status.Error(codes.ResourceExhausted, "service temporarily unavailable: aggregation queue full")
 		}
 
 		reqLogger.Errorw("failed to trigger aggregation", "error", err)
+		span.RecordError(err)
 		return &committeepb.WriteCommitteeVerifierNodeResultResponse{
 			Status: committeepb.WriteStatus_FAILED,
 		}, status.Error(codes.Internal, "failed to trigger aggregation")
 	}
+	span.AddEvent(monitoring.EventAggregationEnqueued, oteltrace.WithAttributes(attribute.String(commontracing.ChannelKeyKey, string(channelKey))))
 	reqLogger.Debugf("Triggered aggregation check")
 
 	return &committeepb.WriteCommitteeVerifierNodeResultResponse{

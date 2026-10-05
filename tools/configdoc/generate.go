@@ -9,10 +9,9 @@
 // holds no repo-specific target list — see this repo's tools/configdoc/registry
 // package for an example consumer.
 //
-// Limitation: doc comments are only harvested for packages inside the Generator's
-// module. A config field whose *type* lives in a different module is still
-// emitted but gets no comment, which trips the completeness gate — so keep a
-// repo's config structs (and their nested types) within that repo's module.
+// A config field whose *type* lives in a different module is documented from the DocComments
+// method that module generated, so it needs no source tree here. A module that never generated
+// has no comments to read, which trips the completeness gate.
 package configdoc
 
 import (
@@ -20,12 +19,18 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/BurntSushi/toml"
+	"golang.org/x/mod/modfile"
+
+	"github.com/smartcontractkit/chainlink-common/x/config/commentparsing"
+	"github.com/smartcontractkit/chainlink-common/x/config/markup/tomlmarkup"
 )
 
 // Generator renders documentation targets to commented TOML. ModuleRoot is the
@@ -61,19 +66,18 @@ func NewGenerator(dir string) (*Generator, error) {
 	}
 }
 
-// modulePath extracts the module import path from go.mod contents.
+// modulePath goes through the go tool's own parser because a directive may carry an inline
+// comment, be quoted, or be separated by a tab.
 func modulePath(gomod []byte) (string, error) {
-	for line := range strings.SplitSeq(string(gomod), "\n") {
-		if rest, ok := strings.CutPrefix(strings.TrimSpace(line), "module "); ok {
-			return strings.TrimSpace(rest), nil
-		}
+	if path := modfile.ModulePath(gomod); path != "" {
+		return path, nil
 	}
 	return "", errors.New("no module directive in go.mod")
 }
 
-// Stale describes a target whose committed doc differs from freshly generated
-// output (or is missing). Want is the freshly generated content; Got is the
-// committed content ("" when Missing).
+// Stale describes a generated file whose committed copy differs from fresh output (or is
+// missing). Want is the fresh content; Got is the committed content ("" when Missing).
+// A DocComments file has no target, so Target carries only its path relative to the module root.
 type Stale struct {
 	Target  Target
 	Path    string
@@ -83,52 +87,165 @@ type Stale struct {
 }
 
 // Write renders every target and writes it under outDir at the target's Out
-// path, creating directories as needed. It returns the written file paths. A
-// render or I/O error aborts and is returned along with the paths written so far.
+// path, creating directories as needed. It returns the written file paths.
+// outDir must resolve inside the module root, which is where the run is anchored.
+//
+// Pass the module's whole target list, as Main does. A run rewrites the DocComments file of every
+// package its walk reaches and drops the ones this tool wrote that it did not produce, so a subset
+// takes the omitted targets' methods with it.
+//
+// An error returns no paths. The write is one commentparsing run over the docs and the
+// DocComments files together, which reports whether it completed rather than which files it got
+// to, so there is no partial list to hand back; a failed run leaves the tree to be repaired by
+// rerunning, not by reading a prefix of what it managed.
 func (g *Generator) Write(targets []Target, outDir string) ([]string, error) {
-	var written []string
+	rel, err := g.relative(outDir)
+	if err != nil {
+		return nil, err
+	}
+
+	// One walk feeds both these docs and the DocComments methods Run writes beside them, which is
+	// what lets a downstream module document a field whose type is declared in this one.
+	if err := commentparsing.Run(g.runArgs(targets), g.Files(targets, rel)); err != nil {
+		return nil, err
+	}
+
+	written := make([]string, 0, len(targets))
 	for _, t := range targets {
-		content, err := g.Render(t)
-		if err != nil {
-			return written, err
-		}
-		path := filepath.Join(outDir, filepath.FromSlash(t.Out))
-		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-			return written, err
-		}
-		if err := os.WriteFile(path, []byte(content), 0o644); err != nil { //nolint:gosec // G306: generated docs are not secret
-			return written, err
-		}
-		written = append(written, path)
+		written = append(written, filepath.Join(outDir, filepath.FromSlash(t.Out)))
 	}
 	return written, nil
 }
 
-// Check renders every target and compares it against the committed file under
-// outDir, returning the targets that are stale or missing (empty when all are
-// fresh). A render error aborts and is returned. This is the engine behind both
-// the CLI's -check mode and each repo's freshness test.
+// runArgs are what commentparsing needs beyond the targets themselves.
+//
+// Dir is the module root because every generated path is resolved against it, and a package's
+// DocComments file belongs beside the structs it describes rather than under the docs directory.
+func (g *Generator) runArgs(targets []Target) commentparsing.RunArgs {
+	return commentparsing.RunArgs{
+		Roots:       Roots(targets),
+		Markup:      tomlmarkup.New(),
+		Dir:         g.ModuleRoot,
+		LocalPrefix: g.ModulePath,
+		Tool:        g.ModulePath + "/tools/configdoc",
+	}
+}
+
+// relative expresses outDir the way a generator's paths must be: against the module root the run
+// is anchored to. A caller gives it relative to the working directory, which is the same thing
+// only when that is the module root.
+//
+// A directory outside the module is refused here rather than deeper in. The run is anchored at
+// the module root so each package's DocComments file lands beside the structs it describes, and
+// it will not write above that anchor; the error it raises names a path relative to a directory
+// the caller never supplied, so this one names the directory the caller did.
+func (g *Generator) relative(outDir string) (string, error) {
+	abs := outDir
+	if !filepath.IsAbs(abs) {
+		resolved, err := filepath.Abs(abs)
+		if err != nil {
+			return "", err
+		}
+		abs = resolved
+	}
+	rel, err := filepath.Rel(g.ModuleRoot, abs)
+	if err != nil {
+		return "", err
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf(
+			"output directory %s is outside module root %s: docs are written within the module being documented",
+			outDir, g.ModuleRoot,
+		)
+	}
+	return rel, nil
+}
+
+// files renders every target and DocComments file from one discovery walk, keyed by the path each
+// is committed at.
+//
+// It goes through commentparsing.Files rather than Run so that checking whether the committed docs
+// are up to date does not write the answer it is about to compare against.
+func (g *Generator) files(targets []Target, outDir string) (map[string]string, error) {
+	rel, err := g.relative(outDir)
+	if err != nil {
+		return nil, err
+	}
+
+	generated, err := commentparsing.Files(g.runArgs(targets), g.Files(targets, rel))
+	if err != nil {
+		return nil, fmt.Errorf("loading comments: %w", err)
+	}
+
+	// A target's doc is keyed by the path the caller built from outDir; everything else by its
+	// path under the module root.
+	files := make(map[string]string, len(generated))
+	for path, content := range generated {
+		files[filepath.Join(g.ModuleRoot, path)] = content
+	}
+	for _, t := range targets {
+		out := filepath.FromSlash(t.Out)
+		root := filepath.Join(g.ModuleRoot, rel, out)
+		content := files[root]
+		delete(files, root)
+		files[filepath.Join(outDir, out)] = content
+	}
+	return files, nil
+}
+
+// Check renders every target and DocComments file and compares each against its committed copy,
+// returning the stale or missing ones (empty when all are fresh). outDir is restricted as Write's
+// is. Stale targets come first, in target order, then DocComments files sorted by path.
 func (g *Generator) Check(targets []Target, outDir string) ([]Stale, error) {
+	files, err := g.files(targets, outDir)
+	if err != nil {
+		return nil, err
+	}
+
+	// A DocComments file Run would delete is not caught here; the regenerate-and-diff CI job does.
 	var stale []Stale
 	for _, t := range targets {
-		want, err := g.Render(t)
-		if err != nil {
-			return nil, err
-		}
 		path := filepath.Join(outDir, filepath.FromSlash(t.Out))
-		got, err := os.ReadFile(path) //nolint:gosec // G304: path is built from the trusted target list + outDir, not user input
+		s, err := compare(path, files[path])
 		if err != nil {
-			if errors.Is(err, fs.ErrNotExist) {
-				stale = append(stale, Stale{Target: t, Path: path, Want: want, Missing: true})
-				continue
-			}
 			return nil, err
 		}
-		if string(got) != want {
-			stale = append(stale, Stale{Target: t, Path: path, Want: want, Got: string(got)})
+		if s != nil {
+			s.Target = t
+			stale = append(stale, *s)
+		}
+		delete(files, path)
+	}
+	for _, path := range slices.Sorted(maps.Keys(files)) {
+		s, err := compare(path, files[path])
+		if err != nil {
+			return nil, err
+		}
+		if s != nil {
+			rel, err := filepath.Rel(g.ModuleRoot, path)
+			if err != nil {
+				return nil, err
+			}
+			s.Target = Target{Out: filepath.ToSlash(rel)}
+			stale = append(stale, *s)
 		}
 	}
 	return stale, nil
+}
+
+// compare returns nil when the file at path already holds want.
+func compare(path, want string) (*Stale, error) {
+	got, err := os.ReadFile(path) //nolint:gosec // G304: path comes from the generated file set, not user input
+	if errors.Is(err, fs.ErrNotExist) {
+		return &Stale{Path: path, Want: want, Missing: true}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if string(got) == want {
+		return nil, nil
+	}
+	return &Stale{Path: path, Want: want, Got: string(got)}, nil
 }
 
 // Render produces the documented TOML for one target: it TOML-encodes the
@@ -136,6 +253,16 @@ func (g *Generator) Check(targets []Target, outDir string) ([]Stale, error) {
 // walking), loads the doc comments for the packages the instance's structs live
 // in, and injects those comments into the encoded output.
 func (g *Generator) Render(t Target) (string, error) {
+	files, err := g.files([]Target{t}, g.ModuleRoot)
+	if err != nil {
+		return "", err
+	}
+	return files[filepath.Join(g.ModuleRoot, filepath.FromSlash(t.Out))], nil
+}
+
+// render is Render with the comments already resolved, so several targets sharing a type resolve
+// it once rather than each walking the tree again.
+func (g *Generator) render(t Target, comments *CommentLookup) (string, error) {
 	inst := t.New()
 	if err := validateInitializedPointers(inst); err != nil {
 		return "", fmt.Errorf("%s: %w", t.Name, err)
@@ -144,11 +271,6 @@ func (g *Generator) Render(t Target) (string, error) {
 	var buf bytes.Buffer
 	if err := toml.NewEncoder(&buf).Encode(inst); err != nil {
 		return "", fmt.Errorf("%s: encoding: %w", t.Name, err)
-	}
-
-	comments, err := LoadComments(g.packageDirs(inst))
-	if err != nil {
-		return "", fmt.Errorf("%s: loading comments: %w", t.Name, err)
 	}
 
 	body, err := InjectComments(buf.String(), reflect.TypeOf(inst), comments)
@@ -234,52 +356,6 @@ func (g *Generator) header(t Target) string {
 			"# %s %s reference. Values shown are defaults or illustrative examples.\n\n",
 		titleCase(t.Name), kind,
 	)
-}
-
-// packageDirs maps each package contributing a field on inst to its source
-// directory, so LoadComments indexes exactly the needed packages.
-func (g *Generator) packageDirs(inst any) map[string]string {
-	dirs := make(map[string]string)
-	for pkg := range collectPackages(reflect.TypeOf(inst)) {
-		rel := strings.TrimPrefix(strings.TrimPrefix(pkg, g.ModulePath), "/")
-		dirs[pkg] = filepath.Join(g.ModuleRoot, filepath.FromSlash(rel))
-	}
-	return dirs
-}
-
-// collectPackages returns the set of package import paths of every struct type
-// reachable through the fields of t (following embeds, nested structs, and
-// struct-valued maps/slices).
-func collectPackages(t reflect.Type) map[string]bool {
-	out := make(map[string]bool)
-	visited := make(map[reflect.Type]bool)
-	var walk func(reflect.Type)
-	walk = func(t reflect.Type) {
-		t = deref(t)
-		if t.Kind() != reflect.Struct || visited[t] {
-			return
-		}
-		visited[t] = true
-		if t.PkgPath() != "" {
-			out[t.PkgPath()] = true
-		}
-		for _, f := range reflect.VisibleFields(t) {
-			if !f.IsExported() {
-				continue
-			}
-			ft := deref(f.Type)
-			switch ft.Kind() {
-			case reflect.Struct:
-				walk(ft)
-			case reflect.Slice, reflect.Array, reflect.Map:
-				if ft.Elem().Kind() == reflect.Struct {
-					walk(ft.Elem())
-				}
-			}
-		}
-	}
-	walk(t)
-	return out
 }
 
 func titleCase(s string) string {

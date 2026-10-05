@@ -3,6 +3,7 @@ package services
 import (
 	_ "embed"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -23,7 +24,26 @@ const (
 
 const (
 	AppPathInsideContainer = "/app"
+
+	// HostGatewayExtraHost maps host.docker.internal to the host gateway so containers can
+	// resolve it on Linux Docker hosts, where the name has no default mapping; services reach
+	// the observability stack's published OTLP port through it. Docker Desktop already maps
+	// the name, so appending it there is harmless.
+	HostGatewayExtraHost = "host.docker.internal:host-gateway"
 )
+
+// TelemetryAttrs copies base telemetry attributes and adds OTel service identity:
+// service.name for the service type and service.instance.id for the container name.
+// The fresh map prevents per-service writes from aliasing the shared config.
+func TelemetryAttrs(base map[string]string, service, instance string) map[string]string {
+	attrs := make(map[string]string, len(base)+2)
+	maps.Copy(attrs, base)
+	attrs["service.name"] = service
+	if instance != "" {
+		attrs["service.instance.id"] = instance
+	}
+	return attrs
+}
 
 // awsCredentialEnvVars are the standard AWS SDK environment variables that carry credentials and
 // region. Forwarding these from the host lets a container reach AWS (e.g. KMS) via the default

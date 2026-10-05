@@ -79,6 +79,10 @@ stale, err := g.Check(targets, "docs/config") // verify (use in a freshness test
 ```
 
 `NewGenerator` auto-detects the module path and root, so nothing is hardcoded.
-One constraint: doc comments are only harvested for packages **inside that
-module** — keep the documented config structs and their nested types in-module,
-or the completeness gate will fail on the un-commented foreign fields.
+
+Doc comments come from source for a type that module declares, and from the
+`DocComments` method a dependency generated for one it does not — generation
+writes a `doccomments_gen.go` beside every documented type for exactly that
+reason, and those files are committed. A nested type from another module is
+therefore fine, as long as that module generates too; one that has never generated has no
+comments to read, and the completeness gate fails on its fields.

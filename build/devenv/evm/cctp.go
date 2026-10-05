@@ -8,11 +8,11 @@ import (
 	gethcommon "github.com/ethereum/go-ethereum/common"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+
 	burnminterc677ops "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/burn_mint_erc20_with_drip"
 	evmadapters "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/adapters"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/create2_factory"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/mock_receiver_v2"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/usdc_token_pool_proxy"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/versioned_verifier_resolver"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/mock_token_minter"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/mock_usdc_token_messenger"
@@ -21,8 +21,8 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/adapters"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/changesets"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	evmaccessor "github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/cctp"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/operations/contract"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -126,19 +126,16 @@ func (m *CCIP17EVMConfig) deployCCTPChain(
 	messenger gethcommon.Address,
 	usdc gethcommon.Address,
 ) error {
-	usdcTokokenPoolRefs := usdcTokenPoolProxies(selector, []uint64{})
-
 	out, err := changesets.DeployCCTPChains(common.GlobalCCTPRegistry, registry).Apply(*env, changesets.DeployCCTPChainsConfig{
 		Chains: map[uint64]changesets.CCTPChainConfig{
 			selector: {
-				USDCType:          adapters.Canonical,
-				TokenDecimals:     6,
-				TokenMessengerV2:  messenger.Hex(),
-				USDCToken:         usdc.Hex(),
-				RegisteredPoolRef: usdcTokokenPoolRefs[selector],
-				StorageLocations:  []string{"https://test.chain.link.fake"},
-				FastFinalityBps:   100,
-				DeployerContract:  create2Factory.Address,
+				USDCType:         adapters.Canonical,
+				TokenDecimals:    6,
+				TokenMessengerV2: messenger.Hex(),
+				USDCToken:        usdc.Hex(),
+				StorageLocations: []string{"https://test.chain.link.fake"},
+				FastFinalityBps:  100,
+				DeployerContract: create2Factory.Address,
 			},
 		},
 	})
@@ -183,7 +180,7 @@ func (m *CCIP17EVMConfig) configureUSDCForTransfer(
 
 	remoteChains := make(map[uint64]adapters.RemoteCCTPChainConfig)
 	for _, rs := range remoteSelectors {
-		domain, ok := cctp.Domains[rs]
+		domain, ok := evmaccessor.CCTPDomain(rs)
 		if !ok {
 			return fmt.Errorf("no CCTP domain mapping found for chain selector %d", rs)
 		}
@@ -200,28 +197,23 @@ func (m *CCIP17EVMConfig) configureUSDCForTransfer(
 		return fmt.Errorf("failed to register CCTP local tokens on chain %d: %w", selector, err)
 	}
 
-	usdcTokenPoolRefs := usdcTokenPoolProxies(selector, remoteSelectors)
 	config := map[uint64]changesets.CCTPChainConfig{
 		selector: {
-			USDCType:          adapters.Canonical,
-			TokenDecimals:     6,
-			USDCToken:         usdc.Address,
-			RegisteredPoolRef: usdcTokenPoolRefs[selector],
-			StorageLocations:  []string{"https://test.chain.link.fake"},
-			FeeAggregator:     gethcommon.HexToAddress("0x04").Hex(),
-			FastFinalityBps:   100,
-			DeployerContract:  create2.Address,
-			RemoteChains:      remoteChains,
+			USDCType:         adapters.Canonical,
+			TokenDecimals:    6,
+			USDCToken:        usdc.Address,
+			StorageLocations: []string{"https://test.chain.link.fake"},
+			FeeAggregator:    gethcommon.HexToAddress("0x04").Hex(),
+			FastFinalityBps:  100,
+			DeployerContract: create2.Address,
+			RemoteChains:     remoteChains,
 		},
 	}
-	for chainSelector, poolRef := range usdcTokenPoolRefs {
-		if chainSelector == selector {
-			continue
-		}
+	// Pool refs are derived from each chain's CCTP deploy output (chainlink-ccip#2318).
+	for _, chainSelector := range remoteSelectors {
 		config[chainSelector] = changesets.CCTPChainConfig{
-			USDCType:          adapters.Canonical,
-			TokenDecimals:     6,
-			RegisteredPoolRef: poolRef,
+			USDCType:      adapters.Canonical,
+			TokenDecimals: 6,
 		}
 	}
 
@@ -273,7 +265,7 @@ func (m *CCIP17EVMConfig) registerCCTPLocalTokens(
 	}
 
 	for _, rs := range remoteSelectors {
-		domain, ok := cctp.Domains[rs]
+		domain, ok := evmaccessor.CCTPDomain(rs)
 		if !ok {
 			return fmt.Errorf("no CCTP domain mapping found for chain selector %d", rs)
 		}
@@ -445,7 +437,7 @@ func (m *CCIP17EVMConfig) deployCircleContracts(
 		return empty, empty, empty, fmt.Errorf("failed to add USDC token contract: %w", err)
 	}
 
-	localDomain, ok := cctp.Domains[selector]
+	localDomain, ok := evmaccessor.CCTPDomain(selector)
 	if !ok {
 		return empty, empty, empty, fmt.Errorf("no CCTP domain mapping found for chain selector %d", selector)
 	}
@@ -456,7 +448,7 @@ func (m *CCIP17EVMConfig) deployCircleContracts(
 		chain.DeployerKey,
 		chain.Client,
 		uint32(1),     // version (CCTP V2)
-		localDomain,   // localDomain from cctp.Domains
+		localDomain,   // localDomain from evmaccessor.CCTPDomain
 		usdcTokenAddr, // token
 	)
 	if err != nil {
@@ -500,20 +492,4 @@ func (m *CCIP17EVMConfig) deployCircleContracts(
 	}
 
 	return usdcTokenAddr, messageTransmitterAddr, tokenMessengerAddr, nil
-}
-
-func usdcTokenPoolProxies(sourceSelector uint64, remoteSelectors []uint64) map[uint64]datastore.AddressRef {
-	selectors := make([]uint64, 0, 1+len(remoteSelectors))
-	selectors = append(selectors, sourceSelector)
-	selectors = append(selectors, remoteSelectors...)
-
-	references := make(map[uint64]datastore.AddressRef)
-	for _, selector := range selectors {
-		references[selector] = datastore.AddressRef{
-			ChainSelector: selector,
-			Type:          datastore.ContractType(usdc_token_pool_proxy.ContractType),
-			Version:       semver.MustParse(usdc_token_pool_proxy.Deploy.Version()),
-		}
-	}
-	return references
 }

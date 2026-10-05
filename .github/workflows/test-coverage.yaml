@@ -57,6 +57,10 @@ jobs:
       - name: Run tests
         run: |
           just test-coverage coverage.out
-          total=$(go tool cover -func=coverage.out | grep total | awk '{print $3}')
+          # Anchor on the summary line: an unanchored "grep total" also matches any function
+          # whose name contains "total", which makes $total multi-line and the check meaningless.
+          total=$(go tool cover -func=coverage.out | grep '^total:' | awk '{print $3}')
           echo "Total coverage: $total"
-          echo "$total" | awk -v threshold="$COVERAGE_THRESHOLD" '{ pc=substr($0, 1, length($0)-1); if (pc < threshold) { print "Coverage (" pc "%) is less than " threshold "%"; exit 1 } }'
+          # +pc and +threshold force a numeric comparison. substr() yields a string, so a bare
+          # "pc < threshold" compares lexically and "100.0" sorts below "37".
+          echo "$total" | awk -v threshold="$COVERAGE_THRESHOLD" '{ pc=substr($0, 1, length($0)-1); if (+pc < +threshold) { print "Coverage (" pc "%) is less than " threshold "%"; exit 1 } }'

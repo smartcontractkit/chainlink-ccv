@@ -1,0 +1,18 @@
+# VCS and local tooling — never needed by Docker builds
+.git
+.claude
+.github
+.build
+
+# Repo metadata not consumed by any build
+changelog
+docs
+**/.DS_Store
+
+# Local keystores and env files must never enter a build context
+**/keystore.json
+.env*
+
+# Only build/devenv/fakes is used by a Dockerfile (its own build)
+build/devenv/*
+!build/devenv/fakes

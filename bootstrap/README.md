@@ -137,6 +137,10 @@ listen_port = 9988
 # onchain signing address from the node's ECDSA_S256 key and registers it with JD on connect,
 # making it available to deployment tooling via ListNodeChainConfigs.
 # One entry per chain; multiple [[chains]] blocks are allowed.
+# At boot, entries are cross-checked against the family's own mounted config when the family
+# registered a coverage checker (see chainaccess.RegisterDeclaredChainCoverageChecker): a declared
+# chain the config cannot serve fails startup with the chain and reason named, rather than
+# failing when the first message for it arrives.
 type = "EVM"   # chain family — EVM, SOLANA, APTOS, STELLAR, CANTON, STARKNET, TRON, TON, SUI
 id   = "1"     # chain ID (e.g. EVM chain ID, Solana cluster name)
 ```

@@ -59,6 +59,19 @@ func NewMetricsAwareStorage(inner CommitVerificationStorage, m common.Aggregator
 	return s
 }
 
+// Ready reports health by the wrapped storage; the metrics wrapper adds no state of its own.
+func (s *MetricsAwareStorage) Ready() error {
+	return s.inner.Ready()
+}
+
+func (s *MetricsAwareStorage) HealthReport() map[string]error {
+	return s.inner.HealthReport()
+}
+
+func (s *MetricsAwareStorage) Name() string {
+	return s.inner.Name()
+}
+
 func (s *MetricsAwareStorage) metrics(ctx context.Context) common.AggregatorMetricLabeler {
 	return scope.AugmentMetrics(ctx, s.m.Metrics())
 }
@@ -107,8 +120,8 @@ func (s *MetricsAwareStorage) GetBatchAggregatedReportByMessageIDs(ctx context.C
 	})
 }
 
-func (s *MetricsAwareStorage) SubmitAggregatedReport(ctx context.Context, report *model.CommitAggregatedReport) error {
-	return captureMetricsNoReturn(ctx, s.metrics(ctx), s.logger(ctx), s.slowQueryThreshold, submitReportOp, func() error {
+func (s *MetricsAwareStorage) SubmitAggregatedReport(ctx context.Context, report *model.CommitAggregatedReport) (bool, error) {
+	return captureMetrics(ctx, s.metrics(ctx), s.logger(ctx), s.slowQueryThreshold, submitReportOp, func() (bool, error) {
 		return s.inner.SubmitAggregatedReport(ctx, report)
 	})
 }

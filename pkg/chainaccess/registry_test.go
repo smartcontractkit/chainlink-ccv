@@ -48,6 +48,10 @@ func (a *testAccessor) ContractTransmitter() (chainaccess.ContractTransmitter, e
 	return nil, errors.New("contract transmitter not available")
 }
 
+func (a *testAccessor) CCTPCodec() (chainaccess.CCTPCodec, error) {
+	return nil, errors.New("chain codec not available")
+}
+
 func (a *testAccessor) Close() error {
 	return nil
 }

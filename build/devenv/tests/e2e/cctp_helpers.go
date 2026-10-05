@@ -11,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	evmaccessor "github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/cctp"
 )
@@ -30,10 +31,10 @@ func registerCCTPAttestation(
 ) {
 	messageIDHex := "0x" + hex.EncodeToString(messageID[:])
 
-	sourceDomain, ok := cctp.Domains[sourceSelector]
-	require.True(t, ok, "source chain selector %d must have CCTP domain (see cctp.Domains)", sourceSelector)
-	destDomain, ok := cctp.Domains[destSelector]
-	require.True(t, ok, "dest chain selector %d must have CCTP domain (see cctp.Domains)", destSelector)
+	sourceDomain, ok := evmaccessor.CCTPDomain(sourceSelector)
+	require.True(t, ok, "source chain selector %d must have CCTP domain (see evmaccessor.CCTPDomain)", sourceSelector)
+	destDomain, ok := evmaccessor.CCTPDomain(destSelector)
+	require.True(t, ok, "dest chain selector %d must have CCTP domain (see evmaccessor.CCTPDomain)", destSelector)
 
 	// Build CCTP message (412 bytes total) with sourceDomain/destDomain set so contract does not revert InvalidSourceDomain
 	message := buildCCTPMessage(messageID, messageSender, receiver, sourceDomain, destDomain, sourceBurnToken, destTokenMessenger)

@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 
+	commonmonitoring "github.com/smartcontractkit/chainlink-ccv/common/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/contracttransmitter"
@@ -40,6 +42,34 @@ const (
 	orphanRecoveryRPCTimeout = 30 * time.Second
 )
 
+// Node URL label keys for the chain plugin config beholder event. They match the keys the core
+// node's EVM relayer uses for the same event (chainlink-evm/pkg/relay), so downstream consumers
+// see identical labels from standalone services and core nodes.
+const (
+	nodeURLKeyHTTP = "HTTPURL"
+	nodeURLKeyWS   = "WSURL"
+)
+
+// rawNodeURLs maps each configured RPC node to its endpoints for the chain plugin config
+// beholder event. The emitter normalizes the URLs (scheme://host only) before emission.
+func rawNodeURLs(nodes []Node) []map[string]string {
+	rawNodes := make([]map[string]string, 0, len(nodes))
+	for _, n := range nodes {
+		nodeURLs := make(map[string]string)
+		if httpURL := strings.TrimSpace(n.HTTPUrl); httpURL != "" {
+			nodeURLs[nodeURLKeyHTTP] = httpURL
+		}
+		if wsURL := strings.TrimSpace(n.WSUrl); wsURL != "" {
+			nodeURLs[nodeURLKeyWS] = wsURL
+		}
+		if len(nodeURLs) == 0 {
+			continue
+		}
+		rawNodes = append(rawNodes, nodeURLs)
+	}
+	return rawNodes
+}
+
 // chainRuntime is the lifecycle boundary owned by one EVM accessor. Keeping it
 // behind this narrow interface makes the accessor wiring testable without
 // replacing chainlink-evm's production implementations.
@@ -64,11 +94,15 @@ type standaloneChain struct {
 	headBroadcaster heads.Broadcaster
 	headTracker     heads.Tracker
 	mailMonitor     *mailbox.Monitor
+	// configEmitter emits the chain's ChainPluginConfig (CSA key + normalized RPC endpoints) to
+	// Beholder, as a core node relayer does, so NOPs sharing RPC endpoints can be detected.
+	configEmitter *commonmonitoring.ChainPluginConfigEmitter
 
-	// txmBlockTimeIsDefault is kept from the operator's Info for the warning
-	// NewContractTransmitter emits: chainConfig carries the block time already defaulted, which
-	// cannot be told apart from one the operator set.
-	txmBlockTimeIsDefault bool
+	// txmBlockTime and txmBlockTimeSource are resolved from the operator's Info at construction
+	// for the logging NewContractTransmitter emits: chainConfig carries the block time already
+	// defaulted, which cannot be told apart from one the operator set.
+	txmBlockTime       time.Duration
+	txmBlockTimeSource evmconfig.TXMBlockTimeSource
 
 	sourceReaderHeaderFetchBatchSize int
 
@@ -114,10 +148,15 @@ func newStandaloneChain(ctx context.Context, info Info, lggr logger.Logger) (*st
 		return nil, fmt.Errorf("failed to dial production EVM client for chain %s: %w", info.ChainID, err)
 	}
 
+	// The config emitter reports this chain's RPC endpoints to Beholder as a core node's EVM
+	// relayer does; an empty CSA key falls back to the beholder client's auth key. With Beholder
+	// disabled the global emitter is a no-op, so it runs unconditionally.
+	configEmitter := commonmonitoring.NewChainPluginConfigEmitter(lggr, "", info.ChainID, rawNodeURLs(info.Nodes))
+
 	var servicesToStart services.MultiStart
 	// MultiStart rolls back every service it started, in reverse order, if a
 	// later Start fails. The separately owned chain client is closed here.
-	if err := servicesToStart.Start(ctx, mailMonitor, headBroadcaster, headTracker); err != nil {
+	if err := servicesToStart.Start(ctx, mailMonitor, headBroadcaster, headTracker, configEmitter); err != nil {
 		chainClient.Close()
 		return nil, fmt.Errorf("failed to start production EVM head tracker for chain %s: %w", info.ChainID, err)
 	}
@@ -127,6 +166,7 @@ func newStandaloneChain(ctx context.Context, info Info, lggr logger.Logger) (*st
 		"headTracker", headTracker.Name(),
 		"nodeCount", len(chainConfig.Nodes()),
 	)
+	txmBlockTime, txmBlockTimeSource := evmconfig.ResolveTXMBlockTime(info)
 	return &standaloneChain{
 		lggr:                             lggr,
 		chainClient:                      chainClient,
@@ -134,7 +174,9 @@ func newStandaloneChain(ctx context.Context, info Info, lggr logger.Logger) (*st
 		headBroadcaster:                  headBroadcaster,
 		headTracker:                      headTracker,
 		mailMonitor:                      mailMonitor,
-		txmBlockTimeIsDefault:            info.TXMBlockTime == 0,
+		configEmitter:                    configEmitter,
+		txmBlockTime:                     txmBlockTime,
+		txmBlockTimeSource:               txmBlockTimeSource,
 		sourceReaderHeaderFetchBatchSize: sourceReaderHeaderFetchBatchSize(info.SourceReaderHeaderFetchBatchSize),
 		recoveryStop:                     make(services.StopChan),
 	}, nil
@@ -198,16 +240,25 @@ func (c *standaloneChain) NewContractTransmitter(
 		return nil, errors.New("EVM transaction manager requires an OffRamp address")
 	}
 
-	if c.txmBlockTimeIsDefault {
+	switch c.txmBlockTimeSource {
+	case evmconfig.TXMBlockTimeGenericFallback:
 		// Warned here rather than when the chain is built: a source-only chain, the verifier's for
 		// instance, never reaches this point and never runs a TXM, so the fallback does not apply to
-		// it. Loud because the fallback is a far steeper retry and fee-bump cadence than the node
-		// produced on a slow chain; set it explicitly per chain before a cutover. The inspect-config
-		// migration tooling flags the same fact offline.
-		c.lggr.Warnw("no txm_block_time configured for chain; TXM v2 falls back to a 2s block time "+
-			"(retry and fee-bump cadence). Set txm_block_time (standalone config) or "+
-			"Transactions.TransactionManagerV2.BlockTime (node config) explicitly per chain",
+		// it. Loud because this chain has no curated default and 2s is a far steeper retry and
+		// fee-bump cadence than the node produced on a slow chain; set it explicitly per chain before
+		// a cutover. The inspect-config migration tooling flags the same fact offline.
+		c.lggr.Warnw("no txm_block_time configured for chain and no curated default exists; TXM v2 "+
+			"falls back to a 2s block time (retry and fee-bump cadence). Set txm_block_time "+
+			"(standalone config) or Transactions.TransactionManagerV2.BlockTime (node config) "+
+			"explicitly per chain",
 			"chainID", c.chainConfig.EVM().ChainID().String())
+	case evmconfig.TXMBlockTimeCuratedDefault:
+		// Not a warning: the curated value tracks the chain's real block interval, so the cadence
+		// is right. Logged anyway so the source of the value is visible next to the TXM startup
+		// lines. An explicit txm_block_time still overrides it.
+		c.lggr.Infow("no txm_block_time configured for chain; using the curated per-chain default",
+			"chainID", c.chainConfig.EVM().ChainID().String(),
+			"blockTime", c.txmBlockTime.String())
 	}
 
 	coreKeystore := evmkeysv2.NewTxKeyCoreKeystore(
@@ -367,9 +418,17 @@ func (c *standaloneChain) Close() error {
 	txm := c.txm
 	unsubscribeTXM := c.unsubscribeTXM
 	chainClient := c.chainClient
+	configEmitter := c.configEmitter
 	c.mu.Unlock()
 
-	// Stop orphan recovery first and wait for it. It reads nonces through the chain client and
+	// Stop the config emitter first: it is independent of the chain services and this stops
+	// emissions as soon as shutdown begins (reverse of startup order).
+	var err error
+	if configEmitter != nil {
+		err = errors.Join(err, configEmitter.Close())
+	}
+
+	// Stop orphan recovery next and wait for it. It reads nonces through the chain client and
 	// writes to the TXM store, so both have to outlive it; abandoning it here would leave it calling
 	// into a closed client.
 	//
@@ -382,7 +441,6 @@ func (c *standaloneChain) Close() error {
 	}
 	c.recoveryWG.Wait()
 
-	var err error
 	if headTracker != nil {
 		err = errors.Join(err, headTracker.Close())
 	}

@@ -37,7 +37,7 @@ const (
 	evmExecutionAttemptPollerServiceName = "evm.executionattemptpoller.Service"
 	// maxFilterBlockRange is the maximum block range for filter queries to avoid RPC limits.
 	// Common Ethereum RPC limits are around 10,000 blocks, using a conservative value here.
-	maxFilterBlockRange = 5000
+	maxFilterBlockRange = 1000
 	// maxSubscriptionReconnectAttempts is the maximum number of times to attempt reconnecting the subscription
 	// before falling back to HTTP polling mode.
 	maxSubscriptionReconnectAttempts = 5
@@ -77,19 +77,35 @@ type EvmExecutionAttemptPoller struct {
 
 func (p *EvmExecutionAttemptPoller) HealthReport() map[string]error {
 	report := make(map[string]error)
-	report[p.Name()] = p.Healthy()
+	report[p.Name()] = p.Ready()
 	return report
 }
 
-// Healthy returns nil when the poller is operating normally. If a permanent
-// failure has been recorded (e.g. getStartBlock failed), the stored fatal
-// error is returned on every call so the failure surfaces persistently in
-// HealthReport.
-func (p *EvmExecutionAttemptPoller) Healthy() error {
-	if errPtr := p.fatalErr.Load(); errPtr != nil {
-		return *errPtr
+// Ready returns nil when the poller has completed its initial backfill and is
+// fully operational. Returns ErrBackfillInProgress while the backfill is still
+// running, or an errNotStarted error if the service hasn't been started.
+func (p *EvmExecutionAttemptPoller) Ready() error {
+	if err := p.StateMachine.Ready(); err != nil {
+		return err
 	}
-	return p.StateMachine.Healthy()
+	if fatalErr := p.fatalErr.Load(); fatalErr != nil {
+		return *fatalErr
+	}
+	if !p.backfillComplete.Load() {
+		return ErrBackfillInProgress
+	}
+	return nil
+}
+
+// Healthy returns the recorded fatal error, if any; unlike Ready it stays nil during backfill.
+func (p *EvmExecutionAttemptPoller) Healthy() error {
+	if err := p.StateMachine.Healthy(); err != nil {
+		return err
+	}
+	if fatalErr := p.fatalErr.Load(); fatalErr != nil {
+		return *fatalErr
+	}
+	return nil
 }
 
 func (p *EvmExecutionAttemptPoller) Name() string {
@@ -149,22 +165,9 @@ func (p *EvmExecutionAttemptPoller) Start(ctx context.Context) error {
 	})
 }
 
-// Ready returns nil when the poller has completed its initial backfill and is
-// fully operational. Returns ErrBackfillInProgress while the backfill is still
-// running, or an errNotStarted error if the service hasn't been started.
-func (p *EvmExecutionAttemptPoller) Ready() error {
-	if err := p.StateMachine.Ready(); err != nil {
-		return err
-	}
-	if !p.backfillComplete.Load() {
-		return ErrBackfillInProgress
-	}
-	return nil
-}
-
 // runStartupSequence performs the full startup: find the start block, backfill
 // historical events, then switch to WS or HTTP polling mode. If getStartBlock
-// fails the error is stored as a fatal error (surfaced via Healthy/HealthReport)
+// fails the error is stored as a fatal error (surfaced via Healthy and Ready)
 // and backfillComplete is never set, so Ready() will continue to return an error.
 // Context cancellation (e.g. from Close) is not treated as a fatal error.
 func (p *EvmExecutionAttemptPoller) runStartupSequence(ctx context.Context) {

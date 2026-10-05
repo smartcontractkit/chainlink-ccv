@@ -1,0 +1,95 @@
+package health
+
+import (
+	"context"
+	"errors"
+	"net/http"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
+
+type mockHealthyComponent struct {
+	name string
+}
+
+func (m *mockHealthyComponent) Ready() error {
+	return nil
+}
+
+func (m *mockHealthyComponent) HealthReport() map[string]error {
+	return map[string]error{}
+}
+
+func (m *mockHealthyComponent) Name() string {
+	return m.name
+}
+
+type mockUnhealthyComponent struct {
+	name string
+}
+
+func (m *mockUnhealthyComponent) Ready() error {
+	return errors.New("something wrong")
+}
+
+func (m *mockUnhealthyComponent) HealthReport() map[string]error {
+	return map[string]error{
+		m.Name(): m.Ready(),
+	}
+}
+
+func (m *mockUnhealthyComponent) Name() string {
+	return m.name
+}
+
+func TestManager_RegisterHealthCheckable(t *testing.T) {
+	manager := NewManager()
+
+	healthy := &mockHealthyComponent{name: "test"}
+	manager.Register(healthy)
+
+	require.Len(t, manager.components, 1)
+}
+
+func TestManager_CheckLiveness(t *testing.T) {
+	manager := NewManager()
+
+	result := manager.CheckLiveness(context.Background())
+
+	require.Equal(t, http.StatusOK, result.StatusCode())
+	require.Equal(t, Alive, result.Status)
+}
+
+func TestManager_CheckReadiness_AllHealthy(t *testing.T) {
+	manager := NewManager()
+	manager.Register(&mockHealthyComponent{name: "comp1"})
+	manager.Register(&mockHealthyComponent{name: "comp2"})
+
+	response := manager.CheckReadiness(t.Context())
+
+	require.Equal(t, Ready, response.Status)
+	require.Len(t, response.Services, 2)
+}
+
+func TestManager_CheckReadiness_CriticalUnhealthy(t *testing.T) {
+	manager := NewManager()
+	manager.Register(&mockHealthyComponent{name: "comp1"})
+	manager.Register(&mockUnhealthyComponent{name: "comp2"})
+
+	response := manager.CheckReadiness(t.Context())
+
+	require.Equal(t, NotReady, response.Status)
+	require.Len(t, response.Services, 2)
+}
+
+func TestManager_CheckReadiness_MultipleHealthy(t *testing.T) {
+	manager := NewManager()
+	manager.Register(&mockHealthyComponent{name: "comp1"})
+	manager.Register(&mockHealthyComponent{name: "comp2"})
+
+	response := manager.CheckReadiness(t.Context())
+
+	require.Equal(t, Ready, response.Status)
+	require.Len(t, response.Services, 2)
+}

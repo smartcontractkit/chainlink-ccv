@@ -23,6 +23,10 @@ local_app_config_path = "/etc/committee-verifier/app.toml"
 # chains declares the chains on which this node has a signing identity.
 # Each entry causes the bootstrapper to register the node's signing key for that chain in JD.
 # Optional: if empty, no signing key sync is performed.
+# At boot each entry is checked against the chain family's own mounted config when the family
+# registered a coverage checker (chainaccess.RegisterDeclaredChainCoverageChecker): a declared
+# chain the config cannot serve is a startup error naming the chain, rather than a message-time
+# failure. Families without a registered checker are not checked.
 [[chains]]
   # type is the chain family, e.g. "EVM", "SOLANA". Case-insensitive.
   type = "EVM"
@@ -73,6 +77,13 @@ local_app_config_path = "/etc/committee-verifier/app.toml"
     OtelExporterGRPCEndpoint = "otel-collector:4317"
     # OtelExporterHTTPEndpoint is the endpoint for the beholder client to export to the collector.
     OtelExporterHTTPEndpoint = "otel-collector:4318"
+    # ChipIngressEndpoint is the gRPC endpoint of the CHIP Ingress server. Setting it publishes
+    # beholder custom events (e.g. the chain plugin config used to detect shared RPC endpoints)
+    # to CHIP Ingress in addition to the OTel collector. Mirrors the core node field's name.
+    ChipIngressEndpoint = "chip-ingress:9090"
+    # ChipIngressInsecureConnection disables TLS for the CHIP Ingress connection. It is
+    # independent of InsecureConnection, which covers the OTel exporter connection.
+    ChipIngressInsecureConnection = false
     # LogStreamingEnabled enables log streaming to the collector.
     LogStreamingEnabled = false
     # LogStreamingLevel specifies the level above which logs are streamed to beholder

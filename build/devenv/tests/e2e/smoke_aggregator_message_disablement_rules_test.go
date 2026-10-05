@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	chain_selectors "github.com/smartcontractkit/chain-selectors"
+
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/proxy"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/sequences"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/versioned_verifier_resolver"
@@ -89,7 +90,7 @@ func TestE2ESmoke_AggregatorMessageDisablementRulesCLI(t *testing.T) {
 //  2. Disabled lane - messages on source -> blockedDest are dropped by the
 //     verifier and never reach the result store.
 //  3. Replay - deleting the rule alone does not replay a dropped message once
-//     the verifier checkpoint has advanced; rewinding the committee checkpoint
+//     the verifier checkpoint has advanced; recovering the source range on the running committee
 //     makes the original message process normally.
 func TestE2ESmoke_AggregatorLaneDisablementRule(t *testing.T) {
 	if testing.Short() {
@@ -191,7 +192,7 @@ func TestE2ESmoke_AggregatorLaneDisablementRule(t *testing.T) {
 	requireNoAggregatorResult(t, ctx, aggregatorClient, sentEvtBlocked.MessageID, "message should not be in aggregator while lane rule exists")
 
 	// Move the checkpoint past the dropped message while the rule is active. Removing the
-	// rule alone should not replay it; replay requires an operator checkpoint rewind.
+	// rule alone should not replay it; replay requires an operator source-range recovery request.
 	advanceBlocks(verifier.ConfirmationDepth*3 + 30)
 	requireNoAggregatorResult(t, ctx, aggregatorClient, sentEvtBlocked.MessageID, "dropped message should not reach aggregator while rule exists")
 
@@ -201,17 +202,16 @@ func TestE2ESmoke_AggregatorLaneDisablementRule(t *testing.T) {
 	advanceBlocks(verifier.ConfirmationDepth + 5)
 	requireNoAggregatorResult(t, ctx, aggregatorClient, sentEvtBlocked.MessageID, "dropped message should not reappear after rule deletion alone")
 
-	require.NoError(t, committee.RewindFinalizedHeight(ctx,
-		verifiercli.FormatChainSelector(blockedSrcSelector), verifiercli.FormatBlockHeight(0)),
-		"rewind committee finalized height")
+	block := requireRecoveryDropEvidence(t, ctx, committee, blockedSrcSelector, sentEvtBlocked.MessageID.String(), "message_disablement_rule")
+	requireLiveRangeRecovery(t, ctx, committee, blockedSrcSelector, block, &block, "replay")
 
 	advanceBlocks(verifier.ConfirmationDepth*2 + 10)
-	requireAggregatorResult(t, ctx, aggregatorClient, sentEvtBlocked.MessageID, "dropped message should be reprocessed after checkpoint rewind")
+	requireAggregatorResult(t, ctx, aggregatorClient, sentEvtBlocked.MessageID, "dropped message should be reprocessed after live source replay")
 }
 
 // TestE2ESmoke_AggregatorChainDisablementRule validates that a Chain rule
 // drops any message touching the configured selector while unrelated chains
-// keep flowing, and that dropped messages require a checkpoint rewind to replay.
+// keep flowing, and that dropped messages require explicit source recovery to replay.
 func TestE2ESmoke_AggregatorChainDisablementRule(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping e2e test in short mode; requires a running devenv environment")
@@ -315,12 +315,11 @@ func TestE2ESmoke_AggregatorChainDisablementRule(t *testing.T) {
 	advanceBlocks(verifier.ConfirmationDepth + 5)
 	requireNoAggregatorResult(t, ctx, aggregatorClient, blockedSent.MessageID, "dropped message should not reappear after rule deletion alone")
 
-	require.NoError(t, committee.RewindFinalizedHeight(ctx,
-		verifiercli.FormatChainSelector(srcSelector), verifiercli.FormatBlockHeight(0)),
-		"rewind committee finalized height")
+	block := requireRecoveryDropEvidence(t, ctx, committee, srcSelector, blockedSent.MessageID.String(), "message_disablement_rule")
+	requireLiveRangeRecovery(t, ctx, committee, srcSelector, block, &block, "replay")
 
 	advanceBlocks(verifier.ConfirmationDepth*2 + 10)
-	requireAggregatorResult(t, ctx, aggregatorClient, blockedSent.MessageID, "dropped message should be reprocessed after checkpoint rewind")
+	requireAggregatorResult(t, ctx, aggregatorClient, blockedSent.MessageID, "dropped message should be reprocessed after live source replay")
 }
 
 func committeeV3MessageOptions(t *testing.T, in *ccv.Cfg, srcSelector uint64) cciptestinterfaces.MessageOptions {
@@ -365,10 +364,20 @@ func sendMessageAndConfirm(
 	return sentEvt
 }
 
+// defaultAggregatorResultTimeout is the budget for a message that is on its way already. A phase
+// that first has to wait out a verifier-side retry delay needs requireAggregatorResultWithin.
+const defaultAggregatorResultTimeout = 45 * time.Second
+
 func requireAggregatorResult(t *testing.T, ctx context.Context, aggregatorClient *ccv.AggregatorClient, messageID [32]byte, msg string) {
 	t.Helper()
 
-	waitCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	requireAggregatorResultWithin(t, ctx, aggregatorClient, messageID, defaultAggregatorResultTimeout, msg)
+}
+
+func requireAggregatorResultWithin(t *testing.T, ctx context.Context, aggregatorClient *ccv.AggregatorClient, messageID [32]byte, timeout time.Duration, msg string) {
+	t.Helper()
+
+	waitCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	_, err := aggregatorClient.WaitForVerifierResultForMessage(waitCtx, messageID, 500*time.Millisecond)
 	require.NoError(t, err, msg)

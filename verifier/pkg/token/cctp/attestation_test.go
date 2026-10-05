@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	sel "github.com/smartcontractkit/chain-selectors"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/internal"
@@ -68,6 +69,24 @@ var attestationResponseBody = []byte(`
   ]
 }`)
 
+// evmTestCodec mirrors the EVM accessor's CCTP codec, so these tests exercise the
+// attestation path with the EVM chain facts.
+type evmTestCodec struct{}
+
+// evmTestDomains holds the local-test domain these tests need.
+var evmTestDomains = map[uint64]uint32{sel.GETH_TESTNET.Selector: 100}
+
+func (evmTestCodec) Domain(selector protocol.ChainSelector) (uint32, bool) {
+	domain, ok := evmTestDomains[uint64(selector)]
+	return domain, ok
+}
+
+func (evmTestCodec) EncodeTxHash(txHash protocol.ByteSlice) string { return txHash.String() }
+
+func (evmTestCodec) DecodeAddress(address string) (protocol.UnknownAddress, error) {
+	return protocol.NewUnknownAddressFromHex(address)
+}
+
 func Test_AttestationFetch(t *testing.T) {
 	stringTxHash := "0x912f22a13e9ccb979b621500f6952b2afd6e75be7eadaed93fc2625fe11c52a2"
 	txHash := internal.MustByteSliceFromHex(stringTxHash)
@@ -105,7 +124,8 @@ func Test_AttestationFetch(t *testing.T) {
 			ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
 				sourceChain: internal.MustUnknownAddressFromHex("0xca9142d0b9804ef5e239d3bc1c7aa0d1c74e7350"),
 			},
-		})
+		},
+		map[protocol.ChainSelector]chainaccess.CCTPCodec{sourceChain: evmTestCodec{}})
 	require.NoError(t, err)
 
 	t.Run("successful fetch", func(t *testing.T) {
@@ -373,7 +393,7 @@ func Test_cctpMatchesMessage(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := cctpMatchesMessage(ccvVerifierVersion, tc.ccvAddresses, tc.cctpMessage, tc.ccipMessage)
+			err := cctpMatchesMessage(ccvVerifierVersion, tc.ccvAddresses, evmTestCodec{}, tc.cctpMessage, tc.ccipMessage)
 
 			if tc.expectError {
 				require.Error(t, err)

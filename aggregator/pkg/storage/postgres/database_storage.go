@@ -574,12 +574,15 @@ func (d *DatabaseStorage) GetBatchAggregatedReportByMessageIDs(ctx context.Conte
 // Idempotent: a UNIQUE(message_id, aggregation_key, verification_record_ids) constraint with
 // ON CONFLICT DO NOTHING prevents duplicate reports. The CTE inserts the parent row and, only
 // when it is new, populates the junction table in the same statement.
-func (d *DatabaseStorage) SubmitAggregatedReport(ctx context.Context, report *model.CommitAggregatedReport) error {
+// SubmitAggregatedReport inserts the aggregated report, returning inserted=false (not an error) if
+// a concurrent worker already inserted the identical (message_id, aggregation_key,
+// verification_record_ids) report first - see the ON CONFLICT DO NOTHING below.
+func (d *DatabaseStorage) SubmitAggregatedReport(ctx context.Context, report *model.CommitAggregatedReport) (inserted bool, err error) {
 	ctx, cancel := d.withTimeout(ctx)
 	defer cancel()
 
 	if report == nil {
-		return fmt.Errorf("aggregated report cannot be nil")
+		return false, fmt.Errorf("aggregated report cannot be nil")
 	}
 
 	messageIDHex := protocol.ByteSlice(report.MessageID).String()
@@ -592,7 +595,7 @@ func (d *DatabaseStorage) SubmitAggregatedReport(ctx context.Context, report *mo
 
 	recordIDsMap, err := d.batchGetVerificationRecordIDs(ctx, messageIDHex, signerIdentifiers, report.AggregationKey)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	verificationRecordIDs := make([]int64, 0, len(report.Verifications))
@@ -600,7 +603,7 @@ func (d *DatabaseStorage) SubmitAggregatedReport(ctx context.Context, report *mo
 		signerIdentifierHex := verification.SignerIdentifier.Identifier.String()
 		recordID, exists := recordIDsMap[signerIdentifierHex]
 		if !exists {
-			return fmt.Errorf("failed to find verification record ID for signer %s", signerIdentifierHex)
+			return false, fmt.Errorf("failed to find verification record ID for signer %s", signerIdentifierHex)
 		}
 		verificationRecordIDs = append(verificationRecordIDs, recordID)
 	}
@@ -620,16 +623,23 @@ func (d *DatabaseStorage) SubmitAggregatedReport(ctx context.Context, report *mo
 	FROM new_report nr,
 		 UNNEST($3::bigint[]) WITH ORDINALITY AS v(record_id, ord)`
 
-	_, err = d.ds.ExecContext(ctx, stmt,
+	result, err := d.ds.ExecContext(ctx, stmt,
 		messageIDHex,
 		report.AggregationKey,
 		pq.Array(verificationRecordIDs),
 	)
 	if err != nil {
-		return fmt.Errorf("failed to submit aggregated report: %w", err)
+		return false, fmt.Errorf("failed to submit aggregated report: %w", err)
 	}
 
-	return nil
+	// A conflicting concurrent insert makes new_report (and so this whole statement) affect zero rows -
+	// that's how we tell "I won the race" from "someone else already submitted this exact report".
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("failed to determine rows affected for aggregated report: %w", err)
+	}
+
+	return rowsAffected > 0, nil
 }
 
 // ListOrphanedKeys streams (message_id, aggregation_key) pairs that have verification records but

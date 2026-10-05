@@ -15,6 +15,7 @@ type VerifierResultMetadata struct {
 	VerifierName         string    `json:"verifierName"`
 	AttestationTimestamp time.Time `json:"attestationTimestamp"`
 	IngestionTimestamp   time.Time `json:"ingestionTimestamp"`
+	TraceParent          string    `json:"-"`
 }
 
 type MessageWithMetadata struct {

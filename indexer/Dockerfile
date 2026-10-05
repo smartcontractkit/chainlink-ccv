@@ -1,5 +1,7 @@
 # syntax=docker/dockerfile:1.7
-FROM golang:1.26.6-alpine AS builder
+# Builder base is digest-pinned so image builds are reproducible and the base
+# is supply-chain verifiable; dependabot bumps the digest in its grouped weekly PR.
+FROM golang:1.26.6-alpine@sha256:3889b425f035be855a72fb4755265311293b6d414521f0a519d819df32222d83 AS builder
 WORKDIR /app
 
 # Copy module files first to maximize cache reuse across apps
@@ -14,14 +16,12 @@ RUN --mount=type=cache,target=/root/.cache/go-build,id=ccv-go-build \
     cd indexer && CGO_ENABLED=0 go build -ldflags='-s -w' -o /bin/indexer cmd/main.go && \
     CGO_ENABLED=0 go build -ldflags='-s -w' -o /bin/indexer-replay cmd/replay/main.go
 
-FROM alpine:3.23
-RUN apk --no-cache add ca-certificates
+# The final base is digest-pinned so the shipped image is supply-chain verifiable
+# (dependabot bumps it weekly); 65532 is the nonroot user it provides.
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
 
-# Create a non-root user and group for running the application
-RUN addgroup -S indexer && adduser -S indexer -G indexer
-
-COPY --chown=indexer:indexer --from=builder /bin/indexer /bin/
-COPY --chown=indexer:indexer --from=builder /bin/indexer-replay /bin/
-COPY --chown=indexer:indexer --from=builder /app/indexer/migrations ./migrations
-USER indexer:indexer
+COPY --chown=65532:65532 --from=builder /bin/indexer /bin/
+COPY --chown=65532:65532 --from=builder /bin/indexer-replay /bin/
+COPY --chown=65532:65532 --from=builder /app/indexer/migrations ./migrations
+USER 65532:65532
 CMD ["/bin/indexer"]

@@ -216,9 +216,12 @@ func TestSRS_PublishFailure_CursedTasksDroppedImmediately(t *testing.T) {
 	sentCount := len(srs.sentTasks)
 	srs.mu.RUnlock()
 
-	// Cursed tasks should be dropped immediately, not kept in pending
+	// Cursed tasks should be dropped immediately, not kept in pending. They land in
+	// sentTasks as a terminal-drop marker (not because they were actually sent) so
+	// the source reader doesn't rediscover and re-drop them on every poll until
+	// their block finalizes; sentTasks evicts them once that happens.
 	assert.Equal(t, 0, pendingCount, "cursed task should be dropped from pending queue")
-	assert.Equal(t, 0, sentCount, "cursed task should not be in sent queue")
+	assert.Equal(t, 1, sentCount, "cursed task should be retained in sentTasks as a terminal-drop marker")
 }
 
 // TestSRS_PublishFailure_PartialBatch tests that if some tasks are ready and publish fails,

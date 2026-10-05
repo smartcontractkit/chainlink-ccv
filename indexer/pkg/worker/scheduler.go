@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -121,29 +122,16 @@ func (s *Scheduler) shouldEnqueue(t *Task) (bool, time.Duration) {
 		return false, time.Duration(0)
 	}
 
-	return true, s.backoff(t.attempt + 1)
+	return true, s.backoff(t.attempt)
 }
 
 func (s *Scheduler) backoff(attempt int) time.Duration {
-	if attempt < 0 {
-		attempt = 1
-	}
-
-	// Create an exponential: BaseDelay * 2^(attempt-1)
-	d := s.config.BaseDelay << (attempt - 1)
-	if s.config.MaxDelay > 0 && d > s.config.MaxDelay {
-		// Only allow tasks to be delayed for up to the max configurable delay
-		d = s.config.MaxDelay
-	}
-
-	// Invariant check to ensure only positive integers are returned
-	// Shouldn't ever be triggered but to prevent downstream issues, we'll just assert on it.
-	if d < 0 {
-		s.lggr.Warn("Invariant Check triggered in Scheduler, messages will still be scheduled however no delay will be added.")
-		d = s.config.BaseDelay
-	}
-
-	return time.Duration(d) * time.Millisecond
+	return ccvcommon.BackoffDelay(
+		attempt+1,
+		time.Duration(s.config.BaseDelay)*time.Millisecond,
+		2,
+		time.Duration(s.config.MaxDelay)*time.Millisecond,
+	)
 }
 
 func (s *Scheduler) Ready() <-chan *Task {

@@ -6,6 +6,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
@@ -84,7 +85,7 @@ func TestVerifier_VerifyMessages_Success(t *testing.T) {
 	}
 
 	mockAttestationService.EXPECT().
-		Fetch(ctx, tasks).
+		Fetch(mock.Anything, tasks).
 		Return(attestations, nil).
 		Once()
 
@@ -170,7 +171,7 @@ func TestVerifier_VerifyMessages_NotReadyMessages(t *testing.T) {
 	}
 
 	mockAttestationService.EXPECT().
-		Fetch(ctx, tasks).
+		Fetch(mock.Anything, tasks).
 		Return(attestations, nil).
 		Once()
 

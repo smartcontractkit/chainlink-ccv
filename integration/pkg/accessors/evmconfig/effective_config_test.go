@@ -44,6 +44,7 @@ HTTPURL = 'https://sepolia-backup.example.com'
 		assert.False(t, chain.FinalityTagEnabled)
 		assert.Equal(t, "12s", chain.TXMBlockTime)
 		assert.False(t, chain.TXMBlockTimeIsDefault)
+		assert.Equal(t, string(TXMBlockTimeOperator), chain.TXMBlockTimeSource)
 		assert.False(t, chain.HeadTrackerPersistence, "standalone always runs the in-memory saver")
 
 		require.Len(t, chain.Nodes, 2)
@@ -55,7 +56,7 @@ HTTPURL = 'https://sepolia-backup.example.com'
 		assert.False(t, chain.Nodes[1].HasWebSocket)
 	})
 
-	t.Run("an unset block time is flagged as the fallback", func(t *testing.T) {
+	t.Run("an unset block time on a curated chain uses the chain's default", func(t *testing.T) {
 		t.Parallel()
 		conversion, err := convertChainlinkNodeConfig([]byte(`
 [[EVM]]
@@ -70,9 +71,31 @@ HTTPURL = 'https://sepolia.example.com'
 		chains, err := EffectiveChainConfigs(conversion.Config)
 		require.NoError(t, err)
 		chain := onlyChain(t, chains)
-		assert.Equal(t, DefaultTXMBlockTime.String(), chain.TXMBlockTime)
+		assert.Equal(t, "12s", chain.TXMBlockTime, "Sepolia's curated default is the 12s slot interval")
 		assert.True(t, chain.TXMBlockTimeIsDefault,
-			"the 2s fallback is the first thing to check on a slow chain, so the report must flag it")
+			"a defaulted block time is the first thing to check on a slow chain, so the report must flag it")
+		assert.Equal(t, string(TXMBlockTimeCuratedDefault), chain.TXMBlockTimeSource)
+	})
+
+	t.Run("an unset block time on an unlisted chain falls back to 2s", func(t *testing.T) {
+		t.Parallel()
+		conversion, err := convertChainlinkNodeConfig([]byte(`
+[[EVM]]
+ChainID = '` + arbSepChainID + `'
+
+[[EVM.Nodes]]
+Name = 'primary'
+HTTPURL = 'https://arb.example.com'
+`))
+		require.NoError(t, err)
+
+		chains, err := EffectiveChainConfigs(conversion.Config)
+		require.NoError(t, err)
+		chain := onlyChain(t, chains)
+		assert.Equal(t, DefaultTXMBlockTime.String(), chain.TXMBlockTime)
+		assert.True(t, chain.TXMBlockTimeIsDefault)
+		assert.Equal(t, string(TXMBlockTimeGenericFallback), chain.TXMBlockTimeSource,
+			"Arbitrum Sepolia is below the 2s validation floor, so it is deliberately unlisted")
 	})
 
 	t.Run("the standalone format projects without a conversion", func(t *testing.T) {
@@ -89,6 +112,7 @@ HTTPURL = 'https://sepolia.example.com'
 		assert.Equal(t, uint32(30), chain.FinalityDepth)
 		assert.Equal(t, "12s", chain.TXMBlockTime)
 		assert.False(t, chain.TXMBlockTimeIsDefault)
+		assert.Equal(t, string(TXMBlockTimeOperator), chain.TXMBlockTimeSource)
 	})
 }
 

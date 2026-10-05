@@ -25,6 +25,11 @@ type Config struct {
 	// app config.
 	Monitoring verifier.MonitoringConfig `json:"monitoring" toml:"monitoring"`
 
+	// DisableFinalityCheckers lists chain selectors, as strings, whose finality violation checker
+	// is disabled. Solana needs it: a skipped slot has no block, which the checker reports as a
+	// missing block header. Mirrors commit.Config.DisableFinalityCheckers.
+	DisableFinalityCheckers []string `json:"disable_finality_checkers" toml:"disable_finality_checkers"`
+
 	// CommitteeConfig is the generic config needed for SourceReader.
 	chainaccess.CommitteeConfig
 }

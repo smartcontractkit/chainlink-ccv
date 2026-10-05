@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -64,12 +65,14 @@ type HTTPAttestationService struct {
 	client            HTTPClient
 	verifierVersion   protocol.ByteSlice
 	verifierAddresses map[protocol.ChainSelector]protocol.UnknownAddress
+	cctpCodecs        map[protocol.ChainSelector]chainaccess.CCTPCodec
 }
 
 func NewAttestationService(
 	lggr logger.Logger,
 	monitoring verifier.Monitoring,
 	config CCTPConfig,
+	cctpCodecs map[protocol.ChainSelector]chainaccess.CCTPCodec,
 ) (AttestationService, error) {
 	client, err := NewHTTPClient(lggr, monitoring, config)
 	if err != nil {
@@ -81,6 +84,7 @@ func NewAttestationService(
 		client:            client,
 		verifierVersion:   config.VerifierVersion,
 		verifierAddresses: config.ParsedVerifiers,
+		cctpCodecs:        cctpCodecs,
 	}, nil
 }
 
@@ -92,24 +96,31 @@ func (h *HTTPAttestationService) Fetch(
 	txHash protocol.ByteSlice,
 	message protocol.Message,
 ) (Attestation, error) {
-	sourceDomain, ok := Domains[uint64(message.SourceChainSelector)]
+	codec, ok := h.cctpCodecs[message.SourceChainSelector]
+	if !ok {
+		return Attestation{}, fmt.Errorf("no CCTP chain codec for source chain selector: %d", message.SourceChainSelector)
+	}
+
+	sourceDomain, ok := codec.Domain(message.SourceChainSelector)
 	if !ok {
 		return Attestation{}, fmt.Errorf("unsupported source chain selector: %d", message.SourceChainSelector)
 	}
 
-	response, err := h.client.GetMessages(ctx, sourceDomain, txHash.String())
+	encodedTxHash := codec.EncodeTxHash(txHash)
+
+	response, err := h.client.GetMessages(ctx, sourceDomain, encodedTxHash)
 	if err != nil {
 		return Attestation{}, fmt.Errorf(
 			"error fetching messages for chain selector %d and tx hash %s: %s",
 			message.SourceChainSelector, txHash, err,
 		)
 	}
-	return h.extractAttestationFromResponse(response, message)
+	return h.extractAttestationFromResponse(response, message, codec)
 }
 
-func (h *HTTPAttestationService) extractAttestationFromResponse(response Messages, message protocol.Message) (Attestation, error) {
+func (h *HTTPAttestationService) extractAttestationFromResponse(response Messages, message protocol.Message, codec chainaccess.CCTPCodec) (Attestation, error) {
 	for _, msg := range response.Messages {
-		err := cctpMatchesMessage(h.verifierVersion, h.verifierAddresses, msg, message)
+		err := cctpMatchesMessage(h.verifierVersion, h.verifierAddresses, codec, msg, message)
 		if err != nil {
 			h.lggr.Debugw(
 				"skipping CCTP message as it doesn't match CCIP message",
@@ -126,6 +137,7 @@ func (h *HTTPAttestationService) extractAttestationFromResponse(response Message
 func cctpMatchesMessage(
 	verifierVersion protocol.ByteSlice,
 	verifierAddresses map[protocol.ChainSelector]protocol.UnknownAddress,
+	codec chainaccess.CCTPCodec,
 	cctpMessage Message,
 	ccipMessage protocol.Message,
 ) error {
@@ -143,7 +155,7 @@ func cctpMatchesMessage(
 		return fmt.Errorf("no CCV address configured for source chain selector: %s", ccipMessage.SourceChainSelector)
 	}
 
-	senderAddress, err := protocol.NewUnknownAddressFromHex(cctpMessage.DecodedMessage.DecodedMessageBody.MessageSender)
+	senderAddress, err := codec.DecodeAddress(cctpMessage.DecodedMessage.DecodedMessageBody.MessageSender)
 	if err != nil {
 		return fmt.Errorf("invalid sender address: %w", err)
 	}

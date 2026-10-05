@@ -7,13 +7,19 @@ import (
 	"time"
 
 	"github.com/failsafe-go/failsafe-go/circuitbreaker"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
+	oteltrace "go.opentelemetry.io/otel/trace"
 
 	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
+	commontracing "github.com/smartcontractkit/chainlink-ccv/common/monitoring/tracing"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/readers"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/registry"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -62,6 +68,7 @@ type AggregatorMessageDiscovery struct {
 	registry          *registry.VerifierRegistry
 	storageSink       common.IndexerStorage
 	metrics           common.IndexerMetricLabeler
+	tracing           commontracing.Tracing
 	timeProvider      ccvcommon.TimeProvider
 	messageCh         chan common.VerifierResultWithMetadata
 	doneCh            chan struct{}
@@ -97,6 +104,12 @@ func WithRegistry(registry *registry.VerifierRegistry) Option {
 func WithMetrics(metrics common.IndexerMetricLabeler) Option {
 	return func(a *AggregatorMessageDiscovery) {
 		a.metrics = metrics
+	}
+}
+
+func WithTracing(tracing commontracing.Tracing) Option {
+	return func(a *AggregatorMessageDiscovery) {
+		a.tracing = tracing
 	}
 }
 
@@ -352,6 +365,26 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 		}
 	}
 
+	// Open one discovery span per message in this batch, capturing its traceparent so the
+	// worker's process span can become a real child of it.
+	spans := make([]oteltrace.Span, 0, len(allVerifications))
+	defer func() {
+		for _, span := range spans {
+			span.End()
+		}
+	}()
+	for i := range allVerifications {
+		item := &allVerifications[i]
+		spanCtx, span := a.tracer().StartMessageSpan(ctx, monitoring.DiscoverySpanName, item.VerifierResult.MessageID,
+			commontracing.AlwaysSampled(),
+			commontracing.WithAttributes(commontracing.DiscoverySourceKey, a.config.Label()),
+		)
+		spans = append(spans, span)
+		carrier := propagation.MapCarrier{}
+		otel.GetTextMapPropagator().Inject(spanCtx, carrier)
+		item.Metadata.TraceParent = carrier.Get("traceparent")
+	}
+
 	for _, verifierResultWithMetadata := range allVerifications {
 		// Use a context-aware send so that if the context is canceled while
 		// enqueueMessages has already exited (leaving messageCh with no reader), we return
@@ -368,6 +401,15 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 
 	// Return true if we processed any data, false if the slice was empty
 	return len(queryResponse) > 0, nil
+}
+
+// tracer returns a.tracing, falling back to a working default for instances built
+// without WithTracing (e.g. in tests).
+func (a *AggregatorMessageDiscovery) tracer() commontracing.Tracing {
+	if a.tracing == nil {
+		return commontracing.NewTracing(beholder.GetTracer())
+	}
+	return a.tracing
 }
 
 // waitForPrioritySlot suspends the caller for the amount of time dictated by the

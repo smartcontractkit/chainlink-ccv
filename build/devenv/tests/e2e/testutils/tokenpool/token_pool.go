@@ -1,6 +1,7 @@
 package tokenpool
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/Masterminds/semver/v3"
@@ -97,16 +98,20 @@ func MigrateLiquidity(t *testing.T, env *deployment.Environment, oldPool, newPoo
 	t.Helper()
 
 	env.OperationsBundle = operations.NewBundle(env.OperationsBundle.GetContext, env.OperationsBundle.Logger, operations.NewMemoryReporter())
+	migration := tokens.LockReleasePoolMigration{
+		ChainSelector: newPool.Selector(),
+		OldPoolRef:    datastore.AddressRef{Address: oldPool.Address()},
+		NewPoolRef:    datastore.AddressRef{Address: newPool.Address()},
+	}
+	if basisPoints != nil {
+		migration.LiquidityMigrationAmount = &tokens.LockReleasePoolLiquidityMigrationAmount{
+			Format: tokens.LiquidityMigrationAmountFormatBPS,
+			Value:  strconv.FormatUint(uint64(*basisPoints), 10),
+		}
+	}
 	out, err := tokens.MigrateLockReleasePoolLiquidity(tokens.GetTokenAdapterRegistry(), changesets.GetRegistry()).Apply(*env, tokens.MigrateLockReleasePoolLiquidityConfig{
-		Migrations: []tokens.LockReleasePoolMigration{
-			{
-				ChainSelector: newPool.Selector(),
-				OldPoolRef:    datastore.AddressRef{Address: oldPool.Address()},
-				NewPoolRef:    datastore.AddressRef{Address: newPool.Address()},
-				BasisPoints:   basisPoints,
-			},
-		},
-		MCMS: mcms.DefaultInput("Migrate Liquidity"),
+		Migrations: []tokens.LockReleasePoolMigration{migration},
+		MCMS:       mcms.DefaultInput("Migrate Liquidity"),
 	})
 	require.NoError(t, err)
 	testhelpers.ProcessTimelockProposals(t, *env, out.MCMSTimelockProposals, true)
