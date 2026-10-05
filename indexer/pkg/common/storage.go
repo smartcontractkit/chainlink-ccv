@@ -12,6 +12,7 @@ import (
 type IndexerStorage interface {
 	IndexerStorageReader
 	IndexerStorageWriter
+	protocol.HealthReporter
 }
 
 type IndexerStorageReader interface {

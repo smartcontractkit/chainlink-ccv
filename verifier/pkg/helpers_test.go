@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"math/big"
 	"sync"
 	"testing"
 	"time"
@@ -71,13 +70,13 @@ func SetupMockSourceReader(t *testing.T) *MockSourceReaderSetup {
 	// Mock GetBlocksHeaders to return proper block headers for the reorg detector
 	// The reorg detector builds an initial tail from finalized to latest block
 	mockReader.EXPECT().GetBlocksHeaders(mock.Anything, mock.Anything).RunAndReturn(
-		func(ctx context.Context, blockNumbers []*big.Int) (map[uint64]protocol.BlockHeader, error) {
+		func(ctx context.Context, blockNumbers []uint64) (map[uint64]protocol.BlockHeader, error) {
 			headers := make(map[uint64]protocol.BlockHeader)
 			for _, blockNum := range blockNumbers {
-				headers[blockNum.Uint64()] = protocol.BlockHeader{
-					Number:     blockNum.Uint64(),
-					Hash:       protocol.Bytes32{byte(blockNum.Uint64() % 256)},
-					ParentHash: protocol.Bytes32{byte((blockNum.Uint64() - 1) % 256)},
+				headers[blockNum] = protocol.BlockHeader{
+					Number:     blockNum,
+					Hash:       protocol.Bytes32{byte(blockNum % 256)},
+					ParentHash: protocol.Bytes32{byte((blockNum - 1) % 256)},
 					Timestamp:  time.Now(),
 				}
 			}
@@ -92,7 +91,7 @@ func SetupMockSourceReader(t *testing.T) *MockSourceReaderSetup {
 }
 
 func (msrs *MockSourceReaderSetup) ExpectFetchMessageSentEvent(maybeVerificationTask bool) {
-	call := msrs.Reader.EXPECT().FetchMessageSentEvents(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, b, b2 *big.Int) ([]protocol.MessageSentEvent, error) {
+	call := msrs.Reader.EXPECT().FetchMessageSentEvents(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, b, b2 uint64) ([]protocol.MessageSentEvent, error) {
 		var events []protocol.MessageSentEvent
 		for {
 			select {

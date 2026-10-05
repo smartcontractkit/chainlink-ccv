@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"math"
 	"math/big"
 	"testing"
 	"time"
@@ -57,7 +58,7 @@ func recoveryTestService(t *testing.T, cursed bool, rules common.MessageRulesChe
 	require.NoError(t, err)
 	require.NoError(t, r.ConfigureRecovery(recovery.NewStore(db), queue, make(chan struct{}, 1)))
 	require.NoError(t, r.recovery.store.RegisterReader(t.Context(), "owner", "42", "test-node", false))
-	r.lastProcessedFinalizedBlock.Store(big.NewInt(500))
+	r.lastProcessedFinalizedBlock.Store(500)
 	return r, reader, db
 }
 
@@ -82,19 +83,19 @@ func TestRecoveryRereadsAdmissionWithoutChangingNormalProgress(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			r, reader, _ := recoveryTestService(t, tc.cursed, &recoveryRules{disabled: tc.disabled})
 			events := createTestMessageSentEvents(t, 1, 42, defaultDestChain, []uint64{100})
-			reader.EXPECT().FetchMessageSentEvents(mock.Anything, big.NewInt(100), big.NewInt(100)).Return(events, nil).Once()
+			reader.EXPECT().FetchMessageSentEvents(mock.Anything, uint64(100), uint64(100)).Return(events, nil).Once()
 			end := uint64(100)
 			o, err := r.recovery.store.Submit(t.Context(), recovery.SubmitRequest{OwnerID: "owner", SourceChain: "42", FromBlock: 100, ToBlock: &end, Mode: "replay", Actor: "operator", Note: "test"})
 			require.NoError(t, err)
 			head := &protocol.BlockHeader{Number: 1000, Timestamp: time.Now()}
 			pending := r.tasksFromEvents(t.Context(), events, head, head)
-			r.addToPendingQueueHandleReorg(pending, big.NewInt(100), big.NewInt(100))
+			r.addToPendingQueueHandleReorg(pending, uint64(100), uint64(100))
 			r.recoverRange(t.Context(), head, head, head)
 			o, err = r.recovery.store.Get(t.Context(), o.ID)
 			require.NoError(t, err)
 			require.Equal(t, "completed", o.State)
 			require.Equal(t, uint64(101), o.NextBlock)
-			require.Equal(t, uint64(500), r.lastProcessedFinalizedBlock.Load().Uint64())
+			require.Equal(t, uint64(500), r.lastProcessedFinalizedBlock.Load())
 			require.Empty(t, r.pendingTasks)
 			page, err := r.recovery.store.ListEvents(t.Context(), recovery.EventFilter{OwnerID: "owner", Limit: 50})
 			require.NoError(t, err)
@@ -118,7 +119,7 @@ func TestRecoveryUnknownAdmissionDoesNotAdvanceOrAuditDrop(t *testing.T) {
 	rules := &recoveryRules{err: errors.New("unknown rules")}
 	r, reader, _ := recoveryTestService(t, false, rules)
 	events := createTestMessageSentEvents(t, 1, 42, defaultDestChain, []uint64{100})
-	reader.EXPECT().FetchMessageSentEvents(mock.Anything, big.NewInt(100), big.NewInt(100)).Return(events, nil).Twice()
+	reader.EXPECT().FetchMessageSentEvents(mock.Anything, uint64(100), uint64(100)).Return(events, nil).Twice()
 	end := uint64(100)
 	o, err := r.recovery.store.Submit(t.Context(), recovery.SubmitRequest{OwnerID: "owner", SourceChain: "42", FromBlock: 100, ToBlock: &end, Mode: "replay", Actor: "operator", Note: "test"})
 	require.NoError(t, err)
@@ -170,7 +171,7 @@ func TestLiveFinalityRecoveryIncludesDisabledStartupReaders(t *testing.T) {
 	_, err = r.recovery.store.ChangeState(ctx, reset.ID, "resume")
 	require.NoError(t, err)
 	events := createTestMessageSentEvents(t, 1, 42, defaultDestChain, []uint64{100})
-	reader.EXPECT().FetchMessageSentEvents(mock.Anything, big.NewInt(100), big.NewInt(100)).Return(events, nil).Once()
+	reader.EXPECT().FetchMessageSentEvents(mock.Anything, uint64(100), uint64(100)).Return(events, nil).Once()
 	r.recoverRange(ctx, head, head, head)
 	reset, err = r.recovery.store.Get(ctx, reset.ID)
 	require.NoError(t, err)
@@ -210,7 +211,7 @@ func TestNormalAdmissionPersistsReaderMetadata(t *testing.T) {
 	events[0].BlockHash = protocol.ByteSlice{4, 5, 6}
 	tasks := r.tasksFromEvents(t.Context(), events, head, head)
 	require.Len(t, tasks, 1)
-	r.addToPendingQueueHandleReorg(tasks, big.NewInt(100), big.NewInt(100))
+	r.addToPendingQueueHandleReorg(tasks, uint64(100), uint64(100))
 	require.True(t, r.sendReadyMessages(t.Context(), head, head, head))
 	require.Empty(t, r.pendingTasks)
 	page, err := r.recovery.store.ListEvents(t.Context(), recovery.EventFilter{OwnerID: "owner", Limit: 50})
@@ -227,9 +228,9 @@ func TestOverlappingRecoveryCountsActiveConflictsAndReconcilesPending(t *testing
 	head := &protocol.BlockHeader{Number: 100, Timestamp: time.Now()}
 	events := createTestMessageSentEvents(t, 1, 42, defaultDestChain, []uint64{100})
 	tasks := r.tasksFromEvents(t.Context(), events, head, head)
-	r.addToPendingQueueHandleReorg(tasks, big.NewInt(100), big.NewInt(100))
+	r.addToPendingQueueHandleReorg(tasks, uint64(100), uint64(100))
 	require.NoError(t, r.recovery.queue.Publish(t.Context(), tasks...))
-	reader.EXPECT().FetchMessageSentEvents(mock.Anything, big.NewInt(100), big.NewInt(100)).Return(events, nil).Twice()
+	reader.EXPECT().FetchMessageSentEvents(mock.Anything, uint64(100), uint64(100)).Return(events, nil).Twice()
 	end := uint64(100)
 	for range 2 {
 		o, err := r.recovery.store.Submit(t.Context(), recovery.SubmitRequest{
@@ -246,12 +247,12 @@ func TestOverlappingRecoveryCountsActiveConflictsAndReconcilesPending(t *testing
 		require.Empty(t, r.pendingTasks)
 		require.Contains(t, r.sentTasks, tasks[0].MessageID)
 	}
-	r.addToPendingQueueHandleReorg(tasks, big.NewInt(100), big.NewInt(100))
+	r.addToPendingQueueHandleReorg(tasks, uint64(100), uint64(100))
 	require.Empty(t, r.pendingTasks, "normal polling must not republish the same in-flight task")
 	size, err := r.recovery.queue.Size(t.Context())
 	require.NoError(t, err)
 	require.EqualValues(t, 1, size)
-	require.Equal(t, uint64(500), r.lastProcessedFinalizedBlock.Load().Uint64())
+	require.Equal(t, uint64(500), r.lastProcessedFinalizedBlock.Load())
 }
 
 func TestRecoveryReportsRPCFailureAndBoundsChunks(t *testing.T) {
@@ -263,7 +264,7 @@ func TestRecoveryReportsRPCFailureAndBoundsChunks(t *testing.T) {
 	}
 	o, err := r.recovery.store.Submit(t.Context(), request)
 	require.NoError(t, err)
-	reader.EXPECT().FetchMessageSentEvents(mock.Anything, big.NewInt(100), big.NewInt(100)).Return(nil, errors.New("RPC unavailable")).Once()
+	reader.EXPECT().FetchMessageSentEvents(mock.Anything, uint64(100), uint64(100)).Return(nil, errors.New("RPC unavailable")).Once()
 	head := &protocol.BlockHeader{Number: 1000, Timestamp: time.Now()}
 	r.recoverRange(t.Context(), head, head, head)
 	o, err = r.recovery.store.Get(t.Context(), o.ID)
@@ -277,14 +278,14 @@ func TestRecoveryReportsRPCFailureAndBoundsChunks(t *testing.T) {
 	end = 500
 	o, err = r.recovery.store.Submit(t.Context(), request)
 	require.NoError(t, err)
-	reader.EXPECT().FetchMessageSentEvents(mock.Anything, big.NewInt(100), big.NewInt(199)).Return(nil, nil).Once()
+	reader.EXPECT().FetchMessageSentEvents(mock.Anything, uint64(100), uint64(199)).Return(nil, nil).Once()
 	r.recoverRange(t.Context(), head, head, head)
 	o, err = r.recovery.store.Get(t.Context(), o.ID)
 	require.NoError(t, err)
 	require.Equal(t, "running", o.State)
 	require.Equal(t, uint64(200), o.NextBlock, "one poll must scan no more than 100 blocks")
 	require.Equal(t, uint64(500), o.ToBlock)
-	require.Equal(t, uint64(500), r.lastProcessedFinalizedBlock.Load().Uint64())
+	require.Equal(t, uint64(500), r.lastProcessedFinalizedBlock.Load())
 }
 
 func TestRecoveryControlThrottlesIdlePolls(t *testing.T) {
@@ -362,17 +363,37 @@ func TestResetDoesNotAdvanceCursorPastFinality(t *testing.T) {
 	// The range runs to 105 but only 102 is finalized, so 103-105 are still reorg-able.
 	latest := &protocol.BlockHeader{Number: 110, Timestamp: time.Now()}
 	finalized := &protocol.BlockHeader{Number: 102, Timestamp: time.Now()}
-	reader.EXPECT().FetchMessageSentEvents(mock.Anything, big.NewInt(100), big.NewInt(105)).Return(nil, nil).Once()
+	reader.EXPECT().FetchMessageSentEvents(mock.Anything, uint64(100), uint64(105)).Return(nil, nil).Once()
 	r.recoverRange(ctx, latest, latest, finalized)
 
 	reset, err = r.recovery.store.Get(ctx, reset.ID)
 	require.NoError(t, err)
 	require.Equal(t, "completed", reset.State)
 
-	require.Equal(t, uint64(103), r.lastProcessedFinalizedBlock.Load().Uint64(),
+	require.Equal(t, uint64(103), r.lastProcessedFinalizedBlock.Load(),
 		"the next poll must resume just above the finalized head, not above the recovered range")
 	statuses, err := r.chainStatusManager.ReadChainStatuses(ctx, []protocol.ChainSelector{42})
 	require.NoError(t, err)
 	require.Equal(t, uint64(102), statuses[42].FinalizedBlockHeight.Uint64(),
 		"the durable checkpoint is clamped the same way, so the two cursors agree")
+}
+
+// Regression for the uint64 conversion: a persisted checkpoint is arbitrary-precision,
+// so one without a representable next uint64 block must be rejected rather than
+// silently truncated (Uint64) or wrapped to zero (+1 at MaxUint64).
+func TestInitializeStartBlockRejectsUnrepresentableCheckpoints(t *testing.T) {
+	for name, height := range map[string]*big.Int{
+		"max height has no representable next block":    new(big.Int).SetUint64(math.MaxUint64),
+		"out-of-range height is not silently truncated": new(big.Int).Add(new(big.Int).SetUint64(math.MaxUint64), big.NewInt(1)),
+	} {
+		t.Run(name, func(t *testing.T) {
+			r, _, _ := recoveryTestService(t, false, common.AllowAllMessagesChecker{})
+			// Disabled statuses are written immediately by the batcher, so the
+			// persisted checkpoint is visible to the next read.
+			require.NoError(t, r.chainStatusManager.WriteChainStatuses(t.Context(),
+				[]protocol.ChainStatusInfo{{ChainSelector: 42, FinalizedBlockHeight: height, Disabled: true}}))
+			_, err := r.initializeStartBlock(t.Context())
+			require.Error(t, err, "checkpoint %s must be rejected", height)
+		})
+	}
 }

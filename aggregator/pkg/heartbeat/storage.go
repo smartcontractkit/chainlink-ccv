@@ -10,6 +10,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -22,6 +23,8 @@ const (
 
 // Storage defines the interface for storing and retrieving heartbeat data.
 type Storage interface {
+	protocol.HealthReporter
+
 	// StoreBlockHeight stores the block height for a caller on a specific chain.
 	StoreBlockHeight(ctx context.Context, callerID string, chainSelector, blockHeight uint64) error
 	// GetBlockHeights returns the block heights for all callers on a specific chain.
@@ -38,6 +41,8 @@ type RedisStorage struct {
 	keyPrefix string
 	ttl       time.Duration
 }
+
+var _ protocol.HealthReporter = (*RedisStorage)(nil)
 
 func NewStorageFromConfig(l logger.SugaredLogger, c model.HeartbeatConfig) Storage {
 	if c.StoreType == model.HeartbeatStoreTypeRedis {
@@ -195,6 +200,27 @@ func (s *RedisStorage) GetMaxBlockHeights(ctx context.Context, chainSelectors []
 	return result, nil
 }
 
+// Ready checks Redis connectivity.
+func (s *RedisStorage) Ready() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := s.client.Ping(ctx).Err(); err != nil {
+		return fmt.Errorf("redis heartbeat storage health check failed: %w", err)
+	}
+	return nil
+}
+
+func (s *RedisStorage) HealthReport() map[string]error {
+	return map[string]error{
+		s.Name(): s.Ready(),
+	}
+}
+
+func (s *RedisStorage) Name() string {
+	return "heartbeat_redis_storage"
+}
+
 // buildKey creates a Redis key for a specific caller and chain.
 // Format: <prefix>:<caller_id>:<chain_selector>.
 func (s *RedisStorage) buildKey(callerID string, chainSelector uint64) string {
@@ -315,6 +341,17 @@ func (s *InMemoryStorage) GetMaxBlockHeights(ctx context.Context, chainSelectors
 	return result, nil
 }
 
+// In-memory storage has no external dependency to probe, so it is always ready.
+func (s *InMemoryStorage) Ready() error { return nil }
+
+func (s *InMemoryStorage) HealthReport() map[string]error {
+	return map[string]error{s.Name(): nil}
+}
+
+func (s *InMemoryStorage) Name() string {
+	return "heartbeat_memory_storage"
+}
+
 // NoopStorage is a no-op implementation of Storage.
 type NoopStorage struct{}
 
@@ -337,4 +374,14 @@ func (n *NoopStorage) GetMaxBlockHeight(ctx context.Context, chainSelector uint6
 
 func (n *NoopStorage) GetMaxBlockHeights(ctx context.Context, chainSelectors []uint64) (map[uint64]uint64, error) {
 	return make(map[uint64]uint64), nil
+}
+
+func (n *NoopStorage) Ready() error { return nil }
+
+func (n *NoopStorage) HealthReport() map[string]error {
+	return map[string]error{n.Name(): nil}
+}
+
+func (n *NoopStorage) Name() string {
+	return "heartbeat_noop_storage"
 }

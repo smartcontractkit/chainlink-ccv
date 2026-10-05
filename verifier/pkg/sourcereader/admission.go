@@ -2,7 +2,6 @@ package sourcereader
 
 import (
 	"context"
-	"math/big"
 
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
@@ -18,7 +17,7 @@ const (
 
 // admission is the single admission path for live polling and range recovery.
 // Unknown rule/curse state is a wait, never evidence of a permanent drop.
-func (r *Service) admission(ctx context.Context, task verifier.VerificationTask, latest, safe, finalized *big.Int) (admissionDecision, string, error) {
+func (r *Service) admission(ctx context.Context, task verifier.VerificationTask, latest, safe, finalized uint64) (admissionDecision, string, error) {
 	cursed, err := r.curseDetector.IsRemoteChainCursed(ctx, task.Message.SourceChainSelector, task.Message.DestChainSelector)
 	if err != nil {
 		return admissionWait, monitoring.MessageTransitionReasonCurseStateUnknown, err

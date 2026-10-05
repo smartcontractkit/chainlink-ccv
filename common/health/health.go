@@ -69,7 +69,7 @@ func (r *ReadinessResponse) StatusCode() int {
 	return http.StatusServiceUnavailable
 }
 
-func NewServiceHealth(
+func CheckServiceHealth(
 	reporter protocol.HealthReporter,
 ) ServicesHealth {
 	var prettyError string
