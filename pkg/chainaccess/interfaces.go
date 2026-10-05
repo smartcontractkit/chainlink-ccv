@@ -114,19 +114,14 @@ type CCTPCodec interface {
 //
 // Thread-safety: All methods must be safe for concurrent calls.
 type FeeQuoter interface {
-	// GetFQState reads the current Fee Quoter on-chain state and returns it.
-	GetFQState(ctx context.Context) (protocol.FQState, error)
-	// MonitorFQ runs a goroutine that monitors the Fee Quoter on-chain state and
-	// streams a fresh FQState snapshot on the returned channel whenever it changes.
-	// Errors encountered while monitoring are sent on the error channel. Both
-	// channels are closed when the context is canceled.
-	MonitorFQ(ctx context.Context) (<-chan protocol.FQState, <-chan error, error)
-	// UpdateFeeTokenPrices generates and broadcasts transactions for the given
-	// fee token price updates to the chain.
-	UpdateFeeTokenPrices(ctx context.Context, prices []protocol.FeeTokenPriceUpdate) error
-	// UpdateGasTokenPrices generates and broadcasts transactions for the given
-	// gas token price updates to the chain.
-	UpdateGasTokenPrices(ctx context.Context, prices []protocol.GasTokenPriceUpdate) error
+	// MonitorFQ returns the current Fee Quoter on-chain state and runs a goroutine
+	// that streams a fresh FQState snapshot on the returned channel whenever the
+	// state changes. Errors encountered while monitoring are sent on the error
+	// channel. Both channels are closed when the context is canceled.
+	MonitorFQ(ctx context.Context) (protocol.FQState, <-chan protocol.FQState, <-chan error, error)
+	// UpdatePrices generates and broadcasts a transaction for the given fee token
+	// and gas token price updates to the chain.
+	UpdatePrices(ctx context.Context, tokenPrices []protocol.FeeTokenPriceUpdate, gasPrices []protocol.GasTokenPriceUpdate) error
 }
 
 // GasPriceReader reads a chain's current native gas price from the RPC.
