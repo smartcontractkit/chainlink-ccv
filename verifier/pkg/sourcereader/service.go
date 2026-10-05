@@ -3,6 +3,7 @@ package sourcereader
 import (
 	"context"
 	"fmt"
+	"math"
 	"math/big"
 	"runtime/debug"
 	"strconv"
@@ -22,6 +23,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/jobqueue"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/recovery"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
@@ -79,7 +81,8 @@ type Service struct {
 	// ChainStatus management
 	chainStatusManager protocol.ChainStatusManager
 
-	filter chainaccess.MessageFilter
+	recovery *recoveryRuntime
+	filter   chainaccess.MessageFilter
 }
 
 // NewService creates a DB-backed Service that publishes
@@ -236,10 +239,6 @@ func (r *Service) eventMonitoringLoop() {
 			r.logger.Infow("Close signal received, stopping event monitoring")
 			return
 		case <-ticker.C:
-			if r.disabled.Load() {
-				r.recordDisabledState(ctx)
-				continue
-			}
 			// Protect each iteration with panic recovery to keep the loop running
 			func() {
 				defer func() {
@@ -252,8 +251,20 @@ func (r *Service) eventMonitoringLoop() {
 					}
 				}()
 
+				r.recoveryControl(ctx)
+				if r.disabled.Load() {
+					r.recordDisabledState(ctx)
+					return
+				}
 				ready, latest, safe, finalized := r.readyToQuery(ctx)
 				if !ready {
+					return
+				}
+				r.recoveryHeartbeat(ctx, &latest.Number)
+				if r.recovery != nil && r.recovery.rebuildingID != "" {
+					if r.checkFinality(ctx, finalized) {
+						r.recoverRange(ctx, latest, safe, finalized)
+					}
 					return
 				}
 				pollSucceeded := r.processEventCycle(ctx, latest, finalized)
@@ -263,7 +274,9 @@ func (r *Service) eventMonitoringLoop() {
 				} else {
 					r.metrics().SetSourceReaderState(ctx, monitoring.SourceReaderStatePollError)
 				}
-				r.sendReadyMessages(ctx, latest, safe, finalized)
+				if r.sendReadyMessages(ctx, latest, safe, finalized) && r.recoveryOpsDue() {
+					r.recoverRange(ctx, latest, safe, finalized)
+				}
 			}()
 		}
 	}
@@ -302,11 +315,13 @@ func (r *Service) getBlockRanges(fromBlock, latest uint64) []blockRange {
 
 	var blockRanges []blockRange
 	for fromBlock <= latest {
-		toBlock := fromBlock + r.maxBlockRange
-		if toBlock >= latest {
+		// Compare the remaining distance before adding: fromBlock+maxBlockRange wraps
+		// below fromBlock near MaxUint64, emitting a bogus inverted range.
+		if latest-fromBlock <= r.maxBlockRange {
 			blockRanges = append(blockRanges, blockRange{fromBlock: fromBlock})
 			break
 		}
+		toBlock := fromBlock + r.maxBlockRange
 		blockRanges = append(blockRanges, blockRange{
 			fromBlock: fromBlock,
 			toBlock:   toBlock,
@@ -359,6 +374,41 @@ func (r *Service) processEventCycle(ctx context.Context, latest, finalized *prot
 		}
 	}
 
+	tasks := r.tasksFromEvents(ctx, events, latest, finalized)
+
+	r.addToPendingQueueHandleReorg(tasks, fromBlock, lastQueriedBlock)
+
+	// Spans for pending tasks stay open here - sendReadyMessages reuses them
+	// instead of opening a new one per poll. Dropped tasks' spans are ended in
+	// addToPendingQueueHandleReorg instead.
+
+	if len(events) == 0 {
+		r.logger.Debugw("No events found in range",
+			"fromBlock", fromBlock,
+			"toBlock", lastQueriedBlock)
+	}
+
+	// Advance to min(lastQueriedBlock, finalized). A 0 lastQueriedBlock means
+	// the last chunk had no explicit upper bound (queried up to latest), so we
+	// treat it as ∞ and always take finalized.
+	newBlock := finalized.Number
+	if lastQueriedBlock != 0 && lastQueriedBlock < newBlock {
+		newBlock = lastQueriedBlock
+	}
+	r.lastProcessedFinalizedBlock.Store(newBlock)
+	r.metrics().SetSourceReaderLastProcessedFinalizedBlock(ctx, int64(newBlock)) // #nosec G115 -- chain block heights are within int64 range
+
+	r.logger.Debugw("Processed block range",
+		"fromBlock", fromBlock,
+		"toBlock", "latest",
+		"advancedTo", newBlock,
+		"eventsFound", len(events))
+	return err == nil
+}
+
+// tasksFromEvents shares filtering, ID validation and reader metadata between
+// normal discovery and bounded source recovery.
+func (r *Service) tasksFromEvents(ctx context.Context, events []protocol.MessageSentEvent, latest, finalized *protocol.BlockHeader) []verifier.VerificationTask {
 	tasks := make([]verifier.VerificationTask, 0, len(events))
 	for _, event := range events {
 		if r.filter != nil && !r.filter.Filter(event) {
@@ -400,6 +450,7 @@ func (r *Service) processEventCycle(ctx context.Context, latest, finalized *prot
 			BlockNumber:          event.BlockNumber,
 			MessageID:            onchainMessageID,
 			TxHash:               event.TxHash,
+			SourceBlockHash:      event.BlockHash,
 			FeeToken:             event.FeeToken,
 			SourceBlockTimestamp: sourceBlockTimestamp(event.BlockNumber, event.BlockTimestamp, latest, finalized),
 			FinalizedBlockAtRead: finalized.Number,
@@ -438,34 +489,7 @@ func (r *Service) processEventCycle(ctx context.Context, latest, finalized *prot
 			monitoring.MessageTransitionReasonNone)
 	}
 
-	r.addToPendingQueueHandleReorg(tasks, fromBlock, lastQueriedBlock)
-
-	// Spans for pending tasks stay open here - sendReadyMessages reuses them
-	// instead of opening a new one per poll. Dropped tasks' spans are ended in
-	// addToPendingQueueHandleReorg instead.
-
-	if len(events) == 0 {
-		r.logger.Debugw("No events found in range",
-			"fromBlock", fromBlock,
-			"toBlock", lastQueriedBlock)
-	}
-
-	// Advance to min(lastQueriedBlock, finalized). A 0 lastQueriedBlock means
-	// the last chunk had no explicit upper bound (queried up to latest), so we
-	// treat it as ∞ and always take finalized.
-	newBlock := finalized.Number
-	if lastQueriedBlock != 0 && lastQueriedBlock < newBlock {
-		newBlock = lastQueriedBlock
-	}
-	r.lastProcessedFinalizedBlock.Store(newBlock)
-	r.metrics().SetSourceReaderLastProcessedFinalizedBlock(ctx, int64(newBlock)) // #nosec G115 -- chain block heights are within int64 range
-
-	r.logger.Debugw("Processed block range",
-		"fromBlock", fromBlock,
-		"toBlock", "latest",
-		"advancedTo", newBlock,
-		"eventsFound", len(events))
-	return err == nil
+	return tasks
 }
 
 // sourceBlockTimestamp reuses a header already fetched for this poll only if it is the
@@ -504,6 +528,14 @@ func (r *Service) initializeStartBlock(ctx context.Context) (uint64, error) {
 		return r.fallbackBlockEstimate(finalized.Number, 500), nil
 	}
 
+	r.disabled.Store(chainStatus.Disabled)
+	// FinalizedBlockHeight is an arbitrary-precision persisted value: Uint64() silently
+	// truncates an out-of-range checkpoint and +1 wraps a MaxUint64 one, either restarting
+	// the scan at an unrelated historical block. Reject checkpoints without a representable next block.
+	if !chainStatus.FinalizedBlockHeight.IsUint64() || chainStatus.FinalizedBlockHeight.Uint64() == math.MaxUint64 {
+		return 0, fmt.Errorf("persisted finalized block %s cannot produce a representable next block",
+			chainStatus.FinalizedBlockHeight.String())
+	}
 	startBlock := chainStatus.FinalizedBlockHeight.Uint64() + 1
 	r.logger.Infow("Resuming from chainStatus",
 		"chainStatusBlock", chainStatus.FinalizedBlockHeight,
@@ -635,8 +667,7 @@ func (r *Service) addToPendingQueueHandleReorg(tasks []verifier.VerificationTask
 	}
 }
 
-// sendReadyMessages checks for finalized messages and publishes them directly to the task queue.
-func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized *protocol.BlockHeader) {
+func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized *protocol.BlockHeader) bool {
 	stringSafeBlock := "unavailable"
 	if safe != nil {
 		stringSafeBlock = strconv.FormatUint(safe.Number, 10)
@@ -647,21 +678,8 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 		"safeBlock", stringSafeBlock,
 		"finalizedBlock", finalized.Number)
 
-	if err := r.finalityChecker.UpdateFinalized(ctx, finalized.Number); err != nil {
-		r.logger.Errorw("Failed to update finality checker",
-			"finalizedBlock", finalized.Number,
-			"error", err)
-		if r.finalityChecker.IsFinalityViolated() {
-			r.handleFinalityViolation(ctx)
-			return
-		}
-		return
-	}
-
-	if r.finalityChecker.IsFinalityViolated() {
-		r.logger.Errorw("Finality violation detected", "finalizedBlock", finalized.Number)
-		r.handleFinalityViolation(ctx)
-		return
+	if !r.checkFinality(ctx, finalized) {
+		return false
 	}
 
 	latestBlock := latest.Number
@@ -692,29 +710,34 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 
 		ready := make([]verifier.VerificationTask, 0, len(r.pendingTasks))
 		toBeDeleted := make([]string, 0)
+		auditDrops := make([]recovery.Event, 0)
 
 		for msgID, task := range r.pendingTasks {
 			taskSpan := tracing.SpanFromContext(task.TraceContext)
 
-			cursed, curseErr := r.curseDetector.IsRemoteChainCursed(ctx, task.Message.SourceChainSelector, task.Message.DestChainSelector)
-			if cursed {
-				if curseErr != nil {
-					r.logger.Warnw("Blocking lane - curse state unknown",
-						protocol.LogKeyMessageID, msgID,
-						protocol.LogKeySourceChain, task.Message.SourceChainSelector,
-						protocol.LogKeyDestChain, task.Message.DestChainSelector,
-						"error", curseErr)
-					r.messageMetrics(task.Message).IncrementMessageTransition(
-						ctx,
-						monitoring.MessageTransitionStageAdmission,
-						monitoring.MessageTransitionOutcomeCurseStateUnknown,
-						monitoring.MessageTransitionReasonCurseStateUnknown)
-					hasBlockingUnknown = true
-					// In this particular case we can't make a decision, so we'll just skip the task
-					// Curse err should be transient so the next poll is likely to have the information
-					continue
+			decision, reason, admissionErr := r.admission(ctx, task, latestBlock, latestSafeBlock, latestFinalizedBlock)
+			if admissionErr != nil {
+				r.logger.Warnw("Blocking message - admission state unknown", "messageID", msgID, "reason", reason, "error", admissionErr)
+				r.messageMetrics(task.Message).IncrementMessageTransition(ctx, monitoring.MessageTransitionStageAdmission, reason, reason)
+				hasBlockingUnknown = true
+				// Recorded but not ended - transient/unknown; the same span is reused next poll.
+				taskSpan.RecordError(admissionErr)
+				taskSpan.SetStatus(codes.Error, admissionErr.Error())
+				continue
+			}
+			if decision == admissionDrop {
+				if r.recovery != nil {
+					auditDrops = append(auditDrops, r.dropEvent(task, reason, ""))
 				}
-				taskSpan.AddEvent(monitoring.EventCursedDropped,
+				outcome := monitoring.MessageTransitionOutcomeLaneCursed
+				if reason == monitoring.MessageTransitionReasonMessageDisablementRule {
+					outcome = monitoring.MessageTransitionOutcomeMessageDisabled
+				}
+				logMessage, eventName := "Dropping task - lane is cursed", monitoring.EventCursedDropped
+				if reason == monitoring.MessageTransitionReasonMessageDisablementRule {
+					logMessage, eventName = "Dropping task - message matched a disablement rule", monitoring.EventDisabledDropped
+				}
+				taskSpan.AddEvent(eventName,
 					oteltrace.WithAttributes(
 						attribute.String(tracing.SourceChainNameKey, task.Message.SourceChainSelector.ChainName()),
 						attribute.String(tracing.SourceChainSelectorKey, task.Message.SourceChainSelector.String()),
@@ -723,66 +746,16 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 					),
 				)
 				taskSpan.End()
-				r.logger.Warnw("Dropping task - lane is cursed",
-					protocol.LogKeyMessageID, msgID,
-					protocol.LogKeySourceChain, task.Message.SourceChainSelector,
-					protocol.LogKeyDestChain, task.Message.DestChainSelector)
-				r.messageMetrics(task.Message).IncrementMessageTransition(
-					ctx,
-					monitoring.MessageTransitionStageAdmission,
-					monitoring.MessageTransitionOutcomeLaneCursed,
-					monitoring.MessageTransitionReasonRemoteChainCursed)
+				r.logger.Warnw(logMessage, protocol.LogKeyMessageID, msgID, protocol.LogKeySourceChain, task.Message.SourceChainSelector, protocol.LogKeyDestChain, task.Message.DestChainSelector, "sourceBlock", task.BlockNumber, "reason", reason)
+				r.messageMetrics(task.Message).IncrementMessageTransition(ctx, monitoring.MessageTransitionStageAdmission, outcome, reason)
 				// Terminal-drop marker so rediscovery doesn't reopen a new span
 				// every poll; evicted from sentTasks once the block finalizes.
 				r.sentTasks[msgID] = task
 				toBeDeleted = append(toBeDeleted, msgID)
 				continue
 			}
-
-			disabled, disablementErr := r.messageRules.IsMessageDisabled(ctx, task.Message)
-			if disablementErr != nil {
-				r.logger.Warnw("Blocking message - message rules state unknown",
-					protocol.LogKeyMessageID, msgID,
-					protocol.LogKeySourceChain, task.Message.SourceChainSelector,
-					protocol.LogKeyDestChain, task.Message.DestChainSelector,
-					"error", disablementErr)
-				r.messageMetrics(task.Message).IncrementMessageTransition(
-					ctx,
-					monitoring.MessageTransitionStageAdmission,
-					monitoring.MessageTransitionOutcomeRulesStateUnknown,
-					monitoring.MessageTransitionReasonRulesStateUnknown)
-				hasBlockingUnknown = true
-				// Recorded but not ended - transient/unknown
-				taskSpan.RecordError(disablementErr)
-				taskSpan.SetStatus(codes.Error, disablementErr.Error())
-				continue
-			}
-			if disabled {
-				taskSpan.AddEvent(monitoring.EventDisabledDropped,
-					oteltrace.WithAttributes(
-						attribute.String(tracing.SourceChainNameKey, task.Message.SourceChainSelector.ChainName()),
-						attribute.String(tracing.SourceChainSelectorKey, task.Message.SourceChainSelector.String()),
-						attribute.String(tracing.DestChainNameKey, task.Message.DestChainSelector.ChainName()),
-						attribute.String(tracing.DestChainSelectorKey, task.Message.DestChainSelector.String()),
-					),
-				)
-				taskSpan.End()
-				r.logger.Warnw("Dropping task - message matched a disablement rule",
-					protocol.LogKeyMessageID, msgID,
-					protocol.LogKeySourceChain, task.Message.SourceChainSelector,
-					protocol.LogKeyDestChain, task.Message.DestChainSelector)
-				r.messageMetrics(task.Message).IncrementMessageTransition(
-					ctx,
-					monitoring.MessageTransitionStageAdmission,
-					monitoring.MessageTransitionOutcomeMessageDisabled,
-					monitoring.MessageTransitionReasonMessageDisablementRule)
-				// See the cursed-drop branch above.
-				r.sentTasks[msgID] = task
-				toBeDeleted = append(toBeDeleted, msgID)
-				continue
-			}
-
-			if !r.isMessageReadyForVerification(task, latestBlock, latestSafeBlock, latestFinalizedBlock) {
+			if decision != admissionReady {
+				// Finality still pending; the span stays open and is reused next poll.
 				continue
 			}
 
@@ -814,6 +787,10 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 				),
 			)
 			// Not ended here - still open until the publish step below ends it.
+		}
+
+		if len(auditDrops) > 0 {
+			r.recordDrops(ctx, auditDrops)
 		}
 
 		// Delete dropped tasks immediately (these are not queued)
@@ -911,6 +888,28 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 	if advanceCheckpointTo > 0 {
 		r.writeCheckpoint(ctx, advanceCheckpointTo)
 	}
+	return !r.disabled.Load()
+}
+
+func (r *Service) checkFinality(ctx context.Context, finalized *protocol.BlockHeader) bool {
+	if err := r.finalityChecker.UpdateFinalized(ctx, finalized.Number); err != nil {
+		r.logger.Errorw("Failed to update finality checker",
+			"finalizedBlock", finalized.Number,
+			"error", err)
+		if r.finalityChecker.IsFinalityViolated() {
+			r.handleFinalityViolation(ctx)
+			return false
+		}
+		return false
+	}
+
+	if r.finalityChecker.IsFinalityViolated() {
+		r.logger.Errorw("Finality violation detected", "finalizedBlock", finalized.Number)
+		r.handleFinalityViolation(ctx)
+		return false
+	}
+
+	return !r.disabled.Load()
 }
 
 // writeCheckpoint persists the finalized block checkpoint for this chain.
@@ -978,6 +977,9 @@ func (r *Service) handleFinalityViolation(ctx context.Context) {
 	if r.disabled.Load() {
 		return
 	}
+	r.finalityBlocked.Store(true)
+	r.disabled.Store(true)
+	r.recordFinalityIncident(ctx)
 	flushed := len(r.pendingTasks)
 	sentFlushed := len(r.sentTasks)
 	for _, task := range r.pendingTasks {
@@ -995,8 +997,6 @@ func (r *Service) handleFinalityViolation(ctx context.Context) {
 	r.pendingTasks = make(map[string]verifier.VerificationTask)
 	r.pendingSince = make(map[string]time.Time)
 	r.sentTasks = make(map[string]verifier.VerificationTask)
-	r.finalityBlocked.Store(true)
-	r.disabled.Store(true)
 	r.metrics().SetSourceReaderState(ctx, monitoring.SourceReaderStateFinalityBlocked)
 
 	r.logger.Errorw("Flushed all tasks due to finality violation",

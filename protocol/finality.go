@@ -110,7 +110,9 @@ func (f Finality) IsMessageReady(msgBlock, latestBlock, latestSafeBlock, latestF
 	case f&FinalityFlagMask == 0:
 		// Block-depth mode: no flag bits set, lower 16 bits are the confirmation count.
 		depth := uint64(f & FinalityBlockDepthMask)
-		return msgBlock+depth <= latestBlock || msgBlock <= latestFinalizedBlock
+		// Prove msgBlock <= latestBlock before subtracting: msgBlock+depth wraps at
+		// MaxUint64, which would report an unconfirmed message as ready.
+		return (msgBlock <= latestBlock && latestBlock-msgBlock >= depth) || msgBlock <= latestFinalizedBlock
 
 	default:
 		// Unknown flag bits set, require full finality as the safest fallback.

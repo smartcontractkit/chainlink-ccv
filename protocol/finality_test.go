@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"encoding/json"
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -151,6 +152,12 @@ func TestFinality_IsMessageReady(t *testing.T) {
 				name: "maximum depth not yet reached",
 				// msg=1, depth=65535 → required=65536 > latest=65535
 				depth: 65535, msg: 1, latest: 65535, finalized: 0, wantReady: false,
+			},
+			{
+				name: "max-height message does not wrap ready",
+				// msg=MaxUint64, depth=1: the sum wraps to 0 ≤ latest, but the message
+				// is not confirmed; the subtraction form must report not ready.
+				depth: 1, msg: math.MaxUint64, latest: math.MaxUint64, finalized: math.MaxUint64 - 1, wantReady: false,
 			},
 		}
 		for _, tc := range tests {

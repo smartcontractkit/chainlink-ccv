@@ -183,6 +183,8 @@ func (r *SourceReader) SetCriticalSourceInvariantCallback(callback func(context.
 // keyed by block number. Requests are batched into a single eth_getBlockByNumber
 // batch per chunk (instead of one RPC request per block) to reduce RPC load.
 // Batches are chunked to avoid an oversized single payload.
+// Zero is a valid height (genesis) and is fetched literally: unlike the former
+// []*big.Int input there is no nil element that silently resolves to "latest".
 func (r *SourceReader) GetBlocksHeaders(ctx context.Context, blockNumbers []uint64) (map[uint64]protocol.BlockHeader, error) {
 	headers := make(map[uint64]protocol.BlockHeader, len(blockNumbers))
 	batchSize := sourceReaderHeaderFetchBatchSize(r.sourceReaderHeaderFetchBatchSize)
@@ -413,6 +415,7 @@ func (r *SourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, to
 			Message:        *decodedMsg,
 			Receipts:       allReceipts, // Keep original order from OnRamp event
 			BlockNumber:    log.BlockNumber,
+			BlockHash:      log.BlockHash.Bytes(),
 			TxHash:         log.TxHash.Bytes(),
 			FeeToken:       event.FeeToken.Bytes(),
 			BlockTimestamp: blockTimestamp,

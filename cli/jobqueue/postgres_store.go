@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/jobqueue/archivecategory"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 )
@@ -78,13 +79,17 @@ func (s *PostgresStore) listFailedFromTable(
 	limit int,
 	queue QueueType,
 ) ([]ArchivedJob, error) {
+	activeTable, _, err := tableNames(queue)
+	if err != nil {
+		return nil, err
+	}
 	query := fmt.Sprintf(`
 		SELECT job_id, message_id, owner_id, chain_selector,
 		       status, attempt_count, COALESCE(last_error, ''), created_at,
-		       completed_at, retry_deadline
+		       completed_at, retry_deadline, %s AS failure_category
 		FROM %s
 		WHERE status = 'failed'
-	`, archiveTable)
+	`, archivecategory.SQL(activeTable), archiveTable)
 
 	args := []any{}
 
@@ -127,12 +132,13 @@ func (s *PostgresStore) listFailedFromTable(
 			createdAt        time.Time
 			archivedAt       sql.NullTime
 			retryDeadline    time.Time
+			failureCategory  string
 		)
 
 		if err := rows.Scan(
 			&jobID, &messageID, &ownerIDVal, &chainSelectorStr,
 			&status, &attemptCount, &lastError, &createdAt,
-			&archivedAt, &retryDeadline,
+			&archivedAt, &retryDeadline, &failureCategory,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
@@ -143,16 +149,17 @@ func (s *PostgresStore) listFailedFromTable(
 		}
 
 		job := ArchivedJob{
-			JobID:         jobID,
-			MessageID:     messageID,
-			OwnerID:       ownerIDVal,
-			ChainSelector: chainSelectorBig.Uint64(),
-			Status:        status,
-			AttemptCount:  attemptCount,
-			LastError:     lastError,
-			CreatedAt:     createdAt,
-			RetryDeadline: retryDeadline,
-			Queue:         queue,
+			JobID:           jobID,
+			MessageID:       messageID,
+			OwnerID:         ownerIDVal,
+			ChainSelector:   chainSelectorBig.Uint64(),
+			Status:          status,
+			AttemptCount:    attemptCount,
+			LastError:       lastError,
+			CreatedAt:       createdAt,
+			RetryDeadline:   retryDeadline,
+			FailureCategory: failureCategory,
+			Queue:           queue,
 		}
 		if archivedAt.Valid {
 			t := archivedAt.Time

@@ -2,6 +2,7 @@ package sourcereader
 
 import (
 	"context"
+	"math"
 	"math/big"
 	"sync"
 	"testing"
@@ -2251,4 +2252,24 @@ func TestSRS_Reorg_NilToBlock_UnboundedWindow(t *testing.T) {
 		"task at block 200 must be dropped when toBlock is 0 (unbounded window)")
 	require.True(t, srs.reorgTracker.RequiresFinalization(defaultDestChain, taskFuture.Message.SequenceNumber),
 		"reorged task's seqNum should be tracked for finalization when using 0 toBlock")
+}
+
+// Regression for the uint64 conversion: fromBlock+maxBlockRange wraps below fromBlock
+// near MaxUint64, which made the loop emit an inverted range and continue from the
+// wrapped value. The remaining distance is compared instead of the sum being built.
+func TestGetBlockRangesNearMaxHeight(t *testing.T) {
+	srs := &Service{maxBlockRange: 10}
+
+	t.Run("remaining distance fits one open-ended range", func(t *testing.T) {
+		require.Equal(t, []blockRange{{fromBlock: math.MaxUint64 - 5}},
+			srs.getBlockRanges(math.MaxUint64-5, math.MaxUint64))
+	})
+
+	t.Run("multiple ranges stay ordered at the top", func(t *testing.T) {
+		require.Equal(t, []blockRange{
+			{fromBlock: math.MaxUint64 - 25, toBlock: math.MaxUint64 - 15},
+			{fromBlock: math.MaxUint64 - 14, toBlock: math.MaxUint64 - 4},
+			{fromBlock: math.MaxUint64 - 3},
+		}, srs.getBlockRanges(math.MaxUint64-25, math.MaxUint64))
+	})
 }
