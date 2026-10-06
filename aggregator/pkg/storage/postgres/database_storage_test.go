@@ -1889,3 +1889,61 @@ func collectOrphanedKeys(t *testing.T, ch <-chan model.OrphanedKey, errCh <-chan
 	require.NoError(t, <-errCh)
 	return result
 }
+
+func TestListCommitVerificationByMessageID_GroupsByAggregationKey(t *testing.T) {
+	storage, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	message := createTestProtocolMessage()
+	signer1 := newTestSigner(t)
+	signer2 := newTestSigner(t)
+
+	msgWithCCV1 := createTestMessageWithCCV(t, message, signer1)
+	messageID := getMessageIDFromProto(t, msgWithCCV1)
+	record1 := createTestCommitVerificationRecord(t, msgWithCCV1, signer1)
+	record2 := createTestCommitVerificationRecord(t, createTestMessageWithCCV(t, message, signer2), signer2)
+
+	require.NoError(t, storage.SaveCommitVerification(ctx, record1, "aggregationKey1"))
+	require.NoError(t, storage.SaveCommitVerification(ctx, record2, "aggregationKey1"))
+	require.NoError(t, storage.SaveCommitVerification(ctx, record1, "aggregationKey2"))
+
+	recordsByKey, err := storage.ListCommitVerificationByMessageID(ctx, messageID)
+	require.NoError(t, err)
+	require.Len(t, recordsByKey, 2)
+	require.Len(t, recordsByKey["aggregationKey1"], 2)
+	require.Len(t, recordsByKey["aggregationKey2"], 1)
+	assertCommitVerificationRecordEqual(t, record1, recordsByKey["aggregationKey2"][0], "aggregationKey2")
+}
+
+func TestListCommitVerificationByMessageID_ReturnsEmptyForNonexistentMessage(t *testing.T) {
+	storage, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	recordsByKey, err := storage.ListCommitVerificationByMessageID(context.Background(), []byte("nonexistent"))
+	require.NoError(t, err)
+	require.Empty(t, recordsByKey)
+}
+
+func TestListCommitVerificationByMessageID_ErrorsAboveMaximum(t *testing.T) {
+	storage, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	message := createTestProtocolMessage()
+	signer := newTestSigner(t)
+	msgWithCCV := createTestMessageWithCCV(t, message, signer)
+	messageID := getMessageIDFromProto(t, msgWithCCV)
+	record := createTestCommitVerificationRecord(t, msgWithCCV, signer)
+
+	for i := range maxVerificationRecordsPerMessage {
+		require.NoError(t, storage.SaveCommitVerification(ctx, record, fmt.Sprintf("aggregationKey%d", i)))
+	}
+	recordsByKey, err := storage.ListCommitVerificationByMessageID(ctx, messageID)
+	require.NoError(t, err)
+	require.Len(t, recordsByKey, maxVerificationRecordsPerMessage)
+
+	require.NoError(t, storage.SaveCommitVerification(ctx, record, "oneTooMany"))
+	_, err = storage.ListCommitVerificationByMessageID(ctx, messageID)
+	require.ErrorIs(t, err, pkgcommon.ErrTooManyRecords)
+}

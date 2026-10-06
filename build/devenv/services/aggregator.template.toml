@@ -52,10 +52,12 @@ key_prefix = "ratelimit"
 "/chainlink_ccv.verifier.v1.Verifier/GetVerifierResultsForMessage" = { limit_per_second = 100 }
 "/chainlink_ccv.heartbeat.v1.HeartbeatService/SendHeartbeat" = { limit_per_second = 100 }
 "/chainlink_ccv.message_rules.v1.MessageRules/ListMessageRules" = { limit_per_second = 20 }
+"/chainlink_ccv.committee_verifier.v1.CommitteeVerifier/GetMessageStatus" = { limit_per_second = 5 }
 
 # Limit shared across all anonymous callers
 [rateLimiting.globalAnonymousLimits]
 "/chainlink_ccv.verifier.v1.Verifier/GetVerifierResultsForMessage" = { limit_per_second = 100 }
+"/chainlink_ccv.committee_verifier.v1.CommitteeVerifier/GetMessageStatus" = { limit_per_second = 50 }
 
 # Group-based rate limits (more restrictive than defaults for specific groups)
 # WriteCommitteeVerifierNodeResult is not needed for verifiers as they use BatchWriteCommitteeVerifierNodeResult instead.

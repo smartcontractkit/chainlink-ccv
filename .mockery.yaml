@@ -63,6 +63,7 @@ packages:
     interfaces:
       SignatureValidator:
       AggregationTriggerer:
+      MessageStatusReader:
   github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common:
     interfaces:
       CommitVerificationStore:

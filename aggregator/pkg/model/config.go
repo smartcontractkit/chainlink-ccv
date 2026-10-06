@@ -112,6 +112,17 @@ func (q *QuorumConfig) GetSourceVerifierAddress() protocol.UnknownAddress {
 	return q.sourceVerifierAddressParsed
 }
 
+// IsSigner reports whether the identifier belongs to a signer of this quorum.
+func (q *QuorumConfig) IsSigner(identifier protocol.ByteSlice) bool {
+	key := strings.TrimPrefix(strings.ToLower(identifier.String()), "0x")
+	for _, signer := range q.Signers {
+		if strings.TrimPrefix(strings.ToLower(signer.Address), "0x") == key {
+			return true
+		}
+	}
+	return false
+}
+
 // StorageType represents the type of storage backend to use.
 type StorageType string
 
