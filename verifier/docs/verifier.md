@@ -405,7 +405,7 @@ coordinator, err := verifier.NewCoordinator(lggr, &MyVerifier{...}, sourceReader
 
 # PostgreSQL Job Queue
 
-Both pipeline queues use the same generic `PostgresJobQueue[T]` implementation described in detail in [`pkg/jobqueue/README.md`](../pkg/jobqueue/README.md). Key properties:
+Both pipeline queues use the same generic `PostgresJobQueue[T]` implementation described in detail in [`common/jobqueue/README.md`](../../common/jobqueue/README.md). Key properties:
 
 | Property | `ccv_task_verifier_jobs` | `ccv_storage_writer_jobs` |
 |---|---|---|

@@ -10,7 +10,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/jobqueue/archivecategory"
+	"github.com/smartcontractkit/chainlink-ccv/common/jobqueue/archivecategory"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 )
 

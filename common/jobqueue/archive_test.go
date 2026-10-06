@@ -13,7 +13,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 
 	cliqueue "github.com/smartcontractkit/chainlink-ccv/cli/jobqueue"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/jobqueue/archivecategory"
+	"github.com/smartcontractkit/chainlink-ccv/common/jobqueue/archivecategory"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
