@@ -20,11 +20,11 @@ const adminSiblingRestartDelay = 5 * time.Second
 // verifier. An absent config means the console is disabled. The returned stop
 // function terminates the sibling; nil means nothing was started.
 func StartAdminConsoleSibling() (stop func()) {
-	path := os.Getenv(admin.ConfigPathEnv) //nolint:gosec // G703: operator-provided config path from the deployment environment.
+	path := os.Getenv(admin.ConfigPathEnv)
 	if path == "" {
 		path = admin.DefaultConfigPath
 	}
-	if _, err := os.Stat(path); err != nil {
+	if _, err := os.Stat(path); err != nil { //nolint:gosec // G703: operator-provided config path, not request input.
 		return nil
 	}
 	exe, err := os.Executable()
