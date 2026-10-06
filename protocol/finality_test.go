@@ -2,7 +2,7 @@ package protocol
 
 import (
 	"encoding/json"
-	"math/big"
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -48,35 +48,16 @@ func TestFinalityConstants_BitLayout(t *testing.T) {
 }
 
 func TestFinality_IsMessageReady(t *testing.T) {
-	bi := func(n int64) *big.Int { return big.NewInt(n) }
-
-	t.Run("nil arguments", func(t *testing.T) {
-		tests := []struct {
-			name                string
-			msg, lat, safe, fin *big.Int
-		}{
-			{"nil msgBlock", nil, bi(10), nil, bi(5)},
-			{"nil latestBlock", bi(3), nil, nil, bi(5)},
-			{"nil latestFinalizedBlock", bi(3), bi(10), nil, nil},
-		}
-		for _, tc := range tests {
-			t.Run(tc.name, func(t *testing.T) {
-				_, err := FinalityWaitForFinality.IsMessageReady(tc.msg, tc.lat, tc.safe, tc.fin)
-				require.ErrorIs(t, err, ErrNilBlock)
-			})
-		}
-	})
-
-	t.Run("nil latestSafeBlock is not an error", func(t *testing.T) {
-		// Nil safe block is expected on chains that don't expose one.
-		_, err := FinalityWaitForSafe.IsMessageReady(bi(3), bi(10), nil, bi(5))
-		require.NoError(t, err)
+	t.Run("zero latestSafeBlock means unavailable", func(t *testing.T) {
+		// A 0 safe block is expected on chains that don't expose one: falls back to finality.
+		assert.True(t, FinalityWaitForSafe.IsMessageReady(3, 10, 0, 5))
+		assert.False(t, FinalityWaitForSafe.IsMessageReady(6, 10, 0, 5))
 	})
 
 	t.Run("FinalityWaitForFinality", func(t *testing.T) {
 		tests := []struct {
 			name      string
-			msg, fin  int64
+			msg, fin  uint64
 			wantReady bool
 		}{
 			{"msg block below finalized", 4, 5, true},
@@ -86,8 +67,7 @@ func TestFinality_IsMessageReady(t *testing.T) {
 		for _, tc := range tests {
 			t.Run(tc.name, func(t *testing.T) {
 				// latestSafeBlock is irrelevant for this mode.
-				ready, err := FinalityWaitForFinality.IsMessageReady(bi(tc.msg), bi(100), bi(99), bi(tc.fin))
-				require.NoError(t, err)
+				ready := FinalityWaitForFinality.IsMessageReady(tc.msg, 100, 99, tc.fin)
 				assert.Equal(t, tc.wantReady, ready)
 			})
 		}
@@ -96,7 +76,7 @@ func TestFinality_IsMessageReady(t *testing.T) {
 	t.Run("FinalityWaitForSafe — safe block available", func(t *testing.T) {
 		tests := []struct {
 			name      string
-			msg, safe int64
+			msg, safe uint64
 			wantReady bool
 		}{
 			{"msg block below safe", 4, 5, true},
@@ -107,8 +87,7 @@ func TestFinality_IsMessageReady(t *testing.T) {
 		}
 		for _, tc := range tests {
 			t.Run(tc.name, func(t *testing.T) {
-				ready, err := FinalityWaitForSafe.IsMessageReady(bi(tc.msg), bi(100), bi(tc.safe), bi(3))
-				require.NoError(t, err)
+				ready := FinalityWaitForSafe.IsMessageReady(tc.msg, 100, tc.safe, 3)
 				assert.Equal(t, tc.wantReady, ready)
 			})
 		}
@@ -117,7 +96,7 @@ func TestFinality_IsMessageReady(t *testing.T) {
 	t.Run("FinalityWaitForSafe — safe block unavailable, falls back to full finality", func(t *testing.T) {
 		tests := []struct {
 			name      string
-			msg, fin  int64
+			msg, fin  uint64
 			wantReady bool
 		}{
 			{"msg block below finalized", 4, 5, true},
@@ -126,8 +105,7 @@ func TestFinality_IsMessageReady(t *testing.T) {
 		}
 		for _, tc := range tests {
 			t.Run(tc.name, func(t *testing.T) {
-				ready, err := FinalityWaitForSafe.IsMessageReady(bi(tc.msg), bi(100), nil, bi(tc.fin))
-				require.NoError(t, err)
+				ready := FinalityWaitForSafe.IsMessageReady(tc.msg, 100, 0, tc.fin)
 				assert.Equal(t, tc.wantReady, ready)
 			})
 		}
@@ -137,7 +115,7 @@ func TestFinality_IsMessageReady(t *testing.T) {
 		tests := []struct {
 			name                   string
 			depth                  Finality
-			msg, latest, finalized int64
+			msg, latest, finalized uint64
 			wantReady              bool
 		}{
 			{
@@ -175,12 +153,17 @@ func TestFinality_IsMessageReady(t *testing.T) {
 				// msg=1, depth=65535 → required=65536 > latest=65535
 				depth: 65535, msg: 1, latest: 65535, finalized: 0, wantReady: false,
 			},
+			{
+				name: "max-height message does not wrap ready",
+				// msg=MaxUint64, depth=1: the sum wraps to 0 ≤ latest, but the message
+				// is not confirmed; the subtraction form must report not ready.
+				depth: 1, msg: math.MaxUint64, latest: math.MaxUint64, finalized: math.MaxUint64 - 1, wantReady: false,
+			},
 		}
 		for _, tc := range tests {
 			t.Run(tc.name, func(t *testing.T) {
 				// latestSafeBlock is irrelevant for this mode.
-				ready, err := tc.depth.IsMessageReady(bi(tc.msg), bi(tc.latest), bi(99), bi(tc.finalized))
-				require.NoError(t, err)
+				ready := tc.depth.IsMessageReady(tc.msg, tc.latest, 99, tc.finalized)
 				assert.Equal(t, tc.wantReady, ready)
 			})
 		}
@@ -190,7 +173,7 @@ func TestFinality_IsMessageReady(t *testing.T) {
 		tests := []struct {
 			name      string
 			finality  Finality
-			msg, fin  int64
+			msg, fin  uint64
 			wantReady bool
 		}{
 			{
@@ -224,8 +207,7 @@ func TestFinality_IsMessageReady(t *testing.T) {
 		}
 		for _, tc := range tests {
 			t.Run(tc.name, func(t *testing.T) {
-				ready, err := tc.finality.IsMessageReady(bi(tc.msg), bi(100), bi(99), bi(tc.fin))
-				require.NoError(t, err)
+				ready := tc.finality.IsMessageReady(tc.msg, 100, 99, tc.fin)
 				assert.Equal(t, tc.wantReady, ready)
 			})
 		}
@@ -261,12 +243,10 @@ func TestFinality_Requirement(t *testing.T) {
 			if got.Safe {
 				reconstructed = reconstructed.WithSafe()
 			}
-			for _, safe := range []*big.Int{nil, big.NewInt(110)} {
-				for _, block := range []int64{95, 100, 105, 115} {
-					wantReady, err := tc.finality.IsMessageReady(big.NewInt(block), big.NewInt(120), safe, big.NewInt(100))
-					require.NoError(t, err)
-					gotReady, err := reconstructed.IsMessageReady(big.NewInt(block), big.NewInt(120), safe, big.NewInt(100))
-					require.NoError(t, err)
+			for _, safe := range []uint64{0, 110} {
+				for _, block := range []uint64{95, 100, 105, 115} {
+					wantReady := tc.finality.IsMessageReady(block, 120, safe, 100)
+					gotReady := reconstructed.IsMessageReady(block, 120, safe, 100)
 					assert.Equal(t, wantReady, gotReady)
 				}
 			}

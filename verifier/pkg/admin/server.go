@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -130,7 +131,10 @@ func (s *Server) csrfMiddleware(c *gin.Context) {
 	}
 	if token == "" || len(token) > 128 {
 		token = newCSRFToken()
-		c.SetCookie(csrfCookieName, token, 0, "/", "", false, true)
+		// Secure only over TLS or an https-forwarding proxy: the default
+		// loopback deployment is plain HTTP and must still receive the token.
+		secure := c.Request.TLS != nil || strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https")
+		c.SetCookie(csrfCookieName, token, 0, "/", "", secure, true)
 	}
 	c.Set("csrfToken", token)
 

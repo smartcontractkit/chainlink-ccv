@@ -182,6 +182,16 @@ func (s *VerifierSecrets) DatabaseURL() string {
 	return os.Getenv(DatabaseURLEnvVar)
 }
 
+// DatabaseURLFileOnly returns the secrets file's [db].url without the CL_DATABASE_URL
+// fallback. Multi-node consumers (the admin console) must not let one node silently
+// inherit the process-wide environment database.
+func (s *VerifierSecrets) DatabaseURLFileOnly() string {
+	if s == nil {
+		return ""
+	}
+	return s.dbURL
+}
+
 // AggregatorSecrets returns the per-aggregator HMAC credentials from the file, or nil when the file
 // supplied none (in which case aggregator resolution falls back to env vars).
 func (s *VerifierSecrets) AggregatorSecrets() AggregatorSecrets {

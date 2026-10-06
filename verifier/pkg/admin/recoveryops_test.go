@@ -243,7 +243,13 @@ func TestRecoverySubmitRecordsActionLogWithOperationID(t *testing.T) {
 	require.NotEmpty(t, gotReq.Note)
 	require.NotEmpty(t, gotReq.ID, "fresh request ID generated when none resubmitted")
 
-	vals := captured.execValues(t, 0)
+	// The intent row precedes the submission; the outcome row follows it.
+	intent := captured.execValues(t, 0)
+	require.Equal(t, "recovery-submit", intent[1])
+	require.Equal(t, "node-a", intent[2])
+	require.Equal(t, "started", intent[5])
+
+	vals := captured.execValues(t, 1)
 	require.Equal(t, "local", vals[0])
 	require.Equal(t, "recovery-submit", vals[1])
 	require.Equal(t, "node-a", vals[2])
@@ -272,7 +278,10 @@ func TestRecoveryCancelResumeMapToChangeStateAndLog(t *testing.T) {
 	require.Contains(t, rec.Body.String(), "cancelled")
 	require.Equal(t, opID, gotID)
 	require.Equal(t, "cancel", gotAction)
-	vals := captured.execValues(t, 0)
+	intent := captured.execValues(t, 0)
+	require.Equal(t, "recovery-cancel", intent[1])
+	require.Equal(t, "started", intent[5])
+	vals := captured.execValues(t, 1)
 	require.Equal(t, "recovery-cancel", vals[1])
 	require.Equal(t, opID, vals[4])
 	require.Equal(t, "success", vals[5])
@@ -281,9 +290,13 @@ func TestRecoveryCancelResumeMapToChangeStateAndLog(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Contains(t, rec.Body.String(), "accepted")
 	require.Equal(t, "resume", gotAction)
-	vals = captured.execValues(t, 1)
+	intent = captured.execValues(t, 2)
+	require.Equal(t, "recovery-resume", intent[1])
+	require.Equal(t, "started", intent[5])
+	vals = captured.execValues(t, 3)
 	require.Equal(t, "recovery-resume", vals[1])
 	require.Equal(t, opID, vals[4])
+	require.Equal(t, "success", vals[5])
 }
 
 func TestRecoveryOperationsReadsOnlyStoreState(t *testing.T) {

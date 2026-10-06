@@ -266,8 +266,8 @@
           "type": "prometheus",
           "uid": "victoriametrics"
         },
-        "definition": "label_values(verifier_archive_collection_success, verifier_id)",
-        "query": "label_values(verifier_archive_collection_success, verifier_id)",
+        "definition": "label_values(verifier_recovery_collection_success, verifier_id)",
+        "query": "label_values(verifier_recovery_collection_success, verifier_id)",
         "refresh": 1,
         "includeAll": true,
         "allValue": ".*",

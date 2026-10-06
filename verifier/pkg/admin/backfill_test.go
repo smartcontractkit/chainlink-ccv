@@ -128,12 +128,33 @@ func TestBackfillSubmitDiscoveryRecordsJob(t *testing.T) {
 	require.Equal(t, int64(42), gotReq.Since)
 	require.False(t, gotReq.Force, "force defaults to off")
 
-	vals := captured.execValues(t, 0)
+	// The intent row precedes the engine launch; the outcome row follows it.
+	intent := captured.execValues(t, 0)
+	require.Equal(t, "backfill-submit", intent[1])
+	require.Equal(t, "node-a", intent[2])
+	require.Equal(t, "started", intent[5])
+
+	vals := captured.execValues(t, 1)
 	require.Equal(t, "backfill-submit", vals[1])
 	require.Equal(t, "node-a", vals[2])
 	require.Equal(t, "job-1", vals[4])
 	require.Equal(t, "success", vals[5])
 	require.Contains(t, vals[6], "request_hash="+wantHash)
+}
+
+// A negative sequence number is an unsigned field: it must be rejected before
+// any replay request is constructed.
+func TestBackfillRejectsNegativeSince(t *testing.T) {
+	actions, _ := newCaptureActionLog(t)
+	runner := &fakeReplayRunner{startFn: func(context.Context, replay.Request) (string, error) {
+		t.Fatal("engine must not run for a negative sequence number")
+		return "", nil
+	}}
+	r := newBackfillTestRouter(t, runner, &fakeReplayLister{}, actions, "/idx/config.toml")
+
+	rec := postForm(r, "/backfill/submit", url.Values{"node": {"node-a"}, "since": {"-42"}})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Contains(t, rec.Body.String(), "unsigned decimal integer, got -42")
 }
 
 func TestBackfillForceIsExplicitOptIn(t *testing.T) {

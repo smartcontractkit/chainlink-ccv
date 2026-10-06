@@ -319,7 +319,8 @@ func (h *handlers) recoverySubmit(c *gin.Context) {
 	h.render(c, http.StatusOK, views.RecoverySubmitResult(results, in.requestID))
 }
 
-// recoverySubmitNode submits to exactly one node and always writes an action-log row;
+// recoverySubmitNode submits to exactly one node. An intent row precedes the
+// submission (an unloggable mutation does not proceed) and an outcome row follows;
 // a refused or failed node never blocks the others and is never silently retried.
 func (h *handlers) recoverySubmitNode(c *gin.Context, name string, in recoveryFormInput) views.RecoverySubmitNodeVM {
 	res := views.RecoverySubmitNodeVM{NodeName: name}
@@ -349,6 +350,16 @@ func (h *handlers) recoverySubmitNode(c *gin.Context, name string, in recoveryFo
 		fail(reason)
 		return res
 	}
+	// The intent precedes the mutation: a submission that cannot be logged is
+	// never sent to the node's database.
+	if err := h.recordAction(c, Action{
+		Action: "recovery-submit", NodeName: name, Target: target,
+		OperationID: in.requestID, Outcome: "started",
+		Detail: fmt.Sprintf("submitting mode=%s blocks %d–%s", in.mode, in.from, recoveryAutoTo(in.to)),
+	}); err != nil {
+		res.Error = "not submitted — action log unavailable: " + err.Error()
+		return res
+	}
 	op, err := store.Submit(c.Request.Context(), recovery.SubmitRequest{
 		ID: in.requestID, OwnerID: in.owner, SourceChain: in.chain, Mode: in.mode,
 		FromBlock: in.from, ToBlock: in.to, Actor: h.actor(c), Note: in.note,
@@ -370,12 +381,16 @@ func (h *handlers) recoverySubmitNode(c *gin.Context, name string, in recoveryFo
 	return res
 }
 
-func recoveryTarget(in recoveryFormInput) string {
-	to := "auto"
-	if in.to != nil {
-		to = strconv.FormatUint(*in.to, 10)
+// recoveryAutoTo renders the form's to-block for action detail; "auto" when omitted.
+func recoveryAutoTo(to *uint64) string {
+	if to == nil {
+		return "auto"
 	}
-	return fmt.Sprintf("owner=%s chain=%s blocks=%s-%s mode=%s", in.owner, in.chain, strconv.FormatUint(in.from, 10), to, in.mode)
+	return strconv.FormatUint(*to, 10)
+}
+
+func recoveryTarget(in recoveryFormInput) string {
+	return fmt.Sprintf("owner=%s chain=%s blocks=%s-%s mode=%s", in.owner, in.chain, strconv.FormatUint(in.from, 10), recoveryAutoTo(in.to), in.mode)
 }
 
 func (h *handlers) recoveryOperations(c *gin.Context) {
@@ -439,7 +454,8 @@ func (h *handlers) recoveryCancel(c *gin.Context) { h.recoveryChangeState(c, "ca
 func (h *handlers) recoveryResume(c *gin.Context) { h.recoveryChangeState(c, "resume") }
 
 // recoveryChangeState applies cancel/resume via the durable store and re-renders the
-// row; nothing about the operation is held in console memory.
+// row; nothing about the operation is held in console memory. The action intent is
+// logged before the state change; an unloggable mutation does not proceed.
 func (h *handlers) recoveryChangeState(c *gin.Context, action string) {
 	if !h.requireActions(c) {
 		return
@@ -461,6 +477,14 @@ func (h *handlers) recoveryChangeState(c *gin.Context, action string) {
 	store, err := recoveryStoreOf(n)
 	if err != nil {
 		rowErr(http.StatusServiceUnavailable, id, "node database unavailable: "+err.Error())
+		return
+	}
+	// The intent precedes the state change: an unloggable mutation does not proceed.
+	if err := h.recordAction(c, Action{
+		Action: "recovery-" + action, NodeName: nodeName, Target: id,
+		OperationID: id, Outcome: "started", Detail: action + " requested",
+	}); err != nil {
+		rowErr(http.StatusServiceUnavailable, id, "not executed — action log unavailable: "+err.Error())
 		return
 	}
 	op, err := store.ChangeState(c.Request.Context(), id, action)

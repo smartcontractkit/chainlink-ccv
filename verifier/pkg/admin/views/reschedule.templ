@@ -38,7 +38,8 @@ func hasExecutable(targets []RescheduleTargetVM) bool {
 	return false
 }
 
-// retryTargets are the non-success outcomes a retry=failed submission re-checks.
+// retryTargets are the non-success outcomes the retry form resubmits; the
+// execute gate re-checks each one, so no stale target is blindly re-executed.
 func retryTargets(results []RescheduleResultVM) []RescheduleResultVM {
 	var out []RescheduleResultVM
 	for _, r := range results {
@@ -144,7 +145,8 @@ templ reschedulePreviewTable(targets []RescheduleTargetVM) {
 }
 
 // RescheduleResults renders per-target outcomes after an execute post; failed/skipped
-// targets get a retry form that resubmits them marked retry=failed.
+// targets get a retry form — every execution re-runs the safety gate, so a retry
+// resubmits them without special handling.
 templ RescheduleResults(csrfToken string, results []RescheduleResultVM, retryDuration string, auditDetail string, errDetail string, fullPage bool) {
 	if fullPage {
 		@Layout("Reschedule results") {
@@ -204,7 +206,6 @@ templ rescheduleResultsContent(csrfToken string, results []RescheduleResultVM, r
 					for _, r := range retryTargets(results) {
 						<input type="hidden" name="target" value={ r.Target }/>
 					}
-					<input type="hidden" name="retry" value="failed"/>
 					<input type="hidden" name="retry_duration" value={ retryDuration }/>
 					<button type="submit">Retry failed/skipped targets</button>
 				</form>

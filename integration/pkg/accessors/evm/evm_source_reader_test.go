@@ -220,7 +220,7 @@ func TestFetchMessageSentEvents_SourceMetadata(t *testing.T) {
 				ccipMessageSentTopic: onRampABI.Events["CCIPMessageSent"].ID.Hex(),
 			}
 			reader.SetCriticalSourceInvariantCallback(func(context.Context) { t.Error("unexpected invalid event") })
-			events, err := reader.FetchMessageSentEvents(t.Context(), big.NewInt(90), big.NewInt(100))
+			events, err := reader.FetchMessageSentEvents(t.Context(), 90, 100)
 			require.NoError(t, err)
 			require.Equal(t, 1, calls)
 			require.Len(t, events, 1)
@@ -247,9 +247,9 @@ func TestGetBlocksHeaders_BatchesAndChunks(t *testing.T) {
 	c := newBatchFillingClient(t, "")
 	r := newTestSourceReader(t, c)
 
-	blockNumbers := make([]*big.Int, 250)
+	blockNumbers := make([]uint64, 250)
 	for i := range blockNumbers {
-		blockNumbers[i] = big.NewInt(int64(i))
+		blockNumbers[i] = uint64(i)
 	}
 
 	headers, err := r.GetBlocksHeaders(context.Background(), blockNumbers)
@@ -278,7 +278,7 @@ func TestGetBlocksHeaders_SingleBatchWithinLimit(t *testing.T) {
 	c := newBatchFillingClient(t, "")
 	r := newTestSourceReader(t, c)
 
-	blockNumbers := []*big.Int{big.NewInt(1), big.NewInt(2), big.NewInt(3)}
+	blockNumbers := []uint64{1, 2, 3}
 	headers, err := r.GetBlocksHeaders(context.Background(), blockNumbers)
 	require.NoError(t, err)
 	require.Len(t, headers, 3)
@@ -292,9 +292,9 @@ func TestGetBlocksHeaders_SkipsFailedBatchElements(t *testing.T) {
 	c := newBatchFillingClient(t, "head_fail_50")
 	r := newTestSourceReader(t, c)
 
-	blockNumbers := make([]*big.Int, 110)
+	blockNumbers := make([]uint64, 110)
 	for i := range blockNumbers {
-		blockNumbers[i] = big.NewInt(int64(i))
+		blockNumbers[i] = uint64(i)
 	}
 
 	headers, err := r.GetBlocksHeaders(context.Background(), blockNumbers)

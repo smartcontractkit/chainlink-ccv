@@ -83,14 +83,19 @@ func checkAggregatorAttestations(ctx context.Context, address string, messageIDs
 	return results
 }
 
-// aggregatorEntryResult interprets entry i of the batch: a per-ID error means "not
-// found"; only a result with non-empty ccv data proves attestation.
+// aggregatorEntryResult interprets entry i of the batch: only a per-ID NotFound
+// proves absence; any other error code leaves the state unknown, so execution
+// stays disabled. Only a result with non-empty ccv data proves attestation.
 func aggregatorEntryResult(entries []storageaccess.ResultEntry, i int) AttestationResult {
 	if i >= len(entries) || !entries[i].Present {
 		return AttestationResult{AttestationUnknown, "aggregator response is missing an entry for this message"}
 	}
 	if entries[i].ErrorCode != int32(codes.OK) {
-		return AttestationResult{AttestationNotFound, "aggregator: " + entries[i].ErrorMsg}
+		if entries[i].ErrorCode == int32(codes.NotFound) {
+			return AttestationResult{AttestationNotFound, "aggregator: " + entries[i].ErrorMsg}
+		}
+		return AttestationResult{AttestationUnknown,
+			fmt.Sprintf("aggregator error %s: %s", codes.Code(entries[i].ErrorCode), entries[i].ErrorMsg)}
 	}
 	if len(entries[i].CcvData) > 0 {
 		return AttestationResult{AttestationAttested, "aggregator holds ccv data for this message"}

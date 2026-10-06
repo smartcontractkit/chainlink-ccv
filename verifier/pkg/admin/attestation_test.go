@@ -83,6 +83,20 @@ func TestAggregatorPerIDErrorMeansNotFound(t *testing.T) {
 	require.Contains(t, results[0].Detail, "message ID not found")
 }
 
+// A per-ID Internal error (a mapping or config failure) is not proof of
+// absence: only NotFound is. The state stays unknown, so execution remains
+// disabled rather than allowing a replay.
+func TestAggregatorPerIDInternalErrorIsUnknown(t *testing.T) {
+	installFakeResultsClient(t, &fakeResultsClient{entries: []storageaccess.ResultEntry{
+		{Present: true, ErrorCode: int32(codes.Internal), ErrorMsg: "dest chain not mapped"},
+	}})
+
+	results := checkNodeAttestations(context.Background(), NodeConfig{AggregatorAddress: "agg:443"}, [][]byte{rescheduleMsgID(7)})
+	require.Equal(t, AttestationUnknown, results[0].State)
+	require.Contains(t, results[0].Detail, "Internal")
+	require.Contains(t, results[0].Detail, "dest chain not mapped")
+}
+
 func TestAggregatorEmptyCcvDataMeansNotFound(t *testing.T) {
 	installFakeResultsClient(t, &fakeResultsClient{entries: []storageaccess.ResultEntry{
 		{Present: true, CcvData: []byte{}},

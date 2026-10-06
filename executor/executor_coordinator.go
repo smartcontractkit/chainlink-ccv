@@ -605,6 +605,9 @@ func (ec *Coordinator) HealthReport() map[string]error {
 	report[ec.Name()] = ec.Ready()
 
 	services.CopyHealth(report, ec.executor.HealthReport())
+	if hr, ok := ec.messageSubscriber.(protocol.HealthReporter); ok {
+		services.CopyHealth(report, hr.HealthReport())
+	}
 	return report
 }
 

@@ -129,6 +129,9 @@ func parseBackfillRequest(c *gin.Context) (replay.Request, error) {
 		if err != nil {
 			return replay.Request{}, fmt.Errorf("aggregator sequence number must be an unsigned decimal integer: %w", err)
 		}
+		if since < 0 {
+			return replay.Request{}, fmt.Errorf("aggregator sequence number must be an unsigned decimal integer, got %d", since)
+		}
 		return replay.Request{Type: replay.TypeDiscovery, Since: since, Force: force}, nil
 	}
 	if idsStr != "" {
@@ -183,6 +186,17 @@ func (h *handlers) backfillSubmit(c *gin.Context) {
 		fail(http.StatusConflict, "an identical replay is already running from this console; the job list below shows its progress")
 		return
 	}
+	// The intent precedes the launch: a replay that cannot be logged is not
+	// started, so an unavailable console DB can never leave unaudited work.
+	if logErr := h.recordAction(c, Action{
+		Action: "backfill-submit", NodeName: res.NodeName, Target: target,
+		Outcome: "started", Detail: "starting replay engine for request_hash=" + res.RequestHash,
+	}); logErr != nil {
+		backfillInFlight.release(claimKey)
+		res.Error = "not started — action log unavailable: " + logErr.Error()
+		h.render(c, http.StatusServiceUnavailable, views.BackfillSubmitResult(res))
+		return
+	}
 	engine, cleanup, err := backfillEngineFor(c.Request.Context(), h.lggr, n)
 	if err != nil {
 		backfillInFlight.release(claimKey)
@@ -191,22 +205,32 @@ func (h *handlers) backfillSubmit(c *gin.Context) {
 	}
 	// Detached from the request: replays run minutes to hours. On console shutdown the
 	// job stalls as running and is resumed by an identical resubmission (stale heartbeat).
+	started := make(chan error, 1)
 	go func() {
 		defer cleanup()
 		defer backfillInFlight.release(claimKey)
-		jobID, err := engine.Start(context.Background(), req)
-		if err != nil {
-			h.lggr.Errorw("backfill replay failed", "node", res.NodeName, "jobID", jobID, "requestHash", res.RequestHash, "error", err)
+		if _, err := engine.Start(context.Background(), req); err != nil {
+			started <- err
 		}
 	}()
 	res.JobID = h.backfillAwaitJob(c.Request.Context(), n, res.RequestHash)
-	detail := "request_hash=" + res.RequestHash
+	outcome, detail := "success", "request_hash="+res.RequestHash
 	if res.JobID == "" {
 		detail += " (job row not visible yet at response time)"
 	}
+	// engine.Start blocks for the run; surface an immediate start failure when it
+	// has already returned, otherwise the durable job rows carry the outcome.
+	select {
+	case startErr := <-started:
+		if startErr != nil {
+			outcome, detail = "failed", "replay engine start failed: "+startErr.Error()
+			h.lggr.Errorw("backfill replay failed", "node", res.NodeName, "requestHash", res.RequestHash, "error", startErr)
+		}
+	default:
+	}
 	if logErr := h.recordAction(c, Action{
 		Action: "backfill-submit", NodeName: res.NodeName, Target: target,
-		OperationID: res.JobID, Outcome: "success", Detail: detail,
+		OperationID: res.JobID, Outcome: outcome, Detail: detail,
 	}); logErr != nil {
 		res.Error = "replay job was started but the action log write failed: " + logErr.Error()
 	}

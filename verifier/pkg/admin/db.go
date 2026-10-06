@@ -60,14 +60,15 @@ func openPostgres(lggr logger.Logger, url string, migrate func(*sqlx.DB) error) 
 	return sqlxDB, nil
 }
 
-// openNodeDB opens a node's verifier application database, applying verifier migrations
-// exactly as the CLI does.
+// openNodeDB opens a node's verifier application database, applying verifier
+// migrations exactly as the CLI does. Only the file's [db].url is used: the
+// CL_DATABASE_URL fallback would connect every URL-less node to one database.
 func openNodeDB(lggr logger.Logger, secretsPath string) (*sqlx.DB, error) {
 	secrets, err := vsecrets.Load(secretsPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load node secrets file: %w", err)
 	}
-	url := secrets.DatabaseURL()
+	url := secrets.DatabaseURLFileOnly()
 	if url == "" {
 		return nil, fmt.Errorf("node secrets file %q has no [db].url", secretsPath)
 	}
@@ -79,14 +80,15 @@ func openNodeDB(lggr logger.Logger, secretsPath string) (*sqlx.DB, error) {
 	})
 }
 
-// openConsoleDB opens the console's own database for the action log. A missing secrets
-// file or an empty [db].url is not an error: the console runs read-only (nil, nil).
+// openConsoleDB opens the console's own database for the action log, using only
+// the file's [db].url (no CL_DATABASE_URL inheritance). A missing secrets file
+// or an empty URL is not an error: the console runs read-only (nil, nil).
 func openConsoleDB(lggr logger.Logger, secretsPath string) (*sqlx.DB, error) {
 	secrets, err := vsecrets.Load(secretsPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load console secrets file: %w", err)
 	}
-	url := secrets.DatabaseURL()
+	url := secrets.DatabaseURLFileOnly()
 	if url == "" {
 		lggr.Infow("console database not configured; mutations are disabled (read-only mode)", "secretsPath", secretsPath)
 		return nil, nil

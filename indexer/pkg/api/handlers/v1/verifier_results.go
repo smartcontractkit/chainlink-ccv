@@ -91,7 +91,7 @@ func (h *VerifierResultsHandler) Handle(c *gin.Context) {
 	verifierResponse, err := h.storage.QueryCCVData(c.Request.Context(), startTime, endTime, req.SourceChainSelectors, req.DestChainSelectors, req.Limit, req.Offset)
 	if err != nil {
 		h.lggr.Errorw("failed storage call QueryCCVData", "request", req, "error", err)
-		c.JSON(http.StatusServiceUnavailable, internalServiceUnavailable)
+		c.JSON(http.StatusServiceUnavailable, ServiceUnavailable)
 		return
 	}
 

@@ -2,6 +2,7 @@ package ccvstreamer_test
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -300,4 +301,90 @@ func mustMessageID(t *testing.T, msg protocol.Message) protocol.Bytes32 {
 	id, err := msg.MessageID()
 	require.NoError(t, err)
 	return id
+}
+
+func TestIndexerStorageStreamerReadiness(t *testing.T) {
+	lggr := logger.Test(t)
+
+	newStreamer := func(t *testing.T, readErr error, clock func() time.Time) *ccvstreamer.IndexerStorageStreamer {
+		t.Helper()
+		reader := mocks.MockMessageReader{}
+		reader.EXPECT().ReadMessages(mock.Anything, mock.Anything).Return(nil, readErr)
+		timeProvider := mocks.NewMockTimeProvider(t)
+		timeProvider.EXPECT().GetTime().RunAndReturn(clock).Maybe()
+
+		return ccvstreamer.NewIndexerStorageStreamer(lggr, ccvstreamer.IndexerStorageConfig{
+			IndexerClient:     &reader,
+			EnabledDestChains: []protocol.ChainSelector{1},
+			PollingInterval:   50 * time.Millisecond,
+			Backoff:           50 * time.Millisecond,
+			TimeProvider:      timeProvider,
+			ExpiryDuration:    10 * time.Second,
+			CleanInterval:     1 * time.Second,
+		})
+	}
+
+	t.Run("not running is not ready", func(t *testing.T) {
+		oss := newStreamer(t, nil, time.Now)
+		require.ErrorContains(t, oss.Ready(), "not running")
+	})
+
+	t.Run("failing polls stay ready inside the staleness window", func(t *testing.T) {
+		oss := newStreamer(t, errors.New("indexer down"), time.Now)
+
+		ctx, cancel := context.WithCancel(t.Context())
+		_, errorsChan, err := oss.Start(ctx)
+		require.NoError(t, err)
+		// Drain errors so the poll loop is not blocked on the unbuffered channel.
+		go func() {
+			for range errorsChan {
+			}
+		}()
+		// Stop the poll loop before the test ends; it logs, and the test logger rejects
+		// writes after the test completes.
+		defer func() {
+			cancel()
+			require.Eventually(t, func() bool { return !oss.IsRunning() }, tests.WaitTimeout(t), 10*time.Millisecond)
+		}()
+
+		require.Eventually(t, func() bool {
+			return oss.Ready() == nil
+		}, tests.WaitTimeout(t), 20*time.Millisecond)
+	})
+
+	t.Run("not ready once no poll has succeeded past the threshold", func(t *testing.T) {
+		var mu sync.Mutex
+		now := time.Now()
+		advance := func(d time.Duration) {
+			mu.Lock()
+			defer mu.Unlock()
+			now = now.Add(d)
+		}
+		clock := func() time.Time {
+			mu.Lock()
+			defer mu.Unlock()
+			return now
+		}
+
+		oss := newStreamer(t, errors.New("indexer down"), clock)
+
+		ctx, cancel := context.WithCancel(t.Context())
+		_, errorsChan, err := oss.Start(ctx)
+		require.NoError(t, err)
+		// Drain errors so the poll loop is not blocked on the unbuffered channel.
+		go func() {
+			for range errorsChan {
+			}
+		}()
+		// Stop the poll loop before the test ends; it logs, and the test logger rejects
+		// writes after the test completes.
+		defer func() {
+			cancel()
+			require.Eventually(t, func() bool { return !oss.IsRunning() }, tests.WaitTimeout(t), 10*time.Millisecond)
+		}()
+
+		require.NoError(t, oss.Ready())
+		advance(2 * time.Minute)
+		require.ErrorContains(t, oss.Ready(), "no successful indexer poll")
+	})
 }

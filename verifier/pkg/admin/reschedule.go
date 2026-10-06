@@ -16,7 +16,8 @@ import (
 
 // Reschedule: preview the exact nodes/owners/jobs a reschedule affects, recheck
 // attestation state before mutating (unknown ≠ needs replay), execute one owner-scoped
-// operation per target, report per-target results, and retry only failed targets.
+// operation per target, report per-target results. Every execution re-runs the
+// archive and attestation gate; no path skips it.
 
 // rescheduleTarget is one parsed `target` form field, pipe-separated as emitted by the
 // message detail page: nodeName|jobID|messageIDHex|queue|ownerID.
@@ -242,25 +243,23 @@ func (h *handlers) rescheduleExecute(c *gin.Context) {
 		h.render(c, http.StatusBadRequest, views.RescheduleResults(h.csrfToken(c), nil, "", "", "No targets selected.", fullPage))
 		return
 	}
-	retryMode := c.PostForm("retry") == "failed"
 
-	outcomes := make([]executeOutcome, 0, len(raws))
+	// One target at a time: the gate, the intent row, the mutation, then the
+	// outcome row — so the audit log reads as adjacent intent/outcome pairs.
+	var auditErrs []string
+	resultVMs := make([]views.RescheduleResultVM, 0, len(raws))
 	for _, raw := range raws {
 		t, perr := parseRescheduleTarget(raw)
 		if perr != nil {
-			outcomes = append(outcomes, executeOutcome{raw: raw, outcome: "failed", detail: "invalid target: " + perr.Error()})
+			detail := "invalid target: " + perr.Error()
+			if err := h.recordAction(c, Action{Action: "reschedule", Target: raw, Outcome: "failed", Detail: detail}); err != nil {
+				auditErrs = append(auditErrs, fmt.Sprintf("%s: %v", raw, err))
+			}
+			resultVMs = append(resultVMs, views.RescheduleResultVM{Target: raw, Outcome: "failed", Detail: detail})
 			continue
 		}
-		outcomes = append(outcomes, h.executeTarget(c.Request.Context(), t, raw, retryDuration, retryMode))
-	}
-
-	var auditErrs []string
-	resultVMs := make([]views.RescheduleResultVM, 0, len(outcomes))
-	for _, o := range outcomes {
+		o := h.executeTarget(c.Request.Context(), c, t, raw, retryDuration)
 		logTarget := o.target.MessageIDHex
-		if logTarget == "" {
-			logTarget = o.raw
-		}
 		if err := h.recordAction(c, Action{
 			Action: "reschedule", NodeName: o.target.NodeName, Target: logTarget,
 			Outcome: o.outcome, Detail: o.detail,
@@ -276,10 +275,10 @@ func (h *handlers) rescheduleExecute(c *gin.Context) {
 	h.render(c, http.StatusOK, views.RescheduleResults(h.csrfToken(c), resultVMs, retryDuration.String(), strings.Join(auditErrs, "; "), "", fullPage))
 }
 
-// executeTarget performs one owner-scoped reschedule per target. In retry mode the
-// rechecks re-run first: targets that no longer need a replay are skipped, never
-// blindly re-executed.
-func (h *handlers) executeTarget(ctx context.Context, t rescheduleTarget, raw string, retryDuration time.Duration, retryMode bool) executeOutcome {
+// executeTarget performs one owner-scoped reschedule per target. The safety gate
+// (archive row plus attestation freshness) re-runs on every execution, and the
+// intent is durably logged before the mutation itself.
+func (h *handlers) executeTarget(ctx context.Context, c *gin.Context, t rescheduleTarget, raw string, retryDuration time.Duration) executeOutcome {
 	out := executeOutcome{target: t, raw: raw}
 	n := h.node(t.NodeName)
 	if n == nil {
@@ -291,25 +290,33 @@ func (h *handlers) executeTarget(ctx context.Context, t rescheduleTarget, raw st
 		out.outcome, out.detail = "failed", "node unreachable: "+err.Error()
 		return out
 	}
-	if retryMode {
-		state, detail, _ := recheckArchiveRow(ctx, store, t)
-		if state == recheckExecutable {
-			att := checkNodeAttestations(ctx, n.Config(), [][]byte{t.MessageID})[0]
-			switch att.State {
-			case AttestationAttested:
-				state, detail = recheckSkip, "already attested — nothing to do ("+att.Detail+")"
-			case AttestationUnknown:
-				state, detail = recheckUnknown, "attestation state unknown: "+att.Detail
-			}
+	state, detail, _ := recheckArchiveRow(ctx, store, t)
+	if state == recheckExecutable {
+		att := checkNodeAttestations(ctx, n.Config(), [][]byte{t.MessageID})[0]
+		switch att.State {
+		case AttestationAttested:
+			state, detail = recheckSkip, "already attested — nothing to do ("+att.Detail+")"
+		case AttestationUnknown:
+			state, detail = recheckUnknown, "attestation state unknown: "+att.Detail
 		}
-		switch state {
-		case recheckSkip:
-			out.outcome, out.detail = "skipped", detail
-			return out
-		case recheckUnknown:
-			out.outcome, out.detail = "skipped", "not executed — "+detail
-			return out
-		}
+	}
+	switch state {
+	case recheckSkip:
+		out.outcome, out.detail = "skipped", detail
+		return out
+	case recheckUnknown:
+		out.outcome, out.detail = "skipped", "not executed — "+detail
+		return out
+	}
+	// Log the intent before mutating: a mutation that cannot be logged does not
+	// proceed, and a later outcome-write failure still leaves the intent visible.
+	if err := h.recordAction(c, Action{
+		Action: "reschedule", NodeName: t.NodeName, Target: t.MessageIDHex,
+		Outcome: "started",
+		Detail:  fmt.Sprintf("restoring job %s (queue %s, owner %s)", t.JobID, t.Queue, t.OwnerID),
+	}); err != nil {
+		out.outcome, out.detail = "failed", "not executed — action log unavailable: "+err.Error()
+		return out
 	}
 	if err := store.RescheduleByJobID(ctx, t.Queue, t.OwnerID, t.JobID, retryDuration); err != nil {
 		out.outcome, out.detail = "failed", err.Error()

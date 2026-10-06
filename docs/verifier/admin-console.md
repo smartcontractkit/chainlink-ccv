@@ -41,8 +41,10 @@ operator tool, and anything beyond that is an explicit, validated choice.
   (`Content-Security-Policy: default-src 'self'`, `X-Frame-Options: DENY`,
   `Referrer-Policy: no-referrer`).
 - **Every mutation is recorded.** Actions are written to an action log in the console's
-  own database with actor, node, target, outcome and detail. A mutation that cannot be
-  logged does not proceed — an unaudited privileged action never runs silently.
+  own database with actor, node, target, outcome and detail. Each mutation writes an
+  intent row (`outcome=started`) before touching the node's database, then an outcome
+  row after it; a mutation that cannot be logged does not proceed — an unaudited
+  privileged action never runs silently.
 - **No console database means read-only.** If the console secrets file is absent or has
   no `[db].url`, every page still renders but mutations are refused and no action
   history is kept. The home page shows a read-only banner in that state.
@@ -85,8 +87,12 @@ a startup error.
 
 Each `[[nodes]]` entry is one verifier's application database. `secrets_path` points at
 that verifier's own secrets file — the same file the verifier process loads — and the
-console takes its `[db].url` from it. Keep the files mode-restricted and readable only
-by the console process; never paste a URL into the console config itself.
+console takes its `[db].url` from it. The URL is resolved strictly from that file:
+unlike the verifier process, the console never falls back to the `CL_DATABASE_URL`
+environment variable, so a node whose file carries no URL is an error rather than a
+silent connection to whatever database the console process happens to have in its
+environment. Keep the files mode-restricted and readable only by the console process;
+never paste a URL into the console config itself.
 
 ### Several nodes: one operator's verifiers
 
@@ -155,7 +161,10 @@ second call can answer PASS.
 The console previews the exact nodes, owners and jobs a reschedule will touch and
 rechecks attestation state before mutating — a message that already has a result is not
 a reschedule candidate. Execution is one owner-scoped operation per target, reported per
-target, and a retry re-runs only the targets that failed.
+target. The archive-row and attestation gate re-runs on **every** execution — a direct
+execute post, a retry, or a preview that has gone stale — and each mutation writes its
+action-log intent row before it runs; a retry resubmits only the targets that failed or
+were skipped.
 
 What it does **not** do: re-read the source event, or repeat source-reader finality,
 curse or disablement admission checks. It cannot tell you whether the event is still

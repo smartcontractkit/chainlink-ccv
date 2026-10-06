@@ -5,9 +5,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common/health"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
 // Manager coordinates health checks across multiple components.
@@ -24,31 +24,29 @@ func NewManager() *Manager {
 }
 
 // Register adds a component to be monitored for health checks.
-func (m *Manager) Register(component any) {
+func (m *Manager) Register(component protocol.HealthReporter) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if checker, ok := component.(protocol.HealthReporter); ok {
-		m.components = append(m.components, checker)
-	}
+	m.components = append(m.components, component)
 }
 
 // CheckLiveness returns the basic liveness status of the service.
-func (m *Manager) CheckLiveness(ctx context.Context) health.LivenessResponse {
-	return health.NewAliveResponse()
+func (m *Manager) CheckLiveness(ctx context.Context) LivenessResponse {
+	return NewAliveResponse()
 }
 
 // CheckReadiness aggregates health status from all registered components.
-func (m *Manager) CheckReadiness(ctx context.Context) health.ReadinessResponse {
+func (m *Manager) CheckReadiness(ctx context.Context) ReadinessResponse {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	results := make([]health.ServicesHealth, 0, len(m.components))
+	results := make([]ServicesHealth, 0, len(m.components))
 	for _, component := range m.components {
-		results = append(results, health.NewServiceHealth(component))
+		results = append(results, CheckServiceHealth(component))
 	}
 
-	return health.NewReadinessResponse(results)
+	return NewReadinessResponse(results)
 }
 
 // StartPeriodicHealthLogging blocks and periodically logs the health status
@@ -71,8 +69,13 @@ func (m *Manager) StartPeriodicHealthLogging(ctx context.Context, l logger.Sugar
 				componentStatus[svc.Name] = status
 			}
 
-			// SERVICE LOG (status): periodic health summary; only steady-state Info line.
-			l.Infow("Service health summary",
+			logFn := l.Debugw
+			if response.Status == NotReady {
+				logFn = l.Warnw
+			}
+
+			// SERVICE LOG (status): periodic health summary; Debug when healthy, Warn otherwise.
+			logFn("Service health summary",
 				protocol.LogTypeKey, protocol.LogTypeServiceStatus,
 				"overall_status", response.Status,
 				"components", componentStatus,

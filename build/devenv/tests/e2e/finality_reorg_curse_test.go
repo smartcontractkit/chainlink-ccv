@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	chain_selectors "github.com/smartcontractkit/chain-selectors"
+
 	_ "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/adapters" // register the EVM 1.6.0 curse adapter
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/proxy"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/sequences"
@@ -450,7 +451,7 @@ func TestE2EReorg(t *testing.T) {
 		committee, err := verifiercli.NewCommitteeClient(verifierID, members...)
 		require.NoError(t, err)
 
-		// A prior iteration may have left a committee process paused by pkill -STOP;
+		// A prior iteration may have left a committee process paused (SIGSTOP);
 		// resume now and again on cleanup so we don't leak a paused process.
 		committee.ResumeAllBestEffort(ctx)
 		t.Cleanup(func() { committee.ResumeAllBestEffort(ctx) })

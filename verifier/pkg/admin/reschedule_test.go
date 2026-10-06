@@ -303,8 +303,9 @@ func TestRescheduleExecuteActiveConflictPreservesArchive(t *testing.T) {
 		jobs:          []jobqueue.ArchivedJob{{JobID: "job-x", MessageID: id, OwnerID: "owner-1", Queue: jobqueue.QueueTypeTaskVerifier}},
 		rescheduleErr: map[string]error{"job-x": conflict},
 	}
+	installFakeResultsClient(t, notFoundResultsClient())
 	actions, drv := newFakeActionLog(nil)
-	h := newRescheduleTestHandlers(t, store, actions, NodeConfig{Name: "n1"})
+	h := newRescheduleTestHandlers(t, store, actions, NodeConfig{Name: "n1", AggregatorAddress: "agg:443"})
 
 	c, rec := reschedulePostContext(url.Values{"target": {rescheduleTargetString("n1", "job-x", id, jobqueue.QueueTypeTaskVerifier, "owner-1")}})
 	h.rescheduleExecute(c)
@@ -319,10 +320,13 @@ func TestRescheduleExecuteActiveConflictPreservesArchive(t *testing.T) {
 	require.Equal(t, jobqueue.QueueTypeTaskVerifier, store.calls[0].queue)
 	require.Equal(t, "owner-1", store.calls[0].ownerID)
 
+	// The intent row precedes the mutation; the outcome row follows it.
 	execs := drv.recorded()
-	require.Len(t, execs, 1)
-	require.Equal(t, "failed", execs[0][5].Value)
-	require.Equal(t, conflict.Error(), execs[0][6].Value)
+	require.Len(t, execs, 2)
+	require.Equal(t, "started", execs[0][5].Value)
+	require.Contains(t, execs[0][6].Value, "restoring job job-x")
+	require.Equal(t, "failed", execs[1][5].Value)
+	require.Equal(t, conflict.Error(), execs[1][6].Value)
 }
 
 func TestRescheduleExecutePartialSuccess(t *testing.T) {
@@ -334,8 +338,9 @@ func TestRescheduleExecutePartialSuccess(t *testing.T) {
 		},
 		rescheduleErr: map[string]error{"job-b": errors.New("boom")},
 	}
+	installFakeResultsClient(t, notFoundResultsClient())
 	actions, drv := newFakeActionLog(nil)
-	h := newRescheduleTestHandlers(t, store, actions, NodeConfig{Name: "n1"})
+	h := newRescheduleTestHandlers(t, store, actions, NodeConfig{Name: "n1", AggregatorAddress: "agg:443"})
 
 	tA := rescheduleTargetString("n1", "job-a", idA, jobqueue.QueueTypeTaskVerifier, "owner-1")
 	tB := rescheduleTargetString("n1", "job-b", idB, jobqueue.QueueTypeStorageWriter, "owner-1")
@@ -350,14 +355,15 @@ func TestRescheduleExecutePartialSuccess(t *testing.T) {
 	require.Len(t, store.jobs, 1, "only the failed job stays archived")
 	require.Equal(t, "job-b", store.jobs[0].JobID)
 
-	// The retry form carries only the non-success target, marked as a retry.
-	require.Contains(t, body, `name="retry" value="failed"`)
+	// The retry form carries only the non-success target.
 	require.Equal(t, 1, strings.Count(body, `name="target"`))
 
 	execs := drv.recorded()
-	require.Len(t, execs, 2)
-	require.Equal(t, "success", execs[0][5].Value)
-	require.Equal(t, "failed", execs[1][5].Value)
+	require.Len(t, execs, 4, "intent and outcome row per target")
+	require.Equal(t, "started", execs[0][5].Value)
+	require.Equal(t, "success", execs[1][5].Value)
+	require.Equal(t, "started", execs[2][5].Value)
+	require.Equal(t, "failed", execs[3][5].Value)
 }
 
 func TestRescheduleExecuteRetryFailedSkipsSuccesses(t *testing.T) {
@@ -397,8 +403,9 @@ func TestRescheduleExecuteRecordsActionLogPerTarget(t *testing.T) {
 		{JobID: "job-a", MessageID: idA, OwnerID: "owner-1", Queue: jobqueue.QueueTypeTaskVerifier},
 		{JobID: "job-b", MessageID: idB, OwnerID: "owner-2", Queue: jobqueue.QueueTypeTaskVerifier},
 	}}
+	installFakeResultsClient(t, notFoundResultsClient())
 	actions, drv := newFakeActionLog(nil)
-	h := newRescheduleTestHandlers(t, store, actions, NodeConfig{Name: "n1"})
+	h := newRescheduleTestHandlers(t, store, actions, NodeConfig{Name: "n1", AggregatorAddress: "agg:443"})
 
 	form := url.Values{"target": {
 		rescheduleTargetString("n1", "job-a", idA, jobqueue.QueueTypeTaskVerifier, "owner-1"),
@@ -408,35 +415,66 @@ func TestRescheduleExecuteRecordsActionLogPerTarget(t *testing.T) {
 	h.rescheduleExecute(c)
 
 	// Column order of ActionLog.Record's INSERT: actor, action, node, target, op, outcome, detail.
+	// Each target writes an intent row ("started") before mutating, then its outcome row.
 	execs := drv.recorded()
-	require.Len(t, execs, 2)
+	require.Len(t, execs, 4)
 	for i, id := range [][]byte{idA, idB} {
-		args := execs[i]
-		require.Equal(t, "tester", args[0].Value)
-		require.Equal(t, "reschedule", args[1].Value)
-		require.Equal(t, "n1", args[2].Value)
-		require.Equal(t, formatMessageID(id), args[3].Value)
-		require.Equal(t, "", args[4].Value)
-		require.Equal(t, "success", args[5].Value)
-		require.Contains(t, args[6].Value, "restored archive")
+		intent, outcome := execs[i*2], execs[i*2+1]
+		for _, args := range [][]driver.NamedValue{intent, outcome} {
+			require.Equal(t, "tester", args[0].Value)
+			require.Equal(t, "reschedule", args[1].Value)
+			require.Equal(t, "n1", args[2].Value)
+			require.Equal(t, formatMessageID(id), args[3].Value)
+			require.Equal(t, "", args[4].Value)
+		}
+		require.Equal(t, "started", intent[5].Value)
+		require.Contains(t, intent[6].Value, "restoring job")
+		require.Equal(t, "success", outcome[5].Value)
+		require.Contains(t, outcome[6].Value, "restored archive")
 	}
 }
 
-func TestRescheduleExecuteSurfacesAuditError(t *testing.T) {
-	id := rescheduleMsgID(17)
+// A direct POST to execute must not bypass the gate: an attested target is
+// skipped even though no preview ran first.
+func TestRescheduleExecuteDirectPostStillGated(t *testing.T) {
+	id := rescheduleMsgID(19)
 	store := &rescheduleFakeStore{jobs: []jobqueue.ArchivedJob{{
 		JobID: "job-a", MessageID: id, OwnerID: "owner-1", Queue: jobqueue.QueueTypeTaskVerifier,
 	}}}
-	actions, _ := newFakeActionLog(errors.New("disk full"))
-	h := newRescheduleTestHandlers(t, store, actions, NodeConfig{Name: "n1"})
+	installFakeResultsClient(t, &fakeResultsClient{entries: []storageaccess.ResultEntry{
+		{Present: true, CcvData: []byte{0x01}},
+	}})
+	actions, _ := newFakeActionLog(nil)
+	h := newRescheduleTestHandlers(t, store, actions, NodeConfig{Name: "n1", AggregatorAddress: "agg:443"})
 
 	c, rec := reschedulePostContext(url.Values{"target": {rescheduleTargetString("n1", "job-a", id, jobqueue.QueueTypeTaskVerifier, "owner-1")}})
 	h.rescheduleExecute(c)
 
+	require.Zero(t, store.calls, "the attestation gate runs on every execution")
+	require.Len(t, store.jobs, 1, "the archive row is untouched")
+	require.Contains(t, rec.Body.String(), "skipped")
+	require.Contains(t, rec.Body.String(), "already attested — nothing to do")
+}
+
+// The action-log write precedes the mutation: an unavailable console database
+// means the reschedule does not proceed, never an unaudited mutation.
+func TestRescheduleExecuteUnloggableMutationDoesNotProceed(t *testing.T) {
+	id := rescheduleMsgID(17)
+	store := &rescheduleFakeStore{jobs: []jobqueue.ArchivedJob{{
+		JobID: "job-a", MessageID: id, OwnerID: "owner-1", Queue: jobqueue.QueueTypeTaskVerifier,
+	}}}
+	installFakeResultsClient(t, notFoundResultsClient())
+	actions, _ := newFakeActionLog(errors.New("disk full"))
+	h := newRescheduleTestHandlers(t, store, actions, NodeConfig{Name: "n1", AggregatorAddress: "agg:443"})
+
+	c, rec := reschedulePostContext(url.Values{"target": {rescheduleTargetString("n1", "job-a", id, jobqueue.QueueTypeTaskVerifier, "owner-1")}})
+	h.rescheduleExecute(c)
+
+	require.Zero(t, store.calls, "an unloggable mutation must not proceed")
+	require.Len(t, store.jobs, 1, "the archive row is untouched")
 	body := rec.Body.String()
-	require.Len(t, store.calls, 1, "mutation still happened")
-	require.Contains(t, body, "Action log write failed")
-	require.Contains(t, body, "disk full", "unaudited mutations must not pass silently")
+	require.Contains(t, body, "not executed — action log unavailable")
+	require.Contains(t, body, "disk full")
 }
 
 func TestRescheduleExecuteReadOnlyMode(t *testing.T) {
