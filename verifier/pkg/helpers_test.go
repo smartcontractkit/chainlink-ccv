@@ -22,9 +22,9 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 
+	"github.com/smartcontractkit/chainlink-ccv/common/jobqueue"
 	vcommon "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/heartbeat"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/jobqueue"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/sourcereader"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/storagewriter"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/taskverifier"

@@ -1,6 +1,6 @@
 // Package archivecategory holds the read-time failure classification shared by the verifier's
 // archive-inventory metrics and the job-queue CLI. It is a leaf package because
-// verifier/pkg/jobqueue's tests import cli/jobqueue, which also needs this expression.
+// common/jobqueue's tests import cli/jobqueue, which also needs this expression.
 package archivecategory
 
 import "fmt"

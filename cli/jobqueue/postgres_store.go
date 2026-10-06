@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/jobqueue/archivecategory"
+	"github.com/smartcontractkit/chainlink-ccv/common/jobqueue/archivecategory"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 )

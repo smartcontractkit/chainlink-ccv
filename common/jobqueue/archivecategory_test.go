@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/jobqueue/archivecategory"
+	"github.com/smartcontractkit/chainlink-ccv/common/jobqueue/archivecategory"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
 )
 
