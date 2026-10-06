@@ -35,6 +35,7 @@ func NewRateLimiterStore(config model.RateLimiterStoreConfig) (limiter.Store, er
 			DB:       config.Redis.DB,
 		})
 
+		//nolint:noeagerio // fail-fast by design: rate limiting is opt-in protection, so starting up with an unreachable store beats silently running unprotected (Ready() also health-checks the store)
 		if err := redisClient.Ping(context.Background()).Err(); err != nil {
 			return nil, fmt.Errorf("failed to connect to redis at %s: %w", config.Redis.Address, err)
 		}

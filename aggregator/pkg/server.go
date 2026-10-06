@@ -309,9 +309,11 @@ type SignatureAndQuorumValidator interface {
 
 // NewServer creates a new aggregator server with the specified logger, configuration, and monitoring.
 // aggMonitoring must not be nil; use monitoring.NoopAggregatorMonitoring when monitoring is disabled.
-func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig, aggMonitoring common.AggregatorMonitoring) *Server {
+// Errors are returned to the caller (main), which owns the fail-fast decision; a
+// library constructor must never exit the process.
+func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig, aggMonitoring common.AggregatorMonitoring) (*Server, error) {
 	if err := config.Validate(); err != nil {
-		l.Fatalf("Failed to validate server configuration: %v", err)
+		return nil, fmt.Errorf("failed to validate server configuration: %w", err)
 	}
 
 	l.Infow("Server configuration loaded",
@@ -325,10 +327,10 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig, aggMonito
 	)
 
 	factory := storage.NewStorageFactory(l)
+	//nolint:noeagerio // the aggregator's own DB is a hard dependency: connect + migrate fail fast at startup, and the health endpoint reports readiness after that
 	rawStore, err := factory.CreateStorage(config.Storage, aggMonitoring)
 	if err != nil {
-		l.Fatalf("Failed to create storage: %v", err)
-		return nil
+		return nil, fmt.Errorf("failed to create storage: %w", err)
 	}
 
 	// Build the message-disablement registry from the raw store before metrics wrapping.
@@ -365,14 +367,14 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig, aggMonito
 	hmacAuthMiddleware := middlewares.NewHMACAuthMiddleware(config, l)
 	anonymousAuthMiddleware, err := middlewares.NewAnonymousAuthMiddleware(config.AnonymousAuth.TrustedProxies, l)
 	if err != nil {
-		l.Fatalf("Failed to initialize anonymous auth middleware: %v", err)
+		return nil, fmt.Errorf("failed to initialize anonymous auth middleware: %w", err)
 	}
 	requireAuthMiddleware := middlewares.NewRequireAuthMiddleware(l)
 
 	// Initialize rate limiting middleware
 	rateLimitingMiddleware, err := middlewares.NewRateLimitingMiddlewareFromConfig(config.RateLimiting, config, l)
 	if err != nil {
-		l.Fatalf("Failed to initialize rate limiting middleware: %v", err)
+		return nil, fmt.Errorf("failed to initialize rate limiting middleware: %w", err)
 	}
 
 	isVerifierResultAPI := func(callMeta interceptors.CallMeta) bool {
@@ -470,5 +472,5 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig, aggMonito
 	committeepb.RegisterCommitteeVerifierServer(grpcServer, server)
 	heartbeatpb.RegisterHeartbeatServiceServer(grpcServer, server)
 
-	return server
+	return server, nil
 }

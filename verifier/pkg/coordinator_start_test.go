@@ -31,10 +31,12 @@ func (f *fakeSourceReaderService) Start(context.Context) error {
 	return nil
 }
 
-func (f *fakeSourceReaderService) Close() error                   { return nil }
-func (f *fakeSourceReaderService) Name() string                   { return f.name }
-func (f *fakeSourceReaderService) Ready() error                   { return nil }
-func (f *fakeSourceReaderService) HealthReport() map[string]error { return map[string]error{f.name: nil} }
+func (f *fakeSourceReaderService) Close() error { return nil }
+func (f *fakeSourceReaderService) Name() string { return f.name }
+func (f *fakeSourceReaderService) Ready() error { return nil }
+func (f *fakeSourceReaderService) HealthReport() map[string]error {
+	return map[string]error{f.name: nil}
+}
 
 // One chain failing to start must not stop the others, and the failure must
 // stay visible in the health report.

@@ -51,9 +51,9 @@ type Coordinator struct {
 
 	initFn func(ctx context.Context) error
 
-	curseDetector          common.CurseCheckerService
-	chainStatusBatcher     *chainstatus.Batcher
-	sourceReaderServices   map[protocol.ChainSelector]services.Service
+	curseDetector        common.CurseCheckerService
+	chainStatusBatcher   *chainstatus.Batcher
+	sourceReaderServices map[protocol.ChainSelector]services.Service
 	// sourceReaderStartErrs records per-chain source readers that failed to
 	// start so HealthReport keeps them visible after they are skipped.
 	sourceReaderStartErrs  map[protocol.ChainSelector]error
@@ -134,11 +134,11 @@ func NewCoordinatorWithDetector(
 	}
 	lggr = logger.With(lggr, "verifierID", config.VerifierID)
 	vc := &Coordinator{
-		lggr:                   lggr,
-		verifierID:             config.VerifierID,
-		monitoring:             monitoring,
-		messageRulesSvc:        messageRulesSvc,
-		sourceReaderStartErrs:  make(map[protocol.ChainSelector]error),
+		lggr:                  lggr,
+		verifierID:            config.VerifierID,
+		monitoring:            monitoring,
+		messageRulesSvc:       messageRulesSvc,
+		sourceReaderStartErrs: make(map[protocol.ChainSelector]error),
 	}
 	vc.initFn = func(ctx context.Context) error {
 		// Batch the chain status writes. The source readers write a status on every
@@ -447,9 +447,14 @@ func filterConfiguredSourceReaders(
 		allSelectors = append(allSelectors, selector)
 	}
 
-	statusMap, err := chainStatusManager.ReadChainStatuses(ctx, allSelectors)
+	// A transient DB failure here must not abort startup: the statuses only
+	// inform logging and the disabled-chain warning below. Degrade to unknown
+	// statuses; each source reader re-reads its own status (with retries) when
+	// it initializes its start block.
+	statusMap, err := chainStatusManager.ReadChainStatuses(ctx, allSelectors) //nolint:noeagerio // single bounded read of the service's own DB at coordinator start; failure is non-fatal
 	if err != nil {
-		return nil, fmt.Errorf("failed to read chain statuses from storage: %w", err)
+		lggr.Errorw("Failed to read chain statuses from storage, continuing with unknown statuses", "error", err)
+		statusMap = nil
 	}
 
 	configuredSourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)

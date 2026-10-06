@@ -88,6 +88,7 @@ func newKMSKeystore(ctx context.Context, inner signerReader, nameToID map[string
 // verifyKeys checks that every mapped KMS key exists and is accessible.
 func (k *KMSKeystore) verifyKeys(ctx context.Context) error {
 	for name, id := range k.nameToID {
+		//nolint:noeagerio // fail-fast by design: the service can sign nothing if a mapped KMS key is missing, so key existence is verified at startup rather than surfacing at first use
 		_, err := k.inner.GetKeys(ctx, keystore.GetKeysRequest{KeyNames: []string{id}})
 		if err != nil {
 			return fmt.Errorf("KMS key %q (logical name %q) not accessible: %w", id, name, err)

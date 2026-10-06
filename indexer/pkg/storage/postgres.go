@@ -70,6 +70,7 @@ func NewPostgresStorage(ctx context.Context, lggr logger.Logger, monitoring comm
 	if driverName == "" {
 		return nil, fmt.Errorf("database driver name is required")
 	}
+	//nolint:noeagerio // fail-fast by design: the service's own DB is a hard dependency; callers wire this from main where startup failure exits the process
 	db, err := config.New(ctx, uri, driverName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database connection: %w", err)

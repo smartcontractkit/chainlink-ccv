@@ -69,6 +69,8 @@ func NewEngine(
 
 // Start creates a new job or resumes a stale one, acquires the advisory lock,
 // and runs the replay to completion.
+//
+//nolint:noeagerio // replay is an operator-run one-shot tool: Start IS the job, not a service lifecycle, so DB work here is the program doing its job
 func (e *Engine) Start(ctx context.Context, req Request) (string, error) {
 	job, err := e.findOrCreateJob(ctx, req)
 	if err != nil {

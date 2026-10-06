@@ -710,8 +710,10 @@ func (b *Bootstrapper) Start(ctx context.Context) error {
 		return fmt.Errorf("bootstrapper has no logger")
 	}
 	if b.mode == AppConfigModeJD {
+		//nolint:noeagerio // fail-fast by design: the DB connection, migrations, and keystore are hard dependencies of any job, verified up front and bounded by the startup timeout
 		return b.startWithJDLifecycle(ctx)
 	}
+	//nolint:noeagerio // fail-fast by design: same as the JD path above; a misconfigured local deployment should exit, not idle
 	return b.startLocal(ctx)
 }
 

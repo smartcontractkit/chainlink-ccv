@@ -165,6 +165,7 @@ func (m *Manager) Start(ctx context.Context) error {
 		m.lggr.Infow("Starting job lifecycle manager")
 
 		// 1. Load cached job if exists
+		//nolint:noeagerio // fail-fast by design: the cached job determines what this process runs; proceeding without it would start the wrong (or no) job
 		cachedJob, err := m.jobStore.LoadJob(ctx)
 		if err != nil && !errors.Is(err, store.ErrNoJob) {
 			return fmt.Errorf("failed to load cached job: %w", err)

@@ -158,11 +158,20 @@ func createRegistry() *registry.VerifierRegistry {
 }
 
 func createAllVerifierReaders(ctx context.Context, lggr logger.Logger, verifierRegistry *registry.VerifierRegistry, config *config.Config, indexerMonitoring common.IndexerMonitoring) error {
+	// A failure to stand up one verifier's reader (e.g. a bad address) must not
+	// stop the remaining verifiers. Log and skip; only fail when no verifier
+	// is usable.
+	created := 0
 	for _, verifierConfig := range config.Verifiers {
 		err := createReadersForVerifier(ctx, lggr, verifierRegistry, &verifierConfig, indexerMonitoring, config.Resilience)
 		if err != nil {
-			return err
+			lggr.Errorw("Skipping verifier, failed to create readers", "verifier", verifierConfig.Name, "error", err)
+			continue
 		}
+		created++
+	}
+	if len(config.Verifiers) > 0 && created == 0 {
+		return fmt.Errorf("failed to create readers for any of the %d configured verifiers", len(config.Verifiers))
 	}
 
 	return nil
@@ -252,8 +261,9 @@ func createDiscovery(ctx context.Context, lggr logger.Logger, cfg *config.Config
 			Secret: discCfg.Secret,
 		}, discCfg.InsecureConnection, config.EffectiveMaxResponseBytes(discCfg.MaxResponseBytes), metrics, readers.NewResilienceConfig(cfg.Resilience))
 		if err != nil {
-			cleanupOnError()
-			return nil, err
+			// One misconfigured discovery source must not stop the others.
+			lggr.Errorw("Skipping discovery source, failed to create aggregator reader", "address", discCfg.Address, "error", err)
+			continue
 		}
 
 		ntpKey := fmt.Sprintf("%s|%d", discCfg.NtpServer, discCfg.Timeout)
@@ -276,12 +286,16 @@ func createDiscovery(ctx context.Context, lggr logger.Logger, cfg *config.Config
 			discovery.WithPrimaryWriteNotifier(writeNotifier), // nil for single-source; no-op
 		)
 		if err != nil {
-			cleanupOnError()
-			return nil, err
+			// One misconfigured discovery source must not stop the others.
+			lggr.Errorw("Skipping discovery source, failed to create message discovery", "address", discCfg.Address, "error", err)
+			continue
 		}
 		sources = append(sources, aggDiscovery)
 	}
 
+	if len(configs) > 0 && len(sources) == 0 {
+		return nil, fmt.Errorf("failed to create any discovery source across %d configured", len(configs))
+	}
 	if len(sources) == 1 {
 		return sources[0], nil
 	}

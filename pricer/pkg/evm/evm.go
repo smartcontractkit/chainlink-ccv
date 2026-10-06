@@ -36,7 +36,10 @@ type Chain struct {
 }
 
 func (c *Chain) Start(ctx context.Context) error {
-	// Dial the EVM client to start the connection pool.
+	// Dial the EVM client to start the connection pool. The TXM requires a live
+	// connection, so this stays eager; the pricer coordinator tolerates a
+	// per-chain start failure and reports it via HealthReport.
+	//nolint:noeagerio // see comment above
 	if err := c.client.Dial(ctx); err != nil {
 		return fmt.Errorf("failed to dial EVM client: %w", err)
 	}

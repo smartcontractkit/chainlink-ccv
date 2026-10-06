@@ -150,9 +150,10 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 		)
 
 		var coordinator *verifier.Coordinator
+		var createErr error
 		switch {
 		case verifierConfig.IsLombard():
-			coordinator, err = createLombardCoordinator(
+			coordinator, createErr = createLombardCoordinator(
 				ctx,
 				verifierConfig.VerifierID,
 				verifierConfig.LombardConfig,
@@ -172,9 +173,10 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 		case verifierConfig.IsCCTP():
 			cctpCodecs, codecErr := cctpCodecsFor(accessors, verifierConfig.CCTPConfig)
 			if codecErr != nil {
-				return fmt.Errorf("failed to create verification coordinator for cctp: %w", codecErr)
+				tvf.lggr.Errorw("Skipping verifier, failed to build CCTP codecs", "verifierID", verifierConfig.VerifierID, "error", codecErr)
+				continue
 			}
-			coordinator, err = createCCTPCoordinator(
+			coordinator, createErr = createCCTPCoordinator(
 				ctx,
 				verifierConfig.VerifierID,
 				verifierConfig.CCTPConfig,
@@ -193,19 +195,28 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 				db,
 			)
 		default:
-			tvf.lggr.Fatalw("Unknown verifier type", "type", verifierConfig.Type)
+			// Unknown type is a deterministic config error, not a transient
+			// failure: fail fast rather than silently skipping the verifier.
+			return fmt.Errorf("unknown verifier type %q for verifier %s", verifierConfig.Type, verifierConfig.VerifierID)
+		}
+		// A failure to stand up one verifier must not stop the remaining
+		// verifiers. Log and skip; only reject the whole service when no
+		// verifier is usable.
+		if createErr != nil {
+			tvf.lggr.Errorw("Skipping verifier, failed to create verification coordinator",
+				"verifierID", verifierConfig.VerifierID, "type", verifierConfig.Type, "error", createErr)
 			continue
 		}
-		if err != nil {
-			return fmt.Errorf("failed to create verification coordinator for %s: %w", verifierConfig.Type, err)
-		}
-
-		tvf.coordinators = append(tvf.coordinators, coordinator)
 
 		if err := coordinator.Start(ctx); err != nil {
-			tvf.lggr.Errorw("Failed to start verification coordinator", "error", err)
-			return fmt.Errorf("failed to start verification coordinator: %w", err)
+			tvf.lggr.Errorw("Skipping verifier, failed to start verification coordinator",
+				"verifierID", verifierConfig.VerifierID, "type", verifierConfig.Type, "error", err)
+			continue
 		}
+		tvf.coordinators = append(tvf.coordinators, coordinator)
+	}
+	if len(cfg.TokenVerifiers) > 0 && len(tvf.coordinators) == 0 {
+		return fmt.Errorf("failed to start any token verifier across %d configured", len(cfg.TokenVerifiers))
 	}
 
 	healthReporters := make([]protocol.HealthReporter, len(tvf.coordinators))

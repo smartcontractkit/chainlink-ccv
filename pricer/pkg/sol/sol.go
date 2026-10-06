@@ -30,6 +30,10 @@ type Chain struct {
 }
 
 func (c *Chain) Start(ctx context.Context) error {
+	// The TXM requires a live connection, so the dial stays eager; the pricer
+	// coordinator tolerates a per-chain start failure and reports it via
+	// HealthReport.
+	//nolint:noeagerio // see comment above
 	if err := c.client.Dial(ctx); err != nil {
 		return fmt.Errorf("failed to dial Solana client: %w", err)
 	}

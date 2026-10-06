@@ -118,6 +118,9 @@ type Pricer struct {
 	wg         sync.WaitGroup
 	httpServer *http.Server
 	chains     map[protocol.ChainSelector]pricer.Chain
+	// chainStartErrs records per-chain start failures so they stay visible in
+	// HealthReport after the chain is skipped.
+	chainStartErrs map[protocol.ChainSelector]error
 }
 
 func NewPricerFromConfig(ctx context.Context, cfg Config, keystoreData []byte, keystorePassword string) (*Pricer, error) {
@@ -199,11 +202,12 @@ func NewPricerFromConfig(ctx context.Context, cfg Config, keystoreData []byte, k
 	))
 
 	return &Pricer{
-		StateMachine: services.StateMachine{},
-		lggr:         lggr,
-		cfg:          cfg,
-		done:         make(chan struct{}),
-		wg:           sync.WaitGroup{},
+		StateMachine:   services.StateMachine{},
+		lggr:           lggr,
+		cfg:            cfg,
+		done:           make(chan struct{}),
+		wg:             sync.WaitGroup{},
+		chainStartErrs: make(map[protocol.ChainSelector]error),
 		httpServer: &http.Server{
 			Addr:              fmt.Sprintf(":%d", cfg.Monitoring.Port),
 			Handler:           mux,
@@ -227,10 +231,19 @@ func (p *Pricer) Start(ctx context.Context) error {
 			}
 		})
 
-		for _, chain := range p.chains {
+		// A failure to start one chain (e.g. an unreachable RPC) must not stop
+		// the remaining chains. Skip and record for health reporting; only fail
+		// when no chain started at all.
+		configuredChains := len(p.chains)
+		for selector, chain := range p.chains {
 			if err := chain.Start(ctx); err != nil {
-				return fmt.Errorf("failed to start chain: %w", err)
+				p.lggr.Errorw("failed to start chain, skipping", "chainSelector", selector, "error", err)
+				p.chainStartErrs[selector] = err
+				delete(p.chains, selector)
 			}
+		}
+		if configuredChains > 0 && len(p.chains) == 0 {
+			return fmt.Errorf("failed to start any chain across %d configured", configuredChains)
 		}
 		p.wg.Go(func() {
 			p.run(ctx)
@@ -297,3 +310,17 @@ func (p *Pricer) Close() error {
 		return nil
 	})
 }
+
+func (p *Pricer) Name() string { return "pricer.Pricer" }
+
+// HealthReport surfaces chains that failed to start so a skipped chain is
+// visible instead of silently absent.
+func (p *Pricer) HealthReport() map[string]error {
+	report := map[string]error{p.Name(): p.Ready()}
+	for selector, err := range p.chainStartErrs {
+		report[fmt.Sprintf("%s.Chain[%s]", p.Name(), selector)] = err
+	}
+	return report
+}
+
+var _ protocol.HealthReporter = (*Pricer)(nil)
