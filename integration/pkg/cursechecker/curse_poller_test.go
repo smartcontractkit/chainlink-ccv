@@ -65,11 +65,13 @@ func TestCurseDetectorService_LaneSpecificCurse(t *testing.T) {
 	require.NoError(t, err)
 	defer svc.Close()
 
-	cursed, err := svc.IsRemoteChainCursed(ctx, chainA, chainB)
-	require.NoError(t, err)
-	assert.True(t, cursed, "chainA->chainB should be cursed")
+	// The initial poll runs in the background after Start; wait for it to land.
+	require.Eventually(t, func() bool {
+		cursed, err := svc.IsRemoteChainCursed(ctx, chainA, chainB)
+		return err == nil && cursed
+	}, 2*time.Second, 5*time.Millisecond, "chainA->chainB should be cursed")
 
-	cursed, err = svc.IsRemoteChainCursed(ctx, chainA, chainC)
+	cursed, err := svc.IsRemoteChainCursed(ctx, chainA, chainC)
 	require.NoError(t, err)
 	assert.False(t, cursed, "chainA->chainC should not be cursed")
 
@@ -148,10 +150,13 @@ func TestCurseDetectorService_GlobalCurse(t *testing.T) {
 	require.NoError(t, err)
 	defer svc.Close()
 
-	cursed, err := svc.IsRemoteChainCursed(ctx, chainA, chainB)
-	require.NoError(t, err)
-	assert.True(t, cursed, "chainA has global curse, chainA->chainB should be cursed")
-	cursed, err = svc.IsRemoteChainCursed(ctx, chainA, chainC)
+	// The initial poll runs in the background after Start; wait for it to land.
+	require.Eventually(t, func() bool {
+		cursed, err := svc.IsRemoteChainCursed(ctx, chainA, chainB)
+		return err == nil && cursed
+	}, 2*time.Second, 5*time.Millisecond, "chainA has global curse, chainA->chainB should be cursed")
+
+	cursed, err := svc.IsRemoteChainCursed(ctx, chainA, chainC)
 	require.NoError(t, err)
 	assert.True(t, cursed, "chainA has global curse, chainA->chainC should be cursed")
 
@@ -288,9 +293,11 @@ func TestCurseDetectorService_ReaderErrorHandling(t *testing.T) {
 	assert.True(t, cursed, "chainA should be treated as cursed when state unknown (fail closed)")
 	assert.ErrorIs(t, err, common.ErrCurseStateUnknown)
 
-	cursed, err = svc.IsRemoteChainCursed(ctx, chainB, chainA)
-	require.NoError(t, err)
-	assert.True(t, cursed, "chainB should report chainA as cursed")
+	// The initial poll runs in the background after Start; wait for it to land.
+	require.Eventually(t, func() bool {
+		cursed, err := svc.IsRemoteChainCursed(ctx, chainB, chainA)
+		return err == nil && cursed
+	}, 2*time.Second, 5*time.Millisecond, "chainB should report chainA as cursed")
 }
 
 func TestCurseDetectorService_NilCursedSubjects(t *testing.T) {
@@ -323,9 +330,11 @@ func TestCurseDetectorService_NilCursedSubjects(t *testing.T) {
 	require.NoError(t, err)
 	defer svc.Close()
 
-	cursed, err := svc.IsRemoteChainCursed(ctx, chainA, chainB)
-	require.NoError(t, err)
-	assert.False(t, cursed, "nil cursed subjects should mean no curses")
+	// The initial poll runs in the background after Start; wait for it to land.
+	require.Eventually(t, func() bool {
+		cursed, err := svc.IsRemoteChainCursed(ctx, chainA, chainB)
+		return err == nil && !cursed
+	}, 2*time.Second, 5*time.Millisecond, "nil cursed subjects should mean no curses")
 }
 
 // TestCurseDetectorService_RPCTimeout tests that hanging RPC calls timeout and don't block other chains.
@@ -449,18 +458,17 @@ func TestCurseDetectorService_AllChainsTimeout(t *testing.T) {
 	require.NoError(t, err)
 	defer svc.Close()
 
-	// Wait for multiple poll cycles
-	time.Sleep(400 * time.Millisecond)
+	// Verify that polling continued despite timeouts (callCount should reach >= 3)
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return callCount >= 3
+	}, 2*time.Second, 20*time.Millisecond, "polling should continue despite timeouts")
 
-	// Verify that polling continued despite timeouts (callCount should be >= 3)
-	mu.Lock()
-	count := callCount
-	mu.Unlock()
-	assert.GreaterOrEqual(t, count, 3, "polling should continue despite timeouts")
-
-	cursed, err := svc.IsRemoteChainCursed(ctx, chainA, chainB)
-	require.NoError(t, err)
-	assert.True(t, cursed, "chainA should eventually report chainB as cursed")
+	require.Eventually(t, func() bool {
+		cursed, err := svc.IsRemoteChainCursed(ctx, chainA, chainB)
+		return err == nil && cursed
+	}, 2*time.Second, 20*time.Millisecond, "chainA should eventually report chainB as cursed")
 }
 
 // TestCurseDetectorService_ContextCancellation tests that RPC timeout respects parent context cancellation.

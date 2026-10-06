@@ -88,9 +88,6 @@ func NewCurseDetectorService(
 // Start begins polling RMN Remote contracts for curse updates.
 func (s *PollerService) Start(ctx context.Context) error {
 	return s.StartOnce("cursechecker.PollerService", func() error {
-		// Initial poll
-		s.pollAllChains(ctx)
-
 		s.wg.Go(func() {
 			s.pollLoop()
 		})
@@ -147,6 +144,11 @@ func (s *PollerService) pollLoop() {
 
 	ticker := time.NewTicker(s.pollInterval)
 	defer ticker.Stop()
+
+	// Initial poll runs in this goroutine: RPC hangs or failures must not
+	// block Start. Until a poll succeeds, IsRemoteChainCursed reports
+	// ErrCurseStateUnknown.
+	s.pollAllChains(ctx)
 
 	for {
 		select {

@@ -70,7 +70,7 @@ type Service struct {
 	// mutable per-chain state
 	mu                          sync.RWMutex
 	lastProcessedFinalizedBlock atomic.Uint64
-	startBlockInitialized       atomic.Bool // guards lastProcessedFinalizedBlock; unset only in unit tests that skip Start
+	startBlockInitialized       atomic.Bool // guards lastProcessedFinalizedBlock; set by the background init in Start
 	pendingTasks                map[string]verifier.VerificationTask
 	pendingSince                map[string]time.Time
 	pendingMetricDestinations   map[protocol.ChainSelector]struct{}
@@ -188,23 +188,43 @@ func (r *Service) Start(ctx context.Context) error {
 	return r.StartOnce(r.Name(), func() error {
 		r.logger.Infow("Starting Service")
 
-		startBlock, err := r.initializeStartBlock(ctx)
-		if err != nil {
-			r.logger.Errorw("Failed to initialize start block", "error", err)
-			return err
-		}
-		r.lastProcessedFinalizedBlock.Store(startBlock)
-		r.startBlockInitialized.Store(true)
-		r.metrics().SetSourceReaderLastProcessedFinalizedBlock(ctx, int64(startBlock)) // #nosec G115 -- chain block heights are within int64 range
-		r.logger.Infow("Initialized start block", "block", startBlock)
-
 		r.wg.Go(func() {
-			r.eventMonitoringLoop()
+			r.initializeAndMonitor()
 		})
 
 		r.logger.Infow("Service started")
 		return nil
 	})
+}
+
+// initializeAndMonitor retries start-block initialization until it succeeds or the
+// service stops, then hands off to the event monitoring loop. Start must not do
+// this inline: the DB/RPC reads can hang or fail on transient errors and must
+// never block or abort process startup (Ready reports the interim state instead).
+func (r *Service) initializeAndMonitor() {
+	ctx, cancel := r.stopCh.NewCtx()
+	defer cancel()
+
+	for {
+		attemptCtx, attemptCancel := context.WithTimeout(ctx, r.pollTimeout)
+		startBlock, err := r.initializeStartBlock(attemptCtx)
+		attemptCancel()
+		if err == nil {
+			r.lastProcessedFinalizedBlock.Store(startBlock)
+			r.startBlockInitialized.Store(true)
+			r.metrics().SetSourceReaderLastProcessedFinalizedBlock(ctx, int64(startBlock)) // #nosec G115 -- chain block heights are within int64 range
+			r.logger.Infow("Initialized start block", "block", startBlock)
+			break
+		}
+		r.logger.Errorw("Failed to initialize start block, will retry", "error", err, "retryIn", r.pollInterval)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(r.pollInterval):
+		}
+	}
+
+	r.eventMonitoringLoop()
 }
 
 func (r *Service) Close() error {
@@ -230,6 +250,9 @@ func (r *Service) HealthReport() map[string]error {
 func (r *Service) Ready() error {
 	if err := r.StateMachine.Ready(); err != nil {
 		return err
+	}
+	if !r.startBlockInitialized.Load() {
+		return errors.New("start block not yet initialized")
 	}
 	if r.finalityBlocked.Load() {
 		return errors.New("finality blocked")
