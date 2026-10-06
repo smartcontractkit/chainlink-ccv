@@ -20,7 +20,7 @@ const adminSiblingRestartDelay = 5 * time.Second
 // verifier. An absent config means the console is disabled. The returned stop
 // function terminates the sibling; nil means nothing was started.
 func StartAdminConsoleSibling() (stop func()) {
-	path := os.Getenv(admin.ConfigPathEnv)
+	path := os.Getenv(admin.ConfigPathEnv) //nolint:gosec // G703: operator-provided config path from the deployment environment.
 	if path == "" {
 		path = admin.DefaultConfigPath
 	}
@@ -53,13 +53,15 @@ func StartAdminConsoleSibling() (stop func()) {
 	go func() {
 		defer close(exited)
 		for {
-			child := exec.Command(exe, "ccv", "admin", "serve", "--config", path)
+			child := exec.Command(exe, "ccv", "admin", "serve", "--config", path) //nolint:gosec // G204: re-exec of this binary with fixed argv; the config path is the operator's own deployment.
 			// Container logs carry both processes; the console's own gin logger
 			// distinguishes its lines.
 			child.Stdout, child.Stderr = os.Stdout, os.Stderr
-			setCurrent(child)
 			startErr := child.Start()
 			if startErr == nil {
+				// Publish only after Start() has initialized Cmd.Process:
+				// killCurrent reads it, and Start writes it.
+				setCurrent(child)
 				waitErr := child.Wait()
 				if waitErr == nil {
 					_, _ = fmt.Fprintf(os.Stderr, "admin console sibling: stopped\n")

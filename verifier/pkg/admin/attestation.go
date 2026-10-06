@@ -94,8 +94,11 @@ func aggregatorEntryResult(entries []storageaccess.ResultEntry, i int) Attestati
 		if entries[i].ErrorCode == int32(codes.NotFound) {
 			return AttestationResult{AttestationNotFound, "aggregator: " + entries[i].ErrorMsg}
 		}
-		return AttestationResult{AttestationUnknown,
-			fmt.Sprintf("aggregator error %s: %s", codes.Code(entries[i].ErrorCode), entries[i].ErrorMsg)}
+		return AttestationResult{
+			AttestationUnknown,
+			//nolint:gosec // G115: gRPC error codes are always non-negative.
+			fmt.Sprintf("aggregator error %s: %s", codes.Code(entries[i].ErrorCode), entries[i].ErrorMsg),
+		}
 	}
 	if len(entries[i].CcvData) > 0 {
 		return AttestationResult{AttestationAttested, "aggregator holds ccv data for this message"}

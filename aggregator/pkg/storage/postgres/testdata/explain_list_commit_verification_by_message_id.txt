@@ -1,0 +1,12 @@
+=== EXPLAIN ANALYZE: ListCommitVerificationByMessageID ===
+Limit  (cost=0.42..908.41 rows=257 width=89) (actual time=0.014..0.067 rows=257 loops=1)
+  Output: message_id, signer_identifier, aggregation_key, ccv_version, signature, message_ccv_addresses, message_executor_address, message_data, id, created_at
+  Buffers: shared hit=42
+  ->  Index Scan using unique_verification on public.commit_verification_records  (cost=0.42..5490.75 rows=1554 width=89) (actual time=0.013..0.054 rows=257 loops=1)
+        Output: message_id, signer_identifier, aggregation_key, ccv_version, signature, message_ccv_addresses, message_executor_address, message_data, id, created_at
+        Index Cond: (commit_verification_records.message_id = '0xexplain-target'::text)
+        Buffers: shared hit=42
+Planning:
+  Buffers: shared hit=60
+Planning Time: 0.192 ms
+Execution Time: 0.097 ms

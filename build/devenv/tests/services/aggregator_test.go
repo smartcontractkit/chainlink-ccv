@@ -208,6 +208,19 @@ func TestServiceAggregatorAuthentication(t *testing.T) {
 		require.Equal(t, codes.NotFound, st.Code(), "should return NotFound error for the message, not Unauthenticated")
 	})
 
+	t.Run("GetMessageStatus supports anonymous authentication", func(t *testing.T) {
+		req := &committeepb.GetMessageStatusRequest{
+			MessageId: make([]byte, 32),
+		}
+
+		_, err := committeeClient.GetMessageStatus(ctx, req)
+		require.Error(t, err, "unknown message should return an error")
+
+		st, ok := status.FromError(err)
+		require.True(t, ok, "error should be a gRPC status error")
+		require.Equal(t, codes.NotFound, st.Code(), "should return NotFound error for the message, not Unauthenticated")
+	})
+
 	t.Run("WriteCommitteeVerifierNodeResult requires authentication", func(t *testing.T) {
 		req := &committeepb.WriteCommitteeVerifierNodeResultRequest{}
 
