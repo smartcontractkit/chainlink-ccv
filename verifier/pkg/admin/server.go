@@ -73,7 +73,6 @@ func (s *Server) buildRouter() *gin.Engine {
 	h.registerDetailRoutes(r)
 	h.registerRescheduleRoutes(r)
 	h.registerRecoveryRoutes(r)
-	h.registerBackfillRoutes(r)
 	return r
 }
 

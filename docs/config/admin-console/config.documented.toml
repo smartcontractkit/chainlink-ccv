@@ -34,10 +34,6 @@ listen_address = "127.0.0.1:8105"
   aggregator_address = "aggregator-1:50051"
   # indexer_url (optional base URL) enables the indexer's verification-result lookup.
   indexer_url = "http://indexer:8100"
-  # indexer_config_path (optional) points at an owned indexer's config file and enables the
-  # indexer-data backfill workflow. Leave empty when you do not run the indexer; the console
-  # then hides that workflow.
-  indexer_config_path = "/etc/indexer/config.toml"
   # trace_url (optional) is a base URL to your trace viewer, linked from the message detail
   # page when set.
   trace_url = "https://traces.example.com"

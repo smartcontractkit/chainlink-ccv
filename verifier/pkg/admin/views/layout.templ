@@ -23,7 +23,6 @@ templ Layout(title string) {
 						@navLink("/", "Nodes", title)
 						@navLink("/search", "Message search", title)
 						@navLink("/recovery", "Source recovery", title)
-						@navLink("/backfill", "Indexer backfill", title)
 						@navLink("/actions", "Action log", title)
 					</nav>
 				</div>
@@ -65,8 +64,6 @@ func navSection(title string) string {
 		return "/search"
 	case "Source recovery":
 		return "/recovery"
-	case "Indexer backfill":
-		return "/backfill"
 	case "Action log":
 		return "/actions"
 	}

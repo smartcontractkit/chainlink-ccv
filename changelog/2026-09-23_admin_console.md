@@ -12,14 +12,18 @@
   durable action log.
 - Source-range recovery (replay/reset-reader) is driven through the durable R5 operations with
   progress, cancel/resume, and reload-safe tracking; R4 evidence is shown alongside the chosen range.
-  Owned-indexer backfill reuses the indexer replay engine in-process and is hidden for operators
-  without an indexer.
+  Indexer-data backfill is out of scope for now (deferred with the indexer admin UI); indexer repair
+  stays with the indexer's own replay tooling.
 - Safety model: loopback bind by default (non-loopback requires an authenticating-proxy actor header),
   CSRF-protected mutations, credentials stay server-side in the existing secrets files, and every
   mutation is recorded in the console's own database — without it the console runs read-only.
 - Console state is one Postgres table (`ccv_admin_actions`) migrated with a dedicated goose table, so
-  it never collides with verifier migrations. No changes to verifier runtime behavior; the console is
-  a separate process and never requires restarting a verifier.
+  it never collides with verifier migrations. No changes to verifier runtime behavior.
+- Packaging: the console is served from the verifier's own container as a supervised sibling process
+  on a dedicated admin UI port. A console config at `/etc/ccv-admin/config.toml`
+  (`CCV_ADMIN_CONFIG_PATH`) enables it: the committee and token verifier entrypoints spawn
+  `ccv admin serve` as a child, respawn it if it crashes, and take it down with the verifier — the
+  verifier never needs a restart just to administer the console. No config file means disabled.
 
 ## AI Adapter Index
 
@@ -30,6 +34,7 @@ Purely additive except for the CLI command table. Unlisted symbols keep their ex
 | `admin` package (console) | added | `verifier/pkg/admin` | `verifier/pkg/admin/` |
 | `cli/admin.Command` | added | `admin\.Command` | `cli/admin/commands.go` |
 | `ccv admin serve / check-config` | added | `ccv admin` | `cmd/verifier/run_ccv_cli.go` |
+| `StartAdminConsoleSibling` | added | `StartAdminConsoleSibling` | `cmd/verifier/adminsibling.go` |
 
 ## Compatibility
 

@@ -11,12 +11,11 @@ import templruntime "github.com/a-h/templ/runtime"
 // NodeRow is the rendered view of one configured node's probe state. State is
 // "ready" or "unreachable"; Detail carries the operator-facing error text.
 type NodeRow struct {
-	Name    string
-	Ready   bool
-	Detail  string
-	HasAgg  bool
-	HasIdx  bool
-	HasBack bool
+	Name   string
+	Ready  bool
+	Detail string
+	HasAgg bool
+	HasIdx bool
 }
 
 // NodesPage is the console home: which infrastructure this console controls, and
@@ -76,7 +75,7 @@ func NodesPage(rows []NodeRow, listenAddress string, readOnly bool) templ.Compon
 				var templ_7745c5c3_Var3 string
 				templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(row.Name)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `nodes.templ`, Line: 38, Col: 27}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `nodes.templ`, Line: 37, Col: 27}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 				if templ_7745c5c3_Err != nil {
@@ -104,7 +103,7 @@ func NodesPage(rows []NodeRow, listenAddress string, readOnly bool) templ.Compon
 						var templ_7745c5c3_Var4 string
 						templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(row.Detail)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `nodes.templ`, Line: 45, Col: 34}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `nodes.templ`, Line: 44, Col: 34}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 						if templ_7745c5c3_Err != nil {
@@ -123,7 +122,7 @@ func NodesPage(rows []NodeRow, listenAddress string, readOnly bool) templ.Compon
 				var templ_7745c5c3_Var5 string
 				templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(capabilityList(row))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `nodes.templ`, Line: 49, Col: 32}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `nodes.templ`, Line: 48, Col: 32}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 				if templ_7745c5c3_Err != nil {
@@ -141,7 +140,7 @@ func NodesPage(rows []NodeRow, listenAddress string, readOnly bool) templ.Compon
 			var templ_7745c5c3_Var6 string
 			templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(listenAddress)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `nodes.templ`, Line: 55, Col: 38}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `nodes.templ`, Line: 54, Col: 38}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 			if templ_7745c5c3_Err != nil {
@@ -168,9 +167,6 @@ func capabilityList(row NodeRow) string {
 	}
 	if row.HasIdx {
 		caps += ", indexer reads"
-	}
-	if row.HasBack {
-		caps += ", indexer backfill"
 	}
 	return caps
 }

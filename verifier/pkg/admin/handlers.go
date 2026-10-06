@@ -13,7 +13,7 @@ import (
 )
 
 // handlers holds the shared dependencies every route group uses. Route registration is
-// split per feature (search.go, detail.go, reschedule.go, recoveryops.go, backfill.go);
+// split per feature (search.go, detail.go, reschedule.go, recoveryops.go);
 // this file carries the struct, the helpers, and the core pages (nodes, action log).
 type handlers struct {
 	cfg     *Config
@@ -104,7 +104,7 @@ func (h *handlers) nodesPage(c *gin.Context) {
 		cfg := n.Config()
 		rows = append(rows, views.NodeRow{
 			Name: n.Name(), Ready: results[i].state == NodeStateReady, Detail: results[i].detail,
-			HasAgg: cfg.AggregatorAddress != "", HasIdx: cfg.IndexerURL != "", HasBack: cfg.IndexerConfigPath != "",
+			HasAgg: cfg.AggregatorAddress != "", HasIdx: cfg.IndexerURL != "",
 		})
 	}
 	h.render(c, http.StatusOK, views.NodesPage(rows, h.cfg.ListenAddress, h.actions == nil))

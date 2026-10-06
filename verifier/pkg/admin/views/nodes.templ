@@ -3,12 +3,11 @@ package views
 // NodeRow is the rendered view of one configured node's probe state. State is
 // "ready" or "unreachable"; Detail carries the operator-facing error text.
 type NodeRow struct {
-	Name    string
-	Ready   bool
-	Detail  string
-	HasAgg  bool
-	HasIdx  bool
-	HasBack bool
+	Name   string
+	Ready  bool
+	Detail string
+	HasAgg bool
+	HasIdx bool
 }
 
 // NodesPage is the console home: which infrastructure this console controls, and
@@ -63,9 +62,6 @@ func capabilityList(row NodeRow) string {
 	}
 	if row.HasIdx {
 		caps += ", indexer reads"
-	}
-	if row.HasBack {
-		caps += ", indexer backfill"
 	}
 	return caps
 }

@@ -7,8 +7,15 @@ inside the verifier image and served by the verifier binary:
 verifier ccv admin serve --config /etc/ccv-admin/config.toml
 ```
 
-Both verifier binaries (committee and token) carry it. It is a server-rendered UI
-(templ/htmx) that talks directly to each configured verifier database and drives the same
+Both verifier binaries (committee and token) carry it. When the container finds a
+console config at `/etc/ccv-admin/config.toml` (override with `CCV_ADMIN_CONFIG_PATH`),
+the verifier process starts the console as a supervised **sibling process** on its
+dedicated port: one container serves both, and the lifecycles stay independent — a
+crashed console restarts without touching the verifier, and the verifier never needs a
+restart just to administer it. No config file means the console stays off.
+
+It is a server-rendered UI (templ/htmx) that talks directly to each configured verifier
+database and drives the same
 recovery machinery as the `ccv job-queue` and `ccv recovery` CLIs, with the same
 semantics. What it replaces is the manual part of those flows: pointing a CLI at one
 database at a time, copying message IDs and owner IDs between commands, and keeping your
@@ -16,6 +23,10 @@ own notes about who did what. The console searches every configured node at once
 what happened to a message, executes the recovery action, and records it in an action
 log. The [remediation runbook](../runbooks/remediating-stuck-or-dropped-messages.md)
 reads console-first; the CLI remains the documented fallback.
+
+The console administers **verifier databases only** (committee and token verifiers).
+Indexer-data backfill and other admin UIs are deliberately out of scope for now: repair
+indexer records with the indexer's own replay tooling until that workflow ships.
 
 What it does not change is the semantics: a reschedule from the console is the same
 reschedule the CLI performs, against the same tables, with the same limits.
@@ -125,10 +136,9 @@ the CLI does.
 | --- | --- |
 | `aggregator_address` (host:port) | Attestation freshness checks via the aggregator's unauthenticated `GetVerifierResultsForMessage` — the message page can show whether a result already exists before you recover. |
 | `indexer_url` (base URL) | The indexer's verification-result lookup for a message. |
-| `indexer_config_path` | Points at an indexer's config file for an indexer **you own**, and enables the indexer-data backfill workflow. Leave it empty when you do not run the indexer; the console then hides that workflow. |
 | `trace_url` (base URL) | Your trace viewer, linked from the message detail page. |
 
-All four are per-node and independently optional; the home page lists each node's
+All three are per-node and independently optional; the home page lists each node's
 capabilities so you can see what is enabled where.
 
 ### Validate before serving
@@ -219,25 +229,12 @@ finishes it. A later finality violation stays sticky and needs a **new** investi
 reset — resuming an old applied reset cannot clear it. Published jobs and previous
 attestations are never deleted by a reset; there is no automatic undo of prior results.
 
-### Indexer-data backfill
-
-For when the verifier and aggregator are fine and only the **indexer's view** of results
-is wrong or incomplete. Available only on nodes with `indexer_config_path` set, i.e.
-operators who own their indexer. Two modes: **discovery** by aggregator sequence number
-to find what the indexer is missing, and **targeted repair** by message ID. Force and
-overwrite are off by default — the backfill never silently rewrites rows the indexer
-already holds.
-
-What it does **not** do: re-admit anything on the verifier, re-run verification or
-policy, or touch source-chain state. If a message was never verified, backfill cannot
-help — use replay. Note that its inputs are aggregator sequence numbers and message IDs,
-distinct from the source block numbers replay takes.
-
 ## Operations
 
 **Upgrades.** The console ships in the verifier image, so it upgrades when your verifier
-image does. It is a separate process from the verifier itself: starting, stopping or
-upgrading the console does not require restarting the verifier, and recovery actions
+image does. Inside the container it runs as a supervised sibling process of the
+verifier: starting, stopping or restarting the console does not require restarting the
+verifier (a crashed console is respawned automatically), and recovery actions
 submitted through it take effect on the running verifier (a restored job is picked up on
 the queue's fallback poll). Run the console from the same image version as the verifiers
 it administers — the console applies pending verifier migrations on first connect, as

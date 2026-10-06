@@ -61,10 +61,6 @@ type NodeConfig struct {
 	AggregatorAddress string `toml:"aggregator_address"`
 	// IndexerURL (optional base URL) enables the indexer's verification-result lookup.
 	IndexerURL string `toml:"indexer_url"`
-	// IndexerConfigPath (optional) points at an owned indexer's config file and enables
-	// the indexer-data backfill workflow. Leave empty when the operator does not run the
-	// indexer; the console then hides that workflow.
-	IndexerConfigPath string `toml:"indexer_config_path"`
 	// TraceURL (optional) is a base URL to the operator's trace viewer, linked from the
 	// message detail page when set.
 	TraceURL string `toml:"trace_url"`
