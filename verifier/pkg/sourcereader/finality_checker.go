@@ -3,7 +3,6 @@ package sourcereader
 import (
 	"context"
 	"fmt"
-	"math/big"
 	"sync"
 
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
@@ -246,8 +245,7 @@ func (f *FinalityViolationCheckerService) reset() {
 
 // fetchSingleBlock fetches a single block header by number.
 func (f *FinalityViolationCheckerService) fetchSingleBlock(ctx context.Context, blockNum uint64) (*protocol.BlockHeader, error) {
-	blockNumbers := []*big.Int{new(big.Int).SetUint64(blockNum)}
-	headers, err := f.sourceReader.GetBlocksHeaders(ctx, blockNumbers)
+	headers, err := f.sourceReader.GetBlocksHeaders(ctx, []uint64{blockNum})
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch block header: %w", err)
 	}
@@ -270,9 +268,9 @@ func (f *FinalityViolationCheckerService) fetchBlockRange(ctx context.Context, s
 	}
 
 	// Build block numbers array
-	var blockNumbers []*big.Int
+	var blockNumbers []uint64
 	for i := startBlock; i <= endBlock; i++ {
-		blockNumbers = append(blockNumbers, new(big.Int).SetUint64(i))
+		blockNumbers = append(blockNumbers, i)
 	}
 
 	// Fetch headers

@@ -13,8 +13,12 @@ import (
 )
 
 // InitLogger creates a named logger with the base core and optional Beholder log streaming.
+// config.LogLevel, when set, takes precedence over baseLogLevel.
 func InitLogger(name, baseLogLevel string, config monitoring.Config) (logger.Logger, error) {
 	loggerCores := make([]zapcore.Core, 0, 2)
+	if config.LogLevel != "" {
+		baseLogLevel = config.LogLevel
+	}
 	if baseLogLevel == "" {
 		baseLogLevel = "info"
 	}
