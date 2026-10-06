@@ -14,6 +14,8 @@ concurrency:
 
 jobs:
   build-docker-images:
+    # Fork PRs skip this billable runs-on job; free GitHub-hosted jobs still run for feedback.
+    if: github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork
     permissions:
       id-token: write
       contents: read
@@ -86,6 +88,8 @@ jobs:
 
   build-ccv-cli:
     name: Build ccv CLI
+    # Fork PRs skip this billable runs-on job; free GitHub-hosted jobs still run for feedback.
+    if: github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork
     permissions:
       id-token: write
       contents: read

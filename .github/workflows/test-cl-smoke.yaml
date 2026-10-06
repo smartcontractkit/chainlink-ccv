@@ -54,7 +54,8 @@ jobs:
 
   build-cl-image:
     needs: [check-changes]
-    if: needs.check-changes.outputs.run_tests == 'true'
+    # Fork PRs skip these billable runs-on jobs; free GitHub-hosted jobs still run for feedback.
+    if: needs.check-changes.outputs.run_tests == 'true' && (github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork)
     permissions:
       id-token: write
       contents: read
@@ -93,7 +94,8 @@ jobs:
 
   build-docker-images:
     needs: [check-changes]
-    if: needs.check-changes.outputs.run_tests == 'true'
+    # Fork PRs skip these billable runs-on jobs; free GitHub-hosted jobs still run for feedback.
+    if: needs.check-changes.outputs.run_tests == 'true' && (github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork)
     permissions:
       id-token: write
       contents: read
@@ -167,7 +169,8 @@ jobs:
   build-ccv-cli:
     name: Build ccv CLI
     needs: [check-changes]
-    if: needs.check-changes.outputs.run_tests == 'true'
+    # Fork PRs skip these billable runs-on jobs; free GitHub-hosted jobs still run for feedback.
+    if: needs.check-changes.outputs.run_tests == 'true' && (github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork)
     permissions:
       id-token: write
       contents: read
