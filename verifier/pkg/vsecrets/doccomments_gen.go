@@ -4,6 +4,13 @@ package vsecrets
 
 import "github.com/smartcontractkit/chainlink-common/x/config/commentparsing"
 
+func (AdminUISecret) DocComments() map[string]commentparsing.FieldDoc {
+	return map[string]commentparsing.FieldDoc{
+		"Password": {Comment: "Password is the basic-auth password."},
+		"Username": {Comment: "Username is the basic-auth username; it also becomes the action-log actor."},
+	}
+}
+
 func (AggregatorSecret) DocComments() map[string]commentparsing.FieldDoc {
 	return map[string]commentparsing.FieldDoc{
 		"APIKey":     {Comment: "APIKey is this aggregator's inbound HMAC API key."},
@@ -27,6 +34,7 @@ func (PolicyHookSecret) DocComments() map[string]commentparsing.FieldDoc {
 
 func (SecretsFile) DocComments() map[string]commentparsing.FieldDoc {
 	return map[string]commentparsing.FieldDoc{
+		"AdminUI":    {Comment: "AdminUI is the optional basic-auth credential gating the admin console UI. Only the\nadmin console consumes it, when this file is the console's secrets file; the verifier\nbinaries ignore it."},
 		"PolicyHook": {Comment: "PolicyHook is the optional credential the committee verifier presents to the operator's\npolicy endpoint. Omit it to call the endpoint unauthenticated."},
 	}
 }

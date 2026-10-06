@@ -191,6 +191,7 @@ func verifierSecretsInstance() any {
 			{SecretName: "aggregator_1", APIKey: "<api-key>", SecretKey: "<secret-key>"},
 		},
 		PolicyHook: &vsecrets.PolicyHookSecret{APIKey: "<api-key>", SecretKey: "<secret-key>"},
+		AdminUI:    &vsecrets.AdminUISecret{Username: "operator", Password: "<password>"}, //nolint:gosec // G101: placeholder example value in generated docs, not a real credential
 	}
 }
 

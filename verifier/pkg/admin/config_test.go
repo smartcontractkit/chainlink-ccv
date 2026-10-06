@@ -49,15 +49,20 @@ func TestLoadConfig(t *testing.T) {
 		require.ErrorContains(t, err, "duplicate node name")
 	})
 
-	t.Run("non-loopback listen requires an actor header", func(t *testing.T) {
-		_, err := LoadConfig(writeConfig(t, `listen_address = "0.0.0.0:8105"`+validNode))
-		require.ErrorContains(t, err, "actor_header")
+	t.Run("non-loopback listen defers the identity check to startup", func(t *testing.T) {
+		// The rule needs the console secrets (basic auth), so LoadConfig accepts
+		// the file and ValidateAccessPolicy enforces it at server startup.
+		cfg, err := LoadConfig(writeConfig(t, `listen_address = "0.0.0.0:8105"`+validNode))
+		require.NoError(t, err)
+		require.ErrorContains(t, ValidateAccessPolicy(cfg, nil), "identity source")
+		require.NoError(t, ValidateAccessPolicy(cfg, &BasicAuth{Username: "u", Password: "p"}))
 
-		cfg, err := LoadConfig(writeConfig(t, `listen_address = "0.0.0.0:8105"
+		cfg, err = LoadConfig(writeConfig(t, `listen_address = "0.0.0.0:8105"
 [access]
 actor_header = "X-Remote-User"
 `+validNode))
 		require.NoError(t, err)
 		require.Equal(t, "X-Remote-User", cfg.Access.ActorHeader)
+		require.NoError(t, ValidateAccessPolicy(cfg, nil))
 	})
 }

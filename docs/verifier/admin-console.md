@@ -39,10 +39,15 @@ operator tool, and anything beyond that is an explicit, validated choice.
 
 - **Loopback by default.** `listen_address` defaults to `127.0.0.1:8105`. Reach it with
   an SSH port forward (`ssh -L 8105:127.0.0.1:8105 <host>`) and act as actor `local`.
-- **Non-loopback requires an authenticating proxy.** Serving a page grants privileged
-  actions, so the console refuses to start on a non-loopback address unless
-  `access.actor_header` is set — the header your proxy writes after authenticating the
-  caller. See [Shared hosting](#shared-hosting-and-the-access-model).
+- **Non-loopback requires an identity source.** Serving a page grants privileged
+  actions, so the console refuses to start on a non-loopback address unless either
+  `access.actor_header` is set (an authenticating proxy writes the header) or
+  `[admin_ui]` basic auth is configured in the console secrets file (the console
+  verifies the credential itself). See [Shared hosting](#shared-hosting-and-the-access-model).
+- **Optional basic auth.** `[admin_ui]` username + password in the console secrets file
+  gates every page except `/healthz` (kept open for probes); the authenticated username
+  becomes the action-log actor. A half-supplied pair is a startup error, never a silent
+  downgrade to unauthenticated serving.
 - **Credentials stay server-side.** The config references each node's verifier secrets
   file by path; database URLs are read from those files inside the process and are never
   rendered into a page or logged.
@@ -89,6 +94,12 @@ The console secrets file uses the verifier secrets schema
 # /etc/ccv-admin/secrets.toml
 [db]
   url = "postgres://user:password@localhost:5432/ccv_admin?sslmode=disable"
+
+# Optional: basic auth for the UI. Both fields together; the username becomes the
+# action-log actor. See "Shared hosting and the access model".
+[admin_ui]
+  username = "operator"
+  password = "<password>"
 ```
 
 `[console].secrets_path` may be omitted; the path then resolves from
@@ -257,12 +268,21 @@ resolved node identities without starting the server.
 ## Shared hosting and the access model
 
 On loopback, every action is recorded as actor `local` — appropriate for a personal tool
-reached over SSH. For a shared deployment, put the console behind an authenticating
-proxy and set `access.actor_header` to the header the proxy writes after authentication
-(for example `X-Authenticated-User`). That header's value becomes the actor in the
-action log.
+reached over SSH. A shared deployment needs an identity source; the console refuses to
+start on a non-loopback address (including a wildcard bind) unless at least one is
+configured:
 
-Two requirements fall on the proxy, because the console trusts the header verbatim:
+- **`access.actor_header` (authenticating proxy).** The console trusts the configured
+  header verbatim; its value becomes the actor in the action log.
+- **`[admin_ui]` basic auth (console secrets file).** The console verifies the
+  credential itself on every request except `/healthz` (kept open for probes), and the
+  username becomes the actor. No proxy is required for identity — but basic auth carries
+  the password base64-encoded, so serve it over TLS (or keep the console on loopback and
+  SSH-forward). When both are configured, the basic-auth username wins: the header is
+  client-supplied, the basic-auth credential is not.
+
+When the proxy is the identity source, two requirements fall on the proxy, because the
+console trusts the header verbatim:
 
 1. The proxy must be the **only** network path to the console's listen address — anyone
    who can reach the port directly can set any actor.
@@ -271,8 +291,9 @@ Two requirements fall on the proxy, because the console trusts the header verbat
    arrives without the header is served as actor `unknown`; treat `unknown` entries in
    the action log as a proxy misconfiguration and fix it.
 
-Config validation enforces the floor: a non-loopback `listen_address` with an empty
-`access.actor_header` is a startup error. Everything above that floor is proxy hygiene.
+Startup validation enforces the floor: a non-loopback `listen_address` with neither
+`access.actor_header` nor `[admin_ui]` fails to start. Everything above that floor is
+proxy hygiene (or basic auth over TLS).
 
 **Verify the node list before acting.** The home page is the exact list of verifier
 databases this console can mutate, with each node's reachability and capabilities. Node

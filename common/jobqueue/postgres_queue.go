@@ -32,7 +32,6 @@ type PostgresJobQueue[T Jobable] struct {
 	// moment work is signaled, so a test can read the database from another connection
 	// and prove the transaction has already committed by then.
 	testOnlyOnSignal func()
-	archiveMetrics   *archiveMetrics
 }
 
 // signalWork announces that this process has made work available, once the transaction
@@ -55,19 +54,14 @@ func NewPostgresJobQueue[T Jobable](
 		return nil, fmt.Errorf("database connection cannot be nil")
 	}
 
-	archiveMetrics, err := newArchiveMetrics()
-	if err != nil {
-		return nil, err
-	}
 	return &PostgresJobQueue[T]{
-		ds:             ds,
-		archiveMetrics: archiveMetrics,
-		config:         config,
-		logger:         lggr,
-		tableName:      config.Name,
-		archiveName:    config.Name + "_archive",
-		ownerID:        config.OwnerID,
-		signal:         newWorkSignal(),
+		ds:          ds,
+		config:      config,
+		logger:      lggr,
+		tableName:   config.Name,
+		archiveName: config.Name + "_archive",
+		ownerID:     config.OwnerID,
+		signal:      newWorkSignal(),
 	}, nil
 }
 

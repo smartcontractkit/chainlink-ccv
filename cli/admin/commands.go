@@ -12,6 +12,7 @@ import (
 	"github.com/urfave/cli"
 
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/admin"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vsecrets"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -47,7 +48,24 @@ func Command(lggr logger.Logger) cli.Command {
 					if err != nil {
 						return err
 					}
-					fmt.Println("config OK: listen=" + cfg.ListenAddress + " nodes=" + fmt.Sprint(len(cfg.Nodes))) //nolint:forbidigo // CLI user output
+					secrets, err := vsecrets.Load(cfg.ResolveConsoleSecretsPath())
+					if err != nil {
+						return err
+					}
+					auth, err := admin.BasicAuthFromSecrets(secrets)
+					if err != nil {
+						return err
+					}
+					if err := admin.ValidateAccessPolicy(cfg, auth); err != nil {
+						return err
+					}
+					access := "actor local (loopback)"
+					if auth != nil {
+						access = "basic auth ([admin_ui]) enabled"
+					} else if cfg.Access.ActorHeader != "" {
+						access = "proxy header " + cfg.Access.ActorHeader
+					}
+					fmt.Println("config OK: listen=" + cfg.ListenAddress + " nodes=" + fmt.Sprint(len(cfg.Nodes)) + " access=" + access) //nolint:forbidigo // CLI user output
 					for _, n := range cfg.Nodes {
 						fmt.Println("  node " + n.Name + " (secrets: " + n.SecretsPath + ")") //nolint:forbidigo // CLI user output
 					}

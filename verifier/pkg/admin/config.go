@@ -46,6 +46,8 @@ type ConsoleConfig struct {
 type AccessConfig struct {
 	// ActorHeader names the HTTP header carrying an authenticated identity from a
 	// fronting proxy (shared hosting). Empty means self-hosted loopback: actor "local".
+	// Non-loopback serving requires this header or [admin_ui] basic auth from the
+	// console secrets file (validated at startup, when the secrets are loaded).
 	ActorHeader string `toml:"actor_header"`
 }
 
@@ -98,10 +100,8 @@ func (c *Config) Validate() error {
 	if _, _, err := net.SplitHostPort(c.ListenAddress); err != nil {
 		return fmt.Errorf("listen_address %q is not host:port: %w", c.ListenAddress, err)
 	}
-	host, _, _ := net.SplitHostPort(c.ListenAddress)
-	if c.Access.ActorHeader == "" && host != "127.0.0.1" && host != "::1" && host != "localhost" {
-		return fmt.Errorf("serving a page grants privileged actions: a non-loopback listen_address requires access.actor_header so actor identity comes from an authenticating proxy")
-	}
+	// The non-loopback identity rule lives in ValidateAccessPolicy (server startup):
+	// it needs the console secrets, which are not loaded here.
 	if len(c.Nodes) == 0 {
 		return errors.New("at least one [[nodes]] entry is required")
 	}

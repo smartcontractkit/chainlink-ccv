@@ -3,11 +3,6 @@ package e2e
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
-	"fmt"
-	"net/http"
-	"net/url"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -105,85 +100,4 @@ func TestE2ESmoke_RecoverySurvivesProcessFailure(t *testing.T) {
 		return err == nil && current.State == "running" && current.NextBlock >= progress &&
 			current.ToBlock == to && current.UpdatedAt.After(updatedAt)
 	}, 90*time.Second, time.Second, "the same durable operation must survive a process failure")
-}
-
-// Requires the full devenv observability stack (VictoriaMetrics on port 8428).
-func TestE2ESmoke_RecoveryArchiveInventory(t *testing.T) {
-	vc, db, owner, _, _ := recoveryCLIEnvironment(t)
-	ctx := t.Context()
-	const chain = "18446744073709551614"
-	message := strings.ReplaceAll(uuid.NewString(), "-", "") + strings.ReplaceAll(uuid.NewString(), "-", "")
-	messageID := "0x" + message
-	fullError := strings.Repeat("retained diagnostic ", 20)
-	jobIDs := []string{uuid.NewString(), uuid.NewString()}
-	t.Cleanup(func() {
-		for i, queue := range []string{"ccv_task_verifier_jobs", "ccv_storage_writer_jobs"} {
-			_, _ = db.ExecContext(context.Background(), "DELETE FROM "+queue+" WHERE job_id=$1", jobIDs[i])
-			_, _ = db.ExecContext(context.Background(), "DELETE FROM "+queue+"_archive WHERE job_id=$1", jobIDs[i])
-		}
-	})
-	for i, queue := range []string{"ccv_task_verifier_jobs", "ccv_storage_writer_jobs"} {
-		_, err := db.ExecContext(ctx, `INSERT INTO `+queue+`_archive
-			(id,job_id,owner_id,chain_selector,message_id,task_data,status,created_at,available_at,attempt_count,retry_deadline,last_error,completed_at)
-			VALUES ($1,$2,$3,$4,decode($5,'hex'),'{}','failed',NOW()-INTERVAL '25 days',NOW(),3,NOW(),$6,NOW()-INTERVAL '24 days')`,
-			-time.Now().UnixNano(), jobIDs[i], owner, chain, message, fullError)
-		require.NoError(t, err)
-	}
-	rows, err := vc.JobQueue().ListJSON(ctx, "", "", strings.ToUpper(messageID), messageID)
-	require.NoError(t, err)
-	require.Len(t, rows, 2, "exact lookup spans both queues without an owner filter")
-	for _, row := range rows {
-		require.Equal(t, chain, row.SourceChain)
-		require.Equal(t, fullError, row.LastError)
-		require.NotNil(t, row.ArchivedAt)
-	}
-	// The classifier maps an unmatched task-verifier row to "unknown" but every unmatched
-	// storage-writer row to "storage_failure" by design (archivecategory.SQL), so each
-	// reason series counts 1 and only the unfiltered sums see both rows.
-	selector := fmt.Sprintf(`{verifier_id=%q,source_chain=%q`, owner, chain)
-	requireRecoveryMetric(t, ctx, `sum(verifier_archive_failed_jobs`+selector+`,reason="unknown"})`, 1)
-	requireRecoveryMetric(t, ctx, `sum(verifier_archive_failed_jobs`+selector+`,reason="storage_failure"})`, 1)
-	requireRecoveryMetric(t, ctx, "sum(verifier_archive_failed_jobs"+selector+"})", 2)
-	requireRecoveryMetric(t, ctx, "sum(verifier_archive_expiring_jobs"+selector+"})", 2)
-	out, err := vc.CLI(ctx, verifiercli.JobQueueSubcommand, "reschedule", "--queue", "task-verifier", "--job-id", jobIDs[0])
-	require.NoError(t, err, "%s", out)
-	require.Contains(t, out, owner)
-	requireRecoveryMetric(t, ctx, `sum(verifier_archive_expiring_jobs`+selector+`,reason="unknown"})`, 0)
-	requireRecoveryMetric(t, ctx, "sum(verifier_archive_expiring_jobs"+selector+"})", 1)
-	_, err = db.ExecContext(ctx, "DELETE FROM ccv_storage_writer_jobs_archive WHERE job_id=$1", jobIDs[1])
-	require.NoError(t, err)
-	requireRecoveryMetric(t, ctx, "sum(verifier_archive_expiring_jobs"+selector+"})", 0)
-}
-
-func requireRecoveryMetric(t *testing.T, ctx context.Context, query string, expected float64) {
-	t.Helper()
-	client := &http.Client{Timeout: 5 * time.Second}
-	require.Eventually(t, func() bool {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://localhost:8428/api/v1/query?query="+url.QueryEscape(query), nil)
-		if err != nil {
-			return false
-		}
-		response, err := client.Do(req)
-		if err != nil {
-			return false
-		}
-		defer func() { _ = response.Body.Close() }()
-		var result struct {
-			Status string `json:"status"`
-			Data   struct {
-				Result []struct {
-					Value []json.RawMessage `json:"value"`
-				} `json:"result"`
-			} `json:"data"`
-		}
-		if json.NewDecoder(response.Body).Decode(&result) != nil || result.Status != "success" || len(result.Data.Result) != 1 || len(result.Data.Result[0].Value) != 2 {
-			return false
-		}
-		var text string
-		if json.Unmarshal(result.Data.Result[0].Value[1], &text) != nil {
-			return false
-		}
-		value, err := strconv.ParseFloat(text, 64)
-		return err == nil && value == expected
-	}, 2*time.Minute, 2*time.Second, "metric %s must be %v after collection/export", query, expected)
 }

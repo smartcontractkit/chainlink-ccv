@@ -83,11 +83,7 @@ func openNodeDB(lggr logger.Logger, secretsPath string) (*sqlx.DB, error) {
 // openConsoleDB opens the console's own database for the action log, using only
 // the file's [db].url (no CL_DATABASE_URL inheritance). A missing secrets file
 // or an empty URL is not an error: the console runs read-only (nil, nil).
-func openConsoleDB(lggr logger.Logger, secretsPath string) (*sqlx.DB, error) {
-	secrets, err := vsecrets.Load(secretsPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load console secrets file: %w", err)
-	}
+func openConsoleDB(lggr logger.Logger, secrets *vsecrets.VerifierSecrets, secretsPath string) (*sqlx.DB, error) {
 	url := secrets.DatabaseURLFileOnly()
 	if url == "" {
 		lggr.Infow("console database not configured; mutations are disabled (read-only mode)", "secretsPath", secretsPath)

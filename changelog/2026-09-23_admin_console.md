@@ -14,9 +14,11 @@
   progress, cancel/resume, and reload-safe tracking; R4 evidence is shown alongside the chosen range.
   Indexer-data backfill is out of scope for now (deferred with the indexer admin UI); indexer repair
   stays with the indexer's own replay tooling.
-- Safety model: loopback bind by default (non-loopback requires an authenticating-proxy actor header),
-  CSRF-protected mutations, credentials stay server-side in the existing secrets files, and every
-  mutation is recorded in the console's own database — without it the console runs read-only.
+- Safety model: loopback bind by default (non-loopback requires an identity source — an
+  authenticating-proxy actor header or `[admin_ui]` basic auth from the console secrets
+  file), CSRF-protected mutations, credentials stay server-side in the existing secrets
+  files, and every mutation is recorded in the console's own database with an intent row
+  before it runs — without a console database the console runs read-only.
 - Console state is one Postgres table (`ccv_admin_actions`) migrated with a dedicated goose table, so
   it never collides with verifier migrations. No changes to verifier runtime behavior.
 - Packaging: the console is served from the verifier's own container as a supervised sibling process
@@ -35,6 +37,9 @@ Purely additive except for the CLI command table. Unlisted symbols keep their ex
 | `cli/admin.Command` | added | `admin\.Command` | `cli/admin/commands.go` |
 | `ccv admin serve / check-config` | added | `ccv admin` | `cmd/verifier/run_ccv_cli.go` |
 | `StartAdminConsoleSibling` | added | `StartAdminConsoleSibling` | `cmd/verifier/adminsibling.go` |
+| `admin.BasicAuthFromSecrets / ValidateAccessPolicy` | added | `BasicAuthFromSecrets` | `verifier/pkg/admin/auth.go` |
+| `vsecrets.VerifierSecrets.AdminUIAuth / DatabaseURLFileOnly` | added | `AdminUIAuth` | `verifier/pkg/vsecrets/vsecrets.go` |
+| `[admin_ui]` secrets table | added | `admin_ui` | `docs/config/verifier/secrets.documented.toml` |
 
 ## Compatibility
 

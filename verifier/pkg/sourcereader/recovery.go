@@ -32,7 +32,6 @@ type recoveryRuntime struct {
 	resetter          recoveryResetter
 	slots             chan struct{}
 	nodeID            string
-	metrics           *recovery.Metrics
 	rebuildingID      string
 	replayRunning     bool
 	registered        bool
@@ -58,15 +57,11 @@ func (r *Service) ConfigureRecovery(store *recovery.Store, queue *jobqueue.Postg
 	if !ok || store == nil || queue == nil || cap(slots) == 0 {
 		return fmt.Errorf("recovery requires a store, queue, concurrency bound and synchronized checkpoint manager")
 	}
-	metrics, err := recovery.NewMetrics(r.verifierID, r.chainSelector.String())
-	if err != nil {
-		return err
-	}
 	node, err := os.Hostname()
 	if err != nil {
 		node = "unavailable"
 	}
-	r.recovery = &recoveryRuntime{store: store, queue: queue, resetter: resetter, slots: slots, nodeID: node, metrics: metrics}
+	r.recovery = &recoveryRuntime{store: store, queue: queue, resetter: resetter, slots: slots, nodeID: node}
 	return nil
 }
 
@@ -97,9 +92,6 @@ func (r *Service) recoveryHeartbeat(ctx context.Context, latest *uint64) {
 		return
 	}
 	p.lastHeartbeat = time.Now()
-	if err := p.store.CollectMetrics(ctx, r.verifierID, r.chainSelector.String(), p.metrics); err != nil {
-		r.logger.Errorw("Recovery metric collection failed", "error", err)
-	}
 	if time.Since(p.lastCleanup) >= time.Hour {
 		if err := p.store.Cleanup(ctx, r.verifierID); err != nil {
 			r.logger.Errorw("Recovery history cleanup failed", "error", err)
