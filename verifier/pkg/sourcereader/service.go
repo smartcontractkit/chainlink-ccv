@@ -1,12 +1,14 @@
 package sourcereader
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"math"
 	"math/big"
 	"runtime/debug"
+	"slices"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -66,6 +68,9 @@ type Service struct {
 
 	// DB-backed task queue
 	taskQueue jobqueue.JobQueue[verifier.VerificationTask]
+
+	// scannedThrough is the highest block the last scan covered, guarded by mu. Nil means no limit.
+	scannedThrough *uint64
 
 	// mutable per-chain state
 	mu                          sync.RWMutex
@@ -381,6 +386,7 @@ func (r *Service) processEventCycle(ctx context.Context, latest, finalized *prot
 
 		// Only return early when no progress was made
 		if lastQueriedBlock == fromBlock {
+			r.setScannedThrough(blockBefore(fromBlock))
 			return false
 		}
 	}
@@ -388,6 +394,11 @@ func (r *Service) processEventCycle(ctx context.Context, latest, finalized *prot
 	tasks := r.tasksFromEvents(ctx, events, latest, finalized)
 
 	r.addToPendingQueueHandleReorg(tasks, fromBlock, lastQueriedBlock)
+	if lastQueriedBlock == 0 {
+		r.setScannedThrough(latest.Number)
+	} else {
+		r.setScannedThrough(lastQueriedBlock)
+	}
 
 	// Spans for pending tasks stay open here - sendReadyMessages reuses them
 	// instead of opening a new one per poll. Dropped tasks' spans are ended in
@@ -415,6 +426,19 @@ func (r *Service) processEventCycle(ctx context.Context, latest, finalized *prot
 		"advancedTo", newBlock,
 		"eventsFound", len(events))
 	return err == nil
+}
+
+func (r *Service) setScannedThrough(block uint64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.scannedThrough = &block
+}
+
+func blockBefore(block uint64) uint64 {
+	if block == 0 {
+		return 0
+	}
+	return block - 1
 }
 
 // tasksFromEvents shares filtering, ID validation and reader metadata between
@@ -585,27 +609,7 @@ func (r *Service) addToPendingQueueHandleReorg(tasks []verifier.VerificationTask
 	for msgID, existing := range r.pendingTasks {
 		if existing.BlockNumber >= fromBlock && (toBlock == 0 || existing.BlockNumber <= toBlock) {
 			if _, exists := tasksMap[msgID]; !exists {
-				span := tracing.SpanFromContext(existing.TraceContext)
-				span.AddEvent(monitoring.EventReorgRemovedPending,
-					oteltrace.WithAttributes(
-						attribute.String(tracing.BlockNumberKey, strconv.FormatUint(existing.BlockNumber, 10)),
-						attribute.String(tracing.SourceChainNameKey, existing.Message.SourceChainSelector.ChainName()),
-						attribute.String(tracing.SourceChainSelectorKey, existing.Message.SourceChainSelector.String()),
-						attribute.String(tracing.DestChainNameKey, existing.Message.DestChainSelector.ChainName()),
-						attribute.String(tracing.DestChainSelectorKey, existing.Message.DestChainSelector.String()),
-					),
-				)
-				span.End()
-				r.logger.Warnw("Removing task from pending queue due to reorg",
-					protocol.LogKeyMessageID, msgID,
-					"blockNumber", existing.BlockNumber,
-					protocol.LogKeySeqNum, existing.Message.SequenceNumber,
-					protocol.LogKeyDestChain, existing.Message.DestChainSelector,
-					"fromBlock", fromBlock,
-				)
-				r.reorgTracker.Track(existing.Message.DestChainSelector, existing.Message.SequenceNumber)
-				delete(r.pendingSince, msgID)
-				delete(r.pendingTasks, msgID)
+				r.removeReorgedPendingLocked(msgID, existing, fromBlock)
 			}
 		}
 	}
@@ -637,13 +641,26 @@ func (r *Service) addToPendingQueueHandleReorg(tasks []verifier.VerificationTask
 
 	for _, task := range tasks {
 		span := tracing.SpanFromContext(task.TraceContext)
-		if _, exists := r.pendingTasks[task.MessageID]; exists {
+		if existing, exists := r.pendingTasks[task.MessageID]; exists {
+			if existing.BlockNumber != task.BlockNumber || !bytes.Equal(existing.SourceBlockHash, task.SourceBlockHash) ||
+				!bytes.Equal(existing.TxHash, task.TxHash) {
+				r.updatePendingObservationLocked(existing, task)
+			}
 			// already tracked - span is a throwaway
 			span.AddEvent(monitoring.EventAlreadyTracked)
 			span.End()
 			continue
 		}
-		if _, alreadySent := r.sentTasks[task.MessageID]; alreadySent {
+		if sent, alreadySent := r.sentTasks[task.MessageID]; alreadySent {
+			if sent.BlockNumber != task.BlockNumber || !bytes.Equal(sent.SourceBlockHash, task.SourceBlockHash) {
+				r.logger.Warnw("Sent message found in a different block",
+					protocol.LogKeyMessageID, task.MessageID,
+					"previousBlock", sent.BlockNumber,
+					"blockNumber", task.BlockNumber)
+				sent.BlockNumber = task.BlockNumber
+				sent.SourceBlockHash = task.SourceBlockHash
+				r.sentTasks[task.MessageID] = sent
+			}
 			r.logger.Debugw("Skipping already-sent message",
 				protocol.LogKeyMessageID, task.MessageID,
 				"blockNumber", task.BlockNumber)
@@ -678,6 +695,106 @@ func (r *Service) addToPendingQueueHandleReorg(tasks []verifier.VerificationTask
 	}
 }
 
+// removeReorgedPendingLocked drops a pending task whose source event is not on the canonical chain.
+func (r *Service) removeReorgedPendingLocked(msgID string, existing verifier.VerificationTask, fromBlock uint64) {
+	span := tracing.SpanFromContext(existing.TraceContext)
+	span.AddEvent(monitoring.EventReorgRemovedPending,
+		oteltrace.WithAttributes(
+			attribute.String(tracing.BlockNumberKey, strconv.FormatUint(existing.BlockNumber, 10)),
+			attribute.String(tracing.SourceChainNameKey, existing.Message.SourceChainSelector.ChainName()),
+			attribute.String(tracing.SourceChainSelectorKey, existing.Message.SourceChainSelector.String()),
+			attribute.String(tracing.DestChainNameKey, existing.Message.DestChainSelector.ChainName()),
+			attribute.String(tracing.DestChainSelectorKey, existing.Message.DestChainSelector.String()),
+		),
+	)
+	span.End()
+	r.logger.Warnw("Removing task from pending queue due to reorg",
+		protocol.LogKeyMessageID, msgID,
+		"blockNumber", existing.BlockNumber,
+		protocol.LogKeySeqNum, existing.Message.SequenceNumber,
+		protocol.LogKeyDestChain, existing.Message.DestChainSelector,
+		"fromBlock", fromBlock,
+	)
+	r.reorgTracker.Track(existing.Message.DestChainSelector, existing.Message.SequenceNumber)
+	delete(r.pendingSince, msgID)
+	delete(r.pendingTasks, msgID)
+}
+
+// confirmBlockHashesLocked keeps the ready tasks whose block is still canonical. Tasks without a
+// block hash pass unchanged. unconfirmed is true when a task stays pending this cycle.
+func (r *Service) confirmBlockHashesLocked(ctx context.Context, ready []verifier.VerificationTask) (confirmed []verifier.VerificationTask, unconfirmed bool) {
+	blocks := make([]uint64, 0, len(ready))
+	for _, task := range ready {
+		if len(task.SourceBlockHash) > 0 {
+			blocks = append(blocks, task.BlockNumber)
+		}
+	}
+	slices.Sort(blocks)
+	blocks = slices.Compact(blocks)
+	if len(blocks) == 0 {
+		return ready, false
+	}
+
+	headerCtx, cancel := context.WithTimeout(ctx, r.pollTimeout)
+	defer cancel()
+	headers, err := r.sourceReader.GetBlocksHeaders(headerCtx, blocks)
+	if err != nil {
+		r.logger.Warnw("Failed to get block headers for ready tasks, retrying next cycle", "error", err)
+		headers = nil
+	}
+
+	confirmed = make([]verifier.VerificationTask, 0, len(ready))
+	for _, task := range ready {
+		if len(task.SourceBlockHash) == 0 {
+			confirmed = append(confirmed, task)
+			continue
+		}
+		header, ok := headers[task.BlockNumber]
+		switch {
+		case !ok:
+			unconfirmed = true
+		case bytes.Equal(header.Hash[:], task.SourceBlockHash):
+			confirmed = append(confirmed, task)
+		default:
+			unconfirmed = true
+			r.rescanFromLocked(task)
+		}
+	}
+	return confirmed, unconfirmed
+}
+
+// rescanFromLocked keeps a task whose block hash changed and moves the scan cursor below its block.
+// The next scan then finds the message in its current block or removes the task.
+func (r *Service) rescanFromLocked(task verifier.VerificationTask) {
+	r.logger.Warnw("Block hash of a ready task changed, scanning its block again",
+		protocol.LogKeyMessageID, task.MessageID,
+		"blockNumber", task.BlockNumber)
+	r.reorgTracker.Track(task.Message.DestChainSelector, task.Message.SequenceNumber)
+
+	rewindTo := blockBefore(task.BlockNumber)
+	if r.lastProcessedFinalizedBlock.Load() > rewindTo {
+		r.lastProcessedFinalizedBlock.Store(rewindTo)
+	}
+	if r.scannedThrough == nil || *r.scannedThrough > rewindTo {
+		r.scannedThrough = &rewindTo
+	}
+}
+
+// updatePendingObservationLocked replaces the source observation of a pending task and keeps its trace.
+func (r *Service) updatePendingObservationLocked(existing, observed verifier.VerificationTask) {
+	r.logger.Warnw("Pending message found in a different block, using the new block",
+		protocol.LogKeyMessageID, existing.MessageID,
+		"previousBlock", existing.BlockNumber,
+		"blockNumber", observed.BlockNumber)
+	tracing.SpanFromContext(existing.TraceContext).AddEvent(monitoring.EventReorgMovedPending,
+		oteltrace.WithAttributes(attribute.String(tracing.BlockNumberKey, strconv.FormatUint(observed.BlockNumber, 10))))
+	r.reorgTracker.Track(existing.Message.DestChainSelector, existing.Message.SequenceNumber)
+
+	observed.TraceContext = existing.TraceContext
+	observed.TraceParent = existing.TraceParent
+	r.pendingTasks[existing.MessageID] = observed
+}
+
 func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized *protocol.BlockHeader) bool {
 	stringSafeBlock := "unavailable"
 	if safe != nil {
@@ -707,7 +824,8 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 		r.mu.Lock()
 		defer r.mu.Unlock()
 		defer r.recordPendingMetricsLocked(ctx)
-		hasBlockingUnknown := false
+		// Each flag holds the checkpoint back for one cause, so the warning can name it.
+		var admissionUnknown, awaitingScan, unconfirmed bool
 
 		if r.disabled.Load() {
 			return 0
@@ -723,14 +841,27 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 		toBeDeleted := make([]string, 0)
 		auditDrops := make([]recovery.Event, 0)
 
+		checkpointCandidate := latestFinalizedBlock
+		if r.startBlockInitialized.Load() {
+			checkpointCandidate = r.lastProcessedFinalizedBlock.Load()
+		}
+
 		for msgID, task := range r.pendingTasks {
 			taskSpan := tracing.SpanFromContext(task.TraceContext)
 
+			if r.scannedThrough != nil && task.BlockNumber > *r.scannedThrough {
+				// Restart resumes at checkpoint+1, so an unpublished task
+				// at or below the checkpoint must prevent advancement.
+				if task.BlockNumber <= checkpointCandidate {
+					awaitingScan = true
+				}
+				continue
+			}
 			decision, reason, admissionErr := r.admission(ctx, task, latestBlock, latestSafeBlock, latestFinalizedBlock)
 			if admissionErr != nil {
 				r.logger.Warnw("Blocking message - admission state unknown", "messageID", msgID, "reason", reason, "error", admissionErr)
 				r.messageMetrics(task.Message).IncrementMessageTransition(ctx, monitoring.MessageTransitionStageAdmission, reason, reason)
-				hasBlockingUnknown = true
+				admissionUnknown = true
 				// Recorded but not ended - transient/unknown; the same span is reused next poll.
 				taskSpan.RecordError(admissionErr)
 				taskSpan.SetStatus(codes.Error, admissionErr.Error())
@@ -810,6 +941,8 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 			delete(r.pendingTasks, msgID)
 		}
 
+		ready, unconfirmed = r.confirmBlockHashesLocked(ctx, ready)
+
 		// Use lastProcessedFinalizedBlock as the safe checkpoint: it tracks how far SRS has
 		// successfully scanned from chain (may be less than finalized if there were fetch errors).
 		// Fall back to latestFinalizedBlock if not yet initialized (e.g. in unit tests that call
@@ -819,9 +952,11 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 			safeCheckpoint = r.lastProcessedFinalizedBlock.Load()
 		}
 
-		if hasBlockingUnknown {
-			// When drop/block rules are unknown we need to keep the checkpoint unchanged to avoid skipping messages.
-			r.logger.Warnw("Curse or message rules state unknown, keeping checkpoint unchanged to avoid skipped messages")
+		if admissionUnknown || awaitingScan || unconfirmed {
+			r.logger.Warnw("Pending tasks not settled, keeping checkpoint unchanged to avoid skipped messages",
+				"admissionStateUnknown", admissionUnknown,
+				"sourceBlockUnconfirmed", unconfirmed,
+				"awaitingScan", awaitingScan)
 			safeCheckpoint = 0
 		}
 

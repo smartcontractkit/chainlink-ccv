@@ -8,6 +8,7 @@ const (
 	// sourcereader.
 	EventChainEventDiscovered = "event_discovered"
 	EventReorgRemovedPending  = "reorg_removed_pending"
+	EventReorgMovedPending    = "reorg_moved_pending"
 	EventReorgRemovedSent     = "reorg_removed_sent"
 	EventAddedToPending       = "added_to_pending"
 	EventCursedDropped        = "cursed_dropped"
