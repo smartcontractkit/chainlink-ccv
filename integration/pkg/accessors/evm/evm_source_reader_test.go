@@ -199,6 +199,7 @@ func TestFetchMessageSentEvents_SourceMetadata(t *testing.T) {
 				BlockNumber:    95,
 				BlockTimestamp: tc.timestamp,
 				TxHash:         common.HexToHash("0xdeadbeef"),
+				BlockHash:      common.HexToHash("0xb10c"),
 			}
 			// Only FilterLogs is implemented: an added block or transaction RPC fails the test.
 			calls := 0
@@ -226,6 +227,7 @@ func TestFetchMessageSentEvents_SourceMetadata(t *testing.T) {
 			require.Len(t, events, 1)
 			require.Equal(t, protocol.UnknownAddress(tc.feeToken.Bytes()), events[0].FeeToken)
 			require.Equal(t, messageID, events[0].MessageID)
+			require.Equal(t, protocol.ByteSlice(common.HexToHash("0xb10c").Bytes()), events[0].BlockHash)
 			require.Equal(t, *message, events[0].Message)
 			// The reader surfaces the raw event. Normalizing it into the published policy view
 			// happens in verifier/pkg/policy and is covered there.
