@@ -725,10 +725,12 @@ func (r *Service) removeReorgedPendingLocked(msgID string, existing verifier.Ver
 func (r *Service) confirmBlockHashesLocked(ctx context.Context, ready []verifier.VerificationTask) (confirmed []verifier.VerificationTask, unconfirmed bool) {
 	blocks := make([]uint64, 0, len(ready))
 	for _, task := range ready {
-		if len(task.SourceBlockHash) > 0 && !slices.Contains(blocks, task.BlockNumber) {
+		if len(task.SourceBlockHash) > 0 {
 			blocks = append(blocks, task.BlockNumber)
 		}
 	}
+	slices.Sort(blocks)
+	blocks = slices.Compact(blocks)
 	if len(blocks) == 0 {
 		return ready, false
 	}
