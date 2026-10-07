@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	commontypes "github.com/smartcontractkit/chainlink-common/pkg/types"
 	evmclient "github.com/smartcontractkit/chainlink-evm/pkg/client"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client/clienttest"
 	"github.com/smartcontractkit/chainlink-evm/pkg/heads"
@@ -573,4 +574,20 @@ func TestNewEVMSourceReader_LogPollerFilter(t *testing.T) {
 		require.NoError(t, err)
 		require.Nil(t, reader.(*SourceReader).lp)
 	})
+}
+
+func TestFinalityViolated(t *testing.T) {
+	for name, tc := range map[string]struct {
+		healthy error
+		want    bool
+	}{
+		"finality violated":      {healthy: commontypes.ErrFinalityViolated, want: true},
+		"other unhealthy reason": {healthy: errors.New("rpc servers reported missing blocks"), want: false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			lp := lpmocks.NewLogPoller(t)
+			lp.EXPECT().Healthy().Return(tc.healthy).Once()
+			require.Equal(t, tc.want, (&SourceReader{lp: lp}).FinalityViolated())
+		})
+	}
 }

@@ -1,7 +1,10 @@
 package sourcereader
 
 import (
+	"sync/atomic"
 	"testing"
+
+	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -29,3 +32,14 @@ func (n *noopFilter) Filter(_ protocol.MessageSentEvent) bool { return true }
 
 // Ensure noopFilter satisfies the interface at compile time.
 var _ chainaccess.MessageFilter = (*noopFilter)(nil)
+
+// violationReportingReader is a source reader whose data source reports finality violations,
+// like the EVM reader backed by the log poller.
+type violationReportingReader struct {
+	*mocks.MockSourceReader
+	violated atomic.Bool
+}
+
+func (v *violationReportingReader) FinalityViolated() bool { return v.violated.Load() }
+
+var _ chainaccess.FinalityViolationReporter = (*violationReportingReader)(nil)

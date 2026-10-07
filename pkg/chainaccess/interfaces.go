@@ -63,6 +63,13 @@ type CriticalSourceInvariantCallbackSetter interface {
 	SetCriticalSourceInvariantCallback(callback func(context.Context))
 }
 
+// FinalityViolationReporter is an optional SourceReader capability for readers whose data source
+// detects finality violations itself, such as the EVM log poller.
+type FinalityViolationReporter interface {
+	// FinalityViolated reports whether the reader's data source currently detects a finality violation.
+	FinalityViolated() bool
+}
+
 // ExecutorMonitoringSetter is an optional capability of accessor-provided destination readers and
 // contract transmitters. Accessor factories build these components before the executor's
 // process-level monitoring exists, so they hold a no-op implementation; the executor attaches the

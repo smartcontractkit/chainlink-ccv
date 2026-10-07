@@ -9,7 +9,10 @@ import (
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 )
 
-var _ chainaccess.SourceReader = (*observedSourceReader)(nil)
+var (
+	_ chainaccess.SourceReader              = (*observedSourceReader)(nil)
+	_ chainaccess.FinalityViolationReporter = (*observedSourceReader)(nil)
+)
 
 // observedSourceReader wraps a SourceReader and use a decorator pattern to track various metrics.
 // Currently, it tracks the latest and finalized block numbers observed from the source chain.
@@ -80,4 +83,10 @@ func (o observedSourceReader) LatestSafeBlock(ctx context.Context) (*protocol.Bl
 			RecordSourceChainSafeBlock(ctx, int64(safe.Number))
 	}
 	return safe, err
+}
+
+// FinalityViolated forwards to the delegate so the wrapper does not hide its finality reporting.
+func (o observedSourceReader) FinalityViolated() bool {
+	reporter, ok := o.SourceReader.(chainaccess.FinalityViolationReporter)
+	return ok && reporter.FinalityViolated()
 }

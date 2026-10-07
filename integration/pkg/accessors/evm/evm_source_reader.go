@@ -20,6 +20,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_6_0/rmn_remote"
 	"github.com/smartcontractkit/chainlink-ccv/common/lazy"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	commontypes "github.com/smartcontractkit/chainlink-common/pkg/types"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 	"github.com/smartcontractkit/chainlink-evm/pkg/heads"
 	"github.com/smartcontractkit/chainlink-evm/pkg/logpoller"
@@ -34,6 +35,7 @@ import (
 var (
 	_ chainaccess.SourceReader                          = (*SourceReader)(nil)
 	_ chainaccess.CriticalSourceInvariantCallbackSetter = (*SourceReader)(nil)
+	_ chainaccess.FinalityViolationReporter             = (*SourceReader)(nil)
 )
 
 // DefaultMessageSentLogRetention is how long the log poller keeps CCIPMessageSent logs. It must
@@ -365,6 +367,12 @@ func (r *SourceReader) logPollerLogs(ctx context.Context, fromBlock, toBlock uin
 		logs = append(logs, l)
 	}
 	return logs, nil
+}
+
+// FinalityViolated reports whether the log poller has detected a finality violation; false
+// without a log poller.
+func (r *SourceReader) FinalityViolated() bool {
+	return r.lp != nil && errors.Is(r.lp.Healthy(), commontypes.ErrFinalityViolated)
 }
 
 // logPollerBlock returns the last block the log poller has processed.

@@ -809,6 +809,58 @@ func TestSRS_FinalityViolation_DisablesChainAndFlushesTasks(t *testing.T) {
 	require.Len(t, srs.sentTasks, 0, "sent tasks should be flushed on finality violation")
 }
 
+func TestSRS_SourceReaderFinalityViolation_DisablesChainAndStaysDisabled(t *testing.T) {
+	ctx := context.Background()
+	chain := protocol.ChainSelector(1337)
+	reader := &violationReportingReader{MockSourceReader: mocks.NewMockSourceReader(t)}
+
+	chainStatusMgr := mocks.NewMockChainStatusManager(t)
+	chainStatusMgr.EXPECT().
+		WriteChainStatuses(mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, infos []protocol.ChainStatusInfo) error {
+			require.Len(t, infos, 1)
+			require.True(t, infos[0].Disabled)
+			return nil
+		}).Once()
+
+	srs, _, _ := newTestSRS(t, chain, reader.MockSourceReader, chainStatusMgr, mocks.NewMockCurseCheckerService(t), 10*time.Millisecond, 5000)
+	srs.sourceReader = reader
+	reader.violated.Store(true)
+
+	msgs := createTestMessageSentEvents(t, 1, chain, defaultDestChain, []uint64{940})
+	task := verifier.VerificationTask{Message: msgs[0].Message, BlockNumber: msgs[0].BlockNumber, MessageID: msgs[0].MessageID.String()}
+	srs.mu.Lock()
+	srs.pendingTasks[task.MessageID] = task
+	srs.mu.Unlock()
+
+	latest := &protocol.BlockHeader{Number: 1000}
+	finalized := &protocol.BlockHeader{Number: 950}
+	require.False(t, srs.sendReadyMessages(ctx, latest, nil, finalized))
+	require.True(t, srs.disabled.Load(), "a source-reported violation must disable the chain")
+	srs.mu.RLock()
+	require.Empty(t, srs.pendingTasks, "pending tasks should be flushed")
+	srs.mu.RUnlock()
+
+	// The halt is latched: the source clearing its flag must not resume the reader.
+	reader.violated.Store(false)
+	require.False(t, srs.sendReadyMessages(ctx, latest, nil, finalized))
+	require.True(t, srs.disabled.Load())
+}
+
+func TestSRS_SourceReaderFinalityViolation_IgnoredWhenFinalityCheckerDisabled(t *testing.T) {
+	ctx := context.Background()
+	chain := protocol.ChainSelector(1337)
+	reader := &violationReportingReader{MockSourceReader: mocks.NewMockSourceReader(t)}
+
+	srs, _, _ := newTestSRS(t, chain, reader.MockSourceReader, mocks.NewMockChainStatusManager(t), mocks.NewMockCurseCheckerService(t), 10*time.Millisecond, 5000)
+	srs.sourceReader = reader
+	srs.sourceCfg.DisableFinalityChecker = true
+	reader.violated.Store(true)
+
+	require.True(t, srs.sendReadyMessages(ctx, &protocol.BlockHeader{Number: 1000}, nil, &protocol.BlockHeader{Number: 950}))
+	require.False(t, srs.disabled.Load())
+}
+
 func TestSRS_Reorg_TracksSequenceNumbers(t *testing.T) {
 	chain := protocol.ChainSelector(1337)
 	reader := mocks.NewMockSourceReader(t)
