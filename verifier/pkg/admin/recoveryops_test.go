@@ -151,13 +151,12 @@ func enabledChainStatuses() recoveryChainStatusesStub {
 func newRecoveryTestRouter(t *testing.T, store recoverycli.Store, statuses chainStatusLister, actions *ActionLog) *gin.Engine {
 	t.Helper()
 	oldStore, oldStatuses := recoveryStoreOf, chainStatusesOf
-	recoveryStoreOf = func(*Node) (recoverycli.Store, error) { return store, nil }
-	chainStatusesOf = func(*Node) (chainStatusLister, error) { return statuses, nil }
+	recoveryStoreOf = func(stores) recoverycli.Store { return store }
+	chainStatusesOf = func(stores) chainStatusLister { return statuses }
 	t.Cleanup(func() { recoveryStoreOf, chainStatusesOf = oldStore, oldStatuses })
 
 	gin.SetMode(gin.TestMode)
-	n := NewNode(NodeConfig{Name: "node-a", SecretsPath: "/nonexistent/secrets.toml"}, logger.Test(t))
-	h := &handlers{cfg: &Config{}, lggr: logger.Test(t), nodes: []*Node{n}, actions: actions}
+	h := &handlers{cfg: &Config{}, lggr: logger.Test(t), actions: actions}
 	r := gin.New()
 	h.registerRecoveryRoutes(r)
 	return r
@@ -173,7 +172,6 @@ func postForm(r *gin.Engine, path string, form url.Values) *httptest.ResponseRec
 
 func recoverySubmitForm(mode string) url.Values {
 	return url.Values{
-		"nodes":      {"node-a"},
 		"owner":      {"owner-1"},
 		"chain":      {"1"},
 		"from_block": {"100"},
@@ -206,7 +204,7 @@ func TestRecoveryReplayBlockedWhenReaderDisabled(t *testing.T) {
 	// The refusal is audited as a failed recovery-submit.
 	vals := captured.execValues(t, 0)
 	require.Equal(t, "recovery-submit", vals[1])
-	require.Equal(t, "failed", vals[5])
+	require.Equal(t, "failed", vals[4])
 
 	// reset-reader is the allowed investigated action for the same disabled reader.
 	rec = postForm(r, "/recovery/submit", recoverySubmitForm("reset-reader"))
@@ -244,17 +242,17 @@ func TestRecoverySubmitRecordsActionLogWithOperationID(t *testing.T) {
 	require.NotEmpty(t, gotReq.ID, "fresh request ID generated when none resubmitted")
 
 	// The intent row precedes the submission; the outcome row follows it.
+	// Column order of ActionLog.Record's INSERT: actor, action, target, op, outcome, detail.
 	intent := captured.execValues(t, 0)
 	require.Equal(t, "recovery-submit", intent[1])
-	require.Equal(t, "node-a", intent[2])
-	require.Equal(t, "started", intent[5])
+	require.Contains(t, intent[2], "owner=owner-1")
+	require.Equal(t, "started", intent[4])
 
 	vals := captured.execValues(t, 1)
 	require.Equal(t, "local", vals[0])
 	require.Equal(t, "recovery-submit", vals[1])
-	require.Equal(t, "node-a", vals[2])
-	require.Equal(t, opID, vals[4])
-	require.Equal(t, "success", vals[5])
+	require.Equal(t, opID, vals[3])
+	require.Equal(t, "success", vals[4])
 }
 
 func TestRecoveryCancelResumeMapToChangeStateAndLog(t *testing.T) {
@@ -273,30 +271,30 @@ func TestRecoveryCancelResumeMapToChangeStateAndLog(t *testing.T) {
 	}
 	r := newRecoveryTestRouter(t, store, enabledChainStatuses(), actions)
 
-	rec := postForm(r, "/recovery/operations/"+opID+"/cancel", url.Values{"node": {"node-a"}})
+	rec := postForm(r, "/recovery/operations/"+opID+"/cancel", url.Values{})
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Contains(t, rec.Body.String(), "cancelled")
 	require.Equal(t, opID, gotID)
 	require.Equal(t, "cancel", gotAction)
 	intent := captured.execValues(t, 0)
 	require.Equal(t, "recovery-cancel", intent[1])
-	require.Equal(t, "started", intent[5])
+	require.Equal(t, "started", intent[4])
 	vals := captured.execValues(t, 1)
 	require.Equal(t, "recovery-cancel", vals[1])
-	require.Equal(t, opID, vals[4])
-	require.Equal(t, "success", vals[5])
+	require.Equal(t, opID, vals[3])
+	require.Equal(t, "success", vals[4])
 
-	rec = postForm(r, "/recovery/operations/"+opID+"/resume", url.Values{"node": {"node-a"}})
+	rec = postForm(r, "/recovery/operations/"+opID+"/resume", url.Values{})
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Contains(t, rec.Body.String(), "accepted")
 	require.Equal(t, "resume", gotAction)
 	intent = captured.execValues(t, 2)
 	require.Equal(t, "recovery-resume", intent[1])
-	require.Equal(t, "started", intent[5])
+	require.Equal(t, "started", intent[4])
 	vals = captured.execValues(t, 3)
 	require.Equal(t, "recovery-resume", vals[1])
-	require.Equal(t, opID, vals[4])
-	require.Equal(t, "success", vals[5])
+	require.Equal(t, opID, vals[3])
+	require.Equal(t, "success", vals[4])
 }
 
 func TestRecoveryOperationsReadsOnlyStoreState(t *testing.T) {
@@ -364,7 +362,7 @@ func TestRecoveryEvidenceRendersCoverageGapText(t *testing.T) {
 	r := newRecoveryTestRouter(t, store, enabledChainStatuses(), nil)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/recovery/evidence?nodes=node-a&owner=owner-1&chain=1", nil)
+	req := httptest.NewRequest(http.MethodGet, "/recovery/evidence?owner=owner-1&chain=1", nil)
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
 	body := rec.Body.String()

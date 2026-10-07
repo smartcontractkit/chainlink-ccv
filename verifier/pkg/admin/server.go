@@ -13,71 +13,69 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jmoiron/sqlx"
 
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/api/middleware"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/admin/views"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vsecrets"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 const csrfCookieName = "ccv_admin_csrf"
 
+// Deps are the in-process dependencies the console needs from the verifier it runs
+// beside: its application database (migrations already applied) and its secrets.
+type Deps struct {
+	// DB is the verifier's application database. The action log is written here too.
+	DB *sqlx.DB
+	// Auth is the basic-auth credential from the verifier secrets file's [admin_ui]
+	// table; nil serves without basic auth (the loopback personal-tool default).
+	Auth *BasicAuth
+	// AggregatorAddress (host:port) enables attestation freshness checks; empty
+	// disables them and reschedule execution stays blocked on "unknown".
+	AggregatorAddress string
+}
+
 // Server is the admin console HTTP server.
 type Server struct {
 	cfg       *Config
 	lggr      logger.Logger
-	nodes     []*Node
-	actions   *ActionLog // nil in read-only mode
-	basicAuth *BasicAuth // nil when the secrets file carries no [admin_ui]
+	stores    stores
+	actions   *ActionLog
+	basicAuth *BasicAuth
 	router    *gin.Engine
 	httpSrv   *http.Server
 }
 
-// NewServer builds the console. Node databases connect lazily on first use; the console
-// database connects eagerly so read-only mode is known at startup. The access policy
-// (non-loopback needs an identity source) is enforced here, where the console secrets
-// are available.
-func NewServer(cfg *Config, lggr logger.Logger) (*Server, error) {
+// NewServer builds the console over the verifier's own database. The access policy
+// (non-loopback needs an identity source) is enforced here, where the secrets-derived
+// credential is available.
+func NewServer(cfg *Config, deps Deps, lggr logger.Logger) (*Server, error) {
 	if cfg == nil {
 		return nil, errors.New("config is required")
 	}
-	secretsPath := cfg.ResolveConsoleSecretsPath()
-	secrets, err := vsecrets.Load(secretsPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load console secrets file: %w", err)
+	if deps.DB == nil {
+		return nil, errors.New("the verifier application database is required")
 	}
-	auth, err := BasicAuthFromSecrets(secrets)
-	if err != nil {
+	if err := ValidateAccessPolicy(cfg, deps.Auth); err != nil {
 		return nil, err
 	}
-	if err := ValidateAccessPolicy(cfg, auth); err != nil {
-		return nil, err
+	s := &Server{
+		cfg:       cfg,
+		lggr:      logger.With(lggr, "component", "AdminConsole"),
+		stores:    stores{db: deps.DB, lggr: lggr},
+		actions:   NewActionLog(deps.DB),
+		basicAuth: deps.Auth,
 	}
-	consoleDB, err := openConsoleDB(lggr, secrets, secretsPath)
-	if err != nil {
-		return nil, err
-	}
-	s := &Server{cfg: cfg, lggr: logger.With(lggr, "component", "AdminConsole"), basicAuth: auth}
-	for _, nc := range cfg.Nodes {
-		s.nodes = append(s.nodes, NewNode(nc, lggr))
-	}
-	if consoleDB != nil {
-		s.actions = NewActionLog(consoleDB)
-	}
-	s.router = s.buildRouter()
+	s.router = s.buildRouter(deps.AggregatorAddress)
 	return s, nil
 }
 
-// ReadOnly reports whether the console has no action-log database and therefore
-// refuses mutations.
-func (s *Server) ReadOnly() bool { return s.actions == nil }
-
-func (s *Server) buildRouter() *gin.Engine {
+func (s *Server) buildRouter(aggregatorAddress string) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(middleware.GinLogger(s.lggr), middleware.SecureRecovery(s.lggr), s.securityHeaders, s.actorMiddleware, s.basicAuthMiddleware, s.csrfMiddleware)
 
-	h := &handlers{cfg: s.cfg, lggr: s.lggr, nodes: s.nodes, actions: s.actions}
+	h := &handlers{cfg: s.cfg, lggr: s.lggr, stores: s.stores, actions: s.actions, aggregatorAddress: aggregatorAddress}
 	staticSub, err := fs.Sub(views.StaticFS, "static")
 	if err != nil {
 		s.lggr.Errorw("failed to mount static assets", "error", err)
@@ -101,7 +99,7 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 	errCh := make(chan error, 1)
 	go func() {
-		s.lggr.Infow("admin console listening", "address", s.cfg.ListenAddress, "readOnly", s.ReadOnly())
+		s.lggr.Infow("admin console listening", "address", s.cfg.ListenAddress)
 		if err := s.httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}
@@ -113,12 +111,6 @@ func (s *Server) Run(ctx context.Context) error {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		return s.httpSrv.Shutdown(shutdownCtx)
-	}
-}
-
-func (s *Server) Close() {
-	for _, n := range s.nodes {
-		n.Close()
 	}
 }
 
@@ -138,7 +130,7 @@ func (s *Server) actorMiddleware(c *gin.Context) {
 	c.Next()
 }
 
-// basicAuthMiddleware gates every route except /healthz when the console secrets file
+// basicAuthMiddleware gates every route except /healthz when the verifier secrets file
 // carries an [admin_ui] credential. Both comparisons are constant-time. The
 // authenticated username becomes the actor (outranking the proxy header).
 func (s *Server) basicAuthMiddleware(c *gin.Context) {

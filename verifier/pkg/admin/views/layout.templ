@@ -20,7 +20,6 @@ templ Layout(title string) {
 						<span>CCV <strong>Admin</strong></span>
 					</a>
 					<nav>
-						@navLink("/", "Nodes", title)
 						@navLink("/search", "Message search", title)
 						@navLink("/recovery", "Source recovery", title)
 						@navLink("/actions", "Action log", title)
@@ -58,8 +57,6 @@ templ navLink(href, label, title string) {
 // navSection maps a page title to its nav item so sub-pages highlight their section.
 func navSection(title string) string {
 	switch title {
-	case "Nodes":
-		return "/"
 	case "Message search", "Message detail", "Reschedule preview", "Reschedule results":
 		return "/search"
 	case "Source recovery":

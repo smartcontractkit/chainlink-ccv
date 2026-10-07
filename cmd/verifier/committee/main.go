@@ -20,12 +20,6 @@ func main() {
 		return
 	}
 
-	// A present console config serves the admin UI as a sibling process in this
-	// container; the verifier's own lifecycle is unaffected.
-	if stopConsole := cmd.StartAdminConsoleSibling(); stopConsole != nil {
-		defer stopConsole()
-	}
-
 	if err := bootstrap.Run(
 		"EVMCommitteeVerifier",
 		cmd.NewCommitteeVerifierServiceFactory(),

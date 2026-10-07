@@ -14,7 +14,6 @@ type Action struct {
 	ID          int64     `db:"id"`
 	Actor       string    `db:"actor"`
 	Action      string    `db:"action"`
-	NodeName    string    `db:"node_name"`
 	Target      string    `db:"target"`
 	OperationID string    `db:"operation_id"`
 	Outcome     string    `db:"outcome"`
@@ -22,8 +21,8 @@ type Action struct {
 	CreatedAt   time.Time `db:"created_at"`
 }
 
-// ActionLog is the durable record of every console mutation. It lives in the console's
-// own database, never in a node database.
+// ActionLog is the durable record of every console mutation. It lives in the verifier's
+// application database (ccv_admin_actions), alongside the stores the console manages.
 type ActionLog struct {
 	ds *sqlx.DB
 }
@@ -34,9 +33,9 @@ func NewActionLog(ds *sqlx.DB) *ActionLog {
 
 func (l *ActionLog) Record(ctx context.Context, a Action) error {
 	_, err := l.ds.ExecContext(ctx, `
-		INSERT INTO ccv_admin_actions (actor, action, node_name, target, operation_id, outcome, detail)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-		a.Actor, a.Action, a.NodeName, a.Target, a.OperationID, a.Outcome, a.Detail)
+		INSERT INTO ccv_admin_actions (actor, action, target, operation_id, outcome, detail)
+		VALUES ($1, $2, $3, $4, $5, $6)`,
+		a.Actor, a.Action, a.Target, a.OperationID, a.Outcome, a.Detail)
 	if err != nil {
 		return fmt.Errorf("failed to record action: %w", err)
 	}
@@ -50,7 +49,7 @@ func (l *ActionLog) List(ctx context.Context, limit int, beforeID int64) ([]Acti
 	}
 	var actions []Action
 	err := l.ds.SelectContext(ctx, &actions, `
-		SELECT id, actor, action, node_name, target, operation_id, outcome, detail, created_at
+		SELECT id, actor, action, target, operation_id, outcome, detail, created_at
 		FROM ccv_admin_actions
 		WHERE ($1 = 0 OR id < $1)
 		ORDER BY id DESC

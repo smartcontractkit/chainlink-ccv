@@ -2,18 +2,12 @@ package admin
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"strings"
-	"sync"
 	"time"
 
 	"google.golang.org/grpc/codes"
 
 	"github.com/smartcontractkit/chainlink-ccv/integration/storageaccess"
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
 // AttestationState is the outcome of the per-message freshness check. Unknown is never
@@ -35,21 +29,18 @@ type AttestationResult struct {
 // attestationCallTimeout bounds every external freshness call so a preview never hangs.
 const attestationCallTimeout = 5 * time.Second
 
-// checkNodeAttestations checks each message against the node's first configured
-// source: aggregator gRPC preferred, indexer HTTP otherwise. Results align with messageIDs.
-func checkNodeAttestations(ctx context.Context, cfg NodeConfig, messageIDs [][]byte) []AttestationResult {
-	switch {
-	case cfg.AggregatorAddress != "":
-		return checkAggregatorAttestations(ctx, cfg.AggregatorAddress, messageIDs)
-	case cfg.IndexerURL != "":
-		return checkIndexerAttestations(ctx, cfg.IndexerURL, messageIDs)
-	default:
+// checkAttestations checks each message against the aggregator's read path. An empty
+// address means freshness checks are not configured: every result is Unknown, which
+// disables execution rather than proving a replay is needed.
+func checkAttestations(ctx context.Context, aggregatorAddress string, messageIDs [][]byte) []AttestationResult {
+	if aggregatorAddress == "" {
 		results := make([]AttestationResult, len(messageIDs))
 		for i := range results {
-			results[i] = AttestationResult{AttestationUnknown, "attestation check not configured for this node (needs aggregator_address or indexer_url)"}
+			results[i] = AttestationResult{AttestationUnknown, "attestation check not configured (no aggregator address)"}
 		}
 		return results
 	}
+	return checkAggregatorAttestations(ctx, aggregatorAddress, messageIDs)
 }
 
 // dialVerifierClient opens the aggregator's read path for freshness checks. A var so
@@ -104,63 +95,4 @@ func aggregatorEntryResult(entries []storageaccess.ResultEntry, i int) Attestati
 		return AttestationResult{AttestationAttested, "aggregator holds ccv data for this message"}
 	}
 	return AttestationResult{AttestationNotFound, "aggregator returned empty ccv data"}
-}
-
-// indexerClient has no client-side timeout; every request carries attestationCallTimeout.
-var indexerClient = &http.Client{}
-
-// indexerResultsBody is the minimal decode of the indexer's by-message-ID response;
-// only ccv_data presence matters here.
-type indexerResultsBody struct {
-	Results []struct {
-		VerifierResult struct {
-			CCVData protocol.ByteSlice `json:"ccv_data"`
-		} `json:"verifierResult"`
-	} `json:"results"`
-}
-
-func checkIndexerAttestations(ctx context.Context, baseURL string, messageIDs [][]byte) []AttestationResult {
-	results := make([]AttestationResult, len(messageIDs))
-	var wg sync.WaitGroup
-	for i, id := range messageIDs {
-		wg.Go(func() {
-			results[i] = checkIndexerAttestation(ctx, baseURL, id)
-		})
-	}
-	wg.Wait()
-	return results
-}
-
-// checkIndexerAttestation does GET <base>/v1/verifierresults/<0x messageID>: 200 with
-// ccv data is attested, 404 is not found, anything else is unknown.
-func checkIndexerAttestation(ctx context.Context, baseURL string, messageID []byte) AttestationResult {
-	callCtx, cancel := context.WithTimeout(ctx, attestationCallTimeout)
-	defer cancel()
-	url := strings.TrimSuffix(baseURL, "/") + "/v1/verifierresults/" + formatMessageID(messageID)
-	req, err := http.NewRequestWithContext(callCtx, http.MethodGet, url, nil)
-	if err != nil {
-		return AttestationResult{AttestationUnknown, "invalid indexer URL: " + err.Error()}
-	}
-	resp, err := indexerClient.Do(req)
-	if err != nil {
-		return AttestationResult{AttestationUnknown, "indexer unreachable: " + err.Error()}
-	}
-	defer func() { _ = resp.Body.Close() }()
-	switch resp.StatusCode {
-	case http.StatusOK:
-		var body indexerResultsBody
-		if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&body); err != nil {
-			return AttestationResult{AttestationUnknown, "indexer response not parseable: " + err.Error()}
-		}
-		for _, r := range body.Results {
-			if len(r.VerifierResult.CCVData) > 0 {
-				return AttestationResult{AttestationAttested, "indexer holds ccv data for this message"}
-			}
-		}
-		return AttestationResult{AttestationNotFound, "indexer returned no ccv data"}
-	case http.StatusNotFound:
-		return AttestationResult{AttestationNotFound, "indexer has no result for this message"}
-	default:
-		return AttestationResult{AttestationUnknown, fmt.Sprintf("indexer returned status %d", resp.StatusCode)}
-	}
 }

@@ -4,7 +4,7 @@ _Last reviewed: 2026-09-23._
 
 Use after [unverified-message triage](./unverified-message-after-15-minutes.md) or [unexecuted-message triage](./unexecuted-message-after-15-minutes.md) identifies the affected owner, source and messages. Recovery is per affected committee member and database.
 
-When the [admin console](../verifier/admin-console.md) is deployed, it is the primary path: it searches all of your configured verifier databases at once and drives every action below from the browser, recording each mutation in its action log. The CLI steps in this runbook remain the documented fallback, and the only option for databases the console is not configured for. Cross-node fan-out beyond the console's configured node list remains an operator or deployment-layer responsibility.
+When the [admin console](../verifier/admin-console.md) is deployed, it is the primary path: each verifier serves its own console in-process, driving every action below from the browser and recording each mutation in its action log. The console administers the one verifier it runs beside, so repeat the flow per affected committee member; the CLI steps in this runbook remain the documented fallback.
 
 ## 1. Pick the Lever
 
@@ -44,7 +44,7 @@ Drop evidence is separate from archives. It is retained for 30 days since its la
 
 ## 3. Reschedule a Single Dropped Message
 
-**Console path:** search the full message ID on the console's message search page, open the message detail, and use the reschedule action there. The preview shows the exact nodes, owners and jobs the reschedule will touch and rechecks attestation state before anything mutates; the action is recorded in the console's action log. The CLI steps below are the fallback.
+**Console path:** search the full message ID on the console's message search page, open the message detail, and use the reschedule action there. The preview shows the exact owners and jobs the reschedule will touch and rechecks attestation state before anything mutates; the action is recorded in the console's action log. The CLI steps below are the fallback.
 
 1. Resolve the cause first. A policy endpoint must return PASS for the message before replay can succeed. Confirm that the source event remains valid and the message has not already been attested through another path.
 2. Point the CLI at the affected member's database and find the full message IDs:
@@ -152,4 +152,4 @@ Use [aggregator message-disablement rules](../../aggregator/cli/messagedisableme
 
 ## 6. Deployment and Coverage Limits
 
-The new recovery/job-queue commands are exposed by the standalone verifier. Wiring them into Chainlink core and indexer engine changes are outside this change; the [admin console](../verifier/admin-console.md) now provides the UI over these flows and the cross-node discovery for one operator's configured verifier databases. Owner inference is local to one selected archive queue/database; source recovery always requires an explicit owner. There is no per-message policy bypass. Keep canonical-chain investigation and final-result verification in the operator workflow.
+The new recovery/job-queue commands are exposed by the standalone verifier. Wiring them into Chainlink core and indexer engine changes are outside this change; the [admin console](../verifier/admin-console.md) now provides the UI over these flows for the verifier it runs beside. Owner inference is local to one selected archive queue/database; source recovery always requires an explicit owner. There is no per-message policy bypass. Keep canonical-chain investigation and final-result verification in the operator workflow.

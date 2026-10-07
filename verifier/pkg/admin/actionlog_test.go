@@ -9,19 +9,20 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
 )
 
+// TestActionLogRoundTrip proves the verifier migrations create the console's action
+// table (testutil.NewTestDB has already run them) and that Record/List round-trip.
 func TestActionLogRoundTrip(t *testing.T) {
 	db := testutil.NewTestDB(t)
-	require.NoError(t, runAdminMigrations(db))
 
 	log := NewActionLog(db)
 	ctx := context.Background()
 	require.NoError(t, log.Record(ctx, Action{
-		Actor: "alice@example.com", Action: "reschedule", NodeName: "verifier-1",
+		Actor: "alice@example.com", Action: "reschedule",
 		Target: "0xabc", Outcome: "success", Detail: "job restored to active queue",
 	}))
 	require.NoError(t, log.Record(ctx, Action{
-		Actor: "alice@example.com", Action: "reschedule", NodeName: "verifier-2",
-		Target: "0xabc", Outcome: "failed", Detail: "node unreachable",
+		Actor: "alice@example.com", Action: "reschedule",
+		Target: "0xdef", Outcome: "failed", Detail: "active job may already exist",
 	}))
 
 	actions, err := log.List(ctx, 100, 0)
@@ -34,14 +35,4 @@ func TestActionLogRoundTrip(t *testing.T) {
 	older, err := log.List(ctx, 100, actions[0].ID)
 	require.NoError(t, err)
 	require.Len(t, older, 1)
-}
-
-// TestActionLogMigrationsCoexistWithVerifierMigrations proves the console can share a
-// database with a verifier: testutil.NewTestDB has already run the verifier migrations,
-// and the admin migrations still apply cleanly on their own goose table.
-func TestActionLogMigrationsCoexistWithVerifierMigrations(t *testing.T) {
-	db := testutil.NewTestDB(t)
-	require.NoError(t, runAdminMigrations(db))
-	// Idempotent on a second console start.
-	require.NoError(t, runAdminMigrations(db))
 }

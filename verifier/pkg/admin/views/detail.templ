@@ -8,13 +8,12 @@ import (
 )
 
 // DetailVM is the message-detail page model. UnreachableDetail non-empty means the
-// node's database was not available and no lookups ran; the per-section Detail fields
-// mark individual lookups that failed and are rendered as errors, never as empties.
+// verifier's database was not available and no lookups ran; the per-section Detail
+// fields mark individual lookups that failed and are rendered as errors, never as
+// empties.
 type DetailVM struct {
-	NodeName          string
 	MessageID         string
 	TraceURL          string
-	IndexerURL        string
 	UnreachableDetail string
 	ArchiveDetail     string
 	Failed            []ArchivedJobVM
@@ -50,7 +49,7 @@ type DropEventVM struct {
 	ExpiresAt     time.Time
 }
 
-// ChainStatusVM is the node's chain-status row for the message's source chain.
+// ChainStatusVM is the chain-status row for the message's source chain.
 type ChainStatusVM struct {
 	ChainSelector   string
 	VerifierID      string
@@ -62,19 +61,15 @@ type ChainStatusVM struct {
 templ DetailPage(csrfToken string, vm DetailVM) {
 	@Layout("Message detail") {
 		<h1>Message <code class="mid">{ vm.MessageID }</code></h1>
-		<p>
-			Node: <code>{ vm.NodeName }</code>
-			if vm.TraceURL != "" {
-				| <a href={ templ.SafeURL(vm.TraceURL) }>Trace viewer</a>
-			}
-			if vm.IndexerURL != "" {
-				| <a href={ templ.SafeURL(vm.IndexerURL) }>Indexer</a>
-			}
-		</p>
+		if vm.TraceURL != "" {
+			<p>
+				<a href={ templ.SafeURL(vm.TraceURL) }>Trace viewer</a>
+			</p>
+		}
 		if vm.UnreachableDetail != "" {
 			<div class="error">
-				Node unreachable: { vm.UnreachableDetail }. Nothing on this page was looked up — treat the
-				message's state on this node as unknown, not absent.
+				Database unavailable: { vm.UnreachableDetail }. Nothing on this page was looked up — treat the
+				message's state as unknown, not absent.
 			</div>
 		} else {
 			@detailVerdict(vm)
@@ -91,7 +86,7 @@ templ DetailPage(csrfToken string, vm DetailVM) {
 templ detailVerdict(vm DetailVM) {
 	if len(vm.Failed) > 0 {
 		<div class="banner">
-			{ fmt.Sprint(len(vm.Failed)) } archived failed job(s) for this message on this node — reschedule below.
+			{ fmt.Sprint(len(vm.Failed)) } archived failed job(s) for this message — reschedule below.
 		</div>
 	} else if len(vm.Events) > 0 {
 		<div class="banner">
@@ -100,9 +95,9 @@ templ detailVerdict(vm DetailVM) {
 			source re-read from the <a href="/recovery">source recovery</a> page.
 		</div>
 	} else if vm.ArchiveDetail == "" && vm.EventsDetail == "" {
-		<p><em>Message not found on this node: no archived failed jobs and no observed drop/incident events.</em></p>
+		<p><em>Message not found: no archived failed jobs and no observed drop/incident events.</em></p>
 	} else {
-		<div class="banner">Some lookups failed, so the message's state on this node is unknown — see the errors below.</div>
+		<div class="banner">Some lookups failed, so the message's state is unknown — see the errors below.</div>
 	}
 }
 
@@ -111,7 +106,7 @@ templ detailArchive(csrfToken string, vm DetailVM) {
 	if vm.ArchiveDetail != "" {
 		<div class="error">Archive lookup failed: { vm.ArchiveDetail }. Treat the archive as unknown.</div>
 	} else if len(vm.Failed) == 0 {
-		<p><em>No archived failed jobs for this message on this node.</em></p>
+		<p><em>No archived failed jobs for this message.</em></p>
 	} else {
 		<div class="table-wrap">
 			<table>
@@ -171,7 +166,7 @@ templ detailArchive(csrfToken string, vm DetailVM) {
 templ detailAttestation() {
 	<details class="explain">
 		<summary>Attestation freshness is not checked on this page</summary>
-		The aggregator/indexer attestation check runs at reschedule-preview time, before any
+		The aggregator attestation check runs at reschedule-preview time, before any
 		job is restored.
 	</details>
 }
@@ -238,7 +233,7 @@ templ detailChainStatus(vm DetailVM) {
 	} else if vm.SourceChain == "" {
 		<p><em>Source chain unknown — no archive rows or observed events name it.</em></p>
 	} else if len(vm.Chains) == 0 {
-		<p><em>No chain-status rows for source chain { vm.SourceChain } on this node.</em></p>
+		<p><em>No chain-status rows for source chain { vm.SourceChain }.</em></p>
 	} else {
 		<div class="table-wrap">
 			<table>

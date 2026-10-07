@@ -6,7 +6,6 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -86,20 +85,16 @@ func detailTestMessageID(t *testing.T) []byte {
 	return id
 }
 
-// serveDetail renders the page through renderDetail with fake stores; the node's own
-// (lazy) connection is never touched.
+// serveDetail renders the page through renderDetail with fake stores; no database is
+// touched.
 func serveDetail(t *testing.T, src detailSources, msgID []byte) *httptest.ResponseRecorder {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
-	node := NewNode(NodeConfig{
-		Name: "verifier-1", SecretsPath: "unused-in-tests",
-		TraceURL: "https://traces.example.com", IndexerURL: "https://indexer.example.com",
-	}, logger.Test(t))
-	h := &handlers{cfg: &Config{}, lggr: logger.Test(t), nodes: []*Node{node}}
+	h := &handlers{cfg: &Config{TraceURL: "https://traces.example.com"}, lggr: logger.Test(t)}
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodGet, "/nodes/verifier-1/messages/"+formatMessageID(msgID), nil)
-	h.renderDetail(c, node, src, msgID)
+	c.Request = httptest.NewRequest(http.MethodGet, "/messages/"+formatMessageID(msgID), nil)
+	h.renderDetail(c, src, msgID)
 	return rec
 }
 
@@ -133,7 +128,6 @@ func TestDetailPreAdmissionDrop(t *testing.T) {
 	require.NotContains(t, body, `name="target"`)
 	require.Contains(t, body, "12340") // finalized height from the chain-status row
 	require.Contains(t, body, "https://traces.example.com")
-	require.Contains(t, body, "https://indexer.example.com")
 }
 
 func TestDetailNotFound(t *testing.T) {
@@ -150,7 +144,7 @@ func TestDetailNotFound(t *testing.T) {
 	rec := serveDetail(t, src, msgID)
 	require.Equal(t, http.StatusOK, rec.Code)
 	body := rec.Body.String()
-	require.Contains(t, body, "not found on this node")
+	require.Contains(t, body, "Message not found")
 	require.Contains(t, body, "No archived failed jobs")
 	require.Contains(t, body, "No drop or incident events")
 	require.Contains(t, body, "Empty results do not prove no affected traffic")
@@ -217,47 +211,26 @@ func TestDetailRescheduleTargetContract(t *testing.T) {
 	}
 	rec := serveDetail(t, src, msgID)
 	require.Equal(t, http.StatusOK, rec.Code)
-	want := "verifier-1|job-abc|" + formatMessageID(msgID) + "|task-verifier|verifier-1a"
+	want := "job-abc|" + formatMessageID(msgID) + "|task-verifier|verifier-1a"
 	require.Contains(t, rec.Body.String(), `name="target" value="`+want+`"`)
 }
 
-func TestDetailUnreachableNode(t *testing.T) {
-	node := NewNode(NodeConfig{
-		Name: "verifier-1", SecretsPath: filepath.Join(t.TempDir(), "missing.toml"),
-	}, logger.Test(t))
-	h := &handlers{cfg: &Config{}, lggr: logger.Test(t), nodes: []*Node{node}}
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-	h.registerDetailRoutes(r)
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/nodes/verifier-1/messages/"+formatMessageID(detailTestMessageID(t)), nil)
-	r.ServeHTTP(rec, req)
+func TestDetailDatabaseUnavailable(t *testing.T) {
+	msgID := detailTestMessageID(t)
+	rec := serveDetail(t, detailSources{jqErr: errors.New("connection refused")}, msgID)
 	require.Equal(t, http.StatusOK, rec.Code)
 	body := rec.Body.String()
-	require.Contains(t, body, "Node unreachable")
+	require.Contains(t, body, "Database unavailable")
 	require.Contains(t, body, "unknown, not absent")
 }
 
-func TestDetailUnknownNode(t *testing.T) {
-	node := NewNode(NodeConfig{Name: "verifier-1", SecretsPath: "unused"}, logger.Test(t))
-	h := &handlers{cfg: &Config{}, lggr: logger.Test(t), nodes: []*Node{node}}
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-	h.registerDetailRoutes(r)
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/nodes/nope/messages/"+formatMessageID(detailTestMessageID(t)), nil)
-	r.ServeHTTP(rec, req)
-	require.Equal(t, http.StatusNotFound, rec.Code)
-}
-
 func TestDetailInvalidMessageID(t *testing.T) {
-	node := NewNode(NodeConfig{Name: "verifier-1", SecretsPath: "unused"}, logger.Test(t))
-	h := &handlers{cfg: &Config{}, lggr: logger.Test(t), nodes: []*Node{node}}
+	h := &handlers{cfg: &Config{}, lggr: logger.Test(t)}
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	h.registerDetailRoutes(r)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/nodes/verifier-1/messages/0xzz", nil)
+	req := httptest.NewRequest(http.MethodGet, "/messages/0xzz", nil)
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 }

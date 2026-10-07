@@ -7,7 +7,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vsecrets"
 )
 
-// BasicAuth is the console UI credential from the console secrets file's
+// BasicAuth is the console UI credential from the verifier secrets file's
 // [admin_ui] table. Nil means the console serves without basic auth (the
 // loopback personal-tool default).
 type BasicAuth struct {
@@ -15,8 +15,9 @@ type BasicAuth struct {
 	Password string
 }
 
-// BasicAuthFromSecrets extracts the [admin_ui] pair. A half-supplied pair is a
-// startup error, never a silent downgrade to unauthenticated serving.
+// BasicAuthFromSecrets extracts the [admin_ui] pair from the verifier secrets file. A
+// half-supplied pair is a startup error, never a silent downgrade to unauthenticated
+// serving.
 func BasicAuthFromSecrets(s *vsecrets.VerifierSecrets) (*BasicAuth, error) {
 	if s == nil || s.AdminUIAuth() == nil {
 		return nil, nil
@@ -40,7 +41,7 @@ func ValidateAccessPolicy(cfg *Config, auth *BasicAuth) error {
 		return nil
 	}
 	if cfg.Access.ActorHeader == "" && auth == nil {
-		return errors.New("serving a page grants privileged actions: a non-loopback listen_address requires an identity source — access.actor_header (authenticating proxy) or [admin_ui] basic auth in the console secrets file")
+		return errors.New("serving a page grants privileged actions: a non-loopback listen_address requires an identity source — access.actor_header (authenticating proxy) or [admin_ui] basic auth in the verifier secrets file")
 	}
 	return nil
 }

@@ -77,21 +77,19 @@ func TestValidateAccessPolicy(t *testing.T) {
 	}
 }
 
-// newTestServerWithSecrets builds a server whose console secrets file carries the
-// given content (read-only: no [db].url), so the auth gate is exercisable.
+// newTestServerWithSecrets builds a server with basic auth parsed from a secrets file
+// carrying the given content, so the full [admin_ui] gate is exercisable.
 func newTestServerWithSecrets(t *testing.T, cfgBody, secretsBody string) *Server {
 	t.Helper()
-	t.Setenv(SecretsPathEnv, writeSecrets(t, secretsBody))
-	cfg, err := LoadConfig(writeConfig(t, cfgBody))
+	secrets, err := vsecrets.Load(writeSecrets(t, secretsBody))
 	require.NoError(t, err)
-	srv, err := NewServer(cfg, logger.Test(t))
+	auth, err := BasicAuthFromSecrets(secrets)
 	require.NoError(t, err)
-	t.Cleanup(srv.Close)
-	return srv
+	return newTestServer(t, cfgBody, auth)
 }
 
 func TestServerBasicAuth(t *testing.T) {
-	srv := newTestServerWithSecrets(t, validNode, `[admin_ui]
+	srv := newTestServerWithSecrets(t, "", `[admin_ui]
 username = "operator"
 password = "s3cret"
 `)
@@ -123,7 +121,7 @@ password = "s3cret"
 		gin.SetMode(gin.TestMode)
 		rec := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(rec)
-		c.Request = httptest.NewRequest(http.MethodGet, "/nodes", nil)
+		c.Request = httptest.NewRequest(http.MethodGet, "/search", nil)
 		c.Request.SetBasicAuth("operator", "s3cret")
 		srv.basicAuthMiddleware(c)
 		require.False(t, c.IsAborted())
@@ -135,27 +133,23 @@ password = "s3cret"
 
 func TestServerBasicAuthStartupRules(t *testing.T) {
 	t.Run("half-supplied pair fails startup", func(t *testing.T) {
-		t.Setenv(SecretsPathEnv, writeSecrets(t, "[admin_ui]\nusername = \"operator\"\n"))
-		cfg, err := LoadConfig(writeConfig(t, validNode))
+		secrets, err := vsecrets.Load(writeSecrets(t, "[admin_ui]\nusername = \"operator\"\n"))
 		require.NoError(t, err)
-		_, err = NewServer(cfg, logger.Test(t))
+		_, err = BasicAuthFromSecrets(secrets)
 		require.ErrorContains(t, err, "[admin_ui]")
 	})
 
 	t.Run("basic auth satisfies the non-loopback identity rule", func(t *testing.T) {
-		t.Setenv(SecretsPathEnv, writeSecrets(t, "[admin_ui]\nusername = \"operator\"\npassword = \"s3cret\"\n"))
-		cfg, err := LoadConfig(writeConfig(t, `listen_address = "0.0.0.0:8105"`+validNode))
+		cfg, err := LoadConfig(writeConfig(t, `listen_address = "0.0.0.0:8105"`+"\n"))
 		require.NoError(t, err)
-		srv, err := NewServer(cfg, logger.Test(t))
+		_, err = NewServer(cfg, Deps{DB: newFakeSQLDB(t), Auth: &BasicAuth{Username: "u", Password: "p"}}, logger.Test(t))
 		require.NoError(t, err)
-		srv.Close()
 	})
 
 	t.Run("non-loopback without any identity source fails startup", func(t *testing.T) {
-		t.Setenv(SecretsPathEnv, nonexistentSecretsPath(t))
-		cfg, err := LoadConfig(writeConfig(t, `listen_address = "0.0.0.0:8105"`+validNode))
+		cfg, err := LoadConfig(writeConfig(t, `listen_address = "0.0.0.0:8105"`+"\n"))
 		require.NoError(t, err)
-		_, err = NewServer(cfg, logger.Test(t))
+		_, err = NewServer(cfg, Deps{DB: newFakeSQLDB(t)}, logger.Test(t))
 		require.ErrorContains(t, err, "identity source")
 	})
 }

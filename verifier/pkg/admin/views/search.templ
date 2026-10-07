@@ -8,10 +8,9 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/cli/jobqueue"
 )
 
-// SearchNodeVM is one node's search outcome: rows found, genuinely empty, or
-// unreachable/failed lookup (UnreachableDetail non-empty) — never conflated.
-type SearchNodeVM struct {
-	NodeName          string
+// SearchResultsVM is the search outcome: rows found, genuinely empty, or a failed
+// lookup (UnreachableDetail non-empty) — never conflated.
+type SearchResultsVM struct {
 	UnreachableDetail string
 	Jobs              []jobqueue.ArchivedJob
 }
@@ -19,11 +18,11 @@ type SearchNodeVM struct {
 // ArchiveRetention is the verifier's archive sweep window, for age/expiry display.
 const ArchiveRetention = 30 * 24 * time.Hour
 
-// SearchPage renders the search form and, after a search, the per-node results.
-templ SearchPage(csrfToken string, results []SearchNodeVM, searchedIDs [][]byte) {
+// SearchPage renders the search form and, after a search, the results.
+templ SearchPage(csrfToken string, results *SearchResultsVM, searchedIDs [][]byte) {
 	@Layout("Message search") {
 		<h1>Message search</h1>
-		<p>Search every configured node's failed-job archive at once.</p>
+		<p>Search this verifier's failed-job archive.</p>
 		<div class="card">
 			<form method="post" action="/search">
 				@CSRFField(csrfToken)
@@ -38,13 +37,13 @@ templ SearchPage(csrfToken string, results []SearchNodeVM, searchedIDs [][]byte)
 		</div>
 		if searchedIDs != nil {
 			<h2>Results</h2>
-			@SearchResultsList(results)
+			@SearchResults(*results, "")
 		}
 	}
 }
 
 // SearchResults is the fragment returned for htmx search posts.
-templ SearchResults(results []SearchNodeVM, errDetail string) {
+templ SearchResults(results SearchResultsVM, errDetail string) {
 	if errDetail != "" {
 		<div class="error">{ errDetail }</div>
 	} else {
@@ -52,47 +51,44 @@ templ SearchResults(results []SearchNodeVM, errDetail string) {
 	}
 }
 
-templ SearchResultsList(results []SearchNodeVM) {
-	for _, node := range results {
-		<h3>{ node.NodeName }</h3>
-		if node.UnreachableDetail != "" {
-			<div class="error">Lookup unavailable: { node.UnreachableDetail }. This node was not searched — treat its absence as unknown, not empty.</div>
-		} else if len(node.Jobs) == 0 {
-			<p><em>No archived (failed) jobs for these message IDs on this node.</em></p>
-		} else {
-			<div class="table-wrap">
-				<table>
-					<thead>
+templ SearchResultsList(results SearchResultsVM) {
+	if results.UnreachableDetail != "" {
+		<div class="error">Lookup unavailable: { results.UnreachableDetail }. Treat the archive as unknown, not empty.</div>
+	} else if len(results.Jobs) == 0 {
+		<p><em>No archived (failed) jobs for these message IDs.</em></p>
+	} else {
+		<div class="table-wrap">
+			<table>
+				<thead>
+					<tr>
+						<th>Message ID</th>
+						<th>Queue</th>
+						<th>Owner</th>
+						<th>Failure</th>
+						<th>Attempts</th>
+						<th>Archived</th>
+						<th>Archive expires</th>
+						<th></th>
+					</tr>
+				</thead>
+				<tbody>
+					for _, job := range results.Jobs {
 						<tr>
-							<th>Message ID</th>
-							<th>Queue</th>
-							<th>Owner</th>
-							<th>Failure</th>
-							<th>Attempts</th>
-							<th>Archived</th>
-							<th>Archive expires</th>
-							<th></th>
+							<td><code class="mid">{ messageIDHex(job.MessageID) }</code></td>
+							<td>{ string(job.Queue) }</td>
+							<td><code>{ job.OwnerID }</code></td>
+							<td>{ job.FailureCategory }</td>
+							<td>{ fmt.Sprint(job.AttemptCount) }</td>
+							<td>{ formatTime(job.ArchivedAt) }</td>
+							<td>{ archiveExpiry(job.ArchivedAt) }</td>
+							<td>
+								<a href={ templ.SafeURL("/messages/" + messageIDHex(job.MessageID)) }>detail</a>
+							</td>
 						</tr>
-					</thead>
-					<tbody>
-						for _, job := range node.Jobs {
-							<tr>
-								<td><code class="mid">{ messageIDHex(job.MessageID) }</code></td>
-								<td>{ string(job.Queue) }</td>
-								<td><code>{ job.OwnerID }</code></td>
-								<td>{ job.FailureCategory }</td>
-								<td>{ fmt.Sprint(job.AttemptCount) }</td>
-								<td>{ formatTime(job.ArchivedAt) }</td>
-								<td>{ archiveExpiry(job.ArchivedAt) }</td>
-								<td>
-									<a href={ templ.SafeURL("/nodes/" + node.NodeName + "/messages/" + messageIDHex(job.MessageID)) }>detail</a>
-								</td>
-							</tr>
-						}
-					</tbody>
-				</table>
-			</div>
-		}
+					}
+				</tbody>
+			</table>
+		</div>
 	}
 }
 

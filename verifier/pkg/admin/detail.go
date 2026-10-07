@@ -16,10 +16,10 @@ import (
 )
 
 // Detail: per-message page — failure stage/reason, queue, owner, archive age/expiry,
-// attempts, trace/indexer links, and the durable drop/incident evidence (R4),
-// distinguishing an absent archive row from observed pre-admission drops.
+// attempts, trace link, and the durable drop/incident evidence (R4), distinguishing an
+// absent archive row from observed pre-admission drops.
 func (h *handlers) registerDetailRoutes(r *gin.Engine) {
-	r.GET("/nodes/:node/messages/:messageID", h.detailPage)
+	r.GET("/messages/:messageID", h.detailPage)
 }
 
 // detailChainLister is the chain-status read surface the detail page needs; the
@@ -28,8 +28,8 @@ type detailChainLister interface {
 	List(ctx context.Context) ([]chainstatus.Row, error)
 }
 
-// detailSources bundles the per-node stores. A nil store with its error set renders
-// that section as unavailable — never as an empty result.
+// detailSources bundles the stores behind the detail page. A nil store with its error
+// set renders that section as unavailable — never as an empty result.
 type detailSources struct {
 	jq       jobqueue.Store
 	jqErr    error
@@ -40,38 +40,27 @@ type detailSources struct {
 }
 
 func (h *handlers) detailPage(c *gin.Context) {
-	n := h.node(c.Param("node"))
-	if n == nil {
-		h.render(c, http.StatusNotFound, views.ErrorPage("Message detail", "No configured node named "+strconv.Quote(c.Param("node"))+"."))
-		return
-	}
 	ids, err := jobqueue.ParseMessageIDs([]string{c.Param("messageID")})
 	if err != nil {
 		h.render(c, http.StatusBadRequest, views.ErrorPage("Message detail", err.Error()))
 		return
 	}
-	var src detailSources
-	src.jq, src.jqErr = n.JobQueue()
-	src.rec, src.recErr = n.Recovery()
-	if cs, err := n.ChainStatuses(); err != nil {
-		src.chainErr = err
-	} else {
-		src.chain = cs
-	}
-	h.renderDetail(c, n, src, ids[0])
+	h.renderDetail(c, detailSources{
+		jq:    h.stores.JobQueue(),
+		rec:   h.stores.Recovery(),
+		chain: h.stores.ChainStatuses(),
+	}, ids[0])
 }
 
 // renderDetail runs the lookups against the given stores and renders the page. It is
 // split from detailPage so tests can drive it with fake stores and no database.
-func (h *handlers) renderDetail(c *gin.Context, n *Node, src detailSources, msgID []byte) {
+func (h *handlers) renderDetail(c *gin.Context, src detailSources, msgID []byte) {
 	vm := views.DetailVM{
-		NodeName:   n.Name(),
-		MessageID:  formatMessageID(msgID),
-		TraceURL:   n.Config().TraceURL,
-		IndexerURL: n.Config().IndexerURL,
+		MessageID: formatMessageID(msgID),
+		TraceURL:  h.cfg.TraceURL,
 	}
 	if src.jq == nil {
-		vm.UnreachableDetail = detailErrText(src.jqErr, "node database unavailable")
+		vm.UnreachableDetail = detailErrText(src.jqErr, "verifier database unavailable")
 		h.render(c, http.StatusOK, views.DetailPage(h.csrfToken(c), vm))
 		return
 	}
@@ -82,7 +71,7 @@ func (h *handlers) renderDetail(c *gin.Context, n *Node, src detailSources, msgI
 		vm.ArchiveDetail = err.Error()
 	} else {
 		for _, j := range jobs {
-			vm.Failed = append(vm.Failed, toArchivedJobVM(n.Name(), j))
+			vm.Failed = append(vm.Failed, toArchivedJobVM(j))
 		}
 	}
 	h.addDetailEvents(ctx, &vm, src)
@@ -108,7 +97,7 @@ func (h *handlers) addDetailEvents(ctx context.Context, vm *views.DetailVM, src 
 }
 
 // addDetailChainStatus derives the message's source chain from its archive rows or
-// events, then shows this node's chain-status rows for that chain.
+// events, then shows the chain-status rows for that chain.
 func (h *handlers) addDetailChainStatus(ctx context.Context, vm *views.DetailVM, src detailSources) {
 	switch {
 	case len(vm.Failed) > 0:
@@ -136,8 +125,8 @@ func (h *handlers) addDetailChainStatus(ctx context.Context, vm *views.DetailVM,
 }
 
 // toArchivedJobVM maps one archive row and builds the reschedule-preview target
-// contract: nodeName|jobID|messageIDHex|queue|ownerID.
-func toArchivedJobVM(nodeName string, j jobqueue.ArchivedJob) views.ArchivedJobVM {
+// contract: jobID|messageIDHex|queue|ownerID.
+func toArchivedJobVM(j jobqueue.ArchivedJob) views.ArchivedJobVM {
 	label := "Ask the policy endpoint again (re-verify)"
 	if j.Queue == jobqueue.QueueTypeStorageWriter {
 		label = "Retry delivering the saved result"
@@ -146,7 +135,7 @@ func toArchivedJobVM(nodeName string, j jobqueue.ArchivedJob) views.ArchivedJobV
 		Job:         j,
 		ButtonLabel: label,
 		RescheduleTarget: strings.Join(
-			[]string{nodeName, j.JobID, formatMessageID(j.MessageID), string(j.Queue), j.OwnerID}, "|"),
+			[]string{j.JobID, formatMessageID(j.MessageID), string(j.Queue), j.OwnerID}, "|"),
 	}
 }
 

@@ -7,49 +7,55 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-func newTestServer(t *testing.T, cfgBody string) *Server {
+// newFakeSQLDB returns a *sqlx.DB backed by the fake driver: ExecContext is captured,
+// anything else errors, so no real database is needed for server-construction tests.
+func newFakeSQLDB(t *testing.T) *sqlx.DB {
 	t.Helper()
-	t.Setenv(SecretsPathEnv, nonexistentSecretsPath(t))
+	db, _ := newFakeActionLog(nil)
+	return db.ds
+}
+
+func newTestServer(t *testing.T, cfgBody string, auth *BasicAuth) *Server {
+	t.Helper()
 	cfg, err := LoadConfig(writeConfig(t, cfgBody))
 	require.NoError(t, err)
-	srv, err := NewServer(cfg, logger.Test(t))
+	srv, err := NewServer(cfg, Deps{DB: newFakeSQLDB(t), Auth: auth}, logger.Test(t))
 	require.NoError(t, err)
-	t.Cleanup(srv.Close)
 	return srv
 }
 
-// nonexistentSecretsPath points console secrets resolution at a path that never exists,
-// so tests always run in read-only mode regardless of the host environment.
-func nonexistentSecretsPath(t *testing.T) string {
-	return t.TempDir() + "/no-console-secrets.toml"
-}
-
 func TestServerHealthz(t *testing.T) {
-	srv := newTestServer(t, validNode)
+	srv := newTestServer(t, "", nil)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	srv.router.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
 }
 
-func TestServerNodesPageListsConfiguredNodes(t *testing.T) {
-	srv := newTestServer(t, validNode)
+func TestServerRootRedirectsToSearch(t *testing.T) {
+	srv := newTestServer(t, "", nil)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	srv.router.ServeHTTP(rec, req)
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.Contains(t, rec.Body.String(), "verifier-1")
-	require.Contains(t, rec.Body.String(), "unreachable") // secrets file does not exist in tests
-	require.Contains(t, rec.Body.String(), "Read-only mode")
+	require.Equal(t, http.StatusFound, rec.Code)
+	require.Equal(t, "/search", rec.Header().Get("Location"))
+}
+
+func TestServerRequiresDatabase(t *testing.T) {
+	cfg, err := LoadConfig(writeConfig(t, ""))
+	require.NoError(t, err)
+	_, err = NewServer(cfg, Deps{}, logger.Test(t))
+	require.ErrorContains(t, err, "database")
 }
 
 func TestServerCSRFFlow(t *testing.T) {
-	srv := newTestServer(t, validNode)
+	srv := newTestServer(t, "", nil)
 
 	// Unsafe method without a token: forbidden.
 	rec := httptest.NewRecorder()
@@ -78,14 +84,14 @@ func TestServerCSRFFlow(t *testing.T) {
 	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: token})
 	srv.router.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.Contains(t, rec.Body.String(), "Lookup unavailable") // node DB does not exist in tests
+	require.Contains(t, rec.Body.String(), "Lookup unavailable") // the fake driver answers no queries
 }
 
 func TestServerActorResolution(t *testing.T) {
 	cfg, err := LoadConfig(writeConfig(t, `listen_address = "127.0.0.1:8105"
 [access]
 actor_header = "X-Remote-User"
-`+validNode))
+`))
 	require.NoError(t, err)
 	require.Equal(t, "X-Remote-User", cfg.Access.ActorHeader)
 }

@@ -24,14 +24,14 @@ import (
 // durable operations (progress/cancel/resume across reloads) and R4 evidence display.
 // Ordinary replay must not enable a finality-blocked reader; that needs reset-reader.
 
-// Test seams: swapped by recoveryops_test.go; production wiring goes to the node DB.
-var recoveryStoreOf = func(n *Node) (recoverycli.Store, error) { return n.Recovery() }
+// Test seams: swapped by recoveryops_test.go; production wiring goes to the verifier DB.
+var recoveryStoreOf = func(s stores) recoverycli.Store { return s.Recovery() }
 
 type chainStatusLister interface {
 	List(context.Context) ([]chainstatus.Row, error)
 }
 
-var chainStatusesOf = func(n *Node) (chainStatusLister, error) { return n.ChainStatuses() }
+var chainStatusesOf = func(s stores) chainStatusLister { return s.ChainStatuses() }
 
 func (h *handlers) registerRecoveryRoutes(r *gin.Engine) {
 	r.GET("/recovery", h.recoveryPage)
@@ -44,17 +44,12 @@ func (h *handlers) registerRecoveryRoutes(r *gin.Engine) {
 }
 
 func (h *handlers) recoveryPage(c *gin.Context) {
-	nodes := make([]views.RecoveryPageNodeVM, 0, len(h.nodes))
-	for _, n := range h.nodes {
-		nodes = append(nodes, views.RecoveryPageNodeVM{Name: n.Name()})
-	}
-	h.render(c, http.StatusOK, views.RecoveryPage(h.csrfToken(c), nodes))
+	h.render(c, http.StatusOK, views.RecoveryPage(h.csrfToken(c)))
 }
 
 // recoveryFormInput is the validated recovery form. A nil ToBlock means the reader's
-// advertised head is captured at submission time by the node.
+// advertised head is captured at submission time.
 type recoveryFormInput struct {
-	nodes     []string
 	owner     string
 	chain     string
 	from      uint64
@@ -68,10 +63,6 @@ type recoveryFormInput struct {
 // for an actual submission. Block bounds mirror the store's own validation.
 func parseRecoveryForm(c *gin.Context, full bool) (recoveryFormInput, error) {
 	var in recoveryFormInput
-	in.nodes = c.PostFormArray("nodes")
-	if len(in.nodes) == 0 {
-		return in, errors.New("select at least one node")
-	}
 	in.owner = strings.TrimSpace(c.PostForm("owner"))
 	if in.owner == "" {
 		return in, errors.New("verifier owner is required")
@@ -136,7 +127,7 @@ type recoveryReaderInfo struct {
 	AuditFailures    string     `json:"audit_failures"`
 }
 
-// recoveryCapability is one node's capability for the selected owner/chain.
+// recoveryCapability is this verifier's capability for the selected owner/chain.
 type recoveryCapability struct {
 	registered         bool
 	disabled           bool
@@ -149,7 +140,7 @@ type recoveryCapability struct {
 
 // recoveryCapabilityOf combines the recovery reader registry (head, reset state) with
 // chain statuses (authoritative finality disablement, finalized height).
-func (h *handlers) recoveryCapabilityOf(ctx context.Context, n *Node, store recoverycli.Store, owner, chain string) (recoveryCapability, error) {
+func (h *handlers) recoveryCapabilityOf(ctx context.Context, store recoverycli.Store, owner, chain string) (recoveryCapability, error) {
 	var capability recoveryCapability
 	page, err := store.ListEvents(ctx, recovery.EventFilter{OwnerID: owner, SourceChain: chain, Limit: 1})
 	if err != nil {
@@ -172,8 +163,8 @@ func (h *handlers) recoveryCapabilityOf(ctx context.Context, n *Node, store reco
 		}
 		capability.headStale = readers[0].HeadObservedAt == nil || time.Since(*readers[0].HeadObservedAt) > time.Minute
 	}
-	lister, err := chainStatusesOf(n)
-	if err != nil {
+	lister := chainStatusesOf(h.stores)
+	if lister == nil {
 		capability.statusLookupFailed = true
 		return capability, nil
 	}
@@ -199,7 +190,7 @@ func (h *handlers) recoveryCapabilityOf(ctx context.Context, n *Node, store reco
 // finality-blocked reader, and reset-reader exists only for one.
 func recoveryModeAllowed(mode string, capability recoveryCapability) (bool, string) {
 	if !capability.registered {
-		return false, "No reader is registered for this owner/chain on this node; the node would reject the submission."
+		return false, "No reader is registered for this owner/chain; the verifier would reject the submission."
 	}
 	switch mode {
 	case "replay":
@@ -207,7 +198,7 @@ func recoveryModeAllowed(mode string, capability recoveryCapability) (bool, stri
 			return false, "The reader is disabled (finality-blocked): ordinary replay will not run. Investigate the finality incident and use reset-reader instead."
 		}
 		if capability.statusLookupFailed {
-			return false, "Chain-status lookup failed, so finality disablement cannot be ruled out; replay is refused on the safe side. Retry, or investigate the node's database."
+			return false, "Chain-status lookup failed, so finality disablement cannot be ruled out; replay is refused on the safe side. Retry, or investigate the verifier's database."
 		}
 		return true, ""
 	case "reset-reader":
@@ -226,29 +217,17 @@ func (h *handlers) recoveryPreview(c *gin.Context) {
 		return
 	}
 	vm := views.RecoveryPreviewVM{Mode: in.mode, SubmitEnabled: true}
-	for _, name := range in.nodes {
-		nvm := h.recoveryPreviewNode(c.Request.Context(), name, in)
-		if !nvm.Allowed {
-			vm.SubmitEnabled = false
-		}
-		vm.Nodes = append(vm.Nodes, nvm)
+	vm.Finding = h.recoveryPreviewNode(c.Request.Context(), in)
+	if !vm.Finding.Allowed {
+		vm.SubmitEnabled = false
 	}
 	h.render(c, http.StatusOK, views.RecoveryPreview(vm))
 }
 
-func (h *handlers) recoveryPreviewNode(ctx context.Context, name string, in recoveryFormInput) views.RecoveryPreviewNodeVM {
-	vm := views.RecoveryPreviewNodeVM{NodeName: name, LatestHead: "unknown", FinalizedHeight: "unknown"}
-	n := h.node(name)
-	if n == nil {
-		vm.Error = "unknown node; it is not in this console's configuration"
-		return vm
-	}
-	store, err := recoveryStoreOf(n)
-	if err != nil {
-		vm.Error = "node database unavailable: " + err.Error()
-		return vm
-	}
-	capability, err := h.recoveryCapabilityOf(ctx, n, store, in.owner, in.chain)
+func (h *handlers) recoveryPreviewNode(ctx context.Context, in recoveryFormInput) views.RecoveryPreviewNodeVM {
+	vm := views.RecoveryPreviewNodeVM{LatestHead: "unknown", FinalizedHeight: "unknown"}
+	store := recoveryStoreOf(h.stores)
+	capability, err := h.recoveryCapabilityOf(ctx, store, in.owner, in.chain)
 	if err != nil {
 		vm.Error = err.Error()
 		return vm
@@ -295,7 +274,7 @@ func recoveryWarnings(in recoveryFormInput, capability recoveryCapability) []str
 		warnings = append(warnings, "An applied reset ("+*capability.reader.ActiveResetID+") owns normal polling until it completes; a new investigated reset marks it superseded.")
 	}
 	if capability.statusLookupFailed {
-		warnings = append(warnings, "Chain-status lookup failed on this node; finalized height and the authoritative disabled flag are unavailable.")
+		warnings = append(warnings, "Chain-status lookup failed; finalized height and the authoritative disabled flag are unavailable.")
 	}
 	if capability.reader != nil && capability.reader.AuditFailures != "" && capability.reader.AuditFailures != "0" {
 		warnings = append(warnings, "This reader reports "+capability.reader.AuditFailures+" failed evidence writes; retained history below may have gaps.")
@@ -304,44 +283,28 @@ func recoveryWarnings(in recoveryFormInput, capability recoveryCapability) []str
 }
 
 func (h *handlers) recoverySubmit(c *gin.Context) {
-	if !h.requireActions(c) {
-		return
-	}
 	in, err := parseRecoveryForm(c, true)
 	if err != nil {
 		h.render(c, http.StatusBadRequest, views.RecoverySubmitError(err.Error()))
 		return
 	}
-	results := make([]views.RecoverySubmitNodeVM, len(in.nodes))
-	for i, name := range in.nodes {
-		results[i] = h.recoverySubmitNode(c, name, in)
-	}
-	h.render(c, http.StatusOK, views.RecoverySubmitResult(results, in.requestID))
+	res := h.recoverySubmitOne(c, in)
+	h.render(c, http.StatusOK, views.RecoverySubmitResult(res, in.requestID))
 }
 
-// recoverySubmitNode submits to exactly one node. An intent row precedes the
-// submission (an unloggable mutation does not proceed) and an outcome row follows;
-// a refused or failed node never blocks the others and is never silently retried.
-func (h *handlers) recoverySubmitNode(c *gin.Context, name string, in recoveryFormInput) views.RecoverySubmitNodeVM {
-	res := views.RecoverySubmitNodeVM{NodeName: name}
+// recoverySubmitOne submits to this verifier's recovery store. An intent row precedes
+// the submission (an unloggable mutation does not proceed) and an outcome row follows.
+func (h *handlers) recoverySubmitOne(c *gin.Context, in recoveryFormInput) views.RecoverySubmitVM {
+	res := views.RecoverySubmitVM{}
 	target := recoveryTarget(in)
 	fail := func(detail string) {
 		res.Error = detail
-		if err := h.recordAction(c, Action{Action: "recovery-submit", NodeName: name, Target: target, Outcome: "failed", Detail: detail}); err != nil {
+		if err := h.recordAction(c, Action{Action: "recovery-submit", Target: target, Outcome: "failed", Detail: detail}); err != nil {
 			res.Error += " (action log write failed: " + err.Error() + ")"
 		}
 	}
-	n := h.node(name)
-	if n == nil {
-		fail("unknown node; it is not in this console's configuration")
-		return res
-	}
-	store, err := recoveryStoreOf(n)
-	if err != nil {
-		fail("node database unavailable: " + err.Error())
-		return res
-	}
-	capability, err := h.recoveryCapabilityOf(c.Request.Context(), n, store, in.owner, in.chain)
+	store := recoveryStoreOf(h.stores)
+	capability, err := h.recoveryCapabilityOf(c.Request.Context(), store, in.owner, in.chain)
 	if err != nil {
 		fail(err.Error())
 		return res
@@ -351,9 +314,9 @@ func (h *handlers) recoverySubmitNode(c *gin.Context, name string, in recoveryFo
 		return res
 	}
 	// The intent precedes the mutation: a submission that cannot be logged is
-	// never sent to the node's database.
+	// never written to the verifier's database.
 	if err := h.recordAction(c, Action{
-		Action: "recovery-submit", NodeName: name, Target: target,
+		Action: "recovery-submit", Target: target,
 		OperationID: in.requestID, Outcome: "started",
 		Detail: fmt.Sprintf("submitting mode=%s blocks %d–%s", in.mode, in.from, recoveryAutoTo(in.to)),
 	}); err != nil {
@@ -365,7 +328,7 @@ func (h *handlers) recoverySubmitNode(c *gin.Context, name string, in recoveryFo
 		FromBlock: in.from, ToBlock: in.to, Actor: h.actor(c), Note: in.note,
 	})
 	if err != nil {
-		fail("submission rejected by the node: " + err.Error())
+		fail("submission rejected: " + err.Error())
 		return res
 	}
 	res.OperationID = op.ID
@@ -373,7 +336,7 @@ func (h *handlers) recoverySubmitNode(c *gin.Context, name string, in recoveryFo
 	res.ToBlock = strconv.FormatUint(op.ToBlock, 10)
 	detail := fmt.Sprintf("mode=%s state=%s to_block=%d", op.Mode, op.State, op.ToBlock)
 	if err := h.recordAction(c, Action{
-		Action: "recovery-submit", NodeName: name, Target: target,
+		Action: "recovery-submit", Target: target,
 		OperationID: op.ID, Outcome: "success", Detail: detail,
 	}); err != nil {
 		res.Error = "operation " + op.ID + " was created but the action log write failed: " + err.Error()
@@ -403,22 +366,16 @@ func (h *handlers) recoveryOperations(c *gin.Context) {
 		}
 	}
 	var vm views.RecoveryOperationsVM
-	for _, n := range h.nodes {
-		nvm := views.RecoveryOpsNodeVM{NodeName: n.Name()}
-		store, err := recoveryStoreOf(n)
-		if err != nil {
-			nvm.Error = "node database unavailable: " + err.Error()
-		} else if ops, err := store.List(c.Request.Context(), owner, chain, 25); err != nil {
-			nvm.Error = err.Error()
-		} else {
-			for _, op := range ops {
-				nvm.Ops = append(nvm.Ops, recoveryOperationVM(op))
-				if op.State == "accepted" || op.State == "running" {
-					vm.InFlight = true
-				}
+	ops, err := recoveryStoreOf(h.stores).List(c.Request.Context(), owner, chain, 25)
+	if err != nil {
+		vm.Error = err.Error()
+	} else {
+		for _, op := range ops {
+			vm.Ops = append(vm.Ops, recoveryOperationVM(op))
+			if op.State == "accepted" || op.State == "running" {
+				vm.InFlight = true
 			}
 		}
-		vm.Nodes = append(vm.Nodes, nvm)
 	}
 	h.render(c, http.StatusOK, views.RecoveryOperations(vm, h.csrfToken(c)))
 }
@@ -457,31 +414,18 @@ func (h *handlers) recoveryResume(c *gin.Context) { h.recoveryChangeState(c, "re
 // row; nothing about the operation is held in console memory. The action intent is
 // logged before the state change; an unloggable mutation does not proceed.
 func (h *handlers) recoveryChangeState(c *gin.Context, action string) {
-	if !h.requireActions(c) {
-		return
-	}
 	rowErr := func(status int, id, detail string) {
-		h.render(c, status, views.RecoveryOperationRow("", views.RecoveryOperationVM{ID: id, RowError: detail}, h.csrfToken(c)))
+		h.render(c, status, views.RecoveryOperationRow(views.RecoveryOperationVM{ID: id, RowError: detail}, h.csrfToken(c)))
 	}
 	id := c.Param("id")
 	if _, err := uuid.Parse(id); err != nil {
 		rowErr(http.StatusBadRequest, id, "operation ID must be a UUID.")
 		return
 	}
-	nodeName := c.PostForm("node")
-	n := h.node(nodeName)
-	if n == nil {
-		rowErr(http.StatusNotFound, id, "unknown node "+nodeName+"; cannot "+action+" this operation here.")
-		return
-	}
-	store, err := recoveryStoreOf(n)
-	if err != nil {
-		rowErr(http.StatusServiceUnavailable, id, "node database unavailable: "+err.Error())
-		return
-	}
+	store := recoveryStoreOf(h.stores)
 	// The intent precedes the state change: an unloggable mutation does not proceed.
 	if err := h.recordAction(c, Action{
-		Action: "recovery-" + action, NodeName: nodeName, Target: id,
+		Action: "recovery-" + action, Target: id,
 		OperationID: id, Outcome: "started", Detail: action + " requested",
 	}); err != nil {
 		rowErr(http.StatusServiceUnavailable, id, "not executed — action log unavailable: "+err.Error())
@@ -499,13 +443,13 @@ func (h *handlers) recoveryChangeState(c *gin.Context, action string) {
 		target = id
 	}
 	if logErr := h.recordAction(c, Action{
-		Action: "recovery-" + action, NodeName: nodeName, Target: target,
+		Action: "recovery-" + action, Target: target,
 		OperationID: id, Outcome: outcome, Detail: detail,
 	}); logErr != nil {
 		detail += " (action log write failed: " + logErr.Error() + ")"
 	}
 	if err == nil {
-		h.render(c, http.StatusOK, views.RecoveryOperationRow(nodeName, recoveryOperationVM(op), h.csrfToken(c)))
+		h.render(c, http.StatusOK, views.RecoveryOperationRow(recoveryOperationVM(op), h.csrfToken(c)))
 		return
 	}
 	current, getErr := store.Get(c.Request.Context(), id)
@@ -515,27 +459,19 @@ func (h *handlers) recoveryChangeState(c *gin.Context, action string) {
 	}
 	vm := recoveryOperationVM(current)
 	vm.LastError = strings.TrimSpace(vm.LastError + " " + action + " failed: " + detail)
-	h.render(c, http.StatusConflict, views.RecoveryOperationRow(nodeName, vm, h.csrfToken(c)))
+	h.render(c, http.StatusConflict, views.RecoveryOperationRow(vm, h.csrfToken(c)))
 }
 
 func (h *handlers) recoveryEvidence(c *gin.Context) {
-	filter, nodeNames, err := parseRecoveryEvidenceQuery(c)
+	filter, err := parseRecoveryEvidenceQuery(c)
 	if err != nil {
 		h.render(c, http.StatusBadRequest, views.RecoveryPreviewError(err.Error()))
 		return
 	}
-	nodes := make([]views.RecoveryEvidenceNodeVM, 0, len(nodeNames))
-	for _, name := range nodeNames {
-		nodes = append(nodes, h.recoveryEvidenceNode(c.Request.Context(), name, filter))
-	}
-	h.render(c, http.StatusOK, views.RecoveryEvidence(nodes))
+	h.render(c, http.StatusOK, views.RecoveryEvidence(h.recoveryEvidenceNode(c.Request.Context(), filter)))
 }
 
-func parseRecoveryEvidenceQuery(c *gin.Context) (recovery.EventFilter, []string, error) {
-	nodeNames := c.QueryArray("nodes")
-	if len(nodeNames) == 0 {
-		return recovery.EventFilter{}, nil, errors.New("select at least one node in the form above")
-	}
+func parseRecoveryEvidenceQuery(c *gin.Context) (recovery.EventFilter, error) {
 	filter := recovery.EventFilter{
 		OwnerID: strings.TrimSpace(c.Query("owner")), SourceChain: strings.TrimSpace(c.Query("chain")),
 		FromBlock: strings.TrimSpace(c.Query("from_block")), ToBlock: strings.TrimSpace(c.Query("to_block")),
@@ -544,7 +480,7 @@ func parseRecoveryEvidenceQuery(c *gin.Context) (recovery.EventFilter, []string,
 	for _, raw := range []string{filter.SourceChain, filter.FromBlock, filter.ToBlock, filter.BeforeID} {
 		if raw != "" {
 			if _, err := strconv.ParseUint(raw, 10, 64); err != nil {
-				return filter, nil, fmt.Errorf("evidence filters (chain, blocks, cursor) must be unsigned decimal integers: %w", err)
+				return filter, fmt.Errorf("evidence filters (chain, blocks, cursor) must be unsigned decimal integers: %w", err)
 			}
 		}
 	}
@@ -552,25 +488,15 @@ func parseRecoveryEvidenceQuery(c *gin.Context) (recovery.EventFilter, []string,
 		from, _ := strconv.ParseUint(filter.FromBlock, 10, 64)
 		to, _ := strconv.ParseUint(filter.ToBlock, 10, 64)
 		if from > to {
-			return filter, nil, fmt.Errorf("from-block (%d) must not be after to-block (%d)", from, to)
+			return filter, fmt.Errorf("from-block (%d) must not be after to-block (%d)", from, to)
 		}
 	}
-	return filter, nodeNames, nil
+	return filter, nil
 }
 
-func (h *handlers) recoveryEvidenceNode(ctx context.Context, name string, filter recovery.EventFilter) views.RecoveryEvidenceNodeVM {
-	vm := views.RecoveryEvidenceNodeVM{NodeName: name}
-	n := h.node(name)
-	if n == nil {
-		vm.Error = "unknown node; it is not in this console's configuration"
-		return vm
-	}
-	store, err := recoveryStoreOf(n)
-	if err != nil {
-		vm.Error = "node database unavailable: " + err.Error()
-		return vm
-	}
-	page, err := store.ListEvents(ctx, filter)
+func (h *handlers) recoveryEvidenceNode(ctx context.Context, filter recovery.EventFilter) views.RecoveryEvidenceVM {
+	vm := views.RecoveryEvidenceVM{}
+	page, err := recoveryStoreOf(h.stores).ListEvents(ctx, filter)
 	if err != nil {
 		vm.Error = err.Error()
 		return vm

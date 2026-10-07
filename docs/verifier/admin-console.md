@@ -1,28 +1,21 @@
 # The CCV admin console
 
 The admin console is a small web UI for finding and recovering dropped messages, shipped
-inside the verifier image and served by the verifier binary:
+inside the verifier image and served **in-process** by the verifier itself. When the
+container has a console config at `/etc/ccv-admin/config.toml` (override with
+`CCV_ADMIN_CONFIG_PATH`), the verifier serves the console on its own port; no config
+file means the console stays off. To enable it, add the config file (and optionally the
+`[admin_ui]` credential) and restart the pod.
 
-```sh
-verifier ccv admin serve --config /etc/ccv-admin/config.toml
-```
-
-Both verifier binaries (committee and token) carry it. When the container finds a
-console config at `/etc/ccv-admin/config.toml` (override with `CCV_ADMIN_CONFIG_PATH`),
-the verifier process starts the console as a supervised **sibling process** on its
-dedicated port: one container serves both, and the lifecycles stay independent — a
-crashed console restarts without touching the verifier, and the verifier never needs a
-restart just to administer it. No config file means the console stays off.
-
-It is a server-rendered UI (templ/htmx) that talks directly to each configured verifier
-database and drives the same
-recovery machinery as the `ccv job-queue` and `ccv recovery` CLIs, with the same
-semantics. What it replaces is the manual part of those flows: pointing a CLI at one
-database at a time, copying message IDs and owner IDs between commands, and keeping your
-own notes about who did what. The console searches every configured node at once, shows
-what happened to a message, executes the recovery action, and records it in an action
-log. The [remediation runbook](../runbooks/remediating-stuck-or-dropped-messages.md)
-reads console-first; the CLI remains the documented fallback.
+It is a server-rendered UI (templ/htmx) over the verifier's own application database —
+the console administers the verifier it runs beside, and only that verifier. It drives
+the same recovery machinery as the `ccv job-queue` and `ccv recovery` CLIs, with the
+same semantics. What it replaces is the manual part of those flows: pointing a CLI at
+the database, copying message IDs and owner IDs between commands, and keeping your own
+notes about who did what. The console searches the failed-job archive, shows what
+happened to a message, executes the recovery action, and records it in an action log.
+The [remediation runbook](../runbooks/remediating-stuck-or-dropped-messages.md) reads
+console-first; the CLI remains the documented fallback.
 
 The console administers **verifier databases only** (committee and token verifiers).
 Indexer-data backfill and other admin UIs are deliberately out of scope for now: repair
@@ -34,134 +27,74 @@ reschedule the CLI performs, against the same tables, with the same limits.
 ## Safety model
 
 The console is a privileged tool: anyone who can load a page can, in principle, run a
-recovery action against your verifier databases. The defaults assume it is a personal
-operator tool, and anything beyond that is an explicit, validated choice.
+recovery action against your verifier. The defaults assume it is a personal operator
+tool, and anything beyond that is an explicit, validated choice.
 
 - **Loopback by default.** `listen_address` defaults to `127.0.0.1:8105`. Reach it with
   an SSH port forward (`ssh -L 8105:127.0.0.1:8105 <host>`) and act as actor `local`.
 - **Non-loopback requires an identity source.** Serving a page grants privileged
   actions, so the console refuses to start on a non-loopback address unless either
   `access.actor_header` is set (an authenticating proxy writes the header) or
-  `[admin_ui]` basic auth is configured in the console secrets file (the console
+  `[admin_ui]` basic auth is configured in the verifier secrets file (the console
   verifies the credential itself). See [Shared hosting](#shared-hosting-and-the-access-model).
-- **Optional basic auth.** `[admin_ui]` username + password in the console secrets file
+- **Optional basic auth.** `[admin_ui]` username + password in the verifier secrets file
   gates every page except `/healthz` (kept open for probes); the authenticated username
   becomes the action-log actor. A half-supplied pair is a startup error, never a silent
   downgrade to unauthenticated serving.
-- **Credentials stay server-side.** The config references each node's verifier secrets
-  file by path; database URLs are read from those files inside the process and are never
-  rendered into a page or logged.
+- **No new credentials or databases.** The console shares the verifier's application
+  database and its secrets file; there is nothing extra to provision. Database URLs are
+  never rendered into a page or logged.
 - **Mutations are CSRF-protected.** Every state-changing request must carry the
   per-browser token (form field `csrf_token` or header `X-CSRF-Token`) matching the
   `ccv_admin_csrf` cookie. Pages also ship restrictive security headers
   (`Content-Security-Policy: default-src 'self'`, `X-Frame-Options: DENY`,
   `Referrer-Policy: no-referrer`).
-- **Every mutation is recorded.** Actions are written to an action log in the console's
-  own database with actor, node, target, outcome and detail. Each mutation writes an
-  intent row (`outcome=started`) before touching the node's database, then an outcome
-  row after it; a mutation that cannot be logged does not proceed — an unaudited
-  privileged action never runs silently.
-- **No console database means read-only.** If the console secrets file is absent or has
-  no `[db].url`, every page still renders but mutations are refused and no action
-  history is kept. The home page shows a read-only banner in that state.
+- **Every mutation is recorded.** Actions are written to the `ccv_admin_actions` table
+  in the verifier's application database with actor, target, outcome and detail. Each
+  mutation writes an intent row (`outcome=started`) before touching anything, then an
+  outcome row after it; a mutation that cannot be logged does not proceed — an
+  unaudited privileged action never runs silently.
 
 ## Setup
 
-The console takes one config file. The path comes from `--config`, then
-`CCV_ADMIN_CONFIG_PATH`, then the default `/etc/ccv-admin/config.toml`. The file is
-decoded strictly: unknown keys are a startup error, a missing file is an error, at least
-one `[[nodes]]` entry is required, and node names must be unique.
-
-### Minimal: one node, self-hosted
+Add `/etc/ccv-admin/config.toml` (path override: `CCV_ADMIN_CONFIG_PATH`) and restart
+the verifier. The file is decoded strictly: unknown keys are a startup error, and a
+present-but-malformed file fails startup. The minimal config is empty — every field is
+optional:
 
 ```toml
 # /etc/ccv-admin/config.toml
 listen_address = "127.0.0.1:8105"   # the default; shown for clarity
-
-[console]
-  secrets_path = "/etc/ccv-admin/secrets.toml"
-
-[[nodes]]
-  name = "committee-verifier-1"
-  secrets_path = "/etc/committee-verifier/secrets.toml"
 ```
 
-The console secrets file uses the verifier secrets schema
-([reference](../config/verifier/secrets.documented.toml)); the console reads only its
-`[db].url`, which points at a database the console owns for its action log:
+Optional fields:
+
+| Field | What it enables |
+| --- | --- |
+| `aggregator_address` (host:port) | Overrides the aggregator used for attestation freshness checks (`GetVerifierResultsForMessage`). Default: the verifier's own first configured aggregator; a token verifier has none, so set it here if you want freshness checks. |
+| `trace_url` (base URL) | Your trace viewer (e.g. an internal Grafana/Tempo or Jaeger), linked from the message detail page. |
+| `access.actor_header` | The authenticated-identity header written by your fronting proxy; see [Shared hosting](#shared-hosting-and-the-access-model). |
+
+Basic auth, if you want it, goes in the verifier secrets file — the same file the
+verifier process loads
+([reference](../config/verifier/secrets.documented.toml)):
 
 ```toml
-# /etc/ccv-admin/secrets.toml
-[db]
-  url = "postgres://user:password@localhost:5432/ccv_admin?sslmode=disable"
-
-# Optional: basic auth for the UI. Both fields together; the username becomes the
-# action-log actor. See "Shared hosting and the access model".
+# <verifier secrets file>
 [admin_ui]
   username = "operator"
   password = "<password>"
 ```
 
-`[console].secrets_path` may be omitted; the path then resolves from
-`CCV_ADMIN_SECRETS_PATH`, then `/etc/ccv-admin/secrets.toml`. An absent file or an empty
-`[db].url` is not an error — it selects read-only mode. A present but malformed file is
-a startup error.
-
-Each `[[nodes]]` entry is one verifier's application database. `secrets_path` points at
-that verifier's own secrets file — the same file the verifier process loads — and the
-console takes its `[db].url` from it. The URL is resolved strictly from that file:
-unlike the verifier process, the console never falls back to the `CL_DATABASE_URL`
-environment variable, so a node whose file carries no URL is an error rather than a
-silent connection to whatever database the console process happens to have in its
-environment. Keep the files mode-restricted and readable only by the console process;
-never paste a URL into the console config itself.
-
-### Several nodes: one operator's verifiers
-
-```toml
-[console]
-  secrets_path = "/etc/ccv-admin/secrets.toml"
-
-[[nodes]]
-  name = "committee-verifier-1"
-  secrets_path = "/etc/ccv-admin/node-secrets/committee-1.toml"
-  aggregator_address = "aggregator-1:50051"
-  indexer_url = "http://indexer:8100"
-  trace_url = "https://traces.example.com"
-
-[[nodes]]
-  name = "token-verifier-1"
-  secrets_path = "/etc/ccv-admin/node-secrets/token-1.toml"
-```
-
-Nodes must belong to you — the console is single-operator; there is no isolation between
-configured nodes, and every action lands on whichever node you pick. Node databases
-connect lazily on first use, so the console starts and stays up while a member is down;
-an unreachable node is shown as unreachable, never as an empty result set. On first
-connection the console applies pending verifier migrations to that database, exactly as
-the CLI does.
-
-### Optional per-node endpoints
-
-| Field | What it enables |
-| --- | --- |
-| `aggregator_address` (host:port) | Attestation freshness checks via the aggregator's unauthenticated `GetVerifierResultsForMessage` — the message page can show whether a result already exists before you recover. |
-| `indexer_url` (base URL) | The indexer's verification-result lookup for a message. |
-| `trace_url` (base URL) | Your trace viewer, linked from the message detail page. |
-
-All three are per-node and independently optional; the home page lists each node's
-capabilities so you can see what is enabled where.
-
-### Validate before serving
+### Validate before restarting
 
 ```sh
 verifier ccv admin check-config --config /etc/ccv-admin/config.toml
 ```
 
-`check-config` runs the same loading and validation as `serve` and prints the listen
-address and the resolved node identities (name and secrets path). Run it after every
-config change — it catches misspelled keys, duplicate names, missing files and a
-non-loopback bind without `access.actor_header` before the console does it at startup.
+`check-config` runs the same loading and validation as startup and prints the listen
+address and access mode. Run it after every config change — it catches misspelled keys
+and malformed files before the verifier does it at startup.
 
 ## The recovery actions
 
@@ -179,9 +112,9 @@ from the [policy hook guide](../../verifier/docs/policy_hook.md): clearing your 
 does not bring a message back on its own; rescheduling asks the endpoint again, and the
 second call can answer PASS.
 
-The console previews the exact nodes, owners and jobs a reschedule will touch and
-rechecks attestation state before mutating — a message that already has a result is not
-a reschedule candidate. Execution is one owner-scoped operation per target, reported per
+The console previews the exact owners and jobs a reschedule will touch and rechecks
+attestation state before mutating — a message that already has a result is not a
+reschedule candidate. Execution is one owner-scoped operation per target, reported per
 target. The archive-row and attestation gate re-runs on **every** execution — a direct
 execute post, a retry, or a preview that has gone stale — and each mutation writes its
 action-log intent row before it runs; a retry resubmits only the targets that failed or
@@ -216,7 +149,7 @@ Submission requires block bounds and an **evidence note** (the incident referenc
 why the range is being replayed); the actor is taken from your session. Bounds are fixed
 at submission and never follow the moving head. The operation is durable: you can watch
 progress, counters and `last_error` on the recovery page, and cancel/resume across
-reloads and console restarts. Work is bounded — chunks of at most 100 blocks and 1,000
+reloads and restarts. Work is bounded — chunks of at most 100 blocks and 1,000
 events, one chunk per owner at a time, normal traffic continues, and the normal reader
 checkpoint is never rewound by an ordinary replay.
 
@@ -242,28 +175,22 @@ attestations are never deleted by a reset; there is no automatic undo of prior r
 
 ## Operations
 
-**Upgrades.** The console ships in the verifier image, so it upgrades when your verifier
-image does. Inside the container it runs as a supervised sibling process of the
-verifier: starting, stopping or restarting the console does not require restarting the
-verifier (a crashed console is respawned automatically), and recovery actions
-submitted through it take effect on the running verifier (a restored job is picked up on
-the queue's fallback poll). Run the console from the same image version as the verifiers
-it administers — the console applies pending verifier migrations on first connect, as
-the CLI does, and mixed-version expectations are the CLI's: recovery features need the
-schema that carries them.
+**Upgrades.** The console ships in the verifier image and runs in the verifier process,
+so it upgrades when your verifier image does — there is nothing separate to deploy.
+Recovery actions submitted through it take effect on the running verifier (a restored
+job is picked up on the queue's fallback poll). Run the console from the same image
+version as the verifier it administers: recovery features need the schema that carries
+them, and the console's action table is created by the verifier's own migrations.
 
-**Console state.** The console database is the console's only state: one table,
-`ccv_admin_actions`, holding the action log. There is nothing else to back up or
-migrate; the console runs its own migrations on startup. Losing the console database
-loses the action history and returns the console to read-only mode — verifier state is
-untouched, and re-pointing `[db].url` at a restored (or fresh) database is the whole
-recovery procedure.
+**Console state.** The action log (`ccv_admin_actions`) lives in the verifier's
+application database and is created by the verifier's migrations; there is no separate
+console database to provision, back up, or migrate.
 
 **Health.** `GET /healthz` returns `200 {"status":"ok"}`. It is a process liveness
-check; per-node database reachability is on the home page, not in the health probe.
+check only.
 
-**Config checks.** `verifier ccv admin check-config` validates the config and prints the
-resolved node identities without starting the server.
+**Config checks.** `verifier ccv admin check-config` validates the config file without
+starting anything.
 
 ## Shared hosting and the access model
 
@@ -274,7 +201,7 @@ configured:
 
 - **`access.actor_header` (authenticating proxy).** The console trusts the configured
   header verbatim; its value becomes the actor in the action log.
-- **`[admin_ui]` basic auth (console secrets file).** The console verifies the
+- **`[admin_ui]` basic auth (verifier secrets file).** The console verifies the
   credential itself on every request except `/healthz` (kept open for probes), and the
   username becomes the actor. No proxy is required for identity — but basic auth carries
   the password base64-encoded, so serve it over TLS (or keep the console on loopback and
@@ -294,13 +221,6 @@ console trusts the header verbatim:
 Startup validation enforces the floor: a non-loopback `listen_address` with neither
 `access.actor_header` nor `[admin_ui]` fails to start. Everything above that floor is
 proxy hygiene (or basic auth over TLS).
-
-**Verify the node list before acting.** The home page is the exact list of verifier
-databases this console can mutate, with each node's reachability and capabilities. Node
-names are the display and action-log identity — they are what the action log records, so
-name nodes after the verifier they belong to, and re-check the list after any config
-change or upgrade before running an action. An action against the wrong node is
-recorded, but it is recorded against the wrong node.
 
 ## See also
 

@@ -19,6 +19,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/tools/configdoc"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/admin"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/policy"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token"
@@ -39,6 +40,7 @@ var Targets = []configdoc.Target{
 	{Name: "bootstrap", Out: "bootstrap/secrets.documented.toml", Kind: configdoc.KindSecrets, New: bootstrapSecretsInstance},
 	{Name: "monitoring", Out: "common/monitoring.documented.toml", Kind: configdoc.KindConfig, New: monitoringConfigInstance},
 	{Name: "evm", Out: "evm/config.documented.toml", Kind: configdoc.KindConfig, New: evmConfigInstance},
+	{Name: "admin console", Out: "admin-console/config.documented.toml", Kind: configdoc.KindConfig, New: adminConsoleConfigInstance},
 }
 
 // executorDocInstance builds a fully-populated, valid executor Configuration
@@ -381,5 +383,17 @@ func evmConfig() evm.Config {
 				TXMBlockTime:  2 * time.Second,
 			},
 		},
+	}
+}
+
+// adminConsoleConfigInstance builds the documented admin console config. The struct
+// has no defaulting routine, so the loopback listen address is set explicitly; the
+// optional aggregator override and trace viewer are illustrative.
+func adminConsoleConfigInstance() any {
+	return &admin.Config{
+		ListenAddress:     admin.DefaultListenAddress,
+		AggregatorAddress: "aggregator-1:50051",
+		TraceURL:          "https://traces.example.com",
+		Access:            admin.AccessConfig{ActorHeader: "X-Authenticated-User"},
 	}
 }

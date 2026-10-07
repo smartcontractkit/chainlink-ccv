@@ -190,23 +190,3 @@ func TestDatabaseURL_NilReceiver(t *testing.T) {
 	require.Equal(t, "postgres://env-host/db", s.DatabaseURL())
 	require.Nil(t, s.AggregatorSecrets())
 }
-
-func TestDatabaseURLFileOnly_NeverFallsBackToEnv(t *testing.T) {
-	// Multi-node consumers (the admin console) resolve a node's database strictly
-	// from its secrets file: a URL-less node must not inherit CL_DATABASE_URL and
-	// silently mutate another node's database.
-	t.Setenv(DatabaseURLEnvVar, "postgres://env-host/db")
-	var nilSecrets *VerifierSecrets
-	require.Equal(t, "", nilSecrets.DatabaseURLFileOnly())
-
-	noURL := writeSecretsFile(t, "[policy_hook]\napi_key = 'k'\nsecret_key = 's'\n")
-	loaded, err := Load(noURL)
-	require.NoError(t, err)
-	require.Equal(t, "postgres://env-host/db", loaded.DatabaseURL(), "the verifier keeps its env fallback")
-	require.Equal(t, "", loaded.DatabaseURLFileOnly(), "the console must see only the file value")
-
-	withURL := writeSecretsFile(t, "[db]\nurl = 'postgres://file-host/db'\n")
-	loaded, err = Load(withURL)
-	require.NoError(t, err)
-	require.Equal(t, "postgres://file-host/db", loaded.DatabaseURLFileOnly())
-}

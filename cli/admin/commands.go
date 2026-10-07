@@ -1,93 +1,49 @@
-// Package admin provides the `ccv admin` commands: the admin console server and config
-// validation.
+// Package admin provides the `ccv admin` commands. The console itself is served
+// in-process by the verifier factory when the config file is present; this group is
+// for pre-flight validation of that file.
 package admin
 
 import (
-	"context"
 	"fmt"
-	"os"
-	"os/signal"
-	"syscall"
 
 	"github.com/urfave/cli"
 
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/admin"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vsecrets"
-	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-// Command returns the `ccv admin` command. The console manages its own config and node
-// connections, so it needs no factory from the caller.
-func Command(lggr logger.Logger) cli.Command {
-	serveFlags := []cli.Flag{
-		cli.StringFlag{
-			Name:   "config",
-			Usage:  "Path to the console config TOML",
-			EnvVar: admin.ConfigPathEnv,
-			Value:  admin.DefaultConfigPath,
-		},
-	}
+// Command returns the `ccv admin` command group.
+func Command() cli.Command {
 	return cli.Command{
 		Name:  "admin",
-		Usage: "Admin console: server-rendered UI over the recovery stores",
+		Usage: "Admin console helpers (the console is served by the verifier process itself)",
 		Subcommands: []cli.Command{
 			{
-				Name:  "serve",
-				Usage: "Serve the admin console (binds loopback by default)",
-				Flags: serveFlags,
-				Action: func(c *cli.Context) error {
-					return serve(c, lggr)
-				},
-			},
-			{
 				Name:  "check-config",
-				Usage: "Validate the console config and print the resolved node identities",
-				Flags: serveFlags,
+				Usage: "Validate the console config file the verifier would load at startup",
+				Flags: []cli.Flag{
+					cli.StringFlag{
+						Name:   "config",
+						Usage:  "Path to the console config TOML",
+						EnvVar: admin.ConfigPathEnv,
+						Value:  admin.DefaultConfigPath,
+					},
+				},
 				Action: func(c *cli.Context) error {
 					cfg, err := admin.LoadConfig(c.String("config"))
 					if err != nil {
 						return err
 					}
-					secrets, err := vsecrets.Load(cfg.ResolveConsoleSecretsPath())
-					if err != nil {
-						return err
-					}
-					auth, err := admin.BasicAuthFromSecrets(secrets)
-					if err != nil {
-						return err
-					}
-					if err := admin.ValidateAccessPolicy(cfg, auth); err != nil {
-						return err
-					}
 					access := "actor local (loopback)"
-					if auth != nil {
-						access = "basic auth ([admin_ui]) enabled"
-					} else if cfg.Access.ActorHeader != "" {
+					if cfg.Access.ActorHeader != "" {
 						access = "proxy header " + cfg.Access.ActorHeader
 					}
-					fmt.Println("config OK: listen=" + cfg.ListenAddress + " nodes=" + fmt.Sprint(len(cfg.Nodes)) + " access=" + access) //nolint:forbidigo // CLI user output
-					for _, n := range cfg.Nodes {
-						fmt.Println("  node " + n.Name + " (secrets: " + n.SecretsPath + ")") //nolint:forbidigo // CLI user output
+					fmt.Println("config OK: listen=" + cfg.ListenAddress + " access=" + access) //nolint:forbidigo // CLI user output
+					if cfg.AggregatorAddress != "" {
+						fmt.Println("  attestation freshness checks via aggregator " + cfg.AggregatorAddress) //nolint:forbidigo // CLI user output
 					}
 					return nil
 				},
 			},
 		},
 	}
-}
-
-func serve(c *cli.Context, lggr logger.Logger) error {
-	cfg, err := admin.LoadConfig(c.String("config"))
-	if err != nil {
-		return err
-	}
-	srv, err := admin.NewServer(cfg, lggr)
-	if err != nil {
-		return err
-	}
-	defer srv.Close()
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	return srv.Run(ctx)
 }

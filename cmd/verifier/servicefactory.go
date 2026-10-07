@@ -52,6 +52,7 @@ type factory struct {
 	aggregatorWriter *storageaccess.FanOutWriter
 	heartbeatClient  heartbeatclient.HeartbeatSender
 	chainStatusDB    sqlutil.DataSource
+	adminStop        func()
 }
 
 var _ bootstrap.ServiceFactoryValidator = (*factory)(nil)
@@ -473,6 +474,18 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	f.server = server
 	f.coordinator = coordinator
 
+	// The admin console serves in-process when its config file is present; it shares
+	// this verifier's application database and secrets.
+	aggregatorAddress := ""
+	if len(resolvedAggregators) > 0 {
+		aggregatorAddress = resolvedAggregators[0].Address
+	}
+	adminStop, err := startAdminConsole(lggr, chainStatusDB, secrets, aggregatorAddress)
+	if err != nil {
+		return fmt.Errorf("failed to start admin console: %w", err)
+	}
+	f.adminStop = adminStop
+
 	lggr.Infow("🎯 Verifier service fully started and ready!")
 
 	return nil
@@ -531,11 +544,17 @@ func (f *factory) Stop(ctx context.Context) error {
 		}
 	}
 
+	// Stop the admin console
+	if f.adminStop != nil {
+		f.adminStop()
+	}
+
 	f.server = nil
 	f.coordinator = nil
 	f.profiler = nil
 	f.aggregatorWriter = nil
 	f.heartbeatClient = nil
+	f.adminStop = nil
 	f.lggr = nil
 	f.chainStatusDB = nil
 

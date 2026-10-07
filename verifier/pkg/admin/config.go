@@ -1,6 +1,6 @@
-// Package admin implements the CCV admin console: a server-rendered UI over the
-// verifier recovery stores, wrapping the job-queue / recovery CLI semantics so
-// operators can find, explain, and recover dropped messages without node access.
+// Package admin implements the CCV admin console: a server-rendered UI over one
+// verifier's recovery stores, wrapping the job-queue / recovery CLI semantics so
+// operators can find, explain, and recover dropped messages without database access.
 package admin
 
 import (
@@ -16,61 +16,41 @@ import (
 const (
 	// DefaultListenAddress binds the console to loopback unless configured otherwise.
 	DefaultListenAddress = "127.0.0.1:8105"
-	// ConfigPathEnv overrides the --config flag's default path.
-	ConfigPathEnv     = "CCV_ADMIN_CONFIG_PATH"
+	// ConfigPathEnv overrides the default console config path.
+	ConfigPathEnv = "CCV_ADMIN_CONFIG_PATH"
+	// DefaultConfigPath is the console config file's default location. A present file
+	// enables the console: the verifier factory serves it in-process alongside the job.
 	DefaultConfigPath = "/etc/ccv-admin/config.toml"
-	SecretsPathEnv    = "CCV_ADMIN_SECRETS_PATH"
-	// DefaultSecretsPath is the console secrets file's default location.
-	DefaultSecretsPath = "/etc/ccv-admin/secrets.toml" //nolint:gosec // G101: filesystem path, not a credential.
 )
 
-// Config is the console configuration file schema. It carries no credentials: nodes
-// reference their verifier secrets files by path and the console resolves them
-// server-side.
+// Config is the console configuration file schema. It carries no credentials and no
+// database settings: the console administers the verifier it runs beside, sharing that
+// verifier's application database (the action log lives there too) and its secrets file
+// (basic auth comes from its [admin_ui] table).
 type Config struct {
 	// ListenAddress is the bind address; loopback by default.
 	ListenAddress string `toml:"listen_address"`
-	// Console configures the console's own state (action log). Its secrets file carries
-	// [db].url; when absent, the console runs read-only.
-	Console ConsoleConfig `toml:"console"`
-	Access  AccessConfig  `toml:"access"`
-	Nodes   []NodeConfig  `toml:"nodes"`
-}
-
-type ConsoleConfig struct {
-	// SecretsPath is the console secrets file (same schema as the verifier secrets
-	// file). Resolved from CCV_ADMIN_SECRETS_PATH / default when empty.
-	SecretsPath string `toml:"secrets_path"`
+	// AggregatorAddress (optional, host:port) overrides the aggregator used for
+	// attestation freshness checks via the unauthenticated GetVerifierResultsForMessage.
+	// Empty uses the verifier's own first configured aggregator.
+	AggregatorAddress string `toml:"aggregator_address"`
+	// TraceURL (optional) is a base URL to the operator's trace viewer — typically an
+	// internal Grafana/Tempo or Jaeger — linked from the message detail page when set.
+	TraceURL string `toml:"trace_url"`
+	// Access configures how the console identifies who is acting.
+	Access AccessConfig `toml:"access"`
 }
 
 type AccessConfig struct {
 	// ActorHeader names the HTTP header carrying an authenticated identity from a
 	// fronting proxy (shared hosting). Empty means self-hosted loopback: actor "local".
 	// Non-loopback serving requires this header or [admin_ui] basic auth from the
-	// console secrets file (validated at startup, when the secrets are loaded).
+	// verifier secrets file (validated at startup, when the secrets are loaded).
 	ActorHeader string `toml:"actor_header"`
 }
 
-// NodeConfig is one verifier database the console administers. Nodes must belong to the
-// same operator; each entry is one verifier's application database.
-type NodeConfig struct {
-	// Name is the display and action-log identity for this node.
-	Name string `toml:"name"`
-	// SecretsPath is this node's verifier secrets file, which carries its [db].url.
-	SecretsPath string `toml:"secrets_path"`
-	// AggregatorAddress (optional, host:port) enables attestation freshness checks via
-	// the aggregator's unauthenticated GetVerifierResultsForMessage.
-	AggregatorAddress string `toml:"aggregator_address"`
-	// IndexerURL (optional base URL) enables the indexer's verification-result lookup.
-	IndexerURL string `toml:"indexer_url"`
-	// TraceURL (optional) is a base URL to the operator's trace viewer, linked from the
-	// message detail page when set.
-	TraceURL string `toml:"trace_url"`
-}
-
 // LoadConfig reads and validates the console config. A missing file is an error: the
-// console is useless without at least one configured node, so failing fast beats a
-// silently empty registry.
+// factory treats file presence as the enable signal and loads only when it exists.
 func LoadConfig(path string) (*Config, error) {
 	raw, err := os.ReadFile(path) //nolint:gosec // G304: path is operator-provided, trusted.
 	if err != nil {
@@ -101,34 +81,6 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("listen_address %q is not host:port: %w", c.ListenAddress, err)
 	}
 	// The non-loopback identity rule lives in ValidateAccessPolicy (server startup):
-	// it needs the console secrets, which are not loaded here.
-	if len(c.Nodes) == 0 {
-		return errors.New("at least one [[nodes]] entry is required")
-	}
-	seen := make(map[string]struct{}, len(c.Nodes))
-	for i, n := range c.Nodes {
-		if n.Name == "" {
-			return fmt.Errorf("nodes[%d]: name is required", i)
-		}
-		if n.SecretsPath == "" {
-			return fmt.Errorf("nodes[%d] (%s): secrets_path is required", i, n.Name)
-		}
-		if _, dup := seen[n.Name]; dup {
-			return fmt.Errorf("nodes[%d]: duplicate node name %q", i, n.Name)
-		}
-		seen[n.Name] = struct{}{}
-	}
+	// it needs the verifier secrets, which are not loaded here.
 	return nil
-}
-
-// ResolveConsoleSecretsPath applies the env/default resolution for the console secrets
-// file when the config does not set one.
-func (c *Config) ResolveConsoleSecretsPath() string {
-	if c.Console.SecretsPath != "" {
-		return c.Console.SecretsPath
-	}
-	if p := os.Getenv(SecretsPathEnv); p != "" {
-		return p
-	}
-	return DefaultSecretsPath
 }

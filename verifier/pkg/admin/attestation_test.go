@@ -3,8 +3,6 @@ package admin
 import (
 	"context"
 	"errors"
-	"net/http"
-	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -67,7 +65,7 @@ func TestAggregatorAttested(t *testing.T) {
 	}})
 
 	id := rescheduleMsgID(1)
-	results := checkNodeAttestations(context.Background(), NodeConfig{Name: "n1", AggregatorAddress: "agg:443"}, [][]byte{id})
+	results := checkAttestations(context.Background(), "agg:443", [][]byte{id})
 	require.Len(t, results, 1)
 	require.Equal(t, AttestationAttested, results[0].State)
 	require.Contains(t, results[0].Detail, "aggregator")
@@ -78,7 +76,7 @@ func TestAggregatorPerIDErrorMeansNotFound(t *testing.T) {
 		{Present: true, ErrorCode: int32(codes.NotFound), ErrorMsg: "message ID not found"},
 	}})
 
-	results := checkNodeAttestations(context.Background(), NodeConfig{AggregatorAddress: "agg:443"}, [][]byte{rescheduleMsgID(2)})
+	results := checkAttestations(context.Background(), "agg:443", [][]byte{rescheduleMsgID(2)})
 	require.Equal(t, AttestationNotFound, results[0].State)
 	require.Contains(t, results[0].Detail, "message ID not found")
 }
@@ -91,7 +89,7 @@ func TestAggregatorPerIDInternalErrorIsUnknown(t *testing.T) {
 		{Present: true, ErrorCode: int32(codes.Internal), ErrorMsg: "dest chain not mapped"},
 	}})
 
-	results := checkNodeAttestations(context.Background(), NodeConfig{AggregatorAddress: "agg:443"}, [][]byte{rescheduleMsgID(7)})
+	results := checkAttestations(context.Background(), "agg:443", [][]byte{rescheduleMsgID(7)})
 	require.Equal(t, AttestationUnknown, results[0].State)
 	require.Contains(t, results[0].Detail, "Internal")
 	require.Contains(t, results[0].Detail, "dest chain not mapped")
@@ -102,14 +100,14 @@ func TestAggregatorEmptyCcvDataMeansNotFound(t *testing.T) {
 		{Present: true, CcvData: []byte{}},
 	}})
 
-	results := checkNodeAttestations(context.Background(), NodeConfig{AggregatorAddress: "agg:443"}, [][]byte{rescheduleMsgID(3)})
+	results := checkAttestations(context.Background(), "agg:443", [][]byte{rescheduleMsgID(3)})
 	require.Equal(t, AttestationNotFound, results[0].State)
 }
 
 func TestAggregatorCallErrorIsUnknown(t *testing.T) {
 	installFakeResultsClient(t, &fakeResultsClient{callErr: context.DeadlineExceeded})
 
-	results := checkNodeAttestations(context.Background(), NodeConfig{AggregatorAddress: "agg:443"}, [][]byte{rescheduleMsgID(4)})
+	results := checkAttestations(context.Background(), "agg:443", [][]byte{rescheduleMsgID(4)})
 	require.Equal(t, AttestationUnknown, results[0].State)
 	require.Contains(t, results[0].Detail, "aggregator unreachable")
 }
@@ -117,7 +115,7 @@ func TestAggregatorCallErrorIsUnknown(t *testing.T) {
 func TestAggregatorDialErrorIsUnknown(t *testing.T) {
 	installDialError(t, errors.New("connection refused"))
 
-	results := checkNodeAttestations(context.Background(), NodeConfig{AggregatorAddress: "agg:443"}, [][]byte{rescheduleMsgID(4)})
+	results := checkAttestations(context.Background(), "agg:443", [][]byte{rescheduleMsgID(4)})
 	require.Equal(t, AttestationUnknown, results[0].State)
 	require.Equal(t, "connection refused", results[0].Detail)
 }
@@ -125,46 +123,13 @@ func TestAggregatorDialErrorIsUnknown(t *testing.T) {
 func TestAggregatorMissingEntryIsUnknown(t *testing.T) {
 	installFakeResultsClient(t, &fakeResultsClient{entries: []storageaccess.ResultEntry{}})
 
-	results := checkNodeAttestations(context.Background(), NodeConfig{AggregatorAddress: "agg:443"}, [][]byte{rescheduleMsgID(5)})
+	results := checkAttestations(context.Background(), "agg:443", [][]byte{rescheduleMsgID(5)})
 	require.Equal(t, AttestationUnknown, results[0].State)
 	require.Contains(t, results[0].Detail, "missing an entry")
 }
 
-func TestIndexerAttestationStates(t *testing.T) {
-	id := rescheduleMsgID(6)
-	var gotPath string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotPath = r.URL.Path
-		switch r.URL.Path {
-		case "/v1/verifierresults/" + formatMessageID(id):
-			w.Write([]byte(`{"success":true,"results":[{"verifierResult":{"ccv_data":"0x0102"},"metadata":{}}]}`))
-		default:
-			w.WriteHeader(http.StatusNotFound)
-		}
-	}))
-	t.Cleanup(srv.Close)
-
-	results := checkNodeAttestations(context.Background(), NodeConfig{IndexerURL: srv.URL}, [][]byte{id})
-	require.Equal(t, AttestationAttested, results[0].State)
-	require.Equal(t, "/v1/verifierresults/"+formatMessageID(id), gotPath)
-
-	results = checkNodeAttestations(context.Background(), NodeConfig{IndexerURL: srv.URL}, [][]byte{rescheduleMsgID(7)})
-	require.Equal(t, AttestationNotFound, results[0].State, "404 means not found")
-}
-
-func TestIndexerErrorStatusIsUnknown(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-	}))
-	t.Cleanup(srv.Close)
-
-	results := checkNodeAttestations(context.Background(), NodeConfig{IndexerURL: srv.URL}, [][]byte{rescheduleMsgID(8)})
-	require.Equal(t, AttestationUnknown, results[0].State)
-	require.Contains(t, results[0].Detail, "500")
-}
-
 func TestAttestationNotConfiguredIsUnknown(t *testing.T) {
-	results := checkNodeAttestations(context.Background(), NodeConfig{Name: "n1"}, [][]byte{rescheduleMsgID(9)})
+	results := checkAttestations(context.Background(), "", [][]byte{rescheduleMsgID(9)})
 	require.Len(t, results, 1)
 	require.Equal(t, AttestationUnknown, results[0].State)
 	require.Contains(t, results[0].Detail, "not configured")

@@ -36,6 +36,7 @@ type tokenVerifierFactory struct {
 
 	coordinators []*verifier.Coordinator
 	httpServer   *http.Server
+	adminStop    func()
 	lggr         logger.Logger
 }
 
@@ -49,6 +50,10 @@ func NewTokenVerifierServiceFactory() bootstrap.ServiceFactory {
 // Stop tries to stop all services gracefully.
 func (tvf *tokenVerifierFactory) Stop(_ context.Context) error {
 	var errs []error
+	if tvf.adminStop != nil {
+		tvf.adminStop()
+		tvf.adminStop = nil
+	}
 	if tvf.httpServer != nil {
 		// Graceful shutdown
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -129,6 +134,14 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 	db, err := ConnectToPostgresDB(tvf.lggr, secrets)
 	if err != nil {
 		return fmt.Errorf("failed to connect to Postgres database: %w", err)
+	}
+
+	// The admin console serves in-process when its config file is present; it shares
+	// this verifier's application database and secrets. The token verifier has no
+	// aggregator of its own, so freshness checks need aggregator_address in the file.
+	tvf.adminStop, err = startAdminConsole(tvf.lggr, db, secrets, "")
+	if err != nil {
+		return fmt.Errorf("failed to start admin console: %w", err)
 	}
 
 	postgresStorage := storage.NewPostgres(db, tvf.lggr)

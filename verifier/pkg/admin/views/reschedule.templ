@@ -5,7 +5,6 @@ package views
 // needed. Target is the original pipe-encoded form value, resubmitted on execute.
 type RescheduleTargetVM struct {
 	Target          string
-	NodeName        string
 	OwnerID         string
 	Queue           string
 	JobID           string
@@ -20,7 +19,6 @@ type RescheduleTargetVM struct {
 // so failed/skipped targets can be resubmitted as a retry.
 type RescheduleResultVM struct {
 	Target    string
-	NodeName  string
 	OwnerID   string
 	Queue     string
 	JobID     string
@@ -97,7 +95,6 @@ templ reschedulePreviewTable(targets []RescheduleTargetVM) {
 			<thead>
 				<tr>
 					<th></th>
-					<th>Node</th>
 					<th>Owner</th>
 					<th>Queue</th>
 					<th>Job ID</th>
@@ -117,7 +114,6 @@ templ reschedulePreviewTable(targets []RescheduleTargetVM) {
 								<input type="checkbox" disabled/>
 							}
 						</td>
-						<td>{ t.NodeName }</td>
 						<td><code>{ t.OwnerID }</code></td>
 						<td>{ t.Queue }</td>
 						<td><code>{ t.JobID }</code></td>
@@ -170,7 +166,6 @@ templ rescheduleResultsContent(csrfToken string, results []RescheduleResultVM, r
 				<table>
 					<thead>
 						<tr>
-							<th>Node</th>
 							<th>Owner</th>
 							<th>Queue</th>
 							<th>Job ID</th>
@@ -182,7 +177,6 @@ templ rescheduleResultsContent(csrfToken string, results []RescheduleResultVM, r
 					<tbody>
 						for _, r := range results {
 							<tr>
-								<td>{ r.NodeName }</td>
 								<td><code>{ r.OwnerID }</code></td>
 								<td>{ r.Queue }</td>
 								<td><code>{ r.JobID }</code></td>

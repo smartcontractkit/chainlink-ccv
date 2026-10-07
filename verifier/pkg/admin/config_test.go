@@ -15,18 +15,11 @@ func writeConfig(t *testing.T, body string) string {
 	return path
 }
 
-const validNode = `
-[[nodes]]
-name = "verifier-1"
-secrets_path = "/etc/nodes/verifier-1/secrets.toml"
-`
-
 func TestLoadConfig(t *testing.T) {
 	t.Run("parses with loopback default", func(t *testing.T) {
-		cfg, err := LoadConfig(writeConfig(t, validNode))
+		cfg, err := LoadConfig(writeConfig(t, ""))
 		require.NoError(t, err)
 		require.Equal(t, DefaultListenAddress, cfg.ListenAddress)
-		require.Len(t, cfg.Nodes, 1)
 	})
 
 	t.Run("missing file is an error", func(t *testing.T) {
@@ -35,24 +28,29 @@ func TestLoadConfig(t *testing.T) {
 	})
 
 	t.Run("unknown keys are rejected", func(t *testing.T) {
-		_, err := LoadConfig(writeConfig(t, validNode+"\nbogus_key = 1\n"))
+		_, err := LoadConfig(writeConfig(t, "bogus_key = 1\n"))
 		require.ErrorContains(t, err, "unknown keys")
 	})
 
-	t.Run("requires at least one node", func(t *testing.T) {
-		_, err := LoadConfig(writeConfig(t, ""))
-		require.ErrorContains(t, err, "at least one")
+	t.Run("bad listen address is rejected", func(t *testing.T) {
+		_, err := LoadConfig(writeConfig(t, `listen_address = "no-port"`+"\n"))
+		require.ErrorContains(t, err, "listen_address")
 	})
 
-	t.Run("duplicate node names are rejected", func(t *testing.T) {
-		_, err := LoadConfig(writeConfig(t, validNode+validNode))
-		require.ErrorContains(t, err, "duplicate node name")
+	t.Run("optional fields parse", func(t *testing.T) {
+		cfg, err := LoadConfig(writeConfig(t, `
+aggregator_address = "aggregator-1:50051"
+trace_url = "https://traces.example.com"
+`))
+		require.NoError(t, err)
+		require.Equal(t, "aggregator-1:50051", cfg.AggregatorAddress)
+		require.Equal(t, "https://traces.example.com", cfg.TraceURL)
 	})
 
 	t.Run("non-loopback listen defers the identity check to startup", func(t *testing.T) {
-		// The rule needs the console secrets (basic auth), so LoadConfig accepts
+		// The rule needs the verifier secrets (basic auth), so LoadConfig accepts
 		// the file and ValidateAccessPolicy enforces it at server startup.
-		cfg, err := LoadConfig(writeConfig(t, `listen_address = "0.0.0.0:8105"`+validNode))
+		cfg, err := LoadConfig(writeConfig(t, `listen_address = "0.0.0.0:8105"`+"\n"))
 		require.NoError(t, err)
 		require.ErrorContains(t, ValidateAccessPolicy(cfg, nil), "identity source")
 		require.NoError(t, ValidateAccessPolicy(cfg, &BasicAuth{Username: "u", Password: "p"}))
@@ -60,7 +58,7 @@ func TestLoadConfig(t *testing.T) {
 		cfg, err = LoadConfig(writeConfig(t, `listen_address = "0.0.0.0:8105"
 [access]
 actor_header = "X-Remote-User"
-`+validNode))
+`))
 		require.NoError(t, err)
 		require.Equal(t, "X-Remote-User", cfg.Access.ActorHeader)
 		require.NoError(t, ValidateAccessPolicy(cfg, nil))

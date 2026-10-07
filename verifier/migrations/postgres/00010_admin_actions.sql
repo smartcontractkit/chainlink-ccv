@@ -1,9 +1,10 @@
 -- +goose Up
+-- Admin console action log. The console runs in the verifier process and audits its
+-- mutations here, in the verifier's own application database.
 CREATE TABLE IF NOT EXISTS ccv_admin_actions (
     id           BIGSERIAL PRIMARY KEY,
     actor        TEXT        NOT NULL,
     action       TEXT        NOT NULL,
-    node_name    TEXT        NOT NULL DEFAULT '',
     target       TEXT        NOT NULL DEFAULT '',
     operation_id TEXT        NOT NULL DEFAULT '',
     outcome      TEXT        NOT NULL,
