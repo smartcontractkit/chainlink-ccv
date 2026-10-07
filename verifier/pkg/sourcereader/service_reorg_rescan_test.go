@@ -8,11 +8,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap/zapcore"
 
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 // newRescanTestSRS makes a service with permissive chain status and curse mocks.
@@ -333,4 +335,23 @@ func TestSRS_Rescan_SameHeightNewBlockUsesNewHash(t *testing.T) {
 
 	require.Equal(t, []string{first[0].MessageID.String()}, publishedIDs(queue))
 	require.Equal(t, second[0].BlockHash, queue.Published()[0].SourceBlockHash)
+}
+
+// The checkpoint warning names block confirmation as the cause, not admission.
+func TestSRS_BlockHash_CheckpointWarningNamesCause(t *testing.T) {
+	reader := mocks.NewMockSourceReader(t)
+	srs, _ := newRescanTestSRS(t, reader, 5000)
+	lggr, logs := logger.TestObserved(t, zapcore.WarnLevel)
+	srs.logger = lggr
+	seedHashedTask(t, srs, 1, readHash)
+	reader.EXPECT().GetBlocksHeaders(mock.Anything, mock.Anything).Return(nil, assert.AnError).Once()
+
+	srs.sendReadyMessages(context.Background(), latest1k, nil, final950)
+
+	entries := logs.FilterMessageSnippet("keeping checkpoint unchanged").All()
+	require.Len(t, entries, 1)
+	fields := entries[0].ContextMap()
+	require.Equal(t, true, fields["sourceBlockUnconfirmed"])
+	require.Equal(t, false, fields["admissionStateUnknown"])
+	require.Equal(t, false, fields["awaitingScan"])
 }

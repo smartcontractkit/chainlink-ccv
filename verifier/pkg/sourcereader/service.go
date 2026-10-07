@@ -824,7 +824,8 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 		r.mu.Lock()
 		defer r.mu.Unlock()
 		defer r.recordPendingMetricsLocked(ctx)
-		hasBlockingUnknown := false
+		// Each flag holds the checkpoint back for one cause, so the warning can name it.
+		var admissionUnknown, awaitingScan, unconfirmed bool
 
 		if r.disabled.Load() {
 			return 0
@@ -852,7 +853,7 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 				// Restart resumes at checkpoint+1, so an unpublished task
 				// at or below the checkpoint must prevent advancement.
 				if task.BlockNumber <= checkpointCandidate {
-					hasBlockingUnknown = true
+					awaitingScan = true
 				}
 				continue
 			}
@@ -860,7 +861,7 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 			if admissionErr != nil {
 				r.logger.Warnw("Blocking message - admission state unknown", "messageID", msgID, "reason", reason, "error", admissionErr)
 				r.messageMetrics(task.Message).IncrementMessageTransition(ctx, monitoring.MessageTransitionStageAdmission, reason, reason)
-				hasBlockingUnknown = true
+				admissionUnknown = true
 				// Recorded but not ended - transient/unknown; the same span is reused next poll.
 				taskSpan.RecordError(admissionErr)
 				taskSpan.SetStatus(codes.Error, admissionErr.Error())
@@ -940,9 +941,7 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 			delete(r.pendingTasks, msgID)
 		}
 
-		var unconfirmed bool
 		ready, unconfirmed = r.confirmBlockHashesLocked(ctx, ready)
-		hasBlockingUnknown = hasBlockingUnknown || unconfirmed
 
 		// Use lastProcessedFinalizedBlock as the safe checkpoint: it tracks how far SRS has
 		// successfully scanned from chain (may be less than finalized if there were fetch errors).
@@ -953,9 +952,11 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 			safeCheckpoint = r.lastProcessedFinalizedBlock.Load()
 		}
 
-		if hasBlockingUnknown {
-			// When drop/block rules are unknown we need to keep the checkpoint unchanged to avoid skipping messages.
-			r.logger.Warnw("Curse or message rules state unknown, keeping checkpoint unchanged to avoid skipped messages")
+		if admissionUnknown || awaitingScan || unconfirmed {
+			r.logger.Warnw("Pending tasks not settled, keeping checkpoint unchanged to avoid skipped messages",
+				"admissionStateUnknown", admissionUnknown,
+				"sourceBlockUnconfirmed", unconfirmed,
+				"awaitingScan", awaitingScan)
 			safeCheckpoint = 0
 		}
 
