@@ -212,8 +212,26 @@ type QueueConfig struct {
     OwnerID       string        // Scopes jobs so multiple verifiers can share tables
     RetryDuration time.Duration // How long jobs can be retried before permanent failure
     LockDuration  time.Duration // How long before a processing job is considered stale
+    KeyColumns    KeyColumns    // Unique key of the table (default: DedupKeyColumn)
 }
 ```
+
+### Dedup key
+
+A publish with a key that is already in the active table is dropped. `KeyColumns` selects the key:
+
+| Mode | Unique key | Use |
+|---|---|---|
+| `DedupKeyColumn` (default) | `(owner_id, dedup_key)`, from `DedupKey()` | new tables (`CreateTablesSQL`), standalone verifier |
+| `MessageKeyColumns` | `(owner_id, chain_selector, message_id)`, from `JobKey()` | verifier tables on a Chainlink node |
+
+- With `MessageKeyColumns`, `DedupKey()` has no effect on duplicates. `Job.DedupKey` still holds it.
+- The queue reads only `dedup_key` and never parses it. A payload that implements `MessageKeyed`
+  also writes the legacy `chain_selector` and `message_id` columns of the verifier tables. Tables
+  from `CreateTablesSQL` do not have these columns, so their payloads must not implement it.
+- The verifier tables keep the `(owner_id, chain_selector, message_id)` constraint, so their payloads
+  must use `MessageDedupKey`, which is `<hex message id>:<chain selector>`. Migration `00010_job_queue_dedup_key.sql` adds `dedup_key` with a
+  trigger that fills it for inserts from older verifiers, so old and new code can share the tables.
 
 ## Usage Example
 

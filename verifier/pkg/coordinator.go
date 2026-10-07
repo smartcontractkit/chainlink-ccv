@@ -72,6 +72,17 @@ type CoordinatorOption func(*coordinatorOptions)
 
 type coordinatorOptions struct {
 	sourceRecovery bool
+	queueKeys      jobqueue.KeyColumns
+}
+
+// newCoordinatorOptions applies opts to the defaults. The default MessageKeyColumns is what a
+// Chainlink node gets, because its constructor passes no options.
+func newCoordinatorOptions(opts ...CoordinatorOption) coordinatorOptions {
+	options := coordinatorOptions{queueKeys: jobqueue.MessageKeyColumns}
+	for _, opt := range opts {
+		opt(&options)
+	}
+	return options
 }
 
 // WithSourceRecovery enables durable source-range recovery on the source readers. Standalone
@@ -79,6 +90,12 @@ type coordinatorOptions struct {
 // so enabling this there would break its event loop.
 func WithSourceRecovery() CoordinatorOption {
 	return func(o *coordinatorOptions) { o.sourceRecovery = true }
+}
+
+// WithDedupKeyColumn makes the job queues use dedup_key as the unique key. Standalone verifiers
+// only: the Chainlink-node schema has no dedup_key, so the queues default to MessageKeyColumns.
+func WithDedupKeyColumn() CoordinatorOption {
+	return func(o *coordinatorOptions) { o.queueKeys = jobqueue.DedupKeyColumn }
 }
 
 func NewCoordinator(
@@ -125,10 +142,7 @@ func NewCoordinatorWithDetector(
 	if verifier == nil {
 		return nil, errors.New("verifier is required")
 	}
-	var options coordinatorOptions
-	for _, opt := range opts {
-		opt(&options)
-	}
+	options := newCoordinatorOptions(opts...)
 	lggr = logger.With(lggr, "verifierID", config.VerifierID)
 	vc := &Coordinator{
 		lggr:            lggr,
@@ -174,7 +188,7 @@ func NewCoordinatorWithDetector(
 		}
 
 		processors, err := createDurableProcessors(
-			lggr, ds, config, verifier, monitoring, configuredSourceReaders, batchedChainStatusManager, vc.curseDetector, messageTracker, storage, messageRulesChecker, options.sourceRecovery,
+			lggr, ds, config, verifier, monitoring, configuredSourceReaders, batchedChainStatusManager, vc.curseDetector, messageTracker, storage, messageRulesChecker, options.sourceRecovery, options.queueKeys,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to create durable processors: %w", err)
@@ -230,6 +244,7 @@ func createDurableProcessors(
 	storage protocol.CCVNodeDataWriter,
 	messageRulesChecker common.MessageRulesChecker,
 	sourceRecovery bool,
+	queueKeys jobqueue.KeyColumns,
 ) (*durableProcessors, error) {
 	taskQueue, err := jobqueue.NewPostgresJobQueue[VerificationTask](
 		ds,
@@ -238,6 +253,7 @@ func createDurableProcessors(
 			OwnerID:       config.VerifierID,
 			RetryDuration: taskQueueRetryDuration,
 			LockDuration:  taskQueueLockDuration,
+			KeyColumns:    queueKeys,
 		},
 		logger.With(lggr, "component", "task_queue"),
 	)
@@ -263,6 +279,7 @@ func createDurableProcessors(
 			OwnerID:       config.VerifierID,
 			RetryDuration: resultQueueRetryDuration,
 			LockDuration:  resultQueueLockDuration,
+			KeyColumns:    queueKeys,
 		},
 		logger.With(lggr, "component", "result_queue"),
 	)

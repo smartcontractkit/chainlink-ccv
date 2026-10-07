@@ -15,6 +15,7 @@ import (
 	"github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-ccv/common/jobqueue"
 	verifierdb "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/db"
 	vtypes "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
@@ -341,7 +342,7 @@ func TestExplainQueryPlans(t *testing.T) {
 			    FOR UPDATE SKIP LOCKED
 			)
 			RETURNING id, job_id, task_data, attempt_count, retry_deadline, created_at,
-			          started_at, chain_selector, message_id`,
+			          started_at, dedup_key`,
 			explainTable)
 		out := runExplainAnalyze(t, sdb, "consume_pending", query,
 			"processing", // $1 new status
@@ -378,7 +379,7 @@ func TestExplainQueryPlans(t *testing.T) {
 			    FOR UPDATE SKIP LOCKED
 			)
 			RETURNING id, job_id, task_data, attempt_count, retry_deadline, created_at,
-			          started_at, chain_selector, message_id`,
+			          started_at, dedup_key`,
 			explainTable)
 		out := runExplainAnalyze(t, sdb, "consume_stale", query,
 			"processing", // $1 new status
@@ -415,15 +416,16 @@ func TestExplainQueryPlans(t *testing.T) {
 		query := fmt.Sprintf(`
 			INSERT INTO %s (
 			    job_id, task_data, status, available_at, created_at, attempt_count, retry_deadline,
-			    chain_selector, message_id, owner_id
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-			ON CONFLICT (owner_id, chain_selector, message_id) DO NOTHING`,
+			    dedup_key, chain_selector, message_id, owner_id
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+			ON CONFLICT (owner_id, dedup_key) DO NOTHING`,
 			explainTable)
 		out := runExplainAnalyze(t, sdb, "publish_no_conflict", query,
 			deterministicUUID("publish-noconflict", 0),
 			[]byte(`{"chain":99,"data":"new"}`),
 			"pending", now, now,
 			0, now.Add(time.Hour),
+			jobqueue.MessageDedupKey(99, []byte("brand-new-message-that-does-not-exist")),
 			explainChainSelectorStr(99),
 			[]byte("brand-new-message-that-does-not-exist"),
 			explainOwner,
@@ -432,31 +434,32 @@ func TestExplainQueryPlans(t *testing.T) {
 	})
 
 	// -----------------------------------------------------------------
-	// 3b. Publish — conflict path (duplicate owner/chain/message).
+	// 3b. Publish — conflict path (duplicate owner/dedup_key).
 	//     Expected: "Conflict" node shows the unique constraint index being hit.
 	// -----------------------------------------------------------------
 	t.Run("Publish_conflict", func(t *testing.T) {
-		var csStr string
+		var csStr, existingKey string
 		var existingMsgID []byte
 		row := sdb.QueryRowxContext(ctx,
 			fmt.Sprintf(
-				"SELECT chain_selector::text, message_id FROM %s WHERE owner_id = $1 LIMIT 1",
+				"SELECT dedup_key, chain_selector::text, message_id FROM %s WHERE owner_id = $1 LIMIT 1",
 				explainTable),
 			explainOwner)
-		require.NoError(t, row.Scan(&csStr, &existingMsgID))
+		require.NoError(t, row.Scan(&existingKey, &csStr, &existingMsgID))
 
 		query := fmt.Sprintf(`
 			INSERT INTO %s (
 			    job_id, task_data, status, available_at, created_at, attempt_count, retry_deadline,
-			    chain_selector, message_id, owner_id
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-			ON CONFLICT (owner_id, chain_selector, message_id) DO NOTHING`,
+			    dedup_key, chain_selector, message_id, owner_id
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+			ON CONFLICT (owner_id, dedup_key) DO NOTHING`,
 			explainTable)
 		out := runExplainAnalyze(t, sdb, "publish_conflict", query,
 			deterministicUUID("publish-conflict", 0),
 			[]byte(`{"chain":1,"data":"dup"}`),
 			"pending", now, now,
 			0, now.Add(time.Hour),
+			existingKey,
 			csStr,
 			existingMsgID,
 			explainOwner,

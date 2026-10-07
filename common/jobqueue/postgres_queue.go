@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -24,6 +25,12 @@ type PostgresJobQueue[T Jobable] struct {
 	tableName   string
 	archiveName string
 	ownerID     string
+	// keyCols lists the columns written on insert and copied to the archive.
+	keyCols []string
+	// readsDedupKey reports that consume returns dedup_key; otherwise the payload provides it.
+	readsDedupKey bool
+	// conflictCols is the unique key after owner_id.
+	conflictCols string
 	// signal wakes a waiting consumer when this process makes a job available.
 	// It is an optimization, never a record: every row stays reachable by a poll, so a
 	// signal that is never delivered costs latency and never costs a job.
@@ -54,14 +61,22 @@ func NewPostgresJobQueue[T Jobable](
 		return nil, fmt.Errorf("database connection cannot be nil")
 	}
 
+	keyCols, conflictCols, err := keyColumnsFor[T](config.KeyColumns)
+	if err != nil {
+		return nil, err
+	}
+
 	return &PostgresJobQueue[T]{
-		ds:          ds,
-		config:      config,
-		logger:      lggr,
-		tableName:   config.Name,
-		archiveName: config.Name + "_archive",
-		ownerID:     config.OwnerID,
-		signal:      newWorkSignal(),
+		keyCols:       keyCols,
+		readsDedupKey: config.KeyColumns == DedupKeyColumn,
+		conflictCols:  conflictCols,
+		ds:            ds,
+		config:        config,
+		logger:        lggr,
+		tableName:     config.Name,
+		archiveName:   config.Name + "_archive",
+		ownerID:       config.OwnerID,
+		signal:        newWorkSignal(),
 	}, nil
 }
 
@@ -109,9 +124,9 @@ func (q *PostgresJobQueue[T]) publishRows(ctx context.Context, tx sqlutil.DataSo
 		return 0, nil
 	}
 	query := fmt.Sprintf(`INSERT INTO %s
-		(job_id, task_data, status, available_at, created_at, attempt_count, retry_deadline, chain_selector, message_id, owner_id)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-		ON CONFLICT (owner_id, chain_selector, message_id) DO NOTHING`, q.tableName)
+		(job_id, task_data, status, available_at, created_at, attempt_count, retry_deadline, %s, owner_id)
+		VALUES (%s)
+		ON CONFLICT (owner_id, %s) DO NOTHING`, q.tableName, q.keys(""), placeholders(len(q.keyCols)+8), q.conflictCols)
 	stmt, err := tx.PrepareContext(ctx, query)
 	if err != nil {
 		return 0, fmt.Errorf("failed to prepare statement: %w", err)
@@ -123,10 +138,16 @@ func (q *PostgresJobQueue[T]) publishRows(ctx context.Context, tx sqlutil.DataSo
 		if err != nil {
 			return 0, fmt.Errorf("failed to marshal job payload: %w", err)
 		}
-		chain, messageID := job.JobKey()
 		now := time.Now()
-		result, err := stmt.ExecContext(ctx, uuid.NewString(), data, JobStatusPending, now.Add(delay), now, 0,
-			now.Add(q.config.RetryDuration), new(big.Int).SetUint64(chain).String(), messageID, q.ownerID)
+		args := make([]any, 0, len(q.keyCols)+8)
+		args = append(args, uuid.NewString(), data, JobStatusPending, now.Add(delay), now, 0, now.Add(q.config.RetryDuration))
+		keyArgs, err := q.keyArgs(job)
+		if err != nil {
+			return 0, err
+		}
+		args = append(args, keyArgs...)
+		args = append(args, q.ownerID)
+		result, err := stmt.ExecContext(ctx, args...)
 		if err != nil {
 			return 0, fmt.Errorf("failed to insert job: %w", err)
 		}
@@ -202,8 +223,8 @@ func (q *PostgresJobQueue[T]) consumeStale(
 		    LIMIT $6
 		    FOR UPDATE SKIP LOCKED
 		)
-		RETURNING id, job_id, task_data, attempt_count, retry_deadline, created_at, started_at, chain_selector, message_id
-	`, q.tableName)
+		RETURNING id, job_id, task_data, attempt_count, retry_deadline, created_at, started_at%[2]s
+	`, q.tableName, q.returnedKey())
 
 	jobs, failedToDeserialize, err := q.runConsumeQuery(ctx, staleQuery,
 		JobStatusProcessing, // $1
@@ -239,8 +260,8 @@ func (q *PostgresJobQueue[T]) consumePending(
 		    LIMIT $6
 		    FOR UPDATE SKIP LOCKED
 		)
-		RETURNING id, job_id, task_data, attempt_count, retry_deadline, created_at, started_at, chain_selector, message_id
-	`, q.tableName)
+		RETURNING id, job_id, task_data, attempt_count, retry_deadline, created_at, started_at%[2]s
+	`, q.tableName, q.returnedKey())
 
 	jobs, failedToDeserialize, err := q.runConsumeQuery(ctx, pendingQuery,
 		JobStatusProcessing, // $1
@@ -300,36 +321,27 @@ func (q *PostgresJobQueue[T]) runConsumeQuery(ctx context.Context, query string,
 
 	for rows.Next() {
 		var (
-			id               int64
-			jobID            string
-			dataJSON         []byte
-			attemptCount     int
-			retryDeadline    time.Time
-			createdAt        time.Time
-			startedAt        sql.NullTime
-			chainSelectorStr string
-			messageID        []byte
+			id            int64
+			jobID         string
+			dataJSON      []byte
+			attemptCount  int
+			retryDeadline time.Time
+			createdAt     time.Time
+			startedAt     sql.NullTime
+			dedupKey      string
 		)
 
-		err := rows.Scan(&id, &jobID, &dataJSON, &attemptCount, &retryDeadline, &createdAt, &startedAt, &chainSelectorStr, &messageID)
+		dest := []any{&id, &jobID, &dataJSON, &attemptCount, &retryDeadline, &createdAt, &startedAt}
+		if q.readsDedupKey {
+			dest = append(dest, &dedupKey)
+		}
+		err := rows.Scan(dest...)
 		if err != nil {
 			q.logger.Errorw("Failed to scan job row", "error", err)
 			// We can't get jobID if scan failed, so we can't mark it as failed.
 			// This should be extremely rare (database corruption).
 			continue
 		}
-
-		chainSelectorBig := new(big.Int)
-		if _, ok := chainSelectorBig.SetString(chainSelectorStr, 10); !ok {
-			scanErr := fmt.Errorf("failed to parse chain selector: %s", chainSelectorStr)
-			q.logger.Errorw("Failed to parse chain selector",
-				"jobID", jobID,
-				"chainSelector", chainSelectorStr,
-			)
-			failedToDeserialize[jobID] = scanErr
-			continue
-		}
-		chainSelector := chainSelectorBig.Uint64()
 
 		var payload T
 		if err := json.Unmarshal(dataJSON, &payload); err != nil {
@@ -341,14 +353,16 @@ func (q *PostgresJobQueue[T]) runConsumeQuery(ctx context.Context, query string,
 			continue
 		}
 
+		if !q.readsDedupKey {
+			dedupKey = payload.DedupKey()
+		}
 		job := Job[T]{
 			ID:            jobID,
+			DedupKey:      dedupKey,
 			Payload:       payload,
 			AttemptCount:  attemptCount,
 			RetryDeadline: retryDeadline,
 			CreatedAt:     createdAt,
-			ChainSelector: chainSelector,
-			MessageID:     messageID,
 		}
 		if startedAt.Valid {
 			job.StartedAt = &startedAt.Time
@@ -374,22 +388,22 @@ func (q *PostgresJobQueue[T]) Complete(ctx context.Context, jobIDs ...string) er
 	// so we can enumerate columns explicitly.
 	query := fmt.Sprintf(`
 		WITH completed AS (
-			DELETE FROM %s
+			DELETE FROM %[1]s
 			WHERE job_id = ANY($1)
 			  AND owner_id = $2
-			RETURNING id, job_id, owner_id, chain_selector, message_id, task_data,
+			RETURNING id, job_id, owner_id, %[3]s, task_data,
 			          created_at, available_at, started_at, attempt_count, retry_deadline, last_error
 		)
-		INSERT INTO %s (
-			id, job_id, owner_id, chain_selector, message_id, task_data,
+		INSERT INTO %[2]s (
+			id, job_id, owner_id, %[3]s, task_data,
 			status, created_at, available_at, started_at, attempt_count, retry_deadline, last_error,
 			completed_at
 		)
-		SELECT id, job_id, owner_id, chain_selector, message_id, task_data,
+		SELECT id, job_id, owner_id, %[3]s, task_data,
 		       $3, created_at, available_at, started_at, attempt_count, retry_deadline, last_error,
 		       NOW()
 		FROM completed
-	`, q.tableName, q.archiveName)
+	`, q.tableName, q.archiveName, q.keys(""))
 
 	result, err := q.ds.ExecContext(ctx, query, pq.Array(jobIDs), q.ownerID, JobStatusCompleted)
 	if err != nil {
@@ -477,23 +491,23 @@ func (q *PostgresJobQueue[T]) Retry(ctx context.Context, delay time.Duration, er
 		if len(failed) > 0 {
 			archiveQuery := fmt.Sprintf(`
 				WITH failed AS (
-					DELETE FROM %s
+					DELETE FROM %[1]s
 					WHERE job_id = ANY($1)
 					  AND owner_id = $2
 					  AND status = $3
-					RETURNING id, job_id, owner_id, chain_selector, message_id, task_data,
+					RETURNING id, job_id, owner_id, %[3]s, task_data,
 					          status, created_at, available_at, started_at, attempt_count, retry_deadline, last_error
 				)
-				INSERT INTO %s (
-					id, job_id, owner_id, chain_selector, message_id, task_data,
+				INSERT INTO %[2]s (
+					id, job_id, owner_id, %[3]s, task_data,
 					status, created_at, available_at, started_at, attempt_count, retry_deadline, last_error,
 					completed_at
 				)
-				SELECT id, job_id, owner_id, chain_selector, message_id, task_data,
+				SELECT id, job_id, owner_id, %[3]s, task_data,
 				       status, created_at, available_at, started_at, attempt_count, retry_deadline, last_error,
 				       NOW()
 				FROM failed
-			`, q.tableName, q.archiveName)
+			`, q.tableName, q.archiveName, q.keys(""))
 
 			result, err := tx.ExecContext(ctx, archiveQuery, pq.Array(failed), q.ownerID, JobStatusFailed)
 			if err != nil {
@@ -553,23 +567,23 @@ func (q *PostgresJobQueue[T]) Fail(ctx context.Context, errors map[string]error,
 		    FROM UNNEST($1::text[], $2::text[]) AS v(job_id, error_msg)
 		),
 		to_fail AS (
-		    DELETE FROM %s t
+		    DELETE FROM %[1]s t
 		    WHERE t.job_id IN (SELECT job_id FROM jobs_input)
 		      AND t.owner_id = $3
-		    RETURNING t.id, t.job_id, t.owner_id, t.chain_selector, t.message_id, t.task_data,
+		    RETURNING t.id, t.job_id, t.owner_id, %[3]s, t.task_data,
 		              t.created_at, t.available_at, t.started_at, t.attempt_count, t.retry_deadline
 		)
-		INSERT INTO %s (
-		    id, job_id, owner_id, chain_selector, message_id, task_data,
+		INSERT INTO %[2]s (
+		    id, job_id, owner_id, %[4]s, task_data,
 		    status, created_at, available_at, started_at, attempt_count, retry_deadline,
 		    last_error, completed_at
 		)
-		SELECT f.id, f.job_id, f.owner_id, f.chain_selector, f.message_id, f.task_data,
+		SELECT f.id, f.job_id, f.owner_id, %[5]s, f.task_data,
 		       $4, f.created_at, f.available_at, f.started_at, f.attempt_count, f.retry_deadline,
 		       i.error_msg, NOW()
 		FROM to_fail f
 		JOIN jobs_input i ON f.job_id = i.job_id
-	`, q.tableName, q.archiveName)
+	`, q.tableName, q.archiveName, q.keys("t."), q.keys(""), q.keys("f."))
 
 	result, err := q.ds.ExecContext(ctx, query,
 		pq.Array(jobIDs),     // $1
@@ -664,4 +678,79 @@ func uniqueJobIDsWithErrors(jobIDs []string, errors map[string]error) ([]string,
 		errMsgs = append(errMsgs, msg)
 	}
 	return ids, errMsgs
+}
+
+// returnedKey is the RETURNING suffix for the key column that consume reads.
+func (q *PostgresJobQueue[T]) returnedKey() string {
+	if q.readsDedupKey {
+		return ", " + colDedupKey
+	}
+	return ""
+}
+
+// keys joins the key columns, each with the given table prefix.
+func (q *PostgresJobQueue[T]) keys(prefix string) string {
+	cols := make([]string, len(q.keyCols))
+	for i, c := range q.keyCols {
+		cols[i] = prefix + c
+	}
+	return strings.Join(cols, ", ")
+}
+
+// keyArgs returns the insert values for keyCols.
+func (q *PostgresJobQueue[T]) keyArgs(job T) ([]any, error) {
+	args := make([]any, 0, len(q.keyCols))
+	for _, c := range q.keyCols {
+		switch c {
+		case colDedupKey:
+			args = append(args, job.DedupKey())
+		case colChainSelector, colMessageID:
+			mk, ok := any(job).(MessageKeyed)
+			if !ok {
+				return nil, fmt.Errorf("payload type %T does not implement MessageKeyed", job)
+			}
+			chain, messageID := mk.JobKey()
+			if c == colChainSelector {
+				args = append(args, new(big.Int).SetUint64(chain).String())
+			} else {
+				args = append(args, messageID)
+			}
+		}
+	}
+	return args, nil
+}
+
+const (
+	colDedupKey      = "dedup_key"
+	colChainSelector = "chain_selector"
+	colMessageID     = "message_id"
+)
+
+// keyColumnsFor returns the key columns and the conflict target for the mode.
+func keyColumnsFor[T Jobable](mode KeyColumns) (cols []string, conflict string, err error) {
+	var zero T
+	_, messageKeyed := any(zero).(MessageKeyed)
+	switch mode {
+	case DedupKeyColumn:
+		if messageKeyed {
+			return []string{colDedupKey, colChainSelector, colMessageID}, colDedupKey, nil
+		}
+		return []string{colDedupKey}, colDedupKey, nil
+	case MessageKeyColumns:
+		if !messageKeyed {
+			return nil, "", fmt.Errorf("payload type %T must implement MessageKeyed for MessageKeyColumns", zero)
+		}
+		return []string{colChainSelector, colMessageID}, colChainSelector + ", " + colMessageID, nil
+	default:
+		return nil, "", fmt.Errorf("unknown key columns mode %d", mode)
+	}
+}
+
+// placeholders returns "$1,$2,...,$n".
+func placeholders(n int) string {
+	ps := make([]string, n)
+	for i := range ps {
+		ps[i] = fmt.Sprintf("$%d", i+1)
+	}
+	return strings.Join(ps, ",")
 }

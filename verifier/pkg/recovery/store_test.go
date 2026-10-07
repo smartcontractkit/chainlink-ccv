@@ -92,6 +92,8 @@ func TestDurableRequestAndChunkTransactions(t *testing.T) {
 	require.Error(t, err, "completed operations are immutable")
 }
 
+func (j recoveryJob) DedupKey() string { return jobqueue.MessageDedupKey(j.JobKey()) }
+
 func TestEventHistoryDeduplicationPaginationAndCoverage(t *testing.T) {
 	ctx := context.Background()
 	db := testutil.NewTestDB(t)

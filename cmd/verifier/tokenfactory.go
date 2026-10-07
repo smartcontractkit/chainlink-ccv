@@ -310,6 +310,7 @@ func createCCTPCoordinator(
 		nil,
 		db,
 		verifier.WithSourceRecovery(),
+		verifier.WithDedupKeyColumn(),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create verification coordinator for cctp: %w", err)
@@ -365,6 +366,7 @@ func createLombardCoordinator(
 		nil,
 		db,
 		verifier.WithSourceRecovery(),
+		verifier.WithDedupKeyColumn(),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create verification coordinator for lombard: %w", err)

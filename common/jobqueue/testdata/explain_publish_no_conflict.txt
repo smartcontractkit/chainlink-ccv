@@ -1,12 +1,13 @@
 === EXPLAIN ANALYZE: publish_no_conflict ===
-Insert on public.ccv_task_verifier_jobs  (cost=0.00..0.01 rows=0 width=0) (actual time=0.047..0.047 rows=0 loops=1)
+Insert on public.ccv_task_verifier_jobs  (cost=0.00..0.01 rows=0 width=0) (actual time=0.130..0.130 rows=0 loops=1)
   Conflict Resolution: NOTHING
-  Conflict Arbiter Indexes: ccv_task_verifier_jobs_unique_job
+  Conflict Arbiter Indexes: ccv_task_verifier_jobs_unique_dedup_key
   Tuples Inserted: 1
   Conflicting Tuples: 0
-  Buffers: shared hit=21
-  ->  Result  (cost=0.00..0.01 rows=1 width=240) (actual time=0.003..0.003 rows=1 loops=1)
-        Output: nextval('ccv_task_verifier_jobs_id_seq'::regclass), '5ce2f077-d8ca-5a1a-a105-147e48b3903c'::uuid, 'explain-owner'::text, '99'::numeric(20,0), '\x6272616e642d6e65772d6d6573736167652d746861742d646f65732d6e6f742d6578697374'::bytea, '{"data": "new", "chain": 99}'::jsonb, 'pending'::text, '2024-01-01 12:00:00+00'::timestamp with time zone, '2024-01-01 12:00:00+00'::timestamp with time zone, NULL::timestamp with time zone, 0, '2024-01-01 13:00:00+00'::timestamp with time zone, NULL::text
+  Buffers: shared hit=26 dirtied=1 written=1
+  ->  Result  (cost=0.00..0.01 rows=1 width=272) (actual time=0.012..0.012 rows=1 loops=1)
+        Output: nextval('ccv_task_verifier_jobs_id_seq'::regclass), '5ce2f077-d8ca-5a1a-a105-147e48b3903c'::uuid, 'explain-owner'::text, '99'::numeric(20,0), '\x6272616e642d6e65772d6d6573736167652d746861742d646f65732d6e6f742d6578697374'::bytea, '{"data": "new", "chain": 99}'::jsonb, 'pending'::text, '2024-01-01 12:00:00+00'::timestamp with time zone, '2024-01-01 12:00:00+00'::timestamp with time zone, NULL::timestamp with time zone, 0, '2024-01-01 13:00:00+00'::timestamp with time zone, NULL::text, '6272616e642d6e65772d6d6573736167652d746861742d646f65732d6e6f742d6578697374:99'::text
         Buffers: shared hit=1
-Planning Time: 0.012 ms
-Execution Time: 0.052 ms
+Planning Time: 0.033 ms
+Trigger ccv_task_verifier_jobs_fill_dedup_key: time=0.010 calls=1
+Execution Time: 0.139 ms
