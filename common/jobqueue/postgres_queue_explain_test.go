@@ -478,15 +478,15 @@ func TestExplainQueryPlans(t *testing.T) {
 			    DELETE FROM %[1]s
 			    WHERE job_id = ANY($1)
 			      AND owner_id = $2
-			    RETURNING id, job_id, owner_id, chain_selector, message_id, task_data,
+			    RETURNING id, job_id, owner_id, dedup_key, chain_selector, message_id, task_data,
 			              created_at, available_at, started_at, attempt_count, retry_deadline, last_error
 			)
 			INSERT INTO %[2]s (
-			    id, job_id, owner_id, chain_selector, message_id, task_data,
+			    id, job_id, owner_id, dedup_key, chain_selector, message_id, task_data,
 			    status, created_at, available_at, started_at, attempt_count, retry_deadline, last_error,
 			    completed_at
 			)
-			SELECT id, job_id, owner_id, chain_selector, message_id, task_data,
+			SELECT id, job_id, owner_id, dedup_key, chain_selector, message_id, task_data,
 			       $3, created_at, available_at, started_at, attempt_count, retry_deadline, last_error,
 			       NOW()
 			FROM completed`,
@@ -549,15 +549,15 @@ func TestExplainQueryPlans(t *testing.T) {
 			    DELETE FROM %[1]s t
 			    WHERE t.job_id IN (SELECT job_id FROM jobs_input)
 			      AND t.owner_id = $3
-			    RETURNING t.id, t.job_id, t.owner_id, t.chain_selector, t.message_id, t.task_data,
+			    RETURNING t.id, t.job_id, t.owner_id, t.dedup_key, t.chain_selector, t.message_id, t.task_data,
 			              t.created_at, t.available_at, t.started_at, t.attempt_count, t.retry_deadline
 			)
 			INSERT INTO %[2]s (
-			    id, job_id, owner_id, chain_selector, message_id, task_data,
+			    id, job_id, owner_id, dedup_key, chain_selector, message_id, task_data,
 			    status, created_at, available_at, started_at, attempt_count, retry_deadline,
 			    last_error, completed_at
 			)
-			SELECT f.id, f.job_id, f.owner_id, f.chain_selector, f.message_id, f.task_data,
+			SELECT f.id, f.job_id, f.owner_id, f.dedup_key, f.chain_selector, f.message_id, f.task_data,
 			       $4, f.created_at, f.available_at, f.started_at, f.attempt_count, f.retry_deadline,
 			       i.error_msg, NOW()
 			FROM to_fail f
