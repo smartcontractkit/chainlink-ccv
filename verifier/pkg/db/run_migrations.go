@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"fmt"
 	"sync"
 
@@ -13,7 +14,16 @@ import (
 var migrationMutex = sync.Mutex{}
 
 // RunPostgresMigrations applies PostgreSQL database migrations.
+//
+// Deprecated: use RunPostgresMigrationsContext so a caller's startup deadline
+// can abort a hung migration; this wrapper is unbounded by any caller context.
 func RunPostgresMigrations(db *sqlx.DB) error {
+	return RunPostgresMigrationsContext(context.Background(), db)
+}
+
+// RunPostgresMigrationsContext applies PostgreSQL database migrations, aborting
+// when ctx is done.
+func RunPostgresMigrationsContext(ctx context.Context, db *sqlx.DB) error {
 	migrationMutex.Lock()
 	defer migrationMutex.Unlock()
 
@@ -23,7 +33,7 @@ func RunPostgresMigrations(db *sqlx.DB) error {
 		return fmt.Errorf("failed to set goose dialect: %w", err)
 	}
 
-	if err := goose.Up(db.DB, "postgres"); err != nil {
+	if err := goose.UpContext(ctx, db.DB, "postgres"); err != nil {
 		return fmt.Errorf("failed to run postgres migrations: %w", err)
 	}
 

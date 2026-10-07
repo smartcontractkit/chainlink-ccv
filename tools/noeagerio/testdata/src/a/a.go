@@ -97,3 +97,20 @@ func NewLazyService(d *dialer) *lazyService {
 		}),
 	}
 }
+
+// registry stands in for chainaccess registries: GetAccessor is denylisted by
+// bare method name because accessor construction dials the chain.
+type registry struct{}
+
+func (r *registry) GetAccessor(ctx context.Context, selector uint64) (*dialer, error) {
+	return &dialer{}, nil
+}
+
+type factoryService struct {
+	reg *registry
+}
+
+func (s *factoryService) Start(ctx context.Context) error {
+	_, err := s.reg.GetAccessor(ctx, 1) // want `I/O in Start method Start: constructs a chain accessor`
+	return err
+}

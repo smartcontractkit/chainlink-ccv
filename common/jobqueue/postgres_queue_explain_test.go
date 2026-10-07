@@ -55,7 +55,7 @@ func getExplainDB(t *testing.T) *sqlx.DB {
 	if url := os.Getenv("TEST_POSTGRES_URL"); url != "" {
 		sdb, err := sqlx.Open("postgres", url)
 		require.NoError(t, err, "open local postgres")
-		require.NoError(t, verifierdb.RunPostgresMigrations(sdb), "run migrations")
+		require.NoError(t, verifierdb.RunPostgresMigrationsContext(t.Context(), sdb), "run migrations")
 		_, err = sdb.ExecContext(context.Background(),
 			"TRUNCATE ccv_task_verifier_jobs, ccv_task_verifier_jobs_archive CASCADE")
 		require.NoError(t, err, "truncate tables")

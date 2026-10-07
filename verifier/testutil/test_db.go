@@ -45,7 +45,7 @@ func NewTestDB(tb testing.TB) *sqlx.DB {
 	sqlxDB, err := sqlx.Open("postgres", connectionString)
 	require.NoError(tb, err, "failed to open database")
 
-	err = db.RunPostgresMigrations(sqlxDB)
+	err = db.RunPostgresMigrationsContext(ctx, sqlxDB)
 	require.NoError(tb, err, "failed to run migrations")
 
 	tb.Cleanup(func() {

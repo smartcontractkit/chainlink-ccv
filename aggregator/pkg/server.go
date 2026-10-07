@@ -310,8 +310,9 @@ type SignatureAndQuorumValidator interface {
 // NewServer creates a new aggregator server with the specified logger, configuration, and monitoring.
 // aggMonitoring must not be nil; use monitoring.NoopAggregatorMonitoring when monitoring is disabled.
 // Errors are returned to the caller (main), which owns the fail-fast decision; a
-// library constructor must never exit the process.
-func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig, aggMonitoring common.AggregatorMonitoring) (*Server, error) {
+// library constructor must never exit the process. ctx bounds the startup DB
+// connect ping and migrations.
+func NewServer(ctx context.Context, l logger.SugaredLogger, config *model.AggregatorConfig, aggMonitoring common.AggregatorMonitoring) (*Server, error) {
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("failed to validate server configuration: %w", err)
 	}
@@ -327,8 +328,8 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig, aggMonito
 	)
 
 	factory := storage.NewStorageFactory(l)
-	//nolint:noeagerio // the aggregator's own DB is a hard dependency: connect + migrate fail fast at startup, and the health endpoint reports readiness after that
-	rawStore, err := factory.CreateStorage(config.Storage, aggMonitoring)
+	//nolint:noeagerio // the aggregator's own DB is a hard dependency: connect + migrate fail fast at startup (bounded by ctx), and the health endpoint reports readiness after that
+	rawStore, err := factory.CreateStorage(ctx, config.Storage, aggMonitoring)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create storage: %w", err)
 	}

@@ -323,10 +323,10 @@ func createPostgresStorage(ctx context.Context, lggr logger.Logger, cfg *config.
 	if err != nil {
 		lggr.Fatalf("Failed to open database for migrations: %v", err)
 	}
-	if err := ccvcommon.EnsureDBConnection(lggr, migrationsDB.DB); err != nil {
+	if err := ccvcommon.EnsureDBConnectionContext(ctx, lggr, migrationsDB.DB); err != nil {
 		lggr.Fatalf("Could not connect to database: %v", err)
 	}
-	if err := storage.RunMigrations(migrationsDB); err != nil {
+	if err := storage.RunMigrationsContext(ctx, migrationsDB); err != nil {
 		lggr.Fatalf("Failed to run database migrations: %v", err)
 	}
 	if err := migrationsDB.Close(); err != nil {

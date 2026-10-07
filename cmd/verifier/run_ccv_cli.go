@@ -1,6 +1,7 @@
 package verifier
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -58,7 +59,7 @@ func RunCCVCLI(args []string, secretsEnvVar, defaultSecretsPath string) {
 	var chainStatusDeps chainstatuses.Deps
 	getChainStatusDeps := func() chainstatuses.Deps {
 		chainStatusOnce.Do(func() {
-			ds, connErr := ConnectToPostgresDB(lggr, secrets)
+			ds, connErr := ConnectToPostgresDB(context.Background(), lggr, secrets)
 			if connErr != nil {
 				_, _ = fmt.Fprintf(os.Stderr, "failed to connect to database: %v\n", connErr)
 				os.Exit(1)
@@ -77,7 +78,7 @@ func RunCCVCLI(args []string, secretsEnvVar, defaultSecretsPath string) {
 	var jobQueueDeps jobqueue.Deps
 	getJobQueueDeps := func() jobqueue.Deps {
 		jobQueueOnce.Do(func() {
-			ds, connErr := ConnectToPostgresDB(lggr, secrets)
+			ds, connErr := ConnectToPostgresDB(context.Background(), lggr, secrets)
 			if connErr != nil {
 				_, _ = fmt.Fprintf(os.Stderr, "failed to connect to database: %v\n", connErr)
 				os.Exit(1)
@@ -96,7 +97,7 @@ func RunCCVCLI(args []string, secretsEnvVar, defaultSecretsPath string) {
 	var recoveryStore recoverycli.Store
 	getRecoveryStore := func() recoverycli.Store {
 		recoveryOnce.Do(func() {
-			ds, err := ConnectToPostgresDB(lggr, secrets)
+			ds, err := ConnectToPostgresDB(context.Background(), lggr, secrets)
 			if err != nil || ds == nil {
 				_, _ = fmt.Fprintf(os.Stderr, "recovery requires a database connection: %v\n", err)
 				os.Exit(1)

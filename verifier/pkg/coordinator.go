@@ -41,6 +41,8 @@ const (
 	resultQueueLockDuration = 1 * time.Minute
 	// queueObservabilityInterval is how often queue size metrics are logged and recorded.
 	queueObservabilityInterval = 10 * time.Second
+	// chainStatusReadTimeout bounds the best-effort chain status read at coordinator start.
+	chainStatusReadTimeout = 5 * time.Second
 )
 
 type Coordinator struct {
@@ -448,10 +450,12 @@ func filterConfiguredSourceReaders(
 	}
 
 	// A transient DB failure here must not abort startup: the statuses only
-	// inform logging and the disabled-chain warning below. Degrade to unknown
-	// statuses; each source reader re-reads its own status (with retries) when
-	// it initializes its start block.
-	statusMap, err := chainStatusManager.ReadChainStatuses(ctx, allSelectors) //nolint:noeagerio // single bounded read of the service's own DB at coordinator start; failure is non-fatal
+	// inform logging and the disabled-chain warning below. Bound the read and
+	// degrade to unknown statuses; each source reader re-reads its own status
+	// (with retries) when it initializes its start block.
+	readCtx, cancel := context.WithTimeout(ctx, chainStatusReadTimeout)
+	statusMap, err := chainStatusManager.ReadChainStatuses(readCtx, allSelectors) //nolint:noeagerio // single bounded read of the service's own DB at coordinator start; failure is non-fatal
+	cancel()
 	if err != nil {
 		lggr.Errorw("Failed to read chain statuses from storage, continuing with unknown statuses", "error", err)
 		statusMap = nil

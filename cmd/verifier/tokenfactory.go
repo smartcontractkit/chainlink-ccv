@@ -7,9 +7,11 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"sync"
 	"time"
 
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
@@ -99,25 +101,40 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 	cfg := appConfig
 
 	// On-ramp addresses are the application-owned source-chain set. RPC connection and tuning
-	// details are supplied independently by each chain family's local config.
+	// details are supplied independently by each chain family's local config. Chains are built
+	// concurrently with a per-chain timeout: accessor construction dials the chain, so a slow
+	// (not failing) RPC must not serialize away the shared startup budget.
 	chainSelectors := chainaccess.Infos[string](cfg.OnRampAddresses).GetAllChainSelectors()
 	sourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
 	accessors := make(map[protocol.ChainSelector]chainaccess.Accessor)
+	var accessorsMu sync.Mutex
+	g, gctx := errgroup.WithContext(ctx)
 	for _, selector := range chainSelectors {
-		accessor, err := deps.Registry.GetAccessor(ctx, selector)
-		if err != nil {
-			tvf.lggr.Errorw("Skipping chain, failed to get accessor for chain selector", "error", err, "chainSelector", selector)
-			continue
-		}
-		accessors[selector] = accessor
-		reader, err := accessor.SourceReader()
-		if err != nil {
-			tvf.lggr.Warnw("Skipping chain, source reader not available", "chainSelector", selector, "error", err)
-			continue
-		}
-		sourceReaders[selector] = reader
-		tvf.lggr.Infow("Created source reader for chain", "chainSelector", selector)
+		g.Go(func() error {
+			chainCtx, cancel := context.WithTimeout(gctx, accessorBuildTimeout)
+			defer cancel()
+			//nolint:noeagerio // accessor construction dials the chain; it runs concurrently per chain with a bounded ctx, and failures are skipped, not fatal
+			accessor, err := deps.Registry.GetAccessor(chainCtx, selector)
+			if err != nil {
+				tvf.lggr.Errorw("Skipping chain, failed to get accessor for chain selector", "error", err, "chainSelector", selector)
+				return nil
+			}
+			reader, err := accessor.SourceReader()
+			accessorsMu.Lock()
+			accessors[selector] = accessor
+			accessorsMu.Unlock()
+			if err != nil {
+				tvf.lggr.Warnw("Skipping chain, source reader not available", "chainSelector", selector, "error", err)
+				return nil
+			}
+			accessorsMu.Lock()
+			sourceReaders[selector] = reader
+			accessorsMu.Unlock()
+			tvf.lggr.Infow("Created source reader for chain", "chainSelector", selector)
+			return nil
+		})
 	}
+	_ = g.Wait()
 
 	// Load the verifier secrets file (only [db].url is used by the token verifier); an absent file
 	// is fine and falls back to CL_DATABASE_URL.
@@ -126,7 +143,7 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 		return fmt.Errorf("failed to load verifier secrets: %w", err)
 	}
 
-	db, err := ConnectToPostgresDB(tvf.lggr, secrets)
+	db, err := ConnectToPostgresDB(ctx, tvf.lggr, secrets)
 	if err != nil {
 		return fmt.Errorf("failed to connect to Postgres database: %w", err)
 	}

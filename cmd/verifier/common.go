@@ -1,6 +1,7 @@
 package verifier
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"time"
@@ -30,7 +31,10 @@ const (
 // resolved from the verifier secrets file when present, otherwise from CL_DATABASE_URL (the file
 // wins). A nil secrets argument is the env-only path. An empty URL leaves the DB
 // unconfigured (returns a nil DataSource), preserving the existing "DB optional" behavior.
-func ConnectToPostgresDB(lggr logger.Logger, secrets *vsecrets.VerifierSecrets) (sqlutil.DataSource, error) {
+//
+// The connect ping retries and the migrations are bounded by ctx, so a degraded
+// database cannot block startup past the caller's deadline.
+func ConnectToPostgresDB(ctx context.Context, lggr logger.Logger, secrets *vsecrets.VerifierSecrets) (sqlutil.DataSource, error) {
 	dbURL := secrets.DatabaseURL()
 	if dbURL == "" {
 		return nil, nil
@@ -46,14 +50,14 @@ func ConnectToPostgresDB(lggr logger.Logger, secrets *vsecrets.VerifierSecrets) 
 	dbx.SetConnMaxLifetime(defaultConnMaxLifetime)
 	dbx.SetConnMaxIdleTime(defaultConnMaxIdleTime)
 
-	if err := ccvcommon.EnsureDBConnection(lggr, dbx); err != nil {
+	if err := ccvcommon.EnsureDBConnectionContext(ctx, lggr, dbx); err != nil {
 		_ = dbx.Close()
 		return nil, fmt.Errorf("failed to ping postgres database: %w", err)
 	}
 
 	sqlxDB := sqlx.NewDb(dbx, "postgres")
 
-	if err := db.RunPostgresMigrations(sqlxDB); err != nil {
+	if err := db.RunPostgresMigrationsContext(ctx, sqlxDB); err != nil {
 		_ = dbx.Close()
 		return nil, fmt.Errorf("failed to run postgres migrations: %w", err)
 	}

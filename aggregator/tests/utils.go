@@ -222,7 +222,7 @@ func CreateServerOnlyWithMessageRulesControl(t *testing.T, options ...ConfigOpti
 	}
 	config.Storage = storageConfig
 
-	rawRuleStore, err := storage.NewStorageFactory(sugaredLggr).CreateStorage(config.Storage, monitoring.NewNoopAggregatorMonitoring())
+	rawRuleStore, err := storage.NewStorageFactory(sugaredLggr).CreateStorage(t.Context(), config.Storage, monitoring.NewNoopAggregatorMonitoring())
 	if err != nil {
 		cleanupStorage()
 		return nil, nil, nil, err
@@ -233,7 +233,7 @@ func CreateServerOnlyWithMessageRulesControl(t *testing.T, options ...ConfigOpti
 		return nil, nil, nil, fmt.Errorf("test storage does not implement message rules store")
 	}
 
-	s, err := agg.NewServer(sugaredLggr, config, monitoring.NewNoopAggregatorMonitoring())
+	s, err := agg.NewServer(t.Context(), sugaredLggr, config, monitoring.NewNoopAggregatorMonitoring())
 	if err != nil {
 		cleanupStorage()
 		return nil, nil, nil, fmt.Errorf("failed to create server: %w", err)

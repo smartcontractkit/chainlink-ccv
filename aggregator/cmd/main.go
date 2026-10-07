@@ -210,13 +210,14 @@ func runServer(configPath, logLevelStr string, lggr logger.Logger, sugaredLggr l
 
 	protocol.InitChainSelectorCache()
 
-	server, err := aggregator.NewServer(sugaredLggr, config, aggMonitoring)
-	if err != nil {
-		sugaredLggr.Fatalw("failed to create CCV data service", "error", err)
-	}
 	ctx := context.Background()
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	server, err := aggregator.NewServer(ctx, sugaredLggr, config, aggMonitoring)
+	if err != nil {
+		sugaredLggr.Fatalw("failed to create CCV data service", "error", err)
+	}
 
 	lc := &net.ListenConfig{}
 	lis, err := lc.Listen(ctx, "tcp", config.Server.Address)
