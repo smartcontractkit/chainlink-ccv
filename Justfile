@@ -22,12 +22,13 @@ install-go-tools:
     go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v$VERSION_GOLANGCI_LINT
     go install github.com/vektra/mockery/v2@v$VERSION_MOCKERY
     go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v$VERSION_OAPI_CODEGEN
+    go install github.com/a-h/templ/cmd/templ@v$VERSION_TEMPL
 
 install-pre-commit:
     brew install pre-commit
     pre-commit install
 
-generate: ensure-oapi-codegen
+generate: ensure-oapi-codegen ensure-templ
     rm -f indexer/indexer_openapi_v1.yaml
     rm -f indexer/pkg/client/internal/client.go
     find . -name 'go.mod' -execdir go generate ./... \;
