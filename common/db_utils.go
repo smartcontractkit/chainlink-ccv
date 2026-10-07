@@ -21,22 +21,37 @@ type Pingable interface {
 }
 
 // EnsureDBConnection ensures that the database is up and running by pinging it.
+//
+// Deprecated: use EnsureDBConnectionContext so a caller's startup deadline can
+// cancel the retries; this wrapper is unbounded by any caller context.
 func EnsureDBConnection(lggr logger.Logger, db Pingable) error {
-	pingFn := func() error {
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
-		defer cancel()
-		return db.PingContext(ctx)
-	}
-	for range maxRetries {
-		err := pingFn()
+	return EnsureDBConnectionContext(context.Background(), lggr, db)
+}
+
+// EnsureDBConnectionContext pings the database until it answers or ctx is done.
+// Retries stop as soon as ctx is canceled, so a degraded database cannot block
+// startup beyond the caller's deadline.
+func EnsureDBConnectionContext(ctx context.Context, lggr logger.Logger, db Pingable) error {
+	for attempt := range maxRetries {
+		pingCtx, cancel := context.WithTimeout(ctx, timeout)
+		err := db.PingContext(pingCtx)
+		cancel()
 		if err == nil {
 			return nil
+		}
+		if ctx.Err() != nil {
+			return fmt.Errorf("database still unreachable (last ping: %w): %w", err, ctx.Err())
 		}
 		lggr.Warnw("failed to connect to database, retrying after sleeping",
 			"err", err,
 			"retryInterval", retryInterval.String(),
+			"attempt", attempt+1,
 			"maxRetries", maxRetries)
-		time.Sleep(retryInterval)
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("database still unreachable (last ping: %w): %w", err, ctx.Err())
+		case <-time.After(retryInterval):
+		}
 	}
 	return fmt.Errorf("failed to connect to database after %d retries", maxRetries)
 }

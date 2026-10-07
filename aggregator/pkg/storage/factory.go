@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"time"
@@ -48,15 +49,16 @@ func NewStorageFactory(logger logger.SugaredLogger) *Factory {
 }
 
 // CreateStorage creates a storage instance based on the provided configuration.
-func (f *Factory) CreateStorage(config *model.StorageConfig, monitoring common.AggregatorMonitoring) (CommitVerificationStorage, error) {
+// The connect ping and migrations are bounded by ctx.
+func (f *Factory) CreateStorage(ctx context.Context, config *model.StorageConfig, monitoring common.AggregatorMonitoring) (CommitVerificationStorage, error) {
 	if config.StorageType != model.StorageTypePostgreSQL {
 		return nil, fmt.Errorf("unsupported storage type: %s (only postgres is supported)", config.StorageType)
 	}
-	return f.createPostgreSQLStorage(config)
+	return f.createPostgreSQLStorage(ctx, config)
 }
 
 // createPostgreSQLStorage creates a PostgreSQL-backed storage instance.
-func (f *Factory) createPostgreSQLStorage(config *model.StorageConfig) (CommitVerificationStorage, error) {
+func (f *Factory) createPostgreSQLStorage(ctx context.Context, config *model.StorageConfig) (CommitVerificationStorage, error) {
 	if config.ConnectionURL == "" {
 		return nil, fmt.Errorf("PostgreSQL connection URL is required")
 	}
@@ -98,7 +100,7 @@ func (f *Factory) createPostgreSQLStorage(config *model.StorageConfig) (CommitVe
 		"connMaxIdleTime", connMaxIdleTime,
 	)
 
-	if err := ccvcommon.EnsureDBConnection(f.logger, db); err != nil {
+	if err := ccvcommon.EnsureDBConnectionContext(ctx, f.logger, db); err != nil {
 		return nil, fmt.Errorf("failed to ping PostgreSQL database: %w", err)
 	}
 
@@ -106,7 +108,7 @@ func (f *Factory) createPostgreSQLStorage(config *model.StorageConfig) (CommitVe
 	sqlxDB := sqlx.NewDb(db, postgresDriver)
 
 	// Run PostgreSQL migrations
-	err = postgres.RunMigrations(sqlxDB, postgresDriver)
+	err = postgres.RunMigrationsContext(ctx, sqlxDB, postgresDriver)
 	if err != nil {
 		return nil, fmt.Errorf("failed to run PostgreSQL migrations: %w", err)
 	}

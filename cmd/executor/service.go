@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -36,6 +37,10 @@ const (
 	indexerGarbageCollectionInterval = 1 * time.Hour
 	// httpShutdownTimeout bounds the graceful drain of the HTTP server during Stop.
 	httpShutdownTimeout = 5 * time.Second
+	// accessorBuildTimeout caps one chain's accessor construction (RPC dial +
+	// TXM start) during factory Start; the parent startup context may be
+	// tighter and always wins.
+	accessorBuildTimeout = 30 * time.Second
 )
 
 // Factory is a bootstrap.ServiceFactory that starts the executor service.
@@ -142,6 +147,11 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	rmnReaders := make(map[protocol.ChainSelector]chainaccess.RMNCurseReader)
 	enabledDestChains := make([]protocol.ChainSelector, 0)
 
+	// Chains are built concurrently with a per-chain timeout: GetAccessor dials
+	// the chain and starts its TXM, so a slow (not failing) chain must not
+	// serialize away the shared startup budget.
+	var chainsMu sync.Mutex
+	var wg sync.WaitGroup
 	for strSel := range executorConfig.ChainConfiguration {
 		selectorUint, err := strconv.ParseUint(strSel, 10, 64)
 		if err != nil {
@@ -150,27 +160,35 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		}
 		selector := protocol.ChainSelector(selectorUint)
 
-		accessor, err := deps.Registry.GetAccessor(ctx, selector)
-		if err != nil {
-			f.lggr.Errorw("Failed to get accessor for chain", "error", err, "chainSelector", strSel)
-			continue
-		}
+		wg.Go(func() {
+			chainCtx, cancel := context.WithTimeout(ctx, accessorBuildTimeout)
+			defer cancel()
+			//nolint:noeagerio // accessor construction dials the chain and starts its TXM; it runs concurrently per chain with a bounded ctx, and failures are skipped, not fatal
+			accessor, err := deps.Registry.GetAccessor(chainCtx, selector)
+			if err != nil {
+				f.lggr.Errorw("Failed to get accessor for chain", "error", err, "chainSelector", strSel)
+				return
+			}
 
-		dr, drErr := accessor.DestinationReader()
-		ct, ctErr := accessor.ContractTransmitter()
+			dr, drErr := accessor.DestinationReader()
+			ct, ctErr := accessor.ContractTransmitter()
 
-		if drErr != nil || ctErr != nil {
-			f.lggr.Warnw("Skipping chain: missing DestinationReader or ContractTransmitter", "chainSelector", strSel, "destReaderErr", drErr, "transmitterErr", ctErr)
-			continue
-		}
+			if drErr != nil || ctErr != nil {
+				f.lggr.Warnw("Skipping chain: missing DestinationReader or ContractTransmitter", "chainSelector", strSel, "destReaderErr", drErr, "transmitterErr", ctErr)
+				return
+			}
 
-		attachExecutorMonitoring(dr, ct, executorMonitoring)
+			attachExecutorMonitoring(dr, ct, executorMonitoring)
 
-		destReaders[selector] = dr
-		rmnReaders[selector] = dr
-		contractTransmitters[selector] = ct
-		enabledDestChains = append(enabledDestChains, selector)
+			chainsMu.Lock()
+			defer chainsMu.Unlock()
+			destReaders[selector] = dr
+			rmnReaders[selector] = dr
+			contractTransmitters[selector] = ct
+			enabledDestChains = append(enabledDestChains, selector)
+		})
 	}
+	wg.Wait()
 
 	curseChecker := cursechecker.NewCachedCurseChecker(cursechecker.Params{
 		Lggr:        f.lggr,

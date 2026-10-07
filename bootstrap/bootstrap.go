@@ -774,7 +774,7 @@ func connectToDB(ctx context.Context, connStr string) (*sqlx.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to bootstrapper database: %w", err)
 	}
-	if err := dbpkg.RunMigrations(db); err != nil {
+	if err := dbpkg.RunMigrationsContext(ctx, db); err != nil {
 		return nil, fmt.Errorf("failed to run bootstrapper database migrations: %w", err)
 	}
 	return db, nil
