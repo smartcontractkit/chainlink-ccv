@@ -2,16 +2,30 @@ package chainstatus
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"math/big"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/jmoiron/sqlx"
+
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 )
+
+// ErrTransactionRequired is returned by SetFinalizedBlockHeightWith when the store's DataSource cannot begin a
+// transaction, for example because it is already a transaction.
+var ErrTransactionRequired = errors.New("chain status store: SetFinalizedBlockHeightWith requires a DataSource that can begin a transaction")
+
+// transactionStarter is the method sqlutil.TransactDataSource needs to open a transaction. Without it, sqlutil
+// runs the work directly on the DataSource, so each statement would commit on its own.
+type transactionStarter interface {
+	BeginTxx(ctx context.Context, opts *sql.TxOptions) (*sqlx.Tx, error)
+}
 
 // Row represents a row from ccv_chain_statuses for CLI list output.
 type Row struct {
@@ -196,12 +210,44 @@ func (s *PostgresChainStatusStore) SetDisabled(ctx context.Context, chainSelecto
 
 // SetFinalizedBlockHeight sets the finalized_block_height for the given (chain_selector, verifier_id).
 func (s *PostgresChainStatusStore) SetFinalizedBlockHeight(ctx context.Context, chainSelector protocol.ChainSelector, verifierID string, height *big.Int) error {
+	return setFinalizedBlockHeight(ctx, s.ds, chainSelector, verifierID, height)
+}
+
+// SetFinalizedBlockHeightWith sets the finalized_block_height like SetFinalizedBlockHeight and then runs also
+// in the same transaction, so callers can change related tables without being handed the store's connection.
+// also receives the transaction and a copy of this store bound to it; using the store itself inside also would
+// run outside the transaction and wait on the row lock the transaction holds.
+// If the update or also fails, both are rolled back. also is not called when no row matches, and may be nil.
+// It returns ErrTransactionRequired, and changes nothing, when the store's DataSource cannot begin a transaction:
+// without one the update and also would commit separately, and a later failure could not undo the earlier work.
+func (s *PostgresChainStatusStore) SetFinalizedBlockHeightWith(
+	ctx context.Context,
+	chainSelector protocol.ChainSelector,
+	verifierID string,
+	height *big.Int,
+	also func(ctx context.Context, tx sqlutil.DataSource, txStore *PostgresChainStatusStore) error,
+) error {
+	if _, ok := s.ds.(transactionStarter); !ok {
+		return ErrTransactionRequired
+	}
+	return sqlutil.TransactDataSource(ctx, s.ds, nil, func(tx sqlutil.DataSource) error {
+		if err := setFinalizedBlockHeight(ctx, tx, chainSelector, verifierID, height); err != nil {
+			return err
+		}
+		if also == nil {
+			return nil
+		}
+		return also(ctx, tx, &PostgresChainStatusStore{ds: tx, lggr: s.lggr})
+	})
+}
+
+func setFinalizedBlockHeight(ctx context.Context, ds sqlutil.DataSource, chainSelector protocol.ChainSelector, verifierID string, height *big.Int) error {
 	if height == nil {
 		return fmt.Errorf("finalized block height cannot be nil")
 	}
 	chainSelectorStr := strconv.FormatUint(uint64(chainSelector), 10)
 	heightStr := height.String()
-	res, err := s.ds.ExecContext(ctx, `UPDATE ccv_chain_statuses SET finalized_block_height = $1, updated_at = NOW()
+	res, err := ds.ExecContext(ctx, `UPDATE ccv_chain_statuses SET finalized_block_height = $1, updated_at = NOW()
 		WHERE chain_selector = $2 AND verifier_id = $3`, heightStr, chainSelectorStr, verifierID)
 	if err != nil {
 		return fmt.Errorf("failed to set finalized block height for chain %s verifier %s: %w", chainSelectorStr, verifierID, err)

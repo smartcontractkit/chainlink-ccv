@@ -1,6 +1,8 @@
 package chainstatus
 
 import (
+	"context"
+	"errors"
 	"math/big"
 	"testing"
 
@@ -10,6 +12,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 )
 
 func TestPostgresChainStatusManager(t *testing.T) {
@@ -388,4 +391,123 @@ func TestPostgresChainStatusStore_SetFinalizedBlockHeight_nil_height_returns_err
 	err := store.SetFinalizedBlockHeight(ctx, 1, "v", nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "cannot be nil")
+}
+
+func TestPostgresChainStatusStore_SetFinalizedBlockHeightWith(t *testing.T) {
+	db := testutil.NewTestDB(t)
+	lggr := logger.Test(t)
+	store := NewPostgresChainStatusStore(db, lggr)
+	const verifierID = "store-set-height-with"
+
+	seed := func(t *testing.T) {
+		t.Helper()
+		_, err := db.Exec("DELETE FROM ccv_chain_statuses WHERE verifier_id = $1", verifierID)
+		require.NoError(t, err)
+		err = NewPostgresChainStatusManager(store, verifierID).WriteChainStatuses(t.Context(), []protocol.ChainStatusInfo{
+			{ChainSelector: 1, FinalizedBlockHeight: big.NewInt(100), Disabled: false},
+		})
+		require.NoError(t, err)
+	}
+	readHeight := func(t *testing.T) *big.Int {
+		t.Helper()
+		result, err := store.ReadChainStatuses(t.Context(), verifierID, []protocol.ChainSelector{1})
+		require.NoError(t, err)
+		require.Len(t, result, 1)
+		return result[1].FinalizedBlockHeight
+	}
+
+	t.Run("nil callback commits the height", func(t *testing.T) {
+		seed(t)
+		err := store.SetFinalizedBlockHeightWith(t.Context(), 1, verifierID, big.NewInt(300), nil)
+		require.NoError(t, err)
+		require.Equal(t, 0, big.NewInt(300).Cmp(readHeight(t)))
+	})
+
+	t.Run("succeeding callback runs in the transaction and commits the height", func(t *testing.T) {
+		seed(t)
+		called := false
+		err := store.SetFinalizedBlockHeightWith(t.Context(), 1, verifierID, big.NewInt(400), func(ctx context.Context, tx sqlutil.DataSource, _ *PostgresChainStatusStore) error {
+			called = true
+			// The callback sees the uncommitted update, which proves it runs in the same transaction.
+			var h string
+			if err := tx.GetContext(ctx, &h, `SELECT finalized_block_height FROM ccv_chain_statuses WHERE chain_selector = '1' AND verifier_id = $1`, verifierID); err != nil {
+				return err
+			}
+			if h != "400" {
+				return errors.New("callback did not see the updated height: " + h)
+			}
+			return nil
+		})
+		require.NoError(t, err)
+		require.True(t, called)
+		require.Equal(t, 0, big.NewInt(400).Cmp(readHeight(t)))
+	})
+
+	t.Run("callback error rolls back the height", func(t *testing.T) {
+		seed(t)
+		err := store.SetFinalizedBlockHeightWith(t.Context(), 1, verifierID, big.NewInt(500), func(context.Context, sqlutil.DataSource, *PostgresChainStatusStore) error {
+			return assert.AnError
+		})
+		require.ErrorIs(t, err, assert.AnError)
+		require.Equal(t, 0, big.NewInt(100).Cmp(readHeight(t)))
+	})
+
+	t.Run("txStore writes are part of the transaction", func(t *testing.T) {
+		seed(t)
+		readDisabled := func(t *testing.T) bool {
+			t.Helper()
+			result, err := store.ReadChainStatuses(t.Context(), verifierID, []protocol.ChainSelector{1})
+			require.NoError(t, err)
+			require.Len(t, result, 1)
+			return result[1].Disabled
+		}
+
+		// A failing callback rolls back the txStore write along with the height.
+		err := store.SetFinalizedBlockHeightWith(t.Context(), 1, verifierID, big.NewInt(600), func(ctx context.Context, _ sqlutil.DataSource, txStore *PostgresChainStatusStore) error {
+			if err := txStore.SetDisabled(ctx, 1, verifierID, true); err != nil {
+				return err
+			}
+			return assert.AnError
+		})
+		require.ErrorIs(t, err, assert.AnError)
+		require.False(t, readDisabled(t))
+		require.Equal(t, 0, big.NewInt(100).Cmp(readHeight(t)))
+
+		// A succeeding callback commits it. Using the outer store here would wait on the transaction's row lock.
+		err = store.SetFinalizedBlockHeightWith(t.Context(), 1, verifierID, big.NewInt(700), func(ctx context.Context, _ sqlutil.DataSource, txStore *PostgresChainStatusStore) error {
+			return txStore.SetDisabled(ctx, 1, verifierID, true)
+		})
+		require.NoError(t, err)
+		require.True(t, readDisabled(t))
+		require.Equal(t, 0, big.NewInt(700).Cmp(readHeight(t)))
+	})
+
+	t.Run("store on a transaction is refused and changes nothing", func(t *testing.T) {
+		seed(t)
+		tx, err := db.BeginTxx(t.Context(), nil)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = tx.Rollback() })
+
+		called := false
+		err = NewPostgresChainStatusStore(tx, lggr).SetFinalizedBlockHeightWith(t.Context(), 1, verifierID, big.NewInt(800),
+			func(context.Context, sqlutil.DataSource, *PostgresChainStatusStore) error {
+				called = true
+				return nil
+			})
+		require.ErrorIs(t, err, ErrTransactionRequired)
+		require.False(t, called)
+		require.NoError(t, tx.Rollback())
+		require.Equal(t, 0, big.NewInt(100).Cmp(readHeight(t)))
+	})
+
+	t.Run("missing row returns error without calling callback", func(t *testing.T) {
+		called := false
+		err := store.SetFinalizedBlockHeightWith(t.Context(), 99999, "no-such-verifier", big.NewInt(1), func(context.Context, sqlutil.DataSource, *PostgresChainStatusStore) error {
+			called = true
+			return nil
+		})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "no row found")
+		require.False(t, called)
+	})
 }

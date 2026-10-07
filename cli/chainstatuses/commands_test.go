@@ -4,6 +4,7 @@ import (
 	"io"
 	"math/big"
 	"os"
+	"strconv"
 	"testing"
 	"time"
 
@@ -11,6 +12,8 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/urfave/cli"
+
+	chainselectors "github.com/smartcontractkit/chain-selectors"
 
 	"github.com/smartcontractkit/chainlink-ccv/cli/chainstatuses/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -198,6 +201,39 @@ func TestSetFinalizedHeightAction_calls_store_with_correct_args_and_succeeds(t *
 	app := cli.NewApp()
 	app.Commands = []cli.Command{*setHeightCmd}
 	err := app.Run([]string{"chainlink", cmdNameSetFinalizedHeight, "--chain-selector", "789", "--verifier-id", "v2", "--block-height", "42"})
+	require.NoError(t, err)
+}
+
+func TestSetFinalizedHeightAction_non_evm_chain_skips_logpoller_rewind(t *testing.T) {
+	sel := protocol.ChainSelector(chainselectors.SOLANA_MAINNET.Selector)
+	store := mocks.NewMockChainStatusStore(t)
+	store.EXPECT().
+		SetFinalizedBlockHeight(mock.Anything, sel, "v1", big.NewInt(7)).
+		Return(nil).Once()
+	deps := Deps{Logger: logger.Test(t), Store: store}
+	cmds := InitCCVChainStatusesCommands(deps)
+	setHeightCmd := findCmd(cmds, cmdNameSetFinalizedHeight)
+	require.NotNil(t, setHeightCmd)
+	app := cli.NewApp()
+	app.Commands = []cli.Command{*setHeightCmd}
+	err := app.Run([]string{"chainlink", cmdNameSetFinalizedHeight, "--chain-selector", strconv.FormatUint(uint64(sel), 10), "--verifier-id", "v1", "--block-height", "7"})
+	require.NoError(t, err)
+}
+
+func TestSetFinalizedHeightAction_evm_chain_with_plain_store_skips_logpoller_rewind(t *testing.T) {
+	// The mock store does not implement SetFinalizedBlockHeightWith, so the plain update is used.
+	sel := protocol.ChainSelector(chainselectors.ETHEREUM_TESTNET_SEPOLIA.Selector)
+	store := mocks.NewMockChainStatusStore(t)
+	store.EXPECT().
+		SetFinalizedBlockHeight(mock.Anything, sel, "v1", big.NewInt(7)).
+		Return(nil).Once()
+	deps := Deps{Logger: logger.Test(t), Store: store}
+	cmds := InitCCVChainStatusesCommands(deps)
+	setHeightCmd := findCmd(cmds, cmdNameSetFinalizedHeight)
+	require.NotNil(t, setHeightCmd)
+	app := cli.NewApp()
+	app.Commands = []cli.Command{*setHeightCmd}
+	err := app.Run([]string{"chainlink", cmdNameSetFinalizedHeight, "--chain-selector", strconv.FormatUint(uint64(sel), 10), "--verifier-id", "v1", "--block-height", "7"})
 	require.NoError(t, err)
 }
 

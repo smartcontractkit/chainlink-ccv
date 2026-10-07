@@ -11,6 +11,7 @@ import (
 
 	chainselectors "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
 	"github.com/smartcontractkit/chainlink-ccv/internal/tablefmt"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -66,7 +67,7 @@ func buildChainStatusesCommands(getDeps func() Deps) []cli.Command {
 		},
 		{
 			Name:   "set-finalized-height",
-			Usage:  "Set finalized_block_height for the given chain and verifier. Shut down the node before running; changes take effect on next start.",
+			Usage:  "Set finalized_block_height for the given chain and verifier. On EVM chains where the verifier uses the LogPoller, also deletes the LogPoller's blocks and logs after block-height in the same transaction so it re-reads them; the rewind is chain-wide, so every LogPoller consumer on that chain re-ingests. If the LogPoller has no stored block at or below block-height, the chain is also disabled and a replay runbook is printed; re-enable it after the replay. Shut down the node before running; changes take effect on next start.",
 			Action: setFinalizedHeightActionWithFactory(getDeps),
 			Flags: append(chainSelectorAndVerifierFlags(),
 				cli.Uint64Flag{
@@ -170,11 +171,29 @@ func setFinalizedHeightActionWithFactory(getDeps func() Deps) func(c *cli.Contex
 		blockHeightU64 := c.Uint64("block-height")
 		height := new(big.Int).SetUint64(blockHeightU64)
 		ctx := context.Background()
-		if err := deps.Store.SetFinalizedBlockHeight(ctx, chainSelector, verifierID, height); err != nil {
+		target, skipReason, err := newLogPollerRewindTarget(deps.Store, chainSelector, verifierID, height)
+		if err != nil {
 			deps.Logger.Errorw("set finalized block height failed", "chain_selector", chainSelector, "verifier_id", verifierID, "error", err)
 			return err
 		}
-		fmt.Printf("Chain %s (Chain Selector %d) (verifier %s) finalized_block_height set to %s.\n", chainNameFromSelector(chainSelector), chainSelector, verifierID, height.String()) //nolint:forbidigo // CLI user output
+		// outcome is the skip reason, or the rewind's own message once it has run.
+		outcome := skipReason
+		if target != nil {
+			// The LogPoller rewind runs in the height update's transaction so both commit or roll back together.
+			// The outcome is only printed below, after the transaction has committed.
+			err = target.store.SetFinalizedBlockHeightWith(ctx, chainSelector, verifierID, height, func(ctx context.Context, tx sqlutil.DataSource, txStore *chainstatus.PostgresChainStatusStore) error {
+				var rerr error
+				outcome, rerr = target.rewind(ctx, tx, txStore, deps.Logger)
+				return rerr
+			})
+		} else {
+			err = deps.Store.SetFinalizedBlockHeight(ctx, chainSelector, verifierID, height)
+		}
+		if err != nil {
+			deps.Logger.Errorw("set finalized block height failed", "chain_selector", chainSelector, "verifier_id", verifierID, "error", err)
+			return err
+		}
+		fmt.Printf("Chain %s (Chain Selector %d) (verifier %s) finalized_block_height set to %s.\n%s\n", chainNameFromSelector(chainSelector), chainSelector, verifierID, height.String(), outcome) //nolint:forbidigo // CLI user output
 		return nil
 	}
 }
