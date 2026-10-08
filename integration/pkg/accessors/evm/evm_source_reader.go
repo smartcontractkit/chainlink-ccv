@@ -194,10 +194,19 @@ func LogPollerEnabled(lp logpoller.LogPoller) bool {
 	return lp != nil && lp != logpoller.LogPollerDisabled
 }
 
+// MessageSentFilterPrefix marks log poller filters owned by ccv verifiers, so cleanup never touches
+// another product's filters.
+const MessageSentFilterPrefix = "ccv-verifier"
+
+// MessageSentFilterName is the log poller filter name for a verifier's CCIPMessageSent filter on an onramp.
+func MessageSentFilterName(verifierID string, onRamp common.Address) string {
+	return logpoller.FilterName(MessageSentFilterPrefix, verifierID, onRamp.Hex())
+}
+
 // registerLogPollerFilter registers the CCIPMessageSent filter with the log poller and switches
 // the reader to read logs from it.
 func (r *SourceReader) registerLogPollerFilter(ctx context.Context, lpCfg *LogPollerConfig) error {
-	name := logpoller.FilterName(lpCfg.VerifierID, r.onRampAddress.Hex())
+	name := MessageSentFilterName(lpCfg.VerifierID, r.onRampAddress)
 
 	// RegisterFilter writes to the DB; bound it since the node entry point passes context.Background().
 	regCtx, cancel := context.WithTimeout(ctx, 10*time.Second)

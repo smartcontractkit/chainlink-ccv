@@ -655,3 +655,8 @@ func TestReplayFrom(t *testing.T) {
 		require.Error(t, (&SourceReader{lp: lpmocks.NewLogPoller(t)}).ReplayFrom(ctx, math.MaxUint64))
 	})
 }
+
+func TestMessageSentFilterName(t *testing.T) {
+	onRamp := common.HexToAddress("0x00000000000000000000000000000000000000aB")
+	require.Equal(t, "ccv-verifier - verifier-1:"+onRamp.Hex(), MessageSentFilterName("verifier-1", onRamp))
+}
