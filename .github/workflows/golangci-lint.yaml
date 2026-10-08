@@ -63,7 +63,3 @@ jobs:
 
       - name: Lint
         run: just lint --timeout 15m
-
-      # Custom analyzer: no I/O in constructors or Start methods (tools/noeagerio).
-      - name: Lint (noeagerio)
-        run: just lint-noeagerio

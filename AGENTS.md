@@ -38,6 +38,6 @@ degrade: log, skip, record in the health report, and fail startup only when
 *nothing* usable remains. A startup skip must also flip `Ready()` (register a
 `common/health.StartupSkips` reporter, or the component's own report) so
 `/health/ready` returns 503 — a skipped source should page, not vanish. The
-`noeagerio` analyzer (`tools/noeagerio`, run by
-`just lint-noeagerio` and CI) enforces this; a deliberate fail-fast exception
+`noeagerio` analyzer (`tools/noeagerio`, run by `just lint` via the
+`lint-noeagerio` recipe) enforces this; a deliberate fail-fast exception
 (identity keys, the service's own DB) needs `//nolint:noeagerio` with a reason.

@@ -64,7 +64,8 @@ fmt: ensure-golangci-lint
 
 # Run golangci-lint (positional args: fix?, timeout?). Pass `true` or `fix` as the first arg to add
 # golangci's --fix; other tokens (e.g. mistyped `--timeout`) must not enable --fix.
-lint fix="" timeout="10m": ensure-golangci-lint
+# The noeagerio analyzer runs as a lint dependency: one cheap go vet pass.
+lint fix="" timeout="10m": ensure-golangci-lint lint-noeagerio
     gomods -c 'golangci-lint run --config {{justfile_directory()}}/.golangci.yaml {{ if fix == "true" { "--fix" } else if fix == "fix" { "--fix" } else { "" } }} --timeout {{timeout}}'
 
 # Run the noeagerio analyzer (tools/noeagerio): no I/O in constructors or Start
