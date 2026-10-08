@@ -3,6 +3,7 @@ package sourcereader
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"math/big"
 	"sync"
@@ -12,10 +13,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap/zapcore"
 
 	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/common/jobqueue"
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	verifiermonitoring "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
@@ -2411,4 +2414,30 @@ func TestSRS_ProcessEventCycle_ReadErrorDoesNotAdvance(t *testing.T) {
 
 	require.False(t, ok)
 	require.Equal(t, uint64(501), srs.lastProcessedFinalizedBlock.Load())
+}
+
+// A source that is still loading is logged at info, not warn; neither failure advances the checkpoint.
+func TestSRS_ProcessEventCycle_SourceNotReadyLogsQuietly(t *testing.T) {
+	chain := protocol.ChainSelector(1337)
+	for name, tc := range map[string]struct {
+		readErr   error
+		wantWarns int
+	}{
+		"source still loading": {readErr: fmt.Errorf("%w: log poller filter not loaded", chainaccess.ErrSourceNotReady)},
+		"other read failure":   {readErr: errors.New("rpc down"), wantWarns: 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			reader := mocks.NewMockSourceReader(t)
+			reader.EXPECT().FetchMessageSentEvents(mock.Anything, uint64(501), uint64(0)).Return(nil, tc.readErr).Once()
+			srs, _, _ := newTestSRS(t, chain, reader, mocks.NewMockChainStatusManager(t), mocks.NewMockCurseCheckerService(t), time.Hour, 5000)
+			lggr, logs := logger.TestObserved(t, zapcore.WarnLevel)
+			srs.logger = lggr
+			srs.lastProcessedFinalizedBlock.Store(501)
+
+			require.False(t, srs.processEventCycle(t.Context(), &protocol.BlockHeader{Number: 450}, &protocol.BlockHeader{Number: 440}))
+
+			require.Equal(t, uint64(501), srs.lastProcessedFinalizedBlock.Load())
+			require.Len(t, logs.FilterMessage("Error when querying logs").All(), tc.wantWarns)
+		})
+	}
 }

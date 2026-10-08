@@ -399,9 +399,7 @@ func (r *Service) processEventCycle(ctx context.Context, latest, finalized *prot
 	r.logger.Debugw("Querying from block", "fromBlock", fromBlock)
 	events, lastQueriedBlock, err := r.loadEvents(logsCtx, fromBlock, latest)
 	if err != nil {
-		r.logger.Warnw("Error when querying logs", "error", err,
-			"fromBlock", fromBlock,
-			"toBlock", "latest")
+		r.logReadError(err, fromBlock)
 
 		// Only return early when no progress was made
 		if lastQueriedBlock == fromBlock {
@@ -445,6 +443,16 @@ func (r *Service) processEventCycle(ctx context.Context, latest, finalized *prot
 		"advancedTo", newBlock,
 		"eventsFound", len(events))
 	return err == nil
+}
+
+// logReadError logs a failed event read; a source still loading is expected on startup, so it is
+// logged at info. Metrics are unchanged: the loop still records poll_error.
+func (r *Service) logReadError(err error, fromBlock uint64) {
+	if errors.Is(err, chainaccess.ErrSourceNotReady) {
+		r.logger.Infow("Source not ready yet, waiting", "fromBlock", fromBlock, "error", err)
+		return
+	}
+	r.logger.Warnw("Error when querying logs", "error", err, "fromBlock", fromBlock, "toBlock", "latest")
 }
 
 func (r *Service) setScannedThrough(block uint64) {
