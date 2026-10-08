@@ -94,6 +94,48 @@ func TestVerifier_VerifyMessages_RetryAfterFailedAttestation(t *testing.T) {
 	assert.NotNil(t, second[0].Result)
 }
 
+// EVM needs API attestation data; Solana sends a payload hash for a delivered message.
+// Lombard's Mailbox requires the Delivered state before it handles that hash.
+// See https://github.com/lombard-finance/sol-svm-contracts/blob/09d5e768e6791c3e05325b3dd93dfdfec6d89a56/programs/mailbox/src/instructions/handle_message.rs#L30-L47.
+func TestVerifier_VerifyMessages_ApprovedWithoutData(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		destChain protocol.ChainSelector
+		wantError bool
+	}{
+		{"EVM", protocol.ChainSelector(chainsel.ETHEREUM_TESTNET_SEPOLIA_ARBITRUM_1.Selector), true},
+		{"Solana", protocol.ChainSelector(chainsel.SOLANA_DEVNET.Selector), false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			task := internal.CreateTestVerificationTask(1)
+			task.Message.DestChainSelector = test.destChain
+			messageID := task.Message.MustMessageID()
+			task.MessageID = messageID.String()
+			tasks := []verifier.VerificationTask{task}
+			service := mocks.NewLombardAttestationService(t)
+			service.EXPECT().Fetch(mock.Anything, tasks).Return(map[string]lombard.Attestation{
+				task.MessageID: lombard.NewAttestation(lombard.DefaultVerifierVersion, lombard.AttestationResponse{
+					Status: lombard.AttestationStatusApproved,
+				}, messageID[:]),
+			}, nil).Once()
+			v, err := lombard.NewVerifier(logger.Test(t), monitoring.NewFakeVerifierMonitoring(), "test-verifier", lombard.LombardConfig{VerifierVersion: lombard.DefaultVerifierVersion}, service)
+			require.NoError(t, err)
+
+			results := v.VerifyMessages(t.Context(), tasks)
+			require.Len(t, results, 1)
+			if test.wantError {
+				require.NotNil(t, results[0].Error)
+				assert.True(t, results[0].Error.Retryable)
+				assert.ErrorContains(t, results[0].Error.Error, "attestation")
+				assert.Nil(t, results[0].Result)
+			} else {
+				assert.Nil(t, results[0].Error)
+				assert.NotNil(t, results[0].Result)
+			}
+		})
+	}
+}
+
 func TestVerifier_VerifyMessages_Success(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	lggr := logger.Test(t)
