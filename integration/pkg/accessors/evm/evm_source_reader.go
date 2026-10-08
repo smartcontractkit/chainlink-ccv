@@ -2,10 +2,12 @@ package evm
 
 import (
 	"context"
+	"database/sql"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"math/big"
 	"time"
 
@@ -36,6 +38,7 @@ var (
 	_ chainaccess.SourceReader                          = (*SourceReader)(nil)
 	_ chainaccess.CriticalSourceInvariantCallbackSetter = (*SourceReader)(nil)
 	_ chainaccess.FinalityViolationReporter             = (*SourceReader)(nil)
+	_ chainaccess.SourceReplayer                        = (*SourceReader)(nil)
 )
 
 // DefaultMessageSentLogRetention is how long the log poller keeps CCIPMessageSent logs. It must
@@ -373,6 +376,34 @@ func (r *SourceReader) logPollerLogs(ctx context.Context, fromBlock, toBlock uin
 // without a log poller.
 func (r *SourceReader) FinalityViolated() bool {
 	return r.lp != nil && errors.Is(r.lp.Healthy(), commontypes.ErrFinalityViolated)
+}
+
+// ReplayFrom re-fetches logs from fromBlock into the log poller, which otherwise resumes after its own
+// newest block and would not refill a range the verifier resumes in. It is a no-op without a log poller.
+func (r *SourceReader) ReplayFrom(ctx context.Context, fromBlock uint64) error {
+	if r.lp == nil {
+		return nil
+	}
+	if fromBlock > math.MaxInt64 {
+		return fmt.Errorf("replay block %d is out of range for the log poller", fromBlock)
+	}
+	latest, err := r.lp.LatestBlock(ctx)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		// No blocks yet: without a replay the first poll starts at the finalized block and skips the range.
+	case err != nil:
+		return fmt.Errorf("failed to get log poller latest block: %w", err)
+	case int64(fromBlock) > latest.BlockNumber: // #nosec G115 -- range checked above
+		return nil
+	}
+	err = r.lp.Replay(ctx, int64(fromBlock)) // #nosec G115 -- range checked above
+	if errors.Is(err, commontypes.ErrFinalityViolated) {
+		return fmt.Errorf("%w: %w", chainaccess.ErrSourceFinalityViolated, err)
+	}
+	if err != nil {
+		return fmt.Errorf("log poller replay from block %d failed: %w", fromBlock, err)
+	}
+	return nil
 }
 
 // logPollerBlock returns the last block the log poller has processed.

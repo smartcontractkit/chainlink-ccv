@@ -2,7 +2,9 @@ package evm
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"math"
 	"math/big"
 	"strconv"
 	"sync/atomic"
@@ -590,4 +592,51 @@ func TestFinalityViolated(t *testing.T) {
 			require.Equal(t, tc.want, (&SourceReader{lp: lp}).FinalityViolated())
 		})
 	}
+}
+
+func TestReplayFrom(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("no-op without a log poller", func(t *testing.T) {
+		require.NoError(t, (&SourceReader{}).ReplayFrom(ctx, 501))
+	})
+
+	t.Run("skips when the log poller has not reached the block", func(t *testing.T) {
+		lp := lpmocks.NewLogPoller(t)
+		lp.EXPECT().LatestBlock(mock.Anything).Return(logpoller.Block{BlockNumber: 400}, nil).Once()
+		require.NoError(t, (&SourceReader{lp: lp}).ReplayFrom(ctx, 501))
+	})
+
+	for name, latestErr := range map[string]error{
+		"replays when the log poller is past the block": nil,
+		"replays when the log poller has no blocks":     sql.ErrNoRows,
+	} {
+		t.Run(name, func(t *testing.T) {
+			lp := lpmocks.NewLogPoller(t)
+			lp.EXPECT().LatestBlock(mock.Anything).Return(logpoller.Block{BlockNumber: 900}, latestErr).Once()
+			lp.EXPECT().Replay(mock.Anything, int64(501)).Return(nil).Once()
+			require.NoError(t, (&SourceReader{lp: lp}).ReplayFrom(ctx, 501))
+		})
+	}
+
+	t.Run("reports a finality violation with the chainaccess sentinel", func(t *testing.T) {
+		lp := lpmocks.NewLogPoller(t)
+		lp.EXPECT().LatestBlock(mock.Anything).Return(logpoller.Block{BlockNumber: 900}, nil).Once()
+		lp.EXPECT().Replay(mock.Anything, int64(501)).Return(commontypes.ErrFinalityViolated).Once()
+		err := (&SourceReader{lp: lp}).ReplayFrom(ctx, 501)
+		require.ErrorIs(t, err, chainaccess.ErrSourceFinalityViolated)
+	})
+
+	t.Run("returns other replay errors", func(t *testing.T) {
+		lp := lpmocks.NewLogPoller(t)
+		lp.EXPECT().LatestBlock(mock.Anything).Return(logpoller.Block{BlockNumber: 900}, nil).Once()
+		lp.EXPECT().Replay(mock.Anything, int64(501)).Return(errors.New("rpc down")).Once()
+		err := (&SourceReader{lp: lp}).ReplayFrom(ctx, 501)
+		require.ErrorContains(t, err, "rpc down")
+		require.NotErrorIs(t, err, chainaccess.ErrSourceFinalityViolated)
+	})
+
+	t.Run("rejects a block beyond int64", func(t *testing.T) {
+		require.Error(t, (&SourceReader{lp: lpmocks.NewLogPoller(t)}).ReplayFrom(ctx, math.MaxUint64))
+	})
 }

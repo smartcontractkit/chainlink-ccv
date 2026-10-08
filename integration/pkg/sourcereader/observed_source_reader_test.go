@@ -1,6 +1,8 @@
 package sourcereader
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -8,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 )
@@ -241,4 +244,32 @@ func TestObservedSourceReader_Labels(t *testing.T) {
 	_, _, err = rd2.LatestAndFinalizedBlock(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, []string{"source_chain", "2", "source_chain_name", "unknown:2", "verifier_id", "verifier2"}, monitor.Fake.Labels())
+}
+
+type replayingReader struct {
+	*mocks.MockSourceReader
+	from uint64
+}
+
+func (r *replayingReader) ReplayFrom(_ context.Context, fromBlock uint64) error {
+	r.from = fromBlock
+	return errors.New("replay failed")
+}
+
+func TestObservedSourceReader_ReplayFrom(t *testing.T) {
+	monitor := monitoring.NewFakeVerifierMonitoring()
+
+	t.Run("forwards to a replaying delegate", func(t *testing.T) {
+		delegate := &replayingReader{MockSourceReader: mocks.NewMockSourceReader(t)}
+		rd, err := NewObservedSourceReader(delegate, "v1", protocol.ChainSelector(1), monitor)
+		require.NoError(t, err)
+		require.ErrorContains(t, rd.(chainaccess.SourceReplayer).ReplayFrom(t.Context(), 501), "replay failed")
+		require.Equal(t, uint64(501), delegate.from)
+	})
+
+	t.Run("no-op for a delegate without a log index", func(t *testing.T) {
+		rd, err := NewObservedSourceReader(mocks.NewMockSourceReader(t), "v1", protocol.ChainSelector(1), monitor)
+		require.NoError(t, err)
+		require.NoError(t, rd.(chainaccess.SourceReplayer).ReplayFrom(t.Context(), 501))
+	})
 }

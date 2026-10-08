@@ -5,7 +5,7 @@
 - In CL mode, the EVM source reader reads `CCIPMessageSent` logs from the node's LogPoller instead of `eth_getLogs`. The standalone verifier still reads logs over RPC.
 - With a LogPoller, the latest, safe, and finalized blocks the reader reports are capped at the LogPoller's last processed block, so the verifier never advances past logs that are not indexed yet.
 - A finality violation detected by the LogPoller now disables the source reader, through the new optional `chainaccess.FinalityViolationReporter` capability.
-- `chain-statuses set-finalized-height` also rewinds the LogPoller in the same database transaction, and disables the chain when the rewind needs a manual replay.
+- On start, the source reader replays the LogPoller from its resume block before the first read, so a checkpoint rewound with `chain-statuses set-finalized-height`, or a newly registered filter, is refilled. The CLI does not change.
 - No breaking changes for consumers. `evm.NewEVMSourceReader` takes a new trailing `*evm.LogPollerConfig` argument, but its only callers are in this repo and are updated. The Chainlink node calls `constructors.NewVerificationCoordinator`, whose signature does not change.
 
 ## AI Adapter Index
@@ -17,13 +17,14 @@
 | `evm.SourceReader.LatestAndFinalizedBlock` | behavior-changed | `\.LatestAndFinalizedBlock\(` | `integration/pkg/accessors/evm/evm_source_reader.go:556` | [#block-capping](#block-capping) |
 | `evm.SourceReader.LatestSafeBlock` | behavior-changed | `\.LatestSafeBlock\(` | `integration/pkg/accessors/evm/evm_source_reader.go:631` | [#block-capping](#block-capping) |
 | `sourcereader.Service` finality check | behavior-changed | `sourcereader\.NewService\(` | `verifier/pkg/sourcereader/service.go:1040` | [#finality-violation-reporting](#finality-violation-reporting) |
-| `chainstatuses` `set-finalized-height` command | behavior-changed | `set-finalized-height` | `cli/chainstatuses/commands.go:69` | [#set-finalized-height-logpoller-rewind](#set-finalized-height-logpoller-rewind) |
+| `sourcereader.Service` start | behavior-changed | `replaySourceIndex` | `verifier/pkg/sourcereader/service.go` | [#startup-replay](#startup-replay) |
 | `evm.LogPollerConfig` | added | `\bLogPollerConfig\b` | `integration/pkg/accessors/evm/evm_source_reader.go:47` | [#newevmsourcereader-signature](#newevmsourcereader-signature) |
 | `evm.DefaultMessageSentLogRetention` | added | `\bDefaultMessageSentLogRetention\b` | `integration/pkg/accessors/evm/evm_source_reader.go:43` | [#newevmsourcereader-signature](#newevmsourcereader-signature) |
 | `evm.SourceReader.FinalityViolated` | added | `\.FinalityViolated\(` | `integration/pkg/accessors/evm/evm_source_reader.go:374` | [#finality-violation-reporting](#finality-violation-reporting) |
 | `chainaccess.FinalityViolationReporter` | added | `\bFinalityViolationReporter\b` | `pkg/chainaccess/interfaces.go:68` | [#finality-violation-reporting](#finality-violation-reporting) |
-| `chainstatus.PostgresChainStatusStore.SetFinalizedBlockHeightWith` | added | `\bSetFinalizedBlockHeightWith\(` | `verifier/pkg/chainstatus/postgres.go:223` | [#setfinalizedblockheightwith](#setfinalizedblockheightwith) |
-| `chainstatus.ErrTransactionRequired` | added | `\bErrTransactionRequired\b` | `verifier/pkg/chainstatus/postgres.go:22` | [#setfinalizedblockheightwith](#setfinalizedblockheightwith) |
+| `evm.SourceReader.ReplayFrom` | added | `\.ReplayFrom\(` | `integration/pkg/accessors/evm/evm_source_reader.go` | [#startup-replay](#startup-replay) |
+| `chainaccess.SourceReplayer` | added | `\bSourceReplayer\b` | `pkg/chainaccess/interfaces.go` | [#startup-replay](#startup-replay) |
+| `chainaccess.ErrSourceFinalityViolated` | added | `\bErrSourceFinalityViolated\b` | `pkg/chainaccess/interfaces.go` | [#startup-replay](#startup-replay) |
 
 ## Breaking Changes
 
@@ -79,51 +80,25 @@ The header at `P` comes from `GetBlocksHeaders`. A missing header is an error. W
 - The metrics wrapper in `integration/pkg/sourcereader/observed_source_reader.go` forwards `FinalityViolated` to the reader it wraps. Other `SourceReader` wrappers must do the same, or the check does not run.
 - `sourcereader.Service.checkFinality` asks the reader first. If it reports a violation, the service logs `Finality violation reported by the source reader` and runs the usual finality-violation handling, which disables the reader. `SourceConfig.DisableFinalityChecker` turns this check off too.
 
-## set-finalized-height LogPoller rewind
+## Startup replay
 
-The LogPoller resumes from its own newest stored block, not from `finalized_block_height`. So `set-finalized-height` now also deletes the LogPoller's blocks and logs from `block-height + 1`, in the same transaction as the height update.
+The LogPoller resumes after its own newest stored block, not the verifier's checkpoint. Without a replay it would not refill a range the verifier resumes in, such as after `chain-statuses set-finalized-height` or the first start with a new filter.
 
-The rewind runs only when all of these are true. Otherwise the height is set as before, and the command prints the skip reason.
-
-- The chain family is EVM.
-- The store implements `SetFinalizedBlockHeightWith`.
-- The `evm.log_poller_filters` table exists and has a filter whose name starts with `<verifier-id> - `.
-
-The height must fit in an `int64` and be below `math.MaxInt64`. Otherwise the command fails and changes nothing.
-
-| LogPoller state | Result |
-|---|---|
-| Has blocks above the height and at least one at or below it | Blocks and logs from `height + 1` deleted. |
-| No blocks above the height | Nothing to rewind. |
-| No blocks, or all blocks above the height | Blocks and logs from `height + 1` deleted, the chain is **disabled**, and a replay runbook (`chainlink blocks replay ...`, then `chain-statuses enable`) is printed. |
-
-The delete is chain-wide, so every LogPoller consumer on that chain re-reads the deleted range. Operator details are in `cli/chainstatuses/README.md` and `docs/runbooks/remediating-stuck-or-dropped-messages.md`.
-
-## SetFinalizedBlockHeightWith
-
-```go
-func (s *PostgresChainStatusStore) SetFinalizedBlockHeightWith(
-	ctx context.Context,
-	chainSelector protocol.ChainSelector,
-	verifierID string,
-	height *big.Int,
-	also func(ctx context.Context, tx sqlutil.DataSource, txStore *PostgresChainStatusStore) error,
-) error
-```
-
-- Sets the height, then runs `also` in the same transaction. If either fails, both are rolled back.
-- `also` gets the transaction and a store bound to it. Use `txStore` inside `also`. The outer store runs outside the transaction and waits on the row lock.
-- `also` may be `nil`. It is not called when no row matches.
-- Returns `chainstatus.ErrTransactionRequired`, and changes nothing, when the store's `DataSource` cannot begin a transaction (for example, it is already a transaction).
-- `ChainStatusStore` does not change. The CLI checks for this method with a type assertion.
+- On start, if the chain is not disabled, the service records its resume block (checkpoint + 1). The first poll calls `chainaccess.SourceReplayer.ReplayFrom` with it before any read.
+- `evm.SourceReader.ReplayFrom` calls the LogPoller's `Replay` and blocks until it finishes. It skips the call when the LogPoller has not reached the block yet, and replays when it has no blocks at all. It is a no-op without a LogPoller.
+- A failed replay is retried on the next poll, and nothing is read until it succeeds.
+- A replay that hits a finality violation returns `chainaccess.ErrSourceFinalityViolated`, and the service disables the chain.
+- `Replay` deletes nothing, so other LogPoller consumers on the chain keep their data. It is safe on a running LogPoller.
+- Every restart replays from the checkpoint, normally about one finality depth of blocks. A deep `set-finalized-height` rewind replays the whole range.
+- A disabled chain does not replay. After a finality violation the checkpoint is `0`, and the operator sets a height and re-enables the chain before the next start.
 
 ## Compatibility & Requirements
 
-- **Dependency bumps:** `github.com/scylladb/go-reflectx` is now a direct dependency in `go.mod`. `go.md` is regenerated.
+- **Dependency bumps:** none.
 - **Supported environments:** only the CL-mode EVM verifier uses the LogPoller. The standalone verifier and non-EVM readers do not change.
-- **Log retention:** logs older than the 30-day filter retention can be pruned before the verifier reads them, so a longer outage or a deeper rewind may not be recoverable through the LogPoller.
+- **Log retention:** logs older than the 30-day filter retention can be pruned before the verifier reads them. The startup replay fetches them again from RPC, but they can be pruned again later.
 
 ## References
 
-- Commits: `72ee0792` source reader log poller, `f1fb991c` tests, `17fb462c` lint fix, `f86b2af0` set-finalized-height rewind, `8865f3c6` finality violation from the LogPoller.
+- Commits: `72ee0792` source reader log poller, `f1fb991c` tests, `17fb462c` lint fix, `8865f3c6` finality violation from the LogPoller. The CLI rewind from `f86b2af0` is replaced by the startup replay.
 - Prior changelog entries this builds on: `2026-09-29_source_reader_block_confirmation.md`, `2026-09-11_source_recovery.md`.

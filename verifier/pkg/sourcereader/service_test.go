@@ -2,6 +2,8 @@ package sourcereader
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"math"
 	"math/big"
 	"sync"
@@ -15,6 +17,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/common/jobqueue"
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	verifiermonitoring "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
@@ -859,6 +862,84 @@ func TestSRS_SourceReaderFinalityViolation_IgnoredWhenFinalityCheckerDisabled(t 
 
 	require.True(t, srs.sendReadyMessages(ctx, &protocol.BlockHeader{Number: 1000}, nil, &protocol.BlockHeader{Number: 950}))
 	require.False(t, srs.disabled.Load())
+}
+
+func TestSRS_Start_SchedulesSourceReplayFromCheckpoint(t *testing.T) {
+	chain := protocol.ChainSelector(1337)
+	for name, tc := range map[string]struct {
+		disabled bool
+		want     uint64
+	}{
+		"enabled chain replays from the resume block": {disabled: false, want: 501},
+		"disabled chain does not replay":              {disabled: true, want: 0},
+	} {
+		t.Run(name, func(t *testing.T) {
+			chainStatusMgr := mocks.NewMockChainStatusManager(t)
+			chainStatusMgr.EXPECT().ReadChainStatuses(mock.Anything, mock.Anything).
+				Return(map[protocol.ChainSelector]*protocol.ChainStatusInfo{
+					chain: {ChainSelector: chain, FinalizedBlockHeight: big.NewInt(500), Disabled: tc.disabled},
+				}, nil).Once()
+			// A long poll interval keeps the loop from ticking, so only Start's effect is observed.
+			srs, _, _ := newTestSRS(t, chain, mocks.NewMockSourceReader(t), chainStatusMgr, mocks.NewMockCurseCheckerService(t), time.Hour, 5000)
+			require.NoError(t, srs.Start(t.Context()))
+			t.Cleanup(func() { require.NoError(t, srs.Close()) })
+			// replayFrom is written before startBlockInitialized, so the atomic orders the read.
+			require.Eventually(t, srs.startBlockInitialized.Load, tests.WaitTimeout(t), 10*time.Millisecond)
+			require.Equal(t, tc.want, srs.replayFrom)
+		})
+	}
+}
+
+func TestSRS_ReplaySourceIndex(t *testing.T) {
+	ctx := context.Background()
+	chain := protocol.ChainSelector(1337)
+
+	t.Run("replays once and then lets reads proceed", func(t *testing.T) {
+		reader := &replayingReader{MockSourceReader: mocks.NewMockSourceReader(t)}
+		srs, _, _ := newTestSRS(t, chain, reader.MockSourceReader, mocks.NewMockChainStatusManager(t), mocks.NewMockCurseCheckerService(t), time.Hour, 5000)
+		srs.sourceReader = reader
+		srs.replayFrom = 501
+
+		require.True(t, srs.replaySourceIndex(ctx))
+		require.True(t, srs.replaySourceIndex(ctx))
+		require.Equal(t, []uint64{501}, reader.calls)
+	})
+
+	t.Run("retries after a failed replay", func(t *testing.T) {
+		reader := &replayingReader{MockSourceReader: mocks.NewMockSourceReader(t), err: errors.New("rpc down")}
+		srs, _, _ := newTestSRS(t, chain, reader.MockSourceReader, mocks.NewMockChainStatusManager(t), mocks.NewMockCurseCheckerService(t), time.Hour, 5000)
+		srs.sourceReader = reader
+		srs.replayFrom = 501
+
+		require.False(t, srs.replaySourceIndex(ctx))
+		reader.err = nil
+		require.True(t, srs.replaySourceIndex(ctx))
+		require.Equal(t, []uint64{501, 501}, reader.calls)
+	})
+
+	t.Run("finality violation during replay disables the chain", func(t *testing.T) {
+		reader := &replayingReader{MockSourceReader: mocks.NewMockSourceReader(t), err: fmt.Errorf("%w: reorg", chainaccess.ErrSourceFinalityViolated)}
+		chainStatusMgr := mocks.NewMockChainStatusManager(t)
+		chainStatusMgr.EXPECT().WriteChainStatuses(mock.Anything, mock.Anything).
+			RunAndReturn(func(_ context.Context, infos []protocol.ChainStatusInfo) error {
+				require.True(t, infos[0].Disabled)
+				return nil
+			}).Once()
+		srs, _, _ := newTestSRS(t, chain, reader.MockSourceReader, chainStatusMgr, mocks.NewMockCurseCheckerService(t), time.Hour, 5000)
+		srs.sourceReader = reader
+		srs.replayFrom = 501
+
+		require.False(t, srs.replaySourceIndex(ctx))
+		require.True(t, srs.disabled.Load())
+		require.Zero(t, srs.replayFrom, "the replay is not retried once the chain is halted")
+	})
+
+	t.Run("reader without a log index skips the replay", func(t *testing.T) {
+		srs, _, _ := newTestSRS(t, chain, mocks.NewMockSourceReader(t), mocks.NewMockChainStatusManager(t), mocks.NewMockCurseCheckerService(t), time.Hour, 5000)
+		srs.replayFrom = 501
+		require.True(t, srs.replaySourceIndex(ctx))
+		require.Zero(t, srs.replayFrom)
+	})
 }
 
 func TestSRS_Reorg_TracksSequenceNumbers(t *testing.T) {

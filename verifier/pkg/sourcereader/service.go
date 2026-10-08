@@ -76,13 +76,16 @@ type Service struct {
 	mu                          sync.RWMutex
 	lastProcessedFinalizedBlock atomic.Uint64
 	startBlockInitialized       atomic.Bool // guards lastProcessedFinalizedBlock; set by the background init in Start
-	pendingTasks                map[string]verifier.VerificationTask
-	pendingSince                map[string]time.Time
-	pendingMetricDestinations   map[protocol.ChainSelector]struct{}
-	sentTasks                   map[string]verifier.VerificationTask
-	reorgTracker                *ReorgTracker
-	disabled                    atomic.Bool
-	finalityBlocked             atomic.Bool
+	// replayFrom is the block the reader's log index must be replayed from before the first read; 0 when done.
+	// Set by the background init and read only by the monitoring loop that follows it.
+	replayFrom                uint64
+	pendingTasks              map[string]verifier.VerificationTask
+	pendingSince              map[string]time.Time
+	pendingMetricDestinations map[protocol.ChainSelector]struct{}
+	sentTasks                 map[string]verifier.VerificationTask
+	reorgTracker              *ReorgTracker
+	disabled                  atomic.Bool
+	finalityBlocked           atomic.Bool
 
 	// ChainStatus management
 	chainStatusManager protocol.ChainStatusManager
@@ -216,6 +219,9 @@ func (r *Service) initializeAndMonitor() {
 		attemptCancel()
 		if err == nil {
 			r.lastProcessedFinalizedBlock.Store(startBlock)
+			if !r.disabled.Load() {
+				r.replayFrom = startBlock
+			}
 			r.startBlockInitialized.Store(true)
 			r.metrics().SetSourceReaderLastProcessedFinalizedBlock(ctx, int64(startBlock)) // #nosec G115 -- chain block heights are within int64 range
 			r.logger.Infow("Initialized start block", "block", startBlock)
@@ -295,6 +301,9 @@ func (r *Service) eventMonitoringLoop() {
 					r.recordDisabledState(ctx)
 					return
 				}
+				if !r.replaySourceIndex(ctx) {
+					return
+				}
 				ready, latest, safe, finalized := r.readyToQuery(ctx)
 				if !ready {
 					return
@@ -319,6 +328,34 @@ func (r *Service) eventMonitoringLoop() {
 			}()
 		}
 	}
+}
+
+// replaySourceIndex replays the reader's log index from the start block once, before the first read, so a
+// rewound checkpoint or a newly registered filter is refilled. It returns false until the replay has succeeded.
+func (r *Service) replaySourceIndex(ctx context.Context) bool {
+	if r.replayFrom == 0 {
+		return true
+	}
+	replayer, ok := r.sourceReader.(chainaccess.SourceReplayer)
+	if !ok {
+		r.replayFrom = 0
+		return true
+	}
+	r.logger.Infow("Replaying source log index before the first read", "fromBlock", r.replayFrom)
+	err := replayer.ReplayFrom(ctx, r.replayFrom)
+	switch {
+	case errors.Is(err, chainaccess.ErrSourceFinalityViolated):
+		r.logger.Errorw("Source log index replay hit a finality violation", "fromBlock", r.replayFrom, "error", err)
+		r.replayFrom = 0
+		r.handleFinalityViolation(ctx)
+		return false
+	case err != nil:
+		r.logger.Warnw("Source log index replay failed, retrying next poll", "fromBlock", r.replayFrom, "error", err)
+		return false
+	}
+	r.logger.Infow("Source log index replay finished", "fromBlock", r.replayFrom)
+	r.replayFrom = 0
+	return true
 }
 
 func (r *Service) readyToQuery(ctx context.Context) (bool, *protocol.BlockHeader, *protocol.BlockHeader, *protocol.BlockHeader) {

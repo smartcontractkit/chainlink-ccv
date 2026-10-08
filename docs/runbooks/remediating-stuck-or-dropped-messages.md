@@ -88,7 +88,7 @@ Known drops carry message IDs, block numbers and optional reader-provided transa
 
 Read coverage metadata on every query. History starts at upgrade; disabled intervals, downtime, failed audit writes and expired data leave gaps. Unknown curse/rule state and ordinary confirmation waiting are not recorded as confirmed drops. Empty history cannot establish that no messages were affected. Use canonical source events, logs and traces to cover missing intervals.
 
-Corroborate a finality block with `verifier_source_reader_state{state="finality_blocked"}` or `verifier_source_chain_finality_violated`, and logs `FINALITY VIOLATION DETECTED - block hash changed` / `parent hash mismatch`, or `Finality violation reported by the source reader` when the LogPoller detected it. Disabled readers now remain present for recovery control, including after startup; their registry state and history distinguish current health from past evidence.
+Corroborate a finality block with `verifier_source_reader_state{state="finality_blocked"}` or `verifier_source_chain_finality_violated`, and logs `FINALITY VIOLATION DETECTED - block hash changed` / `parent hash mismatch`. Disabled readers now remain present for recovery control, including after startup; their registry state and history distinguish current health from past evidence.
 
 For a finality incident, compare stored/observed hashes with canonical RPC headers to establish a known-good common boundary. The first detected mismatch may be later than the earliest affected block. Include pending messages and messages emitted while the reader was disabled. A disabled checkpoint of zero is not evidence of the fork boundary.
 
@@ -140,9 +140,9 @@ Use for a deployment without this recovery capability, including a Chainlink cor
      --chain-selector <SOURCE> --verifier-id <OWNER> --block-height <N>
    ```
 
-   In CL mode use `chainlink node ccv chain-statuses set-finalized-height` with the same flags. The next start reads `N + 1`; this legacy path has no fixed end height. When the reader uses the LogPoller, the command also deletes its blocks and logs above `N`, so logs from an abandoned fork are not read again; if it prints the deep-rewind steps, follow them.
+   In CL mode use `chainlink node ccv chain-statuses set-finalized-height` with the same flags. The next start reads `N + 1`; this legacy path has no fixed end height.
 3. If disabled, also run `ccv chain-statuses enable` for the same owner/source while stopped, then verify both fields with `ccv chain-statuses list`. Enabling a zero checkpoint alone unintentionally starts at block 1.
-4. Start the node. Confirm its logged start block, reader progress and the affected message IDs' results. Restart initializes a fresh checker and cannot recover its prior hash history or undo results. If the LogPoller still detects a finality violation, the reader disables itself again on its first poll; re-check `N` against the canonical chain.
+4. Start the node. Confirm its logged start block, reader progress and the affected message IDs' results. Restart initializes a fresh checker and cannot recover its prior hash history or undo results.
 
 See the [live recovery reference](../../cli/recovery/README.md) and [chain-status command reference](../../cli/chainstatuses/README.md).
 

@@ -2,6 +2,7 @@ package chainaccess
 
 import (
 	"context"
+	"errors"
 
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -68,6 +69,16 @@ type CriticalSourceInvariantCallbackSetter interface {
 type FinalityViolationReporter interface {
 	// FinalityViolated reports whether the reader's data source currently detects a finality violation.
 	FinalityViolated() bool
+}
+
+// ErrSourceFinalityViolated is returned by SourceReplayer.ReplayFrom when the replay hits a finality violation.
+var ErrSourceFinalityViolated = errors.New("source data finality violated")
+
+// SourceReplayer is an optional SourceReader capability for readers that serve logs from a local index,
+// such as the EVM log poller, which resumes after its own newest block rather than the verifier's.
+type SourceReplayer interface {
+	// ReplayFrom re-indexes source logs from fromBlock onward and blocks until that is done.
+	ReplayFrom(ctx context.Context, fromBlock uint64) error
 }
 
 // ExecutorMonitoringSetter is an optional capability of accessor-provided destination readers and
