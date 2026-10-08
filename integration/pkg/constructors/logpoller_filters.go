@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/big"
 	"strconv"
+	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/pelletier/go-toml/v2"
@@ -13,6 +14,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
+	"github.com/smartcontractkit/chainlink-evm/pkg/chains/legacyevm"
 )
 
 // messageSentFilterRegistered reports whether the node's log poller has stored the named filter for chainID.
@@ -47,4 +49,17 @@ func liveMessageSentFilters(ctx context.Context, ds sqlutil.DataSource, sel prot
 		}
 	}
 	return live, nil
+}
+
+// newLogPollerConfig wires a chain's source reader to the node's log poller and database.
+func newLogPollerConfig(ds sqlutil.DataSource, chain legacyevm.Chain, sel protocol.ChainSelector, verifierID string) *evm.LogPollerConfig {
+	return &evm.LogPollerConfig{
+		LogPoller:  chain.LogPoller(),
+		VerifierID: verifierID,
+		Retention:  evm.DefaultMessageSentLogRetention,
+		Ready:      new(atomic.Bool),
+		FilterRegistered: func(ctx context.Context, name string) (bool, error) {
+			return messageSentFilterRegistered(ctx, ds, chain.ID(), name)
+		},
+	}
 }

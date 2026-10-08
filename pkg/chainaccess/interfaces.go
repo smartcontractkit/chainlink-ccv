@@ -71,6 +71,17 @@ type FinalityViolationReporter interface {
 	FinalityViolated() bool
 }
 
+// ErrSourceNotReady is returned by SourceReader reads while the source is still loading; callers retry
+// later and must not treat the range as scanned.
+var ErrSourceNotReady = errors.New("source not ready")
+
+// SourceLoader is an optional SourceReader capability for readers that must load a local index, such as
+// the EVM log poller, before serving reads.
+type SourceLoader interface {
+	// LoadFrom starts loading from startBlock without blocking; reads return ErrSourceNotReady until done.
+	LoadFrom(startBlock uint64)
+}
+
 // ErrSourceFinalityViolated is returned by SourceReplayer.ReplayFrom when the replay hits a finality violation.
 var ErrSourceFinalityViolated = errors.New("source data finality violated")
 

@@ -2,13 +2,14 @@ package evm
 
 import (
 	"context"
-	"database/sql"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"maps"
 	"math"
 	"math/big"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ethereum/go-ethereum"
@@ -22,6 +23,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_6_0/rmn_remote"
 	"github.com/smartcontractkit/chainlink-ccv/common/lazy"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/services"
 	commontypes "github.com/smartcontractkit/chainlink-common/pkg/types"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 	"github.com/smartcontractkit/chainlink-evm/pkg/heads"
@@ -38,7 +40,7 @@ var (
 	_ chainaccess.SourceReader                          = (*SourceReader)(nil)
 	_ chainaccess.CriticalSourceInvariantCallbackSetter = (*SourceReader)(nil)
 	_ chainaccess.FinalityViolationReporter             = (*SourceReader)(nil)
-	_ chainaccess.SourceReplayer                        = (*SourceReader)(nil)
+	_ chainaccess.SourceLoader                          = (*SourceReader)(nil)
 )
 
 // DefaultMessageSentLogRetention is how long the log poller keeps CCIPMessageSent logs. It must
@@ -49,12 +51,25 @@ const DefaultMessageSentLogRetention = 30 * 24 * time.Hour
 // the caller retries instead of treating the unscanned range as scanned.
 var ErrLogPollerBehind = errors.New("log poller has not reached the requested block")
 
+// ErrLogPollerNotReady is returned by reads until the log poller filter is registered and replayed.
+var ErrLogPollerNotReady = fmt.Errorf("%w: log poller filter not loaded", chainaccess.ErrSourceNotReady)
+
+const (
+	logPollerInitBackoff    = time.Second
+	maxLogPollerInitBackoff = time.Minute
+	logPollerOpTimeout      = 10 * time.Second
+)
+
 // LogPollerConfig makes the source reader read CCIPMessageSent logs from the Chainlink node's log
 // poller instead of eth_getLogs.
 type LogPollerConfig struct {
 	LogPoller  logpoller.LogPoller
 	VerifierID string
 	Retention  time.Duration
+	// Ready (logPollerReady) starts false and is set once the filter is registered and the log poller replayed.
+	Ready *atomic.Bool
+	// FilterRegistered reports whether the node has already stored the named log poller filter.
+	FilterRegistered func(ctx context.Context, name string) (bool, error)
 }
 
 type SourceReader struct {
@@ -73,7 +88,17 @@ type SourceReader struct {
 	sourceReaderHeaderFetchBatchSize int
 
 	// lp is the node's log poller, nil when logs are read over RPC (e.g. the standalone verifier).
-	lp logpoller.LogPoller
+	lp         logpoller.LogPoller
+	lpCfg      *LogPollerConfig
+	filterName string
+	// startBlock carries the first LoadFrom block to the startup goroutine; buffered so LoadFrom never blocks.
+	startBlock chan uint64
+	loadOnce   sync.Once
+	// lpReplayViolated holds a finality violation from the startup replay until FinalityViolated reports it.
+	lpReplayViolated atomic.Bool
+	stopCh           services.StopChan
+	wg               sync.WaitGroup
+	closeOnce        sync.Once
 }
 
 func NewEVMSourceReader(
@@ -117,6 +142,14 @@ func NewEVMSourceReader(
 	}
 	if lpCfg != nil && lpCfg.VerifierID == "" {
 		errs = append(errs, fmt.Errorf("log poller verifierID is not set"))
+	}
+	if lpCfg != nil && LogPollerEnabled(lpCfg.LogPoller) {
+		if lpCfg.Ready == nil {
+			errs = append(errs, errors.New("log poller ready flag is not set"))
+		}
+		if lpCfg.FilterRegistered == nil {
+			errs = append(errs, errors.New("log poller filter lookup is not set"))
+		}
 	}
 
 	if len(errs) > 0 {
@@ -180,9 +213,7 @@ func NewEVMSourceReader(
 	reader.SetCriticalSourceInvariantCallback(onCriticalInvariant)
 
 	if lpCfg != nil && LogPollerEnabled(lpCfg.LogPoller) {
-		if err := reader.registerLogPollerFilter(ctx, lpCfg); err != nil {
-			return nil, err
-		}
+		reader.startLogPoller(lpCfg)
 	}
 	return reader, nil
 }
@@ -203,25 +234,137 @@ func MessageSentFilterName(verifierID string, onRamp common.Address) string {
 	return logpoller.FilterName(MessageSentFilterPrefix, verifierID, onRamp.Hex())
 }
 
-// registerLogPollerFilter registers the CCIPMessageSent filter with the log poller and switches
-// the reader to read logs from it.
-func (r *SourceReader) registerLogPollerFilter(ctx context.Context, lpCfg *LogPollerConfig) error {
-	name := MessageSentFilterName(lpCfg.VerifierID, r.onRampAddress)
+// startLogPoller switches the reader to the log poller and starts the goroutine that loads it once
+// LoadFrom supplies the start block; reads fail with ErrLogPollerNotReady until then.
+func (r *SourceReader) startLogPoller(lpCfg *LogPollerConfig) {
+	r.lp = lpCfg.LogPoller
+	r.lpCfg = lpCfg
+	r.filterName = MessageSentFilterName(lpCfg.VerifierID, r.onRampAddress)
+	r.startBlock = make(chan uint64, 1)
+	r.stopCh = make(services.StopChan)
+	r.wg.Go(r.initLogPoller)
+}
 
-	// RegisterFilter writes to the DB; bound it since the node entry point passes context.Background().
-	regCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+// LoadFrom starts loading the log poller from startBlock, the first block the verifier reads. Only the
+// first call counts; it is a no-op without a log poller.
+func (r *SourceReader) LoadFrom(startBlock uint64) {
+	if r.lp == nil {
+		return
+	}
+	r.loadOnce.Do(func() { r.startBlock <- startBlock })
+}
+
+// logPollerLoad is fixed on the first attempt, so a retry does not mistake this reader's own
+// registration for a pre-existing filter.
+type logPollerLoad struct {
+	fromBlock     uint64
+	filterExisted bool
+}
+
+// initLogPoller waits for the start block, then retries loading the log poller with backoff until it
+// succeeds or the reader closes.
+func (r *SourceReader) initLogPoller() {
+	ctx, cancel := r.stopCh.NewCtx()
 	defer cancel()
-	if err := lpCfg.LogPoller.RegisterFilter(regCtx, logpoller.Filter{
-		Name:      name,
+	var from uint64
+	select {
+	case from = <-r.startBlock:
+	case <-ctx.Done():
+		return
+	}
+	var load *logPollerLoad
+	backoff := logPollerInitBackoff
+	for {
+		var err error
+		if load == nil {
+			load, err = r.planLogPollerLoad(ctx, from)
+		}
+		if err == nil {
+			err = r.loadLogPoller(ctx, *load)
+		}
+		if err == nil {
+			r.lpCfg.Ready.Store(true)
+			r.lggr.Infow("Log poller ready, reading CCIPMessageSent logs from it", "filter", r.filterName)
+			return
+		}
+		r.lggr.Warnw("Log poller startup failed, retrying", "filter", r.filterName, "retryIn", backoff, "error", err)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(backoff):
+		}
+		backoff = min(2*backoff, maxLogPollerInitBackoff)
+	}
+}
+
+func (r *SourceReader) planLogPollerLoad(ctx context.Context, from uint64) (*logPollerLoad, error) {
+	existed, err := r.lpCfg.FilterRegistered(ctx, r.filterName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check log poller filter %s: %w", r.filterName, err)
+	}
+	return &logPollerLoad{fromBlock: from, filterExisted: existed}, nil
+}
+
+// loadLogPoller registers the filter and replays the log poller from the start block. A pre-existing
+// filter first has the log poller's logs and blocks from the start block deleted, so they are re-fetched.
+func (r *SourceReader) loadLogPoller(ctx context.Context, load logPollerLoad) error {
+	if load.fromBlock > math.MaxInt64 {
+		return fmt.Errorf("replay block %d is out of range for the log poller", load.fromBlock)
+	}
+	if err := r.registerLogPollerFilter(ctx); err != nil {
+		return err
+	}
+	if load.filterExisted {
+		if err := r.lp.DeleteLogsAndBlocksAfter(ctx, int64(load.fromBlock)); err != nil { // #nosec G115 -- range checked above
+			return fmt.Errorf("failed to delete log poller data from block %d: %w", load.fromBlock, err)
+		}
+	}
+	return r.replayLogPoller(ctx, load.fromBlock)
+}
+
+// registerLogPollerFilter registers the CCIPMessageSent filter with the log poller.
+func (r *SourceReader) registerLogPollerFilter(ctx context.Context) error {
+	regCtx, cancel := context.WithTimeout(ctx, logPollerOpTimeout)
+	defer cancel()
+	if err := r.lp.RegisterFilter(regCtx, logpoller.Filter{
+		Name:      r.filterName,
 		Addresses: []common.Address{r.onRampAddress},
 		EventSigs: []common.Hash{common.HexToHash(r.ccipMessageSentTopic)},
-		Retention: lpCfg.Retention,
+		Retention: r.lpCfg.Retention,
 	}); err != nil {
-		return fmt.Errorf("failed to register log poller filter %s: %w", name, err)
+		return fmt.Errorf("failed to register log poller filter %s: %w", r.filterName, err)
 	}
+	return nil
+}
 
-	r.lp = lpCfg.LogPoller
-	r.lggr.Infow("Reading CCIPMessageSent logs from the log poller", "filter", name)
+// replayLogPoller replays the log poller from fromBlock up to its latest finalized block and waits for it.
+func (r *SourceReader) replayLogPoller(ctx context.Context, fromBlock uint64) error {
+	latest, _, err := r.headTrackerBlocks(ctx)
+	if err != nil {
+		return err
+	}
+	if fromBlock > latest.Number {
+		return nil // Not mined yet: the log poller indexes it as it arrives.
+	}
+	err = r.lp.Replay(ctx, int64(max(fromBlock, 1))) // #nosec G115 -- range checked by loadLogPoller
+	if errors.Is(err, commontypes.ErrFinalityViolated) {
+		r.lpReplayViolated.Store(true)
+	}
+	if err != nil {
+		return fmt.Errorf("log poller replay from block %d failed: %w", fromBlock, err)
+	}
+	return nil
+}
+
+// Close stops loading the log poller.
+func (r *SourceReader) Close() error {
+	if r.lp == nil {
+		return nil
+	}
+	r.closeOnce.Do(func() {
+		close(r.stopCh)
+		r.wg.Wait()
+	})
 	return nil
 }
 
@@ -326,6 +469,9 @@ func (r *SourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, to
 	var logs []types.Log
 	var err error
 	if r.lp != nil {
+		if !r.lpCfg.Ready.Load() {
+			return nil, ErrLogPollerNotReady
+		}
 		logs, err = r.logPollerLogs(ctx, fromBlock, toBlock)
 	} else {
 		logs, err = r.rpcLogs(ctx, fromBlock, toBlock)
@@ -391,38 +537,13 @@ func (r *SourceReader) logPollerLogs(ctx context.Context, fromBlock, toBlock uin
 	return logs, nil
 }
 
-// FinalityViolated reports whether the log poller has detected a finality violation; false
-// without a log poller.
+// FinalityViolated reports whether the log poller detected a finality violation, including one hit by
+// the startup replay, which is reported once; false without a log poller.
 func (r *SourceReader) FinalityViolated() bool {
-	return r.lp != nil && errors.Is(r.lp.Healthy(), commontypes.ErrFinalityViolated)
-}
-
-// ReplayFrom re-fetches logs from fromBlock into the log poller, which otherwise resumes after its own
-// newest block and would not refill a range the verifier resumes in. It is a no-op without a log poller.
-func (r *SourceReader) ReplayFrom(ctx context.Context, fromBlock uint64) error {
 	if r.lp == nil {
-		return nil
+		return false
 	}
-	if fromBlock > math.MaxInt64 {
-		return fmt.Errorf("replay block %d is out of range for the log poller", fromBlock)
-	}
-	latest, err := r.lp.LatestBlock(ctx)
-	switch {
-	case errors.Is(err, sql.ErrNoRows):
-		// No blocks yet: without a replay the first poll starts at the finalized block and skips the range.
-	case err != nil:
-		return fmt.Errorf("failed to get log poller latest block: %w", err)
-	case int64(fromBlock) > latest.BlockNumber: // #nosec G115 -- range checked above
-		return nil
-	}
-	err = r.lp.Replay(ctx, int64(fromBlock)) // #nosec G115 -- range checked above
-	if errors.Is(err, commontypes.ErrFinalityViolated) {
-		return fmt.Errorf("%w: %w", chainaccess.ErrSourceFinalityViolated, err)
-	}
-	if err != nil {
-		return fmt.Errorf("log poller replay from block %d failed: %w", fromBlock, err)
-	}
-	return nil
+	return r.lpReplayViolated.Swap(false) || errors.Is(r.lp.Healthy(), commontypes.ErrFinalityViolated)
 }
 
 // logPollerBlock returns the last block the log poller has processed.

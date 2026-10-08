@@ -2,9 +2,7 @@ package evm
 
 import (
 	"context"
-	"database/sql"
 	"errors"
-	"math"
 	"math/big"
 	"strconv"
 	"sync/atomic"
@@ -225,6 +223,7 @@ func TestFetchMessageSentEvents_SourceMetadata(t *testing.T) {
 							[]common.Hash{onRampABI.Events["CCIPMessageSent"].ID}, onRampAddress).
 							Return([]logpoller.Log{toLogPollerLog(log)}, nil).Once()
 						reader.lp = lp
+						reader.lpCfg = readyLogPollerConfig()
 					} else {
 						// Only FilterLogs is implemented: an added block or transaction RPC fails the test.
 						calls := 0
@@ -285,7 +284,7 @@ func TestFetchMessageSentEvents_LogPollerRange(t *testing.T) {
 	newReader := func(t *testing.T, processed int64) (*SourceReader, *lpmocks.LogPoller) {
 		lp := lpmocks.NewLogPoller(t)
 		lp.EXPECT().LatestBlock(mock.Anything).Return(logpoller.Block{BlockNumber: processed}, nil).Once()
-		return &SourceReader{lggr: logger.Test(t), lp: lp, onRampAddress: onRamp, ccipMessageSentTopic: topic.Hex()}, lp
+		return &SourceReader{lggr: logger.Test(t), lp: lp, lpCfg: readyLogPollerConfig(), onRampAddress: onRamp, ccipMessageSentTopic: topic.Hex()}, lp
 	}
 
 	t.Run("open range ends at the log poller block", func(t *testing.T) {
@@ -301,6 +300,13 @@ func TestFetchMessageSentEvents_LogPollerRange(t *testing.T) {
 		events, err := r.FetchMessageSentEvents(t.Context(), 90, 0)
 		require.ErrorIs(t, err, ErrLogPollerBehind)
 		require.Empty(t, events)
+	})
+
+	t.Run("reads fail until the log poller is ready", func(t *testing.T) {
+		r := &SourceReader{lggr: logger.Test(t), lp: lpmocks.NewLogPoller(t), lpCfg: &LogPollerConfig{Ready: new(atomic.Bool)}}
+		_, err := r.FetchMessageSentEvents(t.Context(), 90, 0)
+		require.ErrorIs(t, err, ErrLogPollerNotReady)
+		require.ErrorIs(t, err, chainaccess.ErrSourceNotReady, "the Service matches the chain-agnostic sentinel")
 	})
 }
 
@@ -544,40 +550,6 @@ func TestGetRMNCursedSubjects_RetriesDerivationAndCaches(t *testing.T) {
 	require.Equal(t, int32(3), staticConfigCalls.Load())
 }
 
-func TestNewEVMSourceReader_LogPollerFilter(t *testing.T) {
-	onRamp := common.HexToAddress("0x1234")
-	topic := common.HexToHash("0x01")
-	newReader := func(t *testing.T, lp logpoller.LogPoller) (chainaccess.SourceReader, error) {
-		return NewEVMSourceReader(t.Context(), clienttest.NewClient(t), heads.NullTracker, onRamp,
-			common.Address{}, topic.Hex(), protocol.ChainSelector(1337), logger.Test(t), 25, nil,
-			&LogPollerConfig{LogPoller: lp, VerifierID: "verifier-1", Retention: time.Hour})
-	}
-
-	t.Run("registers the onramp filter and reads from the log poller", func(t *testing.T) {
-		lp := lpmocks.NewLogPoller(t)
-		lp.EXPECT().RegisterFilter(mock.Anything, mock.MatchedBy(func(f logpoller.Filter) bool {
-			return f.Name != "" && len(f.Addresses) == 1 && f.Addresses[0] == onRamp &&
-				len(f.EventSigs) == 1 && f.EventSigs[0] == topic && f.Retention == time.Hour
-		})).Return(nil).Once()
-		reader, err := newReader(t, lp)
-		require.NoError(t, err)
-		require.Equal(t, lp, reader.(*SourceReader).lp)
-	})
-
-	t.Run("registration failure fails construction", func(t *testing.T) {
-		lp := lpmocks.NewLogPoller(t)
-		lp.EXPECT().RegisterFilter(mock.Anything, mock.Anything).Return(errors.New("db down")).Once()
-		_, err := newReader(t, lp)
-		require.ErrorContains(t, err, "db down")
-	})
-
-	t.Run("disabled log poller falls back to rpc", func(t *testing.T) {
-		reader, err := newReader(t, logpoller.LogPollerDisabled)
-		require.NoError(t, err)
-		require.Nil(t, reader.(*SourceReader).lp)
-	})
-}
-
 func TestLogPollerEnabled(t *testing.T) {
 	for name, tc := range map[string]struct {
 		lp   logpoller.LogPoller
@@ -609,54 +581,141 @@ func TestFinalityViolated(t *testing.T) {
 	}
 }
 
-func TestReplayFrom(t *testing.T) {
-	ctx := context.Background()
-
-	t.Run("no-op without a log poller", func(t *testing.T) {
-		require.NoError(t, (&SourceReader{}).ReplayFrom(ctx, 501))
-	})
-
-	t.Run("skips when the log poller has not reached the block", func(t *testing.T) {
-		lp := lpmocks.NewLogPoller(t)
-		lp.EXPECT().LatestBlock(mock.Anything).Return(logpoller.Block{BlockNumber: 400}, nil).Once()
-		require.NoError(t, (&SourceReader{lp: lp}).ReplayFrom(ctx, 501))
-	})
-
-	for name, latestErr := range map[string]error{
-		"replays when the log poller is past the block": nil,
-		"replays when the log poller has no blocks":     sql.ErrNoRows,
-	} {
-		t.Run(name, func(t *testing.T) {
-			lp := lpmocks.NewLogPoller(t)
-			lp.EXPECT().LatestBlock(mock.Anything).Return(logpoller.Block{BlockNumber: 900}, latestErr).Once()
-			lp.EXPECT().Replay(mock.Anything, int64(501)).Return(nil).Once()
-			require.NoError(t, (&SourceReader{lp: lp}).ReplayFrom(ctx, 501))
-		})
-	}
-
-	t.Run("reports a finality violation with the chainaccess sentinel", func(t *testing.T) {
-		lp := lpmocks.NewLogPoller(t)
-		lp.EXPECT().LatestBlock(mock.Anything).Return(logpoller.Block{BlockNumber: 900}, nil).Once()
-		lp.EXPECT().Replay(mock.Anything, int64(501)).Return(commontypes.ErrFinalityViolated).Once()
-		err := (&SourceReader{lp: lp}).ReplayFrom(ctx, 501)
-		require.ErrorIs(t, err, chainaccess.ErrSourceFinalityViolated)
-	})
-
-	t.Run("returns other replay errors", func(t *testing.T) {
-		lp := lpmocks.NewLogPoller(t)
-		lp.EXPECT().LatestBlock(mock.Anything).Return(logpoller.Block{BlockNumber: 900}, nil).Once()
-		lp.EXPECT().Replay(mock.Anything, int64(501)).Return(errors.New("rpc down")).Once()
-		err := (&SourceReader{lp: lp}).ReplayFrom(ctx, 501)
-		require.ErrorContains(t, err, "rpc down")
-		require.NotErrorIs(t, err, chainaccess.ErrSourceFinalityViolated)
-	})
-
-	t.Run("rejects a block beyond int64", func(t *testing.T) {
-		require.Error(t, (&SourceReader{lp: lpmocks.NewLogPoller(t)}).ReplayFrom(ctx, math.MaxUint64))
-	})
-}
-
 func TestMessageSentFilterName(t *testing.T) {
 	onRamp := common.HexToAddress("0x00000000000000000000000000000000000000aB")
 	require.Equal(t, "ccv-verifier - verifier-1:"+onRamp.Hex(), MessageSentFilterName("verifier-1", onRamp))
+}
+
+// readyLogPollerConfig is a config whose log poller already finished loading.
+func readyLogPollerConfig() *LogPollerConfig {
+	ready := new(atomic.Bool)
+	ready.Store(true)
+	return &LogPollerConfig{Ready: ready}
+}
+
+func TestNewEVMSourceReader_LogPollerConfig(t *testing.T) {
+	newReader := func(t *testing.T, cfg *LogPollerConfig) (chainaccess.SourceReader, error) {
+		return NewEVMSourceReader(t.Context(), clienttest.NewClient(t), heads.NullTracker, common.HexToAddress("0x1234"),
+			common.Address{}, common.HexToHash("0x01").Hex(), protocol.ChainSelector(1337), logger.Test(t), 25, nil, cfg)
+	}
+
+	t.Run("disabled log poller reads over rpc", func(t *testing.T) {
+		reader, err := newReader(t, &LogPollerConfig{LogPoller: logpoller.LogPollerDisabled, VerifierID: "verifier-1"})
+		require.NoError(t, err)
+		r := reader.(*SourceReader)
+		require.Nil(t, r.lp)
+		r.LoadFrom(501) // no-op without a log poller
+		require.NoError(t, r.Close())
+	})
+
+	t.Run("enabled log poller needs its startup hooks", func(t *testing.T) {
+		_, err := newReader(t, &LogPollerConfig{LogPoller: lpmocks.NewLogPoller(t), VerifierID: "verifier-1"})
+		require.ErrorContains(t, err, "log poller ready flag is not set")
+		require.ErrorContains(t, err, "log poller filter lookup is not set")
+	})
+}
+
+func TestLogPollerStartup(t *testing.T) {
+	onRamp := common.HexToAddress("0x1234")
+	topic := common.HexToHash("0x01")
+	name := MessageSentFilterName("verifier-1", onRamp)
+	// start builds a reader over a head tracker at latest 1000 and closes it on cleanup; it does not call LoadFrom.
+	start := func(t *testing.T, lp *lpmocks.LogPoller, filterExisted bool) *SourceReader {
+		cfg := &LogPollerConfig{
+			LogPoller: lp, VerifierID: "verifier-1", Retention: time.Hour, Ready: new(atomic.Bool),
+			FilterRegistered: func(context.Context, string) (bool, error) { return filterExisted, nil },
+		}
+		reader, err := NewEVMSourceReader(t.Context(), clienttest.NewClient(t), stubHeadTracker{latest: 1000, finalized: 900, safe: 950},
+			onRamp, common.Address{}, topic.Hex(), protocol.ChainSelector(1337), logger.Test(t), 25, nil, cfg)
+		require.NoError(t, err)
+		r := reader.(*SourceReader)
+		t.Cleanup(func() { require.NoError(t, r.Close()) })
+		return r
+	}
+	expectRegister := func(lp *lpmocks.LogPoller) {
+		lp.EXPECT().RegisterFilter(mock.Anything, mock.MatchedBy(func(f logpoller.Filter) bool {
+			return f.Name == name && len(f.Addresses) == 1 && f.Addresses[0] == onRamp &&
+				len(f.EventSigs) == 1 && f.EventSigs[0] == topic && f.Retention == time.Hour
+		})).Return(nil).Once()
+	}
+	waitReady := func(t *testing.T, r *SourceReader) {
+		require.Eventually(t, r.lpCfg.Ready.Load, 5*time.Second, 10*time.Millisecond)
+	}
+
+	t.Run("waits for the start block before touching the log poller", func(t *testing.T) {
+		r := start(t, lpmocks.NewLogPoller(t), false) // no expectations: any log poller call fails the test
+		require.Never(t, r.lpCfg.Ready.Load, 100*time.Millisecond, 10*time.Millisecond)
+	})
+
+	t.Run("new filter is registered and replayed from the start block", func(t *testing.T) {
+		lp := lpmocks.NewLogPoller(t)
+		expectRegister(lp)
+		lp.EXPECT().Replay(mock.Anything, int64(501)).Return(nil).Once()
+		r := start(t, lp, false)
+		r.LoadFrom(501)
+		waitReady(t, r)
+	})
+
+	t.Run("existing filter has data from the start block deleted before the replay", func(t *testing.T) {
+		lp := lpmocks.NewLogPoller(t)
+		var order []string
+		lp.EXPECT().RegisterFilter(mock.Anything, mock.Anything).Return(nil).Once()
+		lp.EXPECT().DeleteLogsAndBlocksAfter(mock.Anything, int64(501)).
+			RunAndReturn(func(context.Context, int64) error { order = append(order, "delete"); return nil }).Once()
+		lp.EXPECT().Replay(mock.Anything, int64(501)).
+			RunAndReturn(func(context.Context, int64) error { order = append(order, "replay"); return nil }).Once()
+		r := start(t, lp, true)
+		r.LoadFrom(501)
+		waitReady(t, r)
+		require.Equal(t, []string{"delete", "replay"}, order)
+	})
+
+	t.Run("only the first start block counts", func(t *testing.T) {
+		lp := lpmocks.NewLogPoller(t)
+		expectRegister(lp)
+		lp.EXPECT().Replay(mock.Anything, int64(501)).Return(nil).Once()
+		r := start(t, lp, false)
+		r.LoadFrom(501)
+		r.LoadFrom(700)
+		waitReady(t, r)
+	})
+
+	t.Run("a start block not mined yet needs no replay", func(t *testing.T) {
+		lp := lpmocks.NewLogPoller(t)
+		expectRegister(lp)
+		r := start(t, lp, false)
+		r.LoadFrom(1001)
+		waitReady(t, r)
+	})
+
+	t.Run("registration failure is retried instead of failing construction", func(t *testing.T) {
+		lp := lpmocks.NewLogPoller(t)
+		lp.EXPECT().RegisterFilter(mock.Anything, mock.Anything).Return(errors.New("rpc down")).Once()
+		expectRegister(lp)
+		lp.EXPECT().Replay(mock.Anything, int64(501)).Return(nil).Once()
+		r := start(t, lp, false)
+		r.LoadFrom(501)
+		waitReady(t, r)
+	})
+
+	t.Run("finality violation during the replay is reported and retried", func(t *testing.T) {
+		lp := lpmocks.NewLogPoller(t)
+		lp.EXPECT().RegisterFilter(mock.Anything, mock.Anything).Return(nil).Twice()
+		lp.EXPECT().Replay(mock.Anything, int64(501)).Return(commontypes.ErrFinalityViolated).Once()
+		lp.EXPECT().Replay(mock.Anything, int64(501)).Return(nil).Once()
+		r := start(t, lp, false)
+		r.LoadFrom(501)
+		require.Eventually(t, r.lpReplayViolated.Load, 5*time.Second, 10*time.Millisecond)
+		require.True(t, r.FinalityViolated())
+		waitReady(t, r)
+	})
+
+	t.Run("close stops a startup that keeps failing", func(t *testing.T) {
+		lp := lpmocks.NewLogPoller(t)
+		lp.EXPECT().RegisterFilter(mock.Anything, mock.Anything).Return(errors.New("rpc down")).Maybe()
+		r := start(t, lp, false)
+		r.LoadFrom(501)
+		require.NoError(t, r.Close())
+		require.False(t, r.lpCfg.Ready.Load())
+	})
 }
