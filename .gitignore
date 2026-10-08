@@ -33,3 +33,6 @@ coverage.out
 
 # Ignore Mac stuff
 **/.DS_Store
+
+# Admin console demo runtime (built binary, generated configs, logs)
+docs/verifier/admin-console-demo/.runtime/
