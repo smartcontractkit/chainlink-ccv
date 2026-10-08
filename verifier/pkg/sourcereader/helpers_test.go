@@ -1,7 +1,6 @@
 package sourcereader
 
 import (
-	"context"
 	"sync/atomic"
 	"testing"
 
@@ -45,16 +44,12 @@ func (v *violationReportingReader) FinalityViolated() bool { return v.violated.L
 
 var _ chainaccess.FinalityViolationReporter = (*violationReportingReader)(nil)
 
-// replayingReader is a source reader backed by a local log index that must be replayed on start.
-type replayingReader struct {
+// loadingReader is a source reader that must load a local index from the start block before serving reads.
+type loadingReader struct {
 	*mocks.MockSourceReader
-	err   error
-	calls []uint64
+	loaded []uint64
 }
 
-func (r *replayingReader) ReplayFrom(_ context.Context, fromBlock uint64) error {
-	r.calls = append(r.calls, fromBlock)
-	return r.err
-}
+func (r *loadingReader) LoadFrom(startBlock uint64) { r.loaded = append(r.loaded, startBlock) }
 
-var _ chainaccess.SourceReplayer = (*replayingReader)(nil)
+var _ chainaccess.SourceLoader = (*loadingReader)(nil)

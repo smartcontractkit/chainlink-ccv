@@ -1,8 +1,6 @@
 package sourcereader
 
 import (
-	"context"
-	"errors"
 	"fmt"
 	"testing"
 
@@ -246,30 +244,27 @@ func TestObservedSourceReader_Labels(t *testing.T) {
 	require.Equal(t, []string{"source_chain", "2", "source_chain_name", "unknown:2", "verifier_id", "verifier2"}, monitor.Fake.Labels())
 }
 
-type replayingReader struct {
+type loadingReader struct {
 	*mocks.MockSourceReader
-	from uint64
+	loaded []uint64
 }
 
-func (r *replayingReader) ReplayFrom(_ context.Context, fromBlock uint64) error {
-	r.from = fromBlock
-	return errors.New("replay failed")
-}
+func (r *loadingReader) LoadFrom(startBlock uint64) { r.loaded = append(r.loaded, startBlock) }
 
-func TestObservedSourceReader_ReplayFrom(t *testing.T) {
+func TestObservedSourceReader_LoadFrom(t *testing.T) {
 	monitor := monitoring.NewFakeVerifierMonitoring()
 
-	t.Run("forwards to a replaying delegate", func(t *testing.T) {
-		delegate := &replayingReader{MockSourceReader: mocks.NewMockSourceReader(t)}
+	t.Run("forwards to a loading delegate", func(t *testing.T) {
+		delegate := &loadingReader{MockSourceReader: mocks.NewMockSourceReader(t)}
 		rd, err := NewObservedSourceReader(delegate, "v1", protocol.ChainSelector(1), monitor)
 		require.NoError(t, err)
-		require.ErrorContains(t, rd.(chainaccess.SourceReplayer).ReplayFrom(t.Context(), 501), "replay failed")
-		require.Equal(t, uint64(501), delegate.from)
+		rd.(chainaccess.SourceLoader).LoadFrom(501)
+		require.Equal(t, []uint64{501}, delegate.loaded)
 	})
 
-	t.Run("no-op for a delegate without a log index", func(t *testing.T) {
+	t.Run("no-op for a delegate without a local index", func(t *testing.T) {
 		rd, err := NewObservedSourceReader(mocks.NewMockSourceReader(t), "v1", protocol.ChainSelector(1), monitor)
 		require.NoError(t, err)
-		require.NoError(t, rd.(chainaccess.SourceReplayer).ReplayFrom(t.Context(), 501))
+		rd.(chainaccess.SourceLoader).LoadFrom(501)
 	})
 }

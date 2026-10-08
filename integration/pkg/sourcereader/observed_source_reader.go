@@ -12,7 +12,7 @@ import (
 var (
 	_ chainaccess.SourceReader              = (*observedSourceReader)(nil)
 	_ chainaccess.FinalityViolationReporter = (*observedSourceReader)(nil)
-	_ chainaccess.SourceReplayer            = (*observedSourceReader)(nil)
+	_ chainaccess.SourceLoader              = (*observedSourceReader)(nil)
 )
 
 // observedSourceReader wraps a SourceReader and use a decorator pattern to track various metrics.
@@ -92,11 +92,9 @@ func (o observedSourceReader) FinalityViolated() bool {
 	return ok && reporter.FinalityViolated()
 }
 
-// ReplayFrom forwards to the delegate so the wrapper does not hide its replay; a no-op when the delegate has none.
-func (o observedSourceReader) ReplayFrom(ctx context.Context, fromBlock uint64) error {
-	replayer, ok := o.SourceReader.(chainaccess.SourceReplayer)
-	if !ok {
-		return nil
+// LoadFrom forwards to the delegate so the wrapper does not hide its loading; a no-op when it has none.
+func (o observedSourceReader) LoadFrom(startBlock uint64) {
+	if loader, ok := o.SourceReader.(chainaccess.SourceLoader); ok {
+		loader.LoadFrom(startBlock)
 	}
-	return replayer.ReplayFrom(ctx, fromBlock)
 }
