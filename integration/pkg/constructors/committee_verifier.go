@@ -141,7 +141,7 @@ func NewVerificationCoordinator(
 			func(ctx context.Context) {
 				chainMetrics.IncrementCriticalSourceInvariantViolations(ctx)
 			},
-			newLogPollerConfig(ds, chain, sel, cfg.VerifierID),
+			newLogPollerConfig(ds, chain, cfg.VerifierID),
 		)
 		if err != nil {
 			// A failure to build one chain's reader must not stop the remaining chains from

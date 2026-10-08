@@ -582,11 +582,6 @@ func TestFinalityViolated(t *testing.T) {
 	}
 }
 
-func TestMessageSentFilterName(t *testing.T) {
-	onRamp := common.HexToAddress("0x00000000000000000000000000000000000000aB")
-	require.Equal(t, "ccv-verifier - verifier-1:"+onRamp.Hex(), MessageSentFilterName("verifier-1", onRamp))
-}
-
 // readyLogPollerConfig is a config whose log poller already finished loading.
 func readyLogPollerConfig() *LogPollerConfig {
 	ready := new(atomic.Bool)
@@ -613,22 +608,20 @@ func TestNewEVMSourceReader_LogPollerConfig(t *testing.T) {
 		_, err := newReader(t, &LogPollerConfig{LogPoller: lpmocks.NewLogPoller(t), VerifierID: "verifier-1"})
 		require.ErrorContains(t, err, "log poller ready flag is not set")
 		require.ErrorContains(t, err, "log poller filter lookup is not set")
-		require.ErrorContains(t, err, "log poller live filter lookup is not set")
 	})
 }
 
 func TestLogPollerStartup(t *testing.T) {
 	onRamp := common.HexToAddress("0x1234")
 	topic := common.HexToHash("0x01")
-	name := MessageSentFilterName("verifier-1", onRamp)
+	name := "ccv-verifier - verifier-1:" + onRamp.Hex()
 	// start builds a reader over a head tracker at latest 1000 and closes it on cleanup; it does not call LoadFrom.
 	start := func(t *testing.T, lp *lpmocks.LogPoller, filterExisted bool) *SourceReader {
 		cfg := &LogPollerConfig{
 			LogPoller: lp, VerifierID: "verifier-1", Retention: time.Hour, Ready: new(atomic.Bool),
 			FilterRegistered: func(context.Context, string) (bool, error) { return filterExisted, nil },
-			LiveFilters:      func(context.Context) (map[string]struct{}, error) { return map[string]struct{}{name: {}}, nil },
 		}
-		lp.EXPECT().GetFilters().Return(map[string]logpoller.Filter{name: {}}).Maybe()
+		lp.EXPECT().UnregisterFilter(mock.Anything, name).Return(nil).Maybe()
 		reader, err := NewEVMSourceReader(t.Context(), clienttest.NewClient(t), stubHeadTracker{latest: 1000, finalized: 900, safe: 950},
 			onRamp, common.Address{}, topic.Hex(), protocol.ChainSelector(1337), logger.Test(t), 25, nil, cfg)
 		require.NoError(t, err)
@@ -722,42 +715,22 @@ func TestLogPollerStartup(t *testing.T) {
 	})
 }
 
-func TestClose_UnregistersOrphanedFilters(t *testing.T) {
-	own := MessageSentFilterName("verifier-1", common.HexToAddress("0x1234"))
-	deleted := MessageSentFilterName("verifier-gone", common.HexToAddress("0x1234"))
-	other := "another-product - 0x1234"
-	newReader := func(t *testing.T, lp *lpmocks.LogPoller, live func(context.Context) (map[string]struct{}, error)) *SourceReader {
-		return &SourceReader{lggr: logger.Test(t), lp: lp, lpCfg: &LogPollerConfig{LiveFilters: live}, stopCh: make(services.StopChan)}
-	}
-	liveSet := func(names ...string) func(context.Context) (map[string]struct{}, error) {
-		return func(context.Context) (map[string]struct{}, error) {
-			set := make(map[string]struct{}, len(names))
-			for _, n := range names {
-				set[n] = struct{}{}
-			}
-			return set, nil
-		}
+func TestClose_UnregistersOwnFilter(t *testing.T) {
+	newReader := func(t *testing.T, lp *lpmocks.LogPoller) *SourceReader {
+		return &SourceReader{lggr: logger.Test(t), lp: lp, filterName: "ccv-verifier - verifier-1:0x1234", stopCh: make(services.StopChan)}
 	}
 
-	t.Run("live job keeps its filter and removes other ccv orphans only", func(t *testing.T) {
+	t.Run("unregisters the filter once", func(t *testing.T) {
 		lp := lpmocks.NewLogPoller(t)
-		lp.EXPECT().GetFilters().Return(map[string]logpoller.Filter{own: {}, deleted: {}, other: {}}).Once()
-		lp.EXPECT().UnregisterFilter(mock.Anything, deleted).Return(nil).Once()
-		r := newReader(t, lp, liveSet(own))
+		lp.EXPECT().UnregisterFilter(mock.Anything, "ccv-verifier - verifier-1:0x1234").Return(nil).Once()
+		r := newReader(t, lp)
 		require.NoError(t, r.Close())
 		require.NoError(t, r.Close(), "close is idempotent")
 	})
 
-	t.Run("deleted job removes its own filter", func(t *testing.T) {
+	t.Run("unregister failure does not fail close", func(t *testing.T) {
 		lp := lpmocks.NewLogPoller(t)
-		lp.EXPECT().GetFilters().Return(map[string]logpoller.Filter{own: {}}).Once()
-		lp.EXPECT().UnregisterFilter(mock.Anything, own).Return(nil).Once()
-		require.NoError(t, newReader(t, lp, liveSet()).Close())
-	})
-
-	t.Run("failed spec lookup unregisters nothing", func(t *testing.T) {
-		lp := lpmocks.NewLogPoller(t)
-		r := newReader(t, lp, func(context.Context) (map[string]struct{}, error) { return nil, errors.New("db down") })
-		require.NoError(t, r.Close())
+		lp.EXPECT().UnregisterFilter(mock.Anything, mock.Anything).Return(errors.New("db down")).Once()
+		require.NoError(t, newReader(t, lp).Close())
 	})
 }

@@ -8,7 +8,6 @@ import (
 	"maps"
 	"math"
 	"math/big"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -71,9 +70,6 @@ type LogPollerConfig struct {
 	Ready *atomic.Bool
 	// FilterRegistered reports whether the node has already stored the named log poller filter.
 	FilterRegistered func(ctx context.Context, name string) (bool, error)
-	// LiveFilters returns the ccv filter names live verifier jobs need on this chain; a job being deleted
-	// counts as gone.
-	LiveFilters func(ctx context.Context) (map[string]struct{}, error)
 }
 
 type SourceReader struct {
@@ -152,9 +148,6 @@ func NewEVMSourceReader(
 		if lpCfg.FilterRegistered == nil {
 			errs = append(errs, errors.New("log poller filter lookup is not set"))
 		}
-		if lpCfg.LiveFilters == nil {
-			errs = append(errs, errors.New("log poller live filter lookup is not set"))
-		}
 	}
 
 	if len(errs) > 0 {
@@ -230,21 +223,12 @@ func LogPollerEnabled(lp logpoller.LogPoller) bool {
 	return lp != nil && lp != logpoller.LogPollerDisabled
 }
 
-// MessageSentFilterPrefix marks log poller filters owned by ccv verifiers, so cleanup never touches
-// another product's filters.
-const MessageSentFilterPrefix = "ccv-verifier"
-
-// MessageSentFilterName is the log poller filter name for a verifier's CCIPMessageSent filter on an onramp.
-func MessageSentFilterName(verifierID string, onRamp common.Address) string {
-	return logpoller.FilterName(MessageSentFilterPrefix, verifierID, onRamp.Hex())
-}
-
 // startLogPoller switches the reader to the log poller and starts the goroutine that loads it once
 // LoadFrom supplies the start block; reads fail with ErrLogPollerNotReady until then.
 func (r *SourceReader) startLogPoller(lpCfg *LogPollerConfig) {
 	r.lp = lpCfg.LogPoller
 	r.lpCfg = lpCfg
-	r.filterName = MessageSentFilterName(lpCfg.VerifierID, r.onRampAddress)
+	r.filterName = logpoller.FilterName("ccv-verifier", lpCfg.VerifierID, r.onRampAddress.Hex())
 	r.startBlock = make(chan uint64, 1)
 	r.stopCh = make(services.StopChan)
 	r.wg.Go(r.initLogPoller)
@@ -358,8 +342,8 @@ func (r *SourceReader) replayLogPoller(ctx context.Context, fromBlock uint64) er
 	return nil
 }
 
-// Close stops loading the log poller, then unregisters every ccv filter on this chain that no live job
-// needs, including this reader's own once its job is deleted.
+// Close stops loading the log poller and unregisters this reader's filter. On a restart the next start
+// registers it again and replays from the checkpoint.
 func (r *SourceReader) Close() error {
 	if r.lp == nil {
 		return nil
@@ -369,30 +353,11 @@ func (r *SourceReader) Close() error {
 		r.wg.Wait()
 		ctx, cancel := context.WithTimeout(context.Background(), logPollerOpTimeout)
 		defer cancel()
-		if err := r.unregisterOrphanedFilters(ctx); err != nil {
-			r.lggr.Warnw("Failed to unregister orphaned log poller filters", "error", err)
+		if err := r.lp.UnregisterFilter(ctx, r.filterName); err != nil {
+			r.lggr.Warnw("Failed to unregister log poller filter", "filter", r.filterName, "error", err)
 		}
 	})
 	return nil
-}
-
-func (r *SourceReader) unregisterOrphanedFilters(ctx context.Context) error {
-	live, err := r.lpCfg.LiveFilters(ctx)
-	if err != nil {
-		return err
-	}
-	var errs []error
-	for name := range r.lp.GetFilters() {
-		if _, ok := live[name]; ok || !strings.HasPrefix(name, MessageSentFilterPrefix+" - ") {
-			continue
-		}
-		if err := r.lp.UnregisterFilter(ctx, name); err != nil {
-			errs = append(errs, fmt.Errorf("failed to unregister log poller filter %s: %w", name, err))
-			continue
-		}
-		r.lggr.Infow("Unregistered orphaned log poller filter", "filter", name)
-	}
-	return errors.Join(errs...)
 }
 
 // onRampStaticConfigGetter is the slice of the OnRamp binding the source reader needs, defined
