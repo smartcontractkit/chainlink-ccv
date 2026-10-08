@@ -49,6 +49,9 @@ type SourceConfig struct {
 	BatchTimeout           time.Duration           `json:"batch_timeout"`   // Maximum duration to wait before flushing incomplete verifier batch (default: 100ms)
 	MaxBlockRange          uint64                  `json:"max_block_range"` // Max blocks per RPC query (default: 5000)
 	DisableFinalityChecker bool                    `json:"disable_finality_checker"`
+	// LogPollerFinality selects the log-poller-backed finality checker instead of the header-fetching
+	// one. The CL constructor sets it from the node's LogPoller feature flag; it is not operator config.
+	LogPollerFinality bool `json:"-"`
 }
 
 // SourceReaderPollInterval is the source-reader poll interval used by every verifier

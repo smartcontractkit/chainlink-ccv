@@ -578,6 +578,21 @@ func TestNewEVMSourceReader_LogPollerFilter(t *testing.T) {
 	})
 }
 
+func TestLogPollerEnabled(t *testing.T) {
+	for name, tc := range map[string]struct {
+		lp   logpoller.LogPoller
+		want bool
+	}{
+		"nil":      {lp: nil, want: false},
+		"disabled": {lp: logpoller.LogPollerDisabled, want: false},
+		"enabled":  {lp: lpmocks.NewLogPoller(t), want: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.Equal(t, tc.want, LogPollerEnabled(tc.lp))
+		})
+	}
+}
+
 func TestFinalityViolated(t *testing.T) {
 	for name, tc := range map[string]struct {
 		healthy error

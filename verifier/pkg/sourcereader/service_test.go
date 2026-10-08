@@ -827,7 +827,7 @@ func TestSRS_SourceReaderFinalityViolation_DisablesChainAndStaysDisabled(t *test
 		}).Once()
 
 	srs, _, _ := newTestSRS(t, chain, reader.MockSourceReader, chainStatusMgr, mocks.NewMockCurseCheckerService(t), 10*time.Millisecond, 5000)
-	srs.sourceReader = reader
+	useLogPollerFinality(t, srs, reader, false)
 	reader.violated.Store(true)
 
 	msgs := createTestMessageSentEvents(t, 1, chain, defaultDestChain, []uint64{940})
@@ -843,10 +843,11 @@ func TestSRS_SourceReaderFinalityViolation_DisablesChainAndStaysDisabled(t *test
 	srs.mu.RLock()
 	require.Empty(t, srs.pendingTasks, "pending tasks should be flushed")
 	srs.mu.RUnlock()
+	require.IsType(t, &logPollerFinalityChecker{}, srs.finalityChecker)
 
 	// The halt is latched: the source clearing its flag must not resume the reader.
 	reader.violated.Store(false)
-	require.False(t, srs.sendReadyMessages(ctx, latest, nil, finalized))
+	require.False(t, srs.sendReadyMessages(ctx, latest, nil, &protocol.BlockHeader{Number: 960}))
 	require.True(t, srs.disabled.Load())
 }
 
@@ -856,8 +857,7 @@ func TestSRS_SourceReaderFinalityViolation_IgnoredWhenFinalityCheckerDisabled(t 
 	reader := &violationReportingReader{MockSourceReader: mocks.NewMockSourceReader(t)}
 
 	srs, _, _ := newTestSRS(t, chain, reader.MockSourceReader, mocks.NewMockChainStatusManager(t), mocks.NewMockCurseCheckerService(t), 10*time.Millisecond, 5000)
-	srs.sourceReader = reader
-	srs.sourceCfg.DisableFinalityChecker = true
+	useLogPollerFinality(t, srs, reader, true)
 	reader.violated.Store(true)
 
 	require.True(t, srs.sendReadyMessages(ctx, &protocol.BlockHeader{Number: 1000}, nil, &protocol.BlockHeader{Number: 950}))
@@ -940,6 +940,52 @@ func TestSRS_ReplaySourceIndex(t *testing.T) {
 		require.True(t, srs.replaySourceIndex(ctx))
 		require.Zero(t, srs.replayFrom)
 	})
+}
+
+// useLogPollerFinality installs the checker NewService would select for a log-poller-backed reader.
+func useLogPollerFinality(t *testing.T, srs *Service, reader *violationReportingReader, disableFinalityChecker bool) {
+	t.Helper()
+	srs.sourceReader = reader
+	srs.sourceCfg.LogPollerFinality = true
+	srs.sourceCfg.DisableFinalityChecker = disableFinalityChecker
+	checker, err := newFinalityChecker(srs.sourceCfg, reader, srs.chainSelector, logger.Test(t), srs.metrics())
+	require.NoError(t, err)
+	srs.finalityChecker = checker
+}
+
+func TestNewService_LogPollerFinalityRequiresReportingReader(t *testing.T) {
+	_, err := NewService(
+		"test-verifier",
+		mocks.NewMockSourceReader(t),
+		protocol.ChainSelector(1337),
+		mocks.NewMockChainStatusManager(t),
+		logger.Test(t),
+		verifier.SourceConfig{LogPollerFinality: true},
+		mocks.NewMockCurseCheckerService(t),
+		&noopFilter{},
+		verifiermonitoring.NewFakeVerifierMonitoring(),
+		&fakeTaskQueue{},
+		common.AllowAllMessagesChecker{},
+	)
+	require.ErrorContains(t, err, "failed to create finality checker")
+}
+
+func TestNewService_LogPollerFinalitySelectsLogPollerChecker(t *testing.T) {
+	srs, err := NewService(
+		"test-verifier",
+		&violationReportingReader{MockSourceReader: mocks.NewMockSourceReader(t)},
+		protocol.ChainSelector(1337),
+		mocks.NewMockChainStatusManager(t),
+		logger.Test(t),
+		verifier.SourceConfig{LogPollerFinality: true},
+		mocks.NewMockCurseCheckerService(t),
+		&noopFilter{},
+		verifiermonitoring.NewFakeVerifierMonitoring(),
+		&fakeTaskQueue{},
+		common.AllowAllMessagesChecker{},
+	)
+	require.NoError(t, err)
+	require.IsType(t, &logPollerFinalityChecker{}, srs.finalityChecker)
 }
 
 func TestSRS_Reorg_TracksSequenceNumbers(t *testing.T) {

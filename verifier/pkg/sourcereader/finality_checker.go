@@ -2,8 +2,10 @@ package sourcereader
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -303,6 +305,85 @@ func (n *NoOpFinalityViolationChecker) UpdateFinalized(ctx context.Context, fina
 // IsFinalityViolated implements protocol.FinalityViolationChecker.
 func (n *NoOpFinalityViolationChecker) IsFinalityViolated() bool {
 	return false
+}
+
+// logPollerFinalityChecker adapts the log poller's finality-violation signal to
+// protocol.FinalityViolationChecker. The log poller clears its flag once its reorg handling
+// reconciles, so the checker latches the first violation to keep the chain halted until recovery.
+//
+// Accepted risk: the log poller exposes the violation only as an in-memory flag that it clears
+// itself, and this checker samples it once per poll. Violations from the main poll keep the flag
+// set until resolved, but one declared by the backup poller or by Replay can be cleared before the
+// next read and missed: the backup poller re-declares it every run, so it is normally only delayed,
+// while a Replay declaration is one-shot and can be lost.
+type logPollerFinalityChecker struct {
+	reporter      chainaccess.FinalityViolationReporter
+	chainSelector protocol.ChainSelector
+	lggr          logger.Logger
+	metrics       verifier.FinalityCheckerMetrics
+	violated      atomic.Bool
+}
+
+// UpdateFinalized implements protocol.FinalityViolationChecker. It makes no RPC calls: the log
+// poller already compares finalized blocks against the chain.
+func (c *logPollerFinalityChecker) UpdateFinalized(ctx context.Context, finalized uint64) error {
+	if !c.IsFinalityViolated() && c.reporter.FinalityViolated() {
+		c.latch(ctx, finalized)
+	}
+	if c.IsFinalityViolated() {
+		return errors.New("finality violation reported by the log poller")
+	}
+	return nil
+}
+
+// latch records the violation once, logging the finalized height where it was first observed.
+func (c *logPollerFinalityChecker) latch(ctx context.Context, finalized uint64) {
+	if !c.violated.CompareAndSwap(false, true) {
+		return
+	}
+	c.lggr.Errorw("FINALITY VIOLATION DETECTED - reported by the log poller", "finalizedBlock", finalized)
+	c.metrics.SetVerifierFinalityViolated(ctx, c.chainSelector, true)
+}
+
+// IsFinalityViolated implements protocol.FinalityViolationChecker.
+func (c *logPollerFinalityChecker) IsFinalityViolated() bool {
+	return c.violated.Load()
+}
+
+// newFinalityChecker selects the finality checker for a source chain from its config:
+// DisableFinalityChecker wins, LogPollerFinality uses the log poller's signal, and otherwise the
+// checker compares finalized block headers itself.
+func newFinalityChecker(
+	cfg verifier.SourceConfig,
+	reader chainaccess.SourceReader,
+	chainSelector protocol.ChainSelector,
+	lggr logger.Logger,
+	metrics verifier.FinalityCheckerMetrics,
+) (protocol.FinalityViolationChecker, error) {
+	switch {
+	case cfg.DisableFinalityChecker:
+		lggr.Infow("FinalityViolationChecker is disabled by config", "chainSelector", chainSelector)
+		return &NoOpFinalityViolationChecker{}, nil
+	case cfg.LogPollerFinality:
+		reporter, ok := reader.(chainaccess.FinalityViolationReporter)
+		if !ok {
+			return nil, fmt.Errorf("log poller finality is enabled but source reader %T does not report finality violations", reader)
+		}
+		lggr.Infow("Using log poller finality violation checker", "chainSelector", chainSelector)
+		return &logPollerFinalityChecker{
+			reporter:      reporter,
+			chainSelector: chainSelector,
+			lggr:          logger.With(lggr, "component", "LogPollerFinalityChecker", "chain", chainSelector),
+			metrics:       metrics,
+		}, nil
+	default:
+		lggr.Infow("Using header-based finality violation checker", "chainSelector", chainSelector)
+		checker, err := NewFinalityViolationCheckerService(reader, chainSelector, lggr, metrics)
+		if err != nil {
+			return nil, err
+		}
+		return checker, nil
+	}
 }
 
 // FinalityEvidence contains chain-neutral observations already fetched by the checker.

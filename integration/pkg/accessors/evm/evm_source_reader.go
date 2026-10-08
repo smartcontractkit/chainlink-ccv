@@ -175,12 +175,19 @@ func NewEVMSourceReader(
 	}
 	reader.SetCriticalSourceInvariantCallback(onCriticalInvariant)
 
-	if lpCfg != nil && lpCfg.LogPoller != nil && lpCfg.LogPoller != logpoller.LogPollerDisabled {
+	if lpCfg != nil && LogPollerEnabled(lpCfg.LogPoller) {
 		if err := reader.registerLogPollerFilter(ctx, lpCfg); err != nil {
 			return nil, err
 		}
 	}
 	return reader, nil
+}
+
+// LogPollerEnabled reports whether the node's LogPoller feature is on for a chain. It decides both
+// whether the reader reads logs from the log poller and whether the verifier uses the log poller's
+// finality signal, so the two cannot disagree.
+func LogPollerEnabled(lp logpoller.LogPoller) bool {
+	return lp != nil && lp != logpoller.LogPollerDisabled
 }
 
 // registerLogPollerFilter registers the CCIPMessageSent filter with the log poller and switches

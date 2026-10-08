@@ -132,22 +132,15 @@ func NewService(
 	}
 	metrics := monitoring.Metrics()
 
-	var finalityChecker protocol.FinalityViolationChecker
-	var err error
-
-	if sourceCfg.DisableFinalityChecker {
-		lggr.Infow("FinalityViolationChecker is disabled by config", "chainSelector", chainSelector)
-		finalityChecker = &NoOpFinalityViolationChecker{}
-	} else {
-		finalityChecker, err = NewFinalityViolationCheckerService(
-			sourceReader,
-			chainSelector,
-			logger.With(lggr, "component", "FinalityChecker", "chainID", chainSelector),
-			metrics,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create finality checker: %w", err)
-		}
+	finalityChecker, err := newFinalityChecker(
+		sourceCfg,
+		sourceReader,
+		chainSelector,
+		logger.With(lggr, "component", "FinalityChecker", "chainID", chainSelector),
+		metrics,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create finality checker: %w", err)
 	}
 
 	interval := sourceCfg.PollInterval
@@ -1098,12 +1091,6 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 }
 
 func (r *Service) checkFinality(ctx context.Context, finalized *protocol.BlockHeader) bool {
-	if r.sourceFinalityViolated() {
-		r.logger.Errorw("Finality violation reported by the source reader", "finalizedBlock", finalized.Number)
-		r.handleFinalityViolation(ctx)
-		return false
-	}
-
 	if err := r.finalityChecker.UpdateFinalized(ctx, finalized.Number); err != nil {
 		r.logger.Errorw("Failed to update finality checker",
 			"finalizedBlock", finalized.Number,
@@ -1122,16 +1109,6 @@ func (r *Service) checkFinality(ctx context.Context, finalized *protocol.BlockHe
 	}
 
 	return !r.disabled.Load()
-}
-
-// sourceFinalityViolated reports a violation detected by the reader's data source, such as the log
-// poller. It honors DisableFinalityChecker like the finality checker does.
-func (r *Service) sourceFinalityViolated() bool {
-	if r.sourceCfg.DisableFinalityChecker {
-		return false
-	}
-	reporter, ok := r.sourceReader.(chainaccess.FinalityViolationReporter)
-	return ok && reporter.FinalityViolated()
 }
 
 // writeCheckpoint persists the finalized block checkpoint for this chain.

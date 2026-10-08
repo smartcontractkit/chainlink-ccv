@@ -179,16 +179,16 @@ func (r *Service) resetReader(ctx context.Context, requested recovery.Operation)
 	if !r.disabled.Load() {
 		return fmt.Errorf("reader is already enabled; submit replay for source-range recovery")
 	}
-	var checker protocol.FinalityViolationChecker = &NoOpFinalityViolationChecker{}
-	if !r.sourceCfg.DisableFinalityChecker {
-		var err error
-		checker, err = NewFinalityViolationCheckerService(r.sourceReader, r.chainSelector, r.logger, r.metrics())
-		if err != nil {
-			return err
+	checker, checkerErr := newFinalityChecker(r.sourceCfg, r.sourceReader, r.chainSelector, r.logger, r.metrics())
+	if checkerErr != nil {
+		return checkerErr
+	}
+	if err := checker.UpdateFinalized(ctx, resetBoundary(requested.FromBlock)); err != nil {
+		if _, ok := checker.(*logPollerFinalityChecker); ok {
+			// The log-poller checker reads nothing here; it only fails while the violation persists.
+			return fmt.Errorf("log poller still reports a finality violation: %w", err)
 		}
-		if err := checker.UpdateFinalized(ctx, resetBoundary(requested.FromBlock)); err != nil {
-			return fmt.Errorf("read investigated boundary: %w", err)
-		}
+		return fmt.Errorf("read investigated boundary: %w", err)
 	}
 	p := r.recovery
 	applied := false

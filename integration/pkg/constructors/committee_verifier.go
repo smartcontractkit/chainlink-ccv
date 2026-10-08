@@ -168,6 +168,7 @@ func NewVerificationCoordinator(
 			DefaultExecutorAddress: defaultExecutorAddrs[sel],
 			PollInterval:           verifier.SourceReaderPollInterval, // TODO: make configurable
 			ChainSelector:          sel,
+			LogPollerFinality:      evm.LogPollerEnabled(chain.LogPoller()),
 		}
 	}
 	if len(sourceReaders) == 0 {
