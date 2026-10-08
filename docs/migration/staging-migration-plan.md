@@ -299,6 +299,14 @@ Instance class and storage type are sizing calls; `db.t4g.medium` is what the tw
 verifier clusters in the same file use. Revisit after the first soak. Add the cluster in the same
 PR as node 1's databases and confirm it is ready before expecting connection secrets.
 
+Sizing note for the verifier-app databases: today they hold statuses and queues only. The planned
+EVM logpoller moves source-log ingestion into them — 30 days (default retention) of
+`CCIPMessageSent` logs per OnRamp served — so re-evaluate app-DB sizing and backup coverage when
+it ships. Its tables arrive as forward-only goose migrations that both the verifier and the
+`verifier ccv` CLI run on connect; an image downgrade does not roll them back, so never point an
+older image at a database a newer one has migrated. See the
+[Source logs](evm-cl-to-standalone.md#source-logs-rpc-today-the-logpoller-later) appendix.
+
 Database map keys must stay at or under 43 chars (the composition appends `-provider-sql-config`
 and the result is a 63-char k8s label). Set `connectionSecret.name` explicitly. Node 1's block, as
 the model:
@@ -675,6 +683,12 @@ faster than expected is a reason to look at transmit failures before the next no
 - Head-tracker cold start: a restarted process re-syncs from RPC instead of resuming persisted
   heads. That costs catch-up time, not correctness; measure it once and decide whether it is
   acceptable.
+- Source-read mode per node: `eth_getLogs` until the EVM logpoller follow-up ships. If it ships
+  mid-migration, later nodes run a different reader than the ones already soaked — record which
+  reader each node ran, and re-soak (or spot-check) at least one node on the new reader before
+  the fleet is called done. On a logpoller reader, add the ingestion-lag signal to the
+  dashboards (`verifier_source_reader_last_processed_finalized_block` against the chain head):
+  a stalled poller reads healthy and simply stops advancing, with no `poll_error`.
 - Dashboards: source-reader head gauges, critical-invariant counter, OffRamp read latency,
   transmit failures. Transmitter balances are checked by hand (P9, step 12).
 - Rollback path: scale the CL node back up and repoint its JD record at the CSA key recorded in
@@ -697,6 +711,9 @@ faster than expected is a reason to look at transmit failures before the next no
 2. What is the staging funding source for node accounts, and who owns sending from it? (P9)
 3. Per-chain `txm_block_time` values for the five chains. Proposal to react to: sepolia 12s,
    arbitrum-sepolia 1s, base-sepolia 2s, amoy 2s, fuji 2s. Needs agreement before P5.
+4. Reader mode at cutover: `eth_getLogs` (today) or the EVM logpoller follow-up, if it ships
+   before the first window. If it lands mid-migration, do the earlier nodes re-soak on the new
+   reader, and does P4's app-DB sizing need revisiting before later nodes?
 
 ## What staging does not decide
 

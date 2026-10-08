@@ -1,6 +1,6 @@
 # Runbook: Remediating a Stuck or Dropped Message
 
-_Last reviewed: 2026-09-10._
+_Last reviewed: 2026-10-05._
 
 Use after [unverified-message triage](./unverified-message-after-15-minutes.md) or [unexecuted-message triage](./unexecuted-message-after-15-minutes.md) identifies the affected owner, source and messages. Recovery is per affected committee member and database. Cross-node discovery/fan-out remains an operator or deployment-layer responsibility.
 
@@ -17,9 +17,13 @@ Use after [unverified-message triage](./unverified-message-after-15-minutes.md) 
 
 **Reschedule uses the saved payload and skips source-reader finality, curse and disablement admission checks.** It is unsuitable for deciding whether an event remains canonical after a reorg. Source recovery re-reads events that still exist on the chain and enters ordinary verification/policy processing after admission. Neither path bypasses policy. Indexer backfill refreshes the indexer's view of results; it does not re-admit verifier source events or retry policy decisions.
 
+On an EVM source reader that runs on the logpoller (the planned standalone follow-up; see [Source logs](../migration/evm-cl-to-standalone.md#source-logs-rpc-today-the-logpoller-later)), "the chain" for source recovery is the poller's database, not RPC: recovery and resets re-read through the reader, so a range is recoverable only while the poller still holds its logs, and a checkpoint rewind must be accompanied by a poller rewind to the same block. Step 4 carries both rules.
+
 ## 2. Check the Time Windows
 
 Automatic retry remains **7 days**, with non-retryable failures (including policy FAIL) archived immediately. Archive retention remains **30 days after archiving**, swept every 4 hours. The message's creation time does not start that retention window.
+
+That archive retention is independent of the EVM logpoller's log retention (also 30 days by default, but measured from ingestion, not archiving): a message can age out of either first, and only the logpoller's bound limits source recovery. A range whose logs the poller no longer holds cannot be re-read through the reader even while its archive rows are still reschedulable, and vice versa.
 
 The Verifier Recovery dashboard reports current retained failed jobs by queue, owner, source and bounded failure category. A warning starts at 23 days of archive age, giving seven days before eligibility for deletion. Collection runs once per minute. Check collection success and freshness before interpreting inventory. [Monitoring reference and provisionable alerts](../monitoring/verifier-recovery.md) include the retention warning and collector-health alert.
 
@@ -80,6 +84,8 @@ Known drops carry message IDs, block numbers and optional reader-provided transa
 
 Read coverage metadata on every query. History starts at upgrade; disabled intervals, downtime, failed audit writes and expired data leave gaps. Unknown curse/rule state and ordinary confirmation waiting are not recorded as confirmed drops. Empty history cannot establish that no messages were affected. Use canonical source events, logs and traces to cover missing intervals.
 
+On a logpoller-backed EVM reader, two more gap sources exist: blocks the poller has not ingested yet (poller lag), and blocks ingested before the retention window (pruned). Both return no events through the reader even though the chain has them. A stalled poller does not surface as `poll_error`: the reader stays `running` while its heads are pinned to the last ingested block, corroborated by `verifier_source_reader_state{state="running"}` with a stale `verifier_source_reader_last_processed_finalized_block` against the chain head. Corroborate affected ranges against canonical RPC before calling them clean.
+
 Corroborate a finality block with `verifier_source_reader_state{state="finality_blocked"}` or `verifier_source_chain_finality_violated`, and logs `FINALITY VIOLATION DETECTED - block hash changed` / `parent hash mismatch`. Disabled readers now remain present for recovery control, including after startup; their registry state and history distinguish current health from past evidence.
 
 For a finality incident, compare stored/observed hashes with canonical RPC headers to establish a known-good common boundary. The first detected mismatch may be later than the earliest affected block. Include pending messages and messages emitted while the reader was disabled. A disabled checkpoint of zero is not evidence of the fork boundary.
@@ -104,6 +110,8 @@ verifier ccv recovery reset-reader --verifier-id <OWNER> --chain-selector <SOURC
 ```
 
 The reset boundary is `FIRST - 1` (zero for a range beginning at zero). This is an operator decision about canonical history. The live reset coordinates the database, buffered checkpoints and in-memory checker, records the action, and works for readers disabled at startup. An ordinary replay never clears disablement. A new finality violation remains sticky and requires a new investigated reset; resuming an old applied reset cannot clear it.
+
+On a logpoller-backed EVM reader, both recovery forms re-read through the poller's database rather than over RPC, which adds two rules. First, the rewind must also rewind the poller to the same boundary and re-ingest from it: `reset-reader`'s coordinated reset must include the poller rewind, and the legacy `set-finalized-height` path must be run with it (see the legacy fallback below). A checkpoint rewound without its poller re-reads an empty range — indistinguishable from no messages — and advances past the very messages the recovery was for. Second, the affected range must still be within the poller's retention: a `FIRST` older than the oldest retained log returns no events through the reader. Recover such ranges from saved payloads (reschedule) or canonical RPC evidence; do not replay them into an empty result.
 
 ### Observe completion and control work
 
@@ -133,8 +141,10 @@ Use for a deployment without this recovery capability, including a Chainlink cor
    ```
 
    In CL mode use `chainlink node ccv chain-statuses set-finalized-height` with the same flags. The next start reads `N + 1`; this legacy path has no fixed end height.
+
+   On a logpoller-backed EVM reader, this command must also rewind the poller to `N` in the same application database it already writes to: delete ingested logs after `N` and restart ingestion from it. A checkpoint rewind alone re-reads an empty range and skips past the messages being recovered. Ranges older than the poller's retention cannot be reprocessed through the reader this way at all — use reschedule or canonical RPC evidence instead.
 3. If disabled, also run `ccv chain-statuses enable` for the same owner/source while stopped, then verify both fields with `ccv chain-statuses list`. Enabling a zero checkpoint alone unintentionally starts at block 1.
-4. Start the node. Confirm its logged start block, reader progress and the affected message IDs' results. Restart initializes a fresh checker and cannot recover its prior hash history or undo results.
+4. Start the node. Confirm its logged start block, reader progress and the affected message IDs' results. Restart initializes a fresh checker and cannot recover its prior hash history or undo results. On a logpoller-backed reader, also confirm the poller has re-ingested to the start block before the reader is expected to progress: the reader never reads ahead of its ingestion, so recovery progress is poller progress.
 
 See the [live recovery reference](../../cli/recovery/README.md) and [chain-status command reference](../../cli/chainstatuses/README.md).
 
