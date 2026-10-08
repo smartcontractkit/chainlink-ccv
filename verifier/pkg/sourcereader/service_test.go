@@ -2452,3 +2452,18 @@ func TestGetBlockRangesNearMaxHeight(t *testing.T) {
 		}, srs.getBlockRanges(math.MaxUint64-25, math.MaxUint64))
 	})
 }
+
+// A read the log poller cannot serve yet must not advance the checkpoint past the unscanned range.
+func TestSRS_ProcessEventCycle_ReadErrorDoesNotAdvance(t *testing.T) {
+	chain := protocol.ChainSelector(1337)
+	reader := mocks.NewMockSourceReader(t)
+	reader.EXPECT().FetchMessageSentEvents(mock.Anything, uint64(501), uint64(0)).
+		Return(nil, errors.New("log poller has not reached the requested block")).Once()
+	srs, _, _ := newTestSRS(t, chain, reader, mocks.NewMockChainStatusManager(t), mocks.NewMockCurseCheckerService(t), time.Hour, 5000)
+	srs.lastProcessedFinalizedBlock.Store(501)
+
+	ok := srs.processEventCycle(t.Context(), &protocol.BlockHeader{Number: 450}, &protocol.BlockHeader{Number: 440})
+
+	require.False(t, ok)
+	require.Equal(t, uint64(501), srs.lastProcessedFinalizedBlock.Load())
+}

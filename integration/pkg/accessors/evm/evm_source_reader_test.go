@@ -296,10 +296,10 @@ func TestFetchMessageSentEvents_LogPollerRange(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	t.Run("range the log poller has not reached is not queried", func(t *testing.T) {
+	t.Run("range the log poller has not reached is an error", func(t *testing.T) {
 		r, _ := newReader(t, 80)
 		events, err := r.FetchMessageSentEvents(t.Context(), 90, 0)
-		require.NoError(t, err)
+		require.ErrorIs(t, err, ErrLogPollerBehind)
 		require.Empty(t, events)
 	})
 }

@@ -45,6 +45,10 @@ var (
 // exceed the longest expected verifier outage, or logs the verifier has not read yet are pruned.
 const DefaultMessageSentLogRetention = 30 * 24 * time.Hour
 
+// ErrLogPollerBehind is returned when a read starts past the log poller's last processed block, so
+// the caller retries instead of treating the unscanned range as scanned.
+var ErrLogPollerBehind = errors.New("log poller has not reached the requested block")
+
 // LogPollerConfig makes the source reader read CCIPMessageSent logs from the Chainlink node's log
 // poller instead of eth_getLogs.
 type LogPollerConfig struct {
@@ -355,8 +359,7 @@ func (r *SourceReader) logPollerLogs(ctx context.Context, fromBlock, toBlock uin
 		end = processed
 	}
 	if fromBlock > end {
-		// The log poller has not reached fromBlock yet.
-		return nil, nil
+		return nil, fmt.Errorf("%w: from block %d, log poller at %d", ErrLogPollerBehind, fromBlock, end)
 	}
 
 	lpLogs, err := r.lp.LogsWithSigs(ctx, int64(fromBlock), int64(end), // #nosec G115 -- block numbers fit in int64
