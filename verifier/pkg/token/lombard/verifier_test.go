@@ -45,23 +45,38 @@ func TestVerifier_VerifyMessages_EmptyBatch(t *testing.T) {
 }
 
 func TestVerifier_VerifyMessages_UnknownDestination(t *testing.T) {
-	task := internal.CreateTestVerificationTask(1)
-	task.Message.DestChainSelector = protocol.ChainSelector(1)
-	task.MessageID = task.Message.MustMessageID().String()
-	tasks := []verifier.VerificationTask{task}
-	service := mocks.NewLombardAttestationService(t)
-	service.EXPECT().Fetch(mock.Anything, tasks).Return(map[string]lombard.Attestation{
-		task.MessageID: lombard.NewAttestation(lombard.DefaultVerifierVersion, lombard.AttestationResponse{
-			Status: lombard.AttestationStatusApproved,
-		}, nil),
-	}, nil).Once()
-	v, err := lombard.NewVerifier(logger.Test(t), monitoring.NewFakeVerifierMonitoring(), "test-verifier", lombard.LombardConfig{}, service)
-	require.NoError(t, err)
+	// An unknown destination is final even when the attestation is not ready or is missing.
+	for _, test := range []struct {
+		name   string
+		status lombard.AttestationStatus
+	}{
+		{"approved", lombard.AttestationStatusApproved},
+		{"pending", lombard.AttestationStatusPending},
+		{"failed", lombard.AttestationStatusFailed},
+		{"missing", lombard.AttestationStatusUnspecified},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			task := internal.CreateTestVerificationTask(1)
+			task.Message.DestChainSelector = protocol.ChainSelector(1)
+			task.MessageID = task.Message.MustMessageID().String()
+			tasks := []verifier.VerificationTask{task}
+			service := mocks.NewLombardAttestationService(t)
+			attestations := map[string]lombard.Attestation{}
+			if test.status != lombard.AttestationStatusUnspecified {
+				attestations[task.MessageID] = lombard.NewAttestation(lombard.DefaultVerifierVersion, lombard.AttestationResponse{
+					Status: test.status,
+				}, nil)
+			}
+			service.EXPECT().Fetch(mock.Anything, tasks).Return(attestations, nil).Once()
+			v, err := lombard.NewVerifier(logger.Test(t), monitoring.NewFakeVerifierMonitoring(), "test-verifier", lombard.LombardConfig{}, service)
+			require.NoError(t, err)
 
-	results := v.VerifyMessages(t.Context(), tasks)
-	require.Len(t, results, 1)
-	require.NotNil(t, results[0].Error)
-	assert.False(t, results[0].Error.Retryable)
+			results := v.VerifyMessages(t.Context(), tasks)
+			require.Len(t, results, 1)
+			require.NotNil(t, results[0].Error)
+			assert.False(t, results[0].Error.Retryable)
+		})
+	}
 }
 
 // A FAILED response can change to APPROVED after Lombard repairs its infrastructure.
