@@ -1,0 +1,8 @@
+# Admin console demo config — read directly by the demo harness (main.go), which
+# serves the real console package with a canned aggregator attestation client. On a
+# real verifier this file enables the console; the harness stands in for the process.
+
+listen_address = "127.0.0.1:8105"
+
+# Shown as the "Trace viewer" link on the message detail page.
+trace_url = "https://traces.example.com"
