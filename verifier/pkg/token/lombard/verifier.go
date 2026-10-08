@@ -89,6 +89,10 @@ func (v *Verifier) VerifyMessages(
 	ctx context.Context,
 	tasks []verifier.VerificationTask,
 ) []verifier.VerificationResult {
+	if len(tasks) == 0 {
+		return nil
+	}
+
 	// Open every task's attestation span before the batched fetch, so the single HTTP
 	// call underneath it can be attached to a real span instead of rooting its own trace.
 	spans := make(map[string]taskSpan, len(tasks))
@@ -195,7 +199,7 @@ func (v *Verifier) VerifyMessages(
 			span.SetStatus(codes.Error, err.Error())
 			span.End()
 			recordOutcome(monitoring.TokenAttestationFetchOutcomeError)
-			verificationError := v.errorRetry(err, task)
+			verificationError := verifier.NewVerificationError(err, task)
 			results = append(results, verifier.VerificationResult{Error: &verificationError})
 			continue
 		}
