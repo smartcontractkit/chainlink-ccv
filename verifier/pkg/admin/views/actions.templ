@@ -1,0 +1,63 @@
+package views
+
+import (
+	"fmt"
+	"strconv"
+	"time"
+)
+
+// ActionVM is one action-log row as rendered. Kept free of the admin package's types
+// so views never imports its caller.
+type ActionVM struct {
+	ID                                                          int64
+	Actor, Action, Target, OperationID, Outcome, Detail          string
+	CreatedAt                                                   time.Time
+}
+
+// ActionsPage lists the console's mutation history, newest first. OlderBefore is the
+// next-page cursor (the last row's ID) when a full page may have older rows; 0 = none.
+templ ActionsPage(actions []ActionVM, olderBefore int64) {
+	@Layout("Action log") {
+		<h1>Action log</h1>
+		<p>Every console mutation: actor, time, target, operation, and outcome.</p>
+		if len(actions) == 0 {
+			<p><em>No actions recorded.</em></p>
+		} else {
+			<div class="table-wrap">
+				<table>
+					<thead>
+						<tr>
+							<th>#</th>
+							<th>Time (UTC)</th>
+							<th>Actor</th>
+							<th>Action</th>
+							<th>Target</th>
+							<th>Operation</th>
+							<th>Outcome</th>
+							<th>Detail</th>
+						</tr>
+					</thead>
+					<tbody>
+						for _, a := range actions {
+							<tr>
+								<td>{ fmt.Sprint(a.ID) }</td>
+								<td>{ a.CreatedAt.UTC().Format(time.RFC3339) }</td>
+								<td>{ a.Actor }</td>
+								<td>{ a.Action }</td>
+								<td><code class="mid">{ a.Target }</code></td>
+								<td><code class="mid">{ a.OperationID }</code></td>
+								<td>{ a.Outcome }</td>
+								<td><small>{ a.Detail }</small></td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			</div>
+			if olderBefore != 0 {
+				<p>
+					<a href={ templ.SafeURL("/actions?before=" + strconv.FormatInt(olderBefore, 10)) }>Older →</a>
+				</p>
+			}
+		}
+	}
+}

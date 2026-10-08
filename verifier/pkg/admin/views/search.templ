@@ -1,0 +1,103 @@
+package views
+
+import (
+	"encoding/hex"
+	"fmt"
+	"time"
+
+	"github.com/smartcontractkit/chainlink-ccv/cli/jobqueue"
+)
+
+// SearchResultsVM is the search outcome: rows found, genuinely empty, or a failed
+// lookup (UnreachableDetail non-empty) — never conflated.
+type SearchResultsVM struct {
+	UnreachableDetail string
+	Jobs              []jobqueue.ArchivedJob
+}
+
+// ArchiveRetention is the verifier's archive sweep window, for age/expiry display.
+const ArchiveRetention = 30 * 24 * time.Hour
+
+// SearchPage renders the search form, a validation error, and the results.
+templ SearchPage(csrfToken string, results *SearchResultsVM, searchedIDs [][]byte, errDetail string) {
+	@Layout("Message search") {
+		<h1>Message search</h1>
+		<p>Search this verifier's failed-job archive.</p>
+		<div class="card">
+			<form method="post" action="/search">
+				@CSRFField(csrfToken)
+				<textarea name="message_ids" placeholder="0x… 0x…"></textarea>
+				<br/>
+				<button type="submit">Search</button>
+			</form>
+			<details class="explain">
+				<summary>Message ID format</summary>
+				Full 32-byte hex IDs, space or comma separated.
+			</details>
+		</div>
+		if errDetail != "" {
+			<div class="error">{ errDetail }</div>
+		}
+		if searchedIDs != nil {
+			<h2>Results</h2>
+			@SearchResultsList(*results)
+		}
+	}
+}
+
+templ SearchResultsList(results SearchResultsVM) {
+	if results.UnreachableDetail != "" {
+		<div class="error">Lookup unavailable: { results.UnreachableDetail }. Treat the archive as unknown, not empty.</div>
+	} else if len(results.Jobs) == 0 {
+		<p><em>No archived (failed) jobs for these message IDs.</em></p>
+	} else {
+		<div class="table-wrap">
+			<table>
+				<thead>
+					<tr>
+						<th>Message ID</th>
+						<th>Queue</th>
+						<th>Owner</th>
+						<th>Failure</th>
+						<th>Attempts</th>
+						<th>Archived</th>
+						<th>Archive expires</th>
+						<th></th>
+					</tr>
+				</thead>
+				<tbody>
+					for _, job := range results.Jobs {
+						<tr>
+							<td><code class="mid">{ messageIDHex(job.MessageID) }</code></td>
+							<td>{ string(job.Queue) }</td>
+							<td><code>{ job.OwnerID }</code></td>
+							<td>{ job.FailureCategory }</td>
+							<td>{ fmt.Sprint(job.AttemptCount) }</td>
+							<td>{ formatTime(job.ArchivedAt) }</td>
+							<td>{ archiveExpiry(job.ArchivedAt) }</td>
+							<td>
+								<a href={ templ.SafeURL("/messages/" + messageIDHex(job.MessageID)) }>detail</a>
+							</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		</div>
+	}
+}
+
+func messageIDHex(id []byte) string { return "0x" + hex.EncodeToString(id) }
+
+func formatTime(t *time.Time) string {
+	if t == nil {
+		return "—"
+	}
+	return t.UTC().Format(time.RFC3339)
+}
+
+func archiveExpiry(archivedAt *time.Time) string {
+	if archivedAt == nil {
+		return "—"
+	}
+	return archivedAt.Add(ArchiveRetention).UTC().Format(time.RFC3339)
+}
