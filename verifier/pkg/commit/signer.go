@@ -205,6 +205,7 @@ func (a *KeystoreSignerAdapter) Sign(data []byte) ([]byte, error) {
 // along with the public key (as UnknownAddress) for use in committee configuration.
 func NewSignerFromKeystore(ctx context.Context, ks keystore.Keystore, keyName string) (signer verifier.MessageSigner, pubKey []byte, address protocol.UnknownAddress, err error) {
 	// Get the key info to retrieve the public key
+	//nolint:noeagerio // fail-fast by design: a verifier without its signing key can do no work, so the keystore read happens at startup rather than at first sign
 	keysResp, err := ks.GetKeys(ctx, keystore.GetKeysRequest{KeyNames: []string{keyName}})
 	if err != nil {
 		return nil, nil, protocol.UnknownAddress{}, fmt.Errorf("failed to get key from keystore: %w", err)

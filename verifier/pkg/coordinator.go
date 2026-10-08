@@ -447,9 +447,13 @@ func filterConfiguredSourceReaders(
 		allSelectors = append(allSelectors, selector)
 	}
 
-	statusMap, err := chainStatusManager.ReadChainStatuses(ctx, allSelectors)
+	// The statuses only inform logging; bound the read and degrade to unknown on
+	// failure rather than aborting startup — each source reader re-reads its own
+	// status (with retries) during background init.
+	statusMap, err := chainStatusManager.ReadChainStatuses(ctx, allSelectors) //nolint:noeagerio // single bounded read of the service's own DB at coordinator start; failure is non-fatal
 	if err != nil {
-		return nil, fmt.Errorf("failed to read chain statuses from storage: %w", err)
+		lggr.Errorw("Failed to read chain statuses from storage, continuing with unknown statuses", "error", err)
+		statusMap = nil
 	}
 
 	configuredSourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
@@ -569,6 +573,24 @@ func createCurseDetector(
 
 func (vc *Coordinator) Name() string {
 	return fmt.Sprintf("verifier.Coordinator[%s]", vc.verifierID)
+}
+
+// Ready reports skipped source readers so a coordinator missing a chain shows
+// NotReady on /health and pages instead of silently missing the chain.
+func (vc *Coordinator) Ready() error {
+	if err := vc.StateMachine.Ready(); err != nil {
+		return err
+	}
+	vc.RLock()
+	defer vc.RUnlock()
+	if len(vc.sourceReaderStartErrs) == 0 {
+		return nil
+	}
+	errs := make([]error, 0, len(vc.sourceReaderStartErrs))
+	for _, err := range vc.sourceReaderStartErrs {
+		errs = append(errs, err)
+	}
+	return fmt.Errorf("%d source reader(s) skipped at startup: %w", len(errs), errors.Join(errs...))
 }
 
 func (vc *Coordinator) HealthReport() map[string]error {

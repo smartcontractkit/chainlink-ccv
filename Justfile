@@ -67,6 +67,12 @@ fmt: ensure-golangci-lint
 lint fix="" timeout="10m": ensure-golangci-lint
     gomods -c 'golangci-lint run --config {{justfile_directory()}}/.golangci.yaml {{ if fix == "true" { "--fix" } else if fix == "fix" { "--fix" } else { "" } }} --timeout {{timeout}}'
 
+# Run the noeagerio analyzer (tools/noeagerio): no I/O in constructors or Start
+# methods. Runs on the root module only; build/devenv and deployment are excluded.
+lint-noeagerio: ensure-go
+    go build -o "$(go env GOPATH)/bin/noeagerio" ./tools/noeagerio/cmd/noeagerio
+    go vet -vettool="$(go env GOPATH)/bin/noeagerio" ./...
+
 shellcheck:
     @command -v shellcheck >/dev/null 2>&1 || { \
         echo "shellcheck is not installed. Please install it first."; \

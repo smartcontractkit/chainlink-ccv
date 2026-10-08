@@ -9,11 +9,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap/zapcore"
 
 	selectors "github.com/smartcontractkit/chain-selectors"
+	"github.com/smartcontractkit/chainlink-ccv/common/health"
 	pricer "github.com/smartcontractkit/chainlink-ccv/pricer/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/pricer/pkg/evm"
 	keys "github.com/smartcontractkit/chainlink-ccv/pricer/pkg/keystore"
@@ -118,6 +120,10 @@ type Pricer struct {
 	wg         sync.WaitGroup
 	httpServer *http.Server
 	chains     map[protocol.ChainSelector]pricer.Chain
+	// chainStartErrs records per-chain start failures so they stay visible in
+	// HealthReport and Ready after the chain is skipped.
+	chainStartErrs   map[protocol.ChainSelector]error
+	chainStartErrsMu sync.RWMutex
 }
 
 func NewPricerFromConfig(ctx context.Context, cfg Config, keystoreData []byte, keystorePassword string) (*Pricer, error) {
@@ -188,29 +194,34 @@ func NewPricerFromConfig(ctx context.Context, cfg Config, keystoreData []byte, k
 		lggr.Infow("no solana chain configured")
 	}
 
-	// Setup HTTP server for Prometheus metrics
-	lggr.Infow("setting up HTTP server for Prometheus metrics", "port", cfg.Monitoring.Port)
-	mux := http.NewServeMux()
-	mux.Handle("/metrics", promhttp.HandlerFor(
+	// Setup HTTP server for Prometheus metrics and health endpoints
+	lggr.Infow("setting up HTTP server for Prometheus metrics and health", "port", cfg.Monitoring.Port)
+	p := &Pricer{
+		StateMachine:   services.StateMachine{},
+		lggr:           lggr,
+		cfg:            cfg,
+		done:           make(chan struct{}),
+		wg:             sync.WaitGroup{},
+		chainStartErrs: make(map[protocol.ChainSelector]error),
+		chains:         priceChains,
+	}
+	ginRouter := gin.New()
+	ginRouter.GET("/metrics", gin.WrapH(promhttp.HandlerFor(
 		prometheus.DefaultGatherer,
 		promhttp.HandlerOpts{
 			EnableOpenMetrics: true,
 		},
-	))
+	)))
+	healthManager := health.NewManager()
+	healthManager.Register(p)
+	health.RegisterOn(healthManager, ginRouter)
+	p.httpServer = &http.Server{
+		Addr:              fmt.Sprintf(":%d", cfg.Monitoring.Port),
+		Handler:           ginRouter,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
 
-	return &Pricer{
-		StateMachine: services.StateMachine{},
-		lggr:         lggr,
-		cfg:          cfg,
-		done:         make(chan struct{}),
-		wg:           sync.WaitGroup{},
-		httpServer: &http.Server{
-			Addr:              fmt.Sprintf(":%d", cfg.Monitoring.Port),
-			Handler:           mux,
-			ReadHeaderTimeout: 10 * time.Second,
-		},
-		chains: priceChains,
-	}, nil
+	return p, nil
 }
 
 func (p *Pricer) Start(ctx context.Context) error {
@@ -227,10 +238,25 @@ func (p *Pricer) Start(ctx context.Context) error {
 			}
 		})
 
-		for _, chain := range p.chains {
+		// A failure to start one chain (e.g. an unreachable RPC) must not stop
+		// the remaining chains. Skip and record for health reporting; only fail
+		// when no chain started at all.
+		configuredChains := len(p.chains)
+		for selector, chain := range p.chains {
 			if err := chain.Start(ctx); err != nil {
-				return fmt.Errorf("failed to start chain: %w", err)
+				p.lggr.Errorw("failed to start chain, skipping", "chainSelector", selector, "error", err)
+				p.chainStartErrsMu.Lock()
+				p.chainStartErrs[selector] = err
+				p.chainStartErrsMu.Unlock()
+				delete(p.chains, selector)
 			}
+		}
+		if configuredChains > 0 && len(p.chains) == 0 {
+			// Fatal path: shut down the metrics server started above so a failed
+			// Start leaves nothing running.
+			_ = p.httpServer.Shutdown(context.Background())
+			p.wg.Wait()
+			return fmt.Errorf("failed to start any chain across %d configured", configuredChains)
 		}
 		p.wg.Go(func() {
 			p.run(ctx)
@@ -297,3 +323,37 @@ func (p *Pricer) Close() error {
 		return nil
 	})
 }
+
+func (p *Pricer) Name() string { return "pricer.Pricer" }
+
+// Ready reports skipped chains so a partially started pricer shows NotReady on
+// /health and pages instead of silently missing a chain.
+func (p *Pricer) Ready() error {
+	if err := p.StateMachine.Ready(); err != nil {
+		return err
+	}
+	p.chainStartErrsMu.RLock()
+	defer p.chainStartErrsMu.RUnlock()
+	if len(p.chainStartErrs) == 0 {
+		return nil
+	}
+	errs := make([]error, 0, len(p.chainStartErrs))
+	for _, err := range p.chainStartErrs {
+		errs = append(errs, err)
+	}
+	return fmt.Errorf("%d chain(s) skipped at startup: %w", len(errs), errors.Join(errs...))
+}
+
+// HealthReport surfaces chains that failed to start so a skipped chain is
+// visible instead of silently absent.
+func (p *Pricer) HealthReport() map[string]error {
+	report := map[string]error{p.Name(): p.Ready()}
+	p.chainStartErrsMu.RLock()
+	for selector, err := range p.chainStartErrs {
+		report[fmt.Sprintf("%s.Chain[%s]", p.Name(), selector)] = err
+	}
+	p.chainStartErrsMu.RUnlock()
+	return report
+}
+
+var _ protocol.HealthReporter = (*Pricer)(nil)
