@@ -98,11 +98,9 @@ type SourceReader struct {
 	// startBlock carries the first LoadFrom block to the startup goroutine; buffered so LoadFrom never blocks.
 	startBlock chan uint64
 	loadOnce   sync.Once
-	// lpReplayViolated holds a finality violation from the startup replay until FinalityViolated reports it.
-	lpReplayViolated atomic.Bool
-	stopCh           services.StopChan
-	wg               sync.WaitGroup
-	closeOnce        sync.Once
+	stopCh     services.StopChan
+	wg         sync.WaitGroup
+	closeOnce  sync.Once
 }
 
 func NewEVMSourceReader(
@@ -353,11 +351,8 @@ func (r *SourceReader) replayLogPoller(ctx context.Context, fromBlock uint64) er
 	if fromBlock > latest.Number {
 		return nil // Not mined yet: the log poller indexes it as it arrives.
 	}
-	err = r.lp.Replay(ctx, int64(max(fromBlock, 1))) // #nosec G115 -- range checked by loadLogPoller
-	if errors.Is(err, commontypes.ErrFinalityViolated) {
-		r.lpReplayViolated.Store(true)
-	}
-	if err != nil {
+	// A finality violation here is declared on the log poller itself, so Healthy() reports it.
+	if err := r.lp.Replay(ctx, int64(max(fromBlock, 1))); err != nil { // #nosec G115 -- range checked by loadLogPoller
 		return fmt.Errorf("log poller replay from block %d failed: %w", fromBlock, err)
 	}
 	return nil
@@ -569,13 +564,10 @@ func (r *SourceReader) logPollerLogs(ctx context.Context, fromBlock, toBlock uin
 	return logs, nil
 }
 
-// FinalityViolated reports whether the log poller detected a finality violation, including one hit by
-// the startup replay, which is reported once; false without a log poller.
+// FinalityViolated reports whether the log poller has detected a finality violation; false
+// without a log poller.
 func (r *SourceReader) FinalityViolated() bool {
-	if r.lp == nil {
-		return false
-	}
-	return r.lpReplayViolated.Swap(false) || errors.Is(r.lp.Healthy(), commontypes.ErrFinalityViolated)
+	return r.lp != nil && errors.Is(r.lp.Healthy(), commontypes.ErrFinalityViolated)
 }
 
 // logPollerBlock returns the last block the log poller has processed.

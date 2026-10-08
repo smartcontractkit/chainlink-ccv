@@ -702,15 +702,13 @@ func TestLogPollerStartup(t *testing.T) {
 		waitReady(t, r)
 	})
 
-	t.Run("finality violation during the replay is reported and retried", func(t *testing.T) {
+	t.Run("finality violation during the replay is retried", func(t *testing.T) {
 		lp := lpmocks.NewLogPoller(t)
 		lp.EXPECT().RegisterFilter(mock.Anything, mock.Anything).Return(nil).Twice()
 		lp.EXPECT().Replay(mock.Anything, int64(501)).Return(commontypes.ErrFinalityViolated).Once()
 		lp.EXPECT().Replay(mock.Anything, int64(501)).Return(nil).Once()
 		r := start(t, lp, false)
 		r.LoadFrom(501)
-		require.Eventually(t, r.lpReplayViolated.Load, 5*time.Second, 10*time.Millisecond)
-		require.True(t, r.FinalityViolated())
 		waitReady(t, r)
 	})
 
