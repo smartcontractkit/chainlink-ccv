@@ -35,6 +35,65 @@ func createABIEncodedAttestation(rawPayload, proof []byte) string {
 	return protocol.ByteSlice(encoded).String()
 }
 
+func TestVerifier_VerifyMessages_EmptyBatch(t *testing.T) {
+	service := mocks.NewLombardAttestationService(t)
+	v, err := lombard.NewVerifier(logger.Test(t), monitoring.NewFakeVerifierMonitoring(), "test-verifier", lombard.LombardConfig{}, service)
+	require.NoError(t, err)
+
+	assert.Empty(t, v.VerifyMessages(t.Context(), nil))
+	service.AssertNotCalled(t, "Fetch", mock.Anything, mock.Anything)
+}
+
+func TestVerifier_VerifyMessages_UnknownDestination(t *testing.T) {
+	task := internal.CreateTestVerificationTask(1)
+	task.Message.DestChainSelector = protocol.ChainSelector(1)
+	task.MessageID = task.Message.MustMessageID().String()
+	tasks := []verifier.VerificationTask{task}
+	service := mocks.NewLombardAttestationService(t)
+	service.EXPECT().Fetch(mock.Anything, tasks).Return(map[string]lombard.Attestation{
+		task.MessageID: lombard.NewAttestation(lombard.DefaultVerifierVersion, lombard.AttestationResponse{
+			Status: lombard.AttestationStatusApproved,
+		}, nil),
+	}, nil).Once()
+	v, err := lombard.NewVerifier(logger.Test(t), monitoring.NewFakeVerifierMonitoring(), "test-verifier", lombard.LombardConfig{}, service)
+	require.NoError(t, err)
+
+	results := v.VerifyMessages(t.Context(), tasks)
+	require.Len(t, results, 1)
+	require.NotNil(t, results[0].Error)
+	assert.False(t, results[0].Error.Retryable)
+}
+
+// A FAILED response can change to APPROVED after Lombard repairs its infrastructure.
+func TestVerifier_VerifyMessages_RetryAfterFailedAttestation(t *testing.T) {
+	task := internal.CreateTestVerificationTask(1)
+	tasks := []verifier.VerificationTask{task}
+	service := mocks.NewLombardAttestationService(t)
+	service.EXPECT().Fetch(mock.Anything, tasks).Return(map[string]lombard.Attestation{
+		task.MessageID: lombard.NewAttestation(lombard.DefaultVerifierVersion, lombard.AttestationResponse{
+			Status: lombard.AttestationStatusFailed,
+		}, nil),
+	}, nil).Once()
+	service.EXPECT().Fetch(mock.Anything, tasks).Return(map[string]lombard.Attestation{
+		task.MessageID: lombard.NewAttestation(lombard.DefaultVerifierVersion, lombard.AttestationResponse{
+			Status: lombard.AttestationStatusApproved,
+			Data:   createABIEncodedAttestation([]byte{1}, []byte{2}),
+		}, nil),
+	}, nil).Once()
+	v, err := lombard.NewVerifier(logger.Test(t), monitoring.NewFakeVerifierMonitoring(), "test-verifier", lombard.LombardConfig{VerifierVersion: lombard.DefaultVerifierVersion}, service)
+	require.NoError(t, err)
+
+	first := v.VerifyMessages(t.Context(), tasks)
+	require.Len(t, first, 1)
+	require.NotNil(t, first[0].Error)
+	assert.True(t, first[0].Error.Retryable)
+
+	second := v.VerifyMessages(t.Context(), tasks)
+	require.Len(t, second, 1)
+	assert.Nil(t, second[0].Error)
+	assert.NotNil(t, second[0].Result)
+}
+
 func TestVerifier_VerifyMessages_Success(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	lggr := logger.Test(t)

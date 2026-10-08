@@ -195,6 +195,58 @@ func Test_AttestationFetch(t *testing.T) {
 	})
 }
 
+func Test_AttestationFetch_PrefersApprovedData(t *testing.T) {
+	sourceChain := protocol.ChainSelector(sel.GETH_TESTNET.Selector)
+	resolverAddress := internal.MustUnknownAddressFromHex("0xca9142d0b9804ef5e239d3bc1c7aa0d1c74e7350")
+	task := createTestTask(sourceChain, 1, resolverAddress, internal.MustByteSliceFromHex(hash1))
+	bytesType, err := abi.NewType("bytes", "", nil)
+	require.NoError(t, err)
+	encoded, err := (abi.Arguments{{Type: bytesType}, {Type: bytesType}}).Pack([]byte{1}, []byte{2})
+	require.NoError(t, err)
+	validData := protocol.ByteSlice(encoded).String()
+	for _, test := range []struct {
+		name     string
+		response string
+		wantData string
+	}{
+		{
+			name:     "complete approved entry",
+			response: `{"attestations":[{"message_hash":"` + hash1 + `","status":"NOTARIZATION_STATUS_PENDING"},{"message_hash":"` + hash1 + `","status":"NOTARIZATION_STATUS_SESSION_APPROVED"},{"message_hash":"` + hash1 + `","attestation":"` + validData + `","status":"NOTARIZATION_STATUS_SESSION_APPROVED"}]}`,
+			wantData: validData,
+		},
+		{
+			name:     "approved entry without data",
+			response: `{"attestations":[{"message_hash":"` + hash1 + `","status":"NOTARIZATION_STATUS_PENDING"},{"message_hash":"` + hash1 + `","status":"NOTARIZATION_STATUS_SESSION_APPROVED"}]}`,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, err := w.Write([]byte(test.response))
+				require.NoError(t, err)
+			}))
+			t.Cleanup(server.Close)
+			service, err := NewAttestationService(logger.Test(t), monitoring.NewFakeVerifierMonitoring(), LombardConfig{
+				AttestationAPI:        server.URL,
+				AttestationAPITimeout: time.Minute,
+				ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{
+					sourceChain: resolverAddress,
+				},
+			})
+			require.NoError(t, err)
+
+			attestations, err := service.Fetch(t.Context(), []verifier.VerificationTask{task})
+			require.NoError(t, err)
+			attestation := attestations[task.MessageID]
+			assert.Equal(t, AttestationStatusApproved, attestation.status)
+			assert.Equal(t, test.wantData, attestation.attestation)
+			if test.wantData != "" {
+				_, err = attestation.ToVerifierFormat()
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 // Helper function to create a test verification task with a matching receipt blob.
 func createTestTask(sourceChain protocol.ChainSelector, seqNum int, resolverAddress protocol.UnknownAddress, blob protocol.ByteSlice) verifier.VerificationTask {
 	msg := protocol.Message{
