@@ -53,3 +53,11 @@ type loadingReader struct {
 func (r *loadingReader) LoadFrom(startBlock uint64) { r.loaded = append(r.loaded, startBlock) }
 
 var _ chainaccess.SourceLoader = (*loadingReader)(nil)
+
+// closingReader is a source reader that owns resources released on Close.
+type closingReader struct {
+	*mocks.MockSourceReader
+	closed atomic.Bool
+}
+
+func (c *closingReader) Close() error { c.closed.Store(true); return nil }

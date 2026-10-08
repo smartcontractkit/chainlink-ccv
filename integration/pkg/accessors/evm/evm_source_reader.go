@@ -8,6 +8,7 @@ import (
 	"maps"
 	"math"
 	"math/big"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -70,6 +71,9 @@ type LogPollerConfig struct {
 	Ready *atomic.Bool
 	// FilterRegistered reports whether the node has already stored the named log poller filter.
 	FilterRegistered func(ctx context.Context, name string) (bool, error)
+	// LiveFilters returns the ccv filter names live verifier jobs need on this chain; a job being deleted
+	// counts as gone.
+	LiveFilters func(ctx context.Context) (map[string]struct{}, error)
 }
 
 type SourceReader struct {
@@ -149,6 +153,9 @@ func NewEVMSourceReader(
 		}
 		if lpCfg.FilterRegistered == nil {
 			errs = append(errs, errors.New("log poller filter lookup is not set"))
+		}
+		if lpCfg.LiveFilters == nil {
+			errs = append(errs, errors.New("log poller live filter lookup is not set"))
 		}
 	}
 
@@ -356,7 +363,8 @@ func (r *SourceReader) replayLogPoller(ctx context.Context, fromBlock uint64) er
 	return nil
 }
 
-// Close stops loading the log poller.
+// Close stops loading the log poller, then unregisters every ccv filter on this chain that no live job
+// needs, including this reader's own once its job is deleted.
 func (r *SourceReader) Close() error {
 	if r.lp == nil {
 		return nil
@@ -364,8 +372,32 @@ func (r *SourceReader) Close() error {
 	r.closeOnce.Do(func() {
 		close(r.stopCh)
 		r.wg.Wait()
+		ctx, cancel := context.WithTimeout(context.Background(), logPollerOpTimeout)
+		defer cancel()
+		if err := r.unregisterOrphanedFilters(ctx); err != nil {
+			r.lggr.Warnw("Failed to unregister orphaned log poller filters", "error", err)
+		}
 	})
 	return nil
+}
+
+func (r *SourceReader) unregisterOrphanedFilters(ctx context.Context) error {
+	live, err := r.lpCfg.LiveFilters(ctx)
+	if err != nil {
+		return err
+	}
+	var errs []error
+	for name := range r.lp.GetFilters() {
+		if _, ok := live[name]; ok || !strings.HasPrefix(name, MessageSentFilterPrefix+" - ") {
+			continue
+		}
+		if err := r.lp.UnregisterFilter(ctx, name); err != nil {
+			errs = append(errs, fmt.Errorf("failed to unregister log poller filter %s: %w", name, err))
+			continue
+		}
+		r.lggr.Infow("Unregistered orphaned log poller filter", "filter", name)
+	}
+	return errors.Join(errs...)
 }
 
 // onRampStaticConfigGetter is the slice of the OnRamp binding the source reader needs, defined

@@ -61,5 +61,8 @@ func newLogPollerConfig(ds sqlutil.DataSource, chain legacyevm.Chain, sel protoc
 		FilterRegistered: func(ctx context.Context, name string) (bool, error) {
 			return messageSentFilterRegistered(ctx, ds, chain.ID(), name)
 		},
+		LiveFilters: func(ctx context.Context) (map[string]struct{}, error) {
+			return liveMessageSentFilters(ctx, ds, sel)
+		},
 	}
 }

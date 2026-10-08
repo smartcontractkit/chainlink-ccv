@@ -2,6 +2,7 @@ package sourcereader
 
 import (
 	"fmt"
+	"io"
 	"testing"
 
 	"github.com/stretchr/testify/mock"
@@ -267,4 +268,19 @@ func TestObservedSourceReader_LoadFrom(t *testing.T) {
 		require.NoError(t, err)
 		rd.(chainaccess.SourceLoader).LoadFrom(501)
 	})
+}
+
+type closingReader struct {
+	*mocks.MockSourceReader
+	closed bool
+}
+
+func (c *closingReader) Close() error { c.closed = true; return nil }
+
+func TestObservedSourceReader_Close(t *testing.T) {
+	delegate := &closingReader{MockSourceReader: mocks.NewMockSourceReader(t)}
+	rd, err := NewObservedSourceReader(delegate, "v1", protocol.ChainSelector(1), monitoring.NewFakeVerifierMonitoring())
+	require.NoError(t, err)
+	require.NoError(t, rd.(io.Closer).Close())
+	require.True(t, delegate.closed)
 }

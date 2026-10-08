@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/services"
 	commontypes "github.com/smartcontractkit/chainlink-common/pkg/types"
 	evmclient "github.com/smartcontractkit/chainlink-evm/pkg/client"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client/clienttest"
@@ -612,6 +613,7 @@ func TestNewEVMSourceReader_LogPollerConfig(t *testing.T) {
 		_, err := newReader(t, &LogPollerConfig{LogPoller: lpmocks.NewLogPoller(t), VerifierID: "verifier-1"})
 		require.ErrorContains(t, err, "log poller ready flag is not set")
 		require.ErrorContains(t, err, "log poller filter lookup is not set")
+		require.ErrorContains(t, err, "log poller live filter lookup is not set")
 	})
 }
 
@@ -624,7 +626,9 @@ func TestLogPollerStartup(t *testing.T) {
 		cfg := &LogPollerConfig{
 			LogPoller: lp, VerifierID: "verifier-1", Retention: time.Hour, Ready: new(atomic.Bool),
 			FilterRegistered: func(context.Context, string) (bool, error) { return filterExisted, nil },
+			LiveFilters:      func(context.Context) (map[string]struct{}, error) { return map[string]struct{}{name: {}}, nil },
 		}
+		lp.EXPECT().GetFilters().Return(map[string]logpoller.Filter{name: {}}).Maybe()
 		reader, err := NewEVMSourceReader(t.Context(), clienttest.NewClient(t), stubHeadTracker{latest: 1000, finalized: 900, safe: 950},
 			onRamp, common.Address{}, topic.Hex(), protocol.ChainSelector(1337), logger.Test(t), 25, nil, cfg)
 		require.NoError(t, err)
@@ -717,5 +721,45 @@ func TestLogPollerStartup(t *testing.T) {
 		r.LoadFrom(501)
 		require.NoError(t, r.Close())
 		require.False(t, r.lpCfg.Ready.Load())
+	})
+}
+
+func TestClose_UnregistersOrphanedFilters(t *testing.T) {
+	own := MessageSentFilterName("verifier-1", common.HexToAddress("0x1234"))
+	deleted := MessageSentFilterName("verifier-gone", common.HexToAddress("0x1234"))
+	other := "another-product - 0x1234"
+	newReader := func(t *testing.T, lp *lpmocks.LogPoller, live func(context.Context) (map[string]struct{}, error)) *SourceReader {
+		return &SourceReader{lggr: logger.Test(t), lp: lp, lpCfg: &LogPollerConfig{LiveFilters: live}, stopCh: make(services.StopChan)}
+	}
+	liveSet := func(names ...string) func(context.Context) (map[string]struct{}, error) {
+		return func(context.Context) (map[string]struct{}, error) {
+			set := make(map[string]struct{}, len(names))
+			for _, n := range names {
+				set[n] = struct{}{}
+			}
+			return set, nil
+		}
+	}
+
+	t.Run("live job keeps its filter and removes other ccv orphans only", func(t *testing.T) {
+		lp := lpmocks.NewLogPoller(t)
+		lp.EXPECT().GetFilters().Return(map[string]logpoller.Filter{own: {}, deleted: {}, other: {}}).Once()
+		lp.EXPECT().UnregisterFilter(mock.Anything, deleted).Return(nil).Once()
+		r := newReader(t, lp, liveSet(own))
+		require.NoError(t, r.Close())
+		require.NoError(t, r.Close(), "close is idempotent")
+	})
+
+	t.Run("deleted job removes its own filter", func(t *testing.T) {
+		lp := lpmocks.NewLogPoller(t)
+		lp.EXPECT().GetFilters().Return(map[string]logpoller.Filter{own: {}}).Once()
+		lp.EXPECT().UnregisterFilter(mock.Anything, own).Return(nil).Once()
+		require.NoError(t, newReader(t, lp, liveSet()).Close())
+	})
+
+	t.Run("failed spec lookup unregisters nothing", func(t *testing.T) {
+		lp := lpmocks.NewLogPoller(t)
+		r := newReader(t, lp, func(context.Context) (map[string]struct{}, error) { return nil, errors.New("db down") })
+		require.NoError(t, r.Close())
 	})
 }

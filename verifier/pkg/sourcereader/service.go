@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"math/big"
 	"runtime/debug"
@@ -233,6 +234,11 @@ func (r *Service) Close() error {
 		r.logger.Infow("Stopping Service")
 		close(r.stopCh)
 		r.wg.Wait()
+		if closer, ok := r.sourceReader.(io.Closer); ok {
+			if err := closer.Close(); err != nil {
+				r.logger.Warnw("Failed to close source reader", "error", err)
+			}
+		}
 		r.logger.Infow("Service stopped")
 		return nil
 	})
