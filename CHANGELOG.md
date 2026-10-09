@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.15.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.14.0...v0.15.0) (2026-10-09)
+
+
+### Features
+
+* Implement aggregator status API ([#1484](https://github.com/smartcontractkit/chainlink-ccv/issues/1484)) ([cb0b4a4](https://github.com/smartcontractkit/chainlink-ccv/commit/cb0b4a406b64d97edfec71bdc79bb454d2f3d537))
+* **pricer-service:** add chain agnostic family interface ([#1472](https://github.com/smartcontractkit/chainlink-ccv/issues/1472)) ([37d689a](https://github.com/smartcontractkit/chainlink-ccv/commit/37d689aaca9a35f039d7f0842772bfe78cfb77f0))
+* **tools:** noeagerio analyzer forbidding I/O in constructors and Start ([#1499](https://github.com/smartcontractkit/chainlink-ccv/issues/1499)) ([1e21946](https://github.com/smartcontractkit/chainlink-ccv/commit/1e21946a7cbdea848a1cbf519236f987a3518800))
+* **verifier:** admin console package (search, reschedule, recovery, action log) ([#1500](https://github.com/smartcontractkit/chainlink-ccv/issues/1500)) ([bb0c396](https://github.com/smartcontractkit/chainlink-ccv/commit/bb0c396a45a34c35a5c30febab3f76e1af680e58))
+* **verifier:** confirm the source block before publishing tasks ([#1494](https://github.com/smartcontractkit/chainlink-ccv/issues/1494)) ([d0bfacb](https://github.com/smartcontractkit/chainlink-ccv/commit/d0bfacbbb9ce15f2eb6f507ceac7075c0e88b052))
+* **verifier:** serve the admin console from the verifier factories ([#1501](https://github.com/smartcontractkit/chainlink-ccv/issues/1501)) ([65b1c81](https://github.com/smartcontractkit/chainlink-ccv/commit/65b1c812afdb8853c3435cbb31290b3e5f6ff886))
+
+
+### Bug Fixes
+
+* bound startup DB I/O by caller ctx; build chain accessors concurrently ([#1498](https://github.com/smartcontractkit/chainlink-ccv/issues/1498)) ([0b639df](https://github.com/smartcontractkit/chainlink-ccv/commit/0b639df194f903285a78b0f762585cc2c988f409))
+* tolerate per-chain/per-source startup failures ([#1497](https://github.com/smartcontractkit/chainlink-ccv/issues/1497)) ([55ef592](https://github.com/smartcontractkit/chainlink-ccv/commit/55ef5929e5f02bd02acca459b0b0a0644f28c785))
+* **verifier:** defer source reader init and tolerate per-chain start failures ([#1496](https://github.com/smartcontractkit/chainlink-ccv/issues/1496)) ([e05353b](https://github.com/smartcontractkit/chainlink-ccv/commit/e05353bf93b6d3fbdfd2c0fba593963cd047b449))
+
 ## [0.14.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.13.0...v0.14.0) (2026-10-05)
 
 
