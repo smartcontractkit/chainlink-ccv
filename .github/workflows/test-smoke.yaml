@@ -14,27 +14,52 @@ concurrency:
 
 jobs:
   build-docker-images:
+    # Fork PRs skip this billable runs-on job; free GitHub-hosted jobs still run for feedback.
+    if: github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork
     permissions:
       id-token: write
       contents: read
     runs-on: runs-on=${{ github.run_id }}/family=c6i/cpu=32+48/ram=64+96/spot=false/image=ubuntu24-full-x64/extras=s3-cache+tmpfs
+    outputs:
+      # E2E jobs need ECR + JD secrets, which Dependabot and fork PR runs don't get.
+      e2e_runnable: ${{ steps.detect-secrets.outputs.e2e_runnable }}
     steps:
       - name: Enable S3 Cache for Self-Hosted Runners
         uses: runs-on/action@cd2b598b0515d39d78c38a02d529db87d2196d1e # v2.0.3
 
+      # Local actions need the repo on disk, so checkout must precede the token setup.
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Detect CI secrets
+        id: detect-secrets
+        env:
+          CCV_IAM_ROLE: ${{ secrets.CCV_IAM_ROLE }}
+          JD_REGISTRY: ${{ secrets.JD_REGISTRY }}
+          JD_IMAGE: ${{ secrets.JD_IMAGE }}
+          # Dependabot and fork PR runs get no repo secrets; every other run is trusted.
+          SECRETLESS_RUN: ${{ github.event_name == 'pull_request' && (github.actor == 'dependabot[bot]' || github.event.pull_request.head.repo.fork == true) }}
+        run: |
+          if [[ -n "$CCV_IAM_ROLE" && -n "$JD_REGISTRY" && -n "$JD_IMAGE" ]]; then
+            echo "e2e_runnable=true" >> "$GITHUB_OUTPUT"
+          elif [[ -z "$CCV_IAM_ROLE" && -z "$JD_REGISTRY" && -z "$JD_IMAGE" && "$SECRETLESS_RUN" == "true" ]]; then
+            echo "e2e_runnable=false" >> "$GITHUB_OUTPUT"
+            echo "Dependabot/fork PR without repo secrets; e2e-smoke jobs will be skipped (the merge queue runs the full suite)."
+          else
+            echo "::error::CI secrets incomplete (CCV_IAM_ROLE/JD_REGISTRY/JD_IMAGE); failing closed instead of silently skipping e2e."
+            exit 1
+          fi
+
       - name: Setup GitHub Token
         id: setup-github-token
-        uses: smartcontractkit/.github/actions/setup-github-token@ef78fa97bf3c77de6563db1175422703e9e6674f # setup-github-token@0.2.1
+        uses: ./.github/actions/setup-github-token
         with:
           aws-role-arn: ${{ secrets.GATI_AWS_ROLE_ARN_CHAINLINK_READ_ONLY }}
           aws-lambda-url: ${{ secrets.GATI_LAMBDA_URL_RELENG }}
           aws-region: ${{ secrets.GATI_AWS_REGION }}
           set-git-config: true
-
-      - name: Checkout code
-        uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
 
       - name: Build devenv Docker images
         uses: ./.github/actions/build-devenv-docker
@@ -63,6 +88,8 @@ jobs:
 
   build-ccv-cli:
     name: Build ccv CLI
+    # Fork PRs skip this billable runs-on job; free GitHub-hosted jobs still run for feedback.
+    if: github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork
     permissions:
       id-token: write
       contents: read
@@ -71,17 +98,18 @@ jobs:
       - name: Enable S3 Cache for Self-Hosted Runners
         uses: runs-on/action@cd2b598b0515d39d78c38a02d529db87d2196d1e # v2.0.3
 
+      # Local actions need the repo on disk, so checkout must precede the token setup.
+      - name: Checkout code
+        uses: actions/checkout@v5
+
       - name: Setup GitHub Token
         id: setup-github-token
-        uses: smartcontractkit/.github/actions/setup-github-token@ef78fa97bf3c77de6563db1175422703e9e6674f # setup-github-token@0.2.1
+        uses: ./.github/actions/setup-github-token
         with:
           aws-role-arn: ${{ secrets.GATI_AWS_ROLE_ARN_CHAINLINK_READ_ONLY }}
           aws-lambda-url: ${{ secrets.GATI_LAMBDA_URL_RELENG }}
           aws-region: ${{ secrets.GATI_AWS_REGION }}
           set-git-config: true
-
-      - name: Checkout code
-        uses: actions/checkout@v5
 
       # Keep this setup-go config identical to the e2e matrix jobs so it restores
       # the same (~1GB) build cache. The cache key is derived from
@@ -105,6 +133,8 @@ jobs:
   e2e-smoke:
     name: ${{ matrix.test.name }}
     needs: [build-docker-images, build-ccv-cli]
+    # Skipped on secretless runs (Dependabot/fork PRs); the merge queue runs the full suite.
+    if: needs.build-docker-images.outputs.e2e_runnable == 'true'
     permissions:
       id-token: write
       contents: read
@@ -212,19 +242,20 @@ jobs:
       - name: Enable S3 Cache for Self-Hosted Runners
         uses: runs-on/action@cd2b598b0515d39d78c38a02d529db87d2196d1e # v2.0.3
 
+      # Local actions need the repo on disk, so checkout must precede the token setup.
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
       - name: Setup GitHub Token
         id: setup-github-token
-        uses: smartcontractkit/.github/actions/setup-github-token@ef78fa97bf3c77de6563db1175422703e9e6674f # setup-github-token@0.2.1
+        uses: ./.github/actions/setup-github-token
         with:
           aws-role-arn: ${{ secrets.GATI_AWS_ROLE_ARN_CHAINLINK_READ_ONLY }}
           aws-lambda-url: ${{ secrets.GATI_LAMBDA_URL_RELENG }}
           aws-region: ${{ secrets.GATI_AWS_REGION }}
           set-git-config: true
-
-      - name: Checkout code
-        uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
 
       - name: Download devenv Docker Images
         uses: actions/download-artifact@v4

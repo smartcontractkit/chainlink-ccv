@@ -9,6 +9,8 @@ on:
 
 jobs:
   test-coverage-report:
+    # Fork PRs skip this billable runs-on job; free GitHub-hosted jobs still run for feedback.
+    if: github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork
     runs-on: runs-on=${{ github.run_id }}/family=c6i/cpu=32+48/ram=64+96/spot=false/image=ubuntu24-full-x64/extras=s3-cache+tmpfs
     steps:
       - name: Checkout code
@@ -66,9 +68,12 @@ jobs:
             cat table.txt
             echo 'COVERAGE_REPORT_DELIM'
           } >> "$GITHUB_ENV"
+      # Dependabot PR runs get a read-only GITHUB_TOKEN that cannot write PR comments;
+      # the comment is best-effort so coverage results still gate the job.
       - name: Remove previous coverage comments
         uses: actions/github-script@v6
         if: github.event_name == 'pull_request'
+        continue-on-error: true
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -91,6 +96,7 @@ jobs:
       - name: Display coverage in PR comment
         uses: actions/github-script@v6
         if: github.event_name == 'pull_request'
+        continue-on-error: true
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
