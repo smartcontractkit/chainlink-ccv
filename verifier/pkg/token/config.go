@@ -34,6 +34,19 @@ type Config struct {
 	chainaccess.CommitteeConfig
 }
 
+// Validate rejects a duplicate VerifierID across TokenVerifiers.
+// TODO: additional validations
+func (c *Config) Validate() error {
+	seen := make(map[string]struct{}, len(c.TokenVerifiers))
+	for _, v := range c.TokenVerifiers {
+		if _, ok := seen[v.VerifierID]; ok {
+			return fmt.Errorf("duplicate verifier_id %q", v.VerifierID)
+		}
+		seen[v.VerifierID] = struct{}{}
+	}
+	return nil
+}
+
 // VerifierConfig is the base struct for token verifiers. Every token data verifier
 // has to define its type and version. The type and version is used to determine which verifier's
 // implementation to use. Whenever you want to add a new token verifier type, you need to add a new struct and embed that
