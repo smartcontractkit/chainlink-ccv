@@ -6,13 +6,14 @@
 //
 // I/O belongs at query time (see common/lazy for cached-on-success derivation)
 // or in a background goroutine that reports its state via Ready/HealthReport.
-// Deliberate exceptions need a //nolint:noeagerio comment with a justification.
+// Deliberate exceptions need a justified //nolint:noeagerio comment.
 package noeagerio
 
 import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"regexp"
 	"strings"
 
 	"golang.org/x/tools/go/analysis"
@@ -44,10 +45,20 @@ var denyFuncs = map[string]string{
 	"github.com/ethereum/go-ethereum/ethclient.DialContext": "dials an Ethereum RPC endpoint",
 	"github.com/jackc/pgx/v5.Connect":                       "opens a database connection",
 	"github.com/jackc/pgx/v5/pgxpool.Connect":               "opens a database connection",
-	// Repo constructors that open database connections; callers across a
-	// package boundary cannot be found by local taint propagation.
-	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/storage.NewPostgresStorage": "opens a database connection",
-	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/replay.NewStoreFromConfig":  "opens a database connection",
+	// Repo entrypoints whose I/O happens across a package boundary and so
+	// cannot be found by local taint propagation.
+	"github.com/smartcontractkit/chainlink-ccv/common.EnsureDBConnection":                            "pings the database",
+	"github.com/smartcontractkit/chainlink-ccv/common.EnsureDBConnectionContext":                     "pings the database",
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/db.RunPostgresMigrations":                "runs database migrations",
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/db.RunPostgresMigrationsContext":         "runs database migrations",
+	"github.com/smartcontractkit/chainlink-ccv/bootstrap/db.RunMigrations":                           "runs database migrations",
+	"github.com/smartcontractkit/chainlink-ccv/bootstrap/db.RunMigrationsContext":                    "runs database migrations",
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/storage.RunMigrations":                    "runs database migrations",
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/storage.RunMigrationsContext":             "runs database migrations",
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/postgres.RunMigrations":        "runs database migrations",
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/postgres.RunMigrationsContext": "runs database migrations",
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/storage.NewPostgresStorage":               "opens a database connection",
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/replay.NewStoreFromConfig":                "opens a database connection",
 }
 
 // denyMethods are methods that perform network/DB I/O, matched by name. An
@@ -84,6 +95,7 @@ var denyMethods = map[string]string{
 	"GetRMNCursedSubjects":       "reads an RMN Remote over RPC",
 	"GetStaticConfig":            "reads contract state over RPC",
 	"GetDestChainConfig":         "reads contract state over RPC",
+	"GetAccessor":                "constructs a chain accessor (dials RPC, starts chain services)",
 	"ReadChainStatuses":          "reads from the database",
 	"WriteChainStatuses":         "writes to the database",
 	"GetDiscoverySequenceNumber": "reads from the database",
@@ -99,40 +111,37 @@ var denyMethods = map[string]string{
 	"LoadKeystore":               "reads from the keystore",
 	"GetPublicKey":               "queries the KMS",
 	"LoadKMSKeystore":            "queries the KMS",
-	"GetAccessor":                "constructs a chain accessor (dials RPC, starts chain services)",
 	// Known repo entrypoints whose I/O happens across a package boundary and so
 	// cannot be found by local taint propagation.
 	"New@sqlutil/pg":            "opens a database connection",
 	"CreateStorage@pkg/storage": "opens and migrates database storage",
-	"Ping@sql":                  "pings the database",
-	"PingContext@sql":           "pings the database",
-	"Ping@redis":                "pings Redis",
-	"PingContext@redis":         "pings Redis",
-	"Do@net/http":               "issues an HTTP request",
-	"Get@net/http":              "issues an HTTP request",
-	"Post@net/http":             "issues an HTTP request",
-	"Query@sql":                 "queries the database",
-	"QueryContext@sql":          "queries the database",
-	"QueryRow@sql":              "queries the database",
-	"QueryRowContext@sql":       "queries the database",
-	"Exec@sql":                  "writes to the database",
-	"ExecContext@sql":           "writes to the database",
-	"Select@sqlx":               "queries the database",
-	"SelectContext@sqlx":        "queries the database",
-	"Get@sqlx":                  "queries the database",
-	"GetContext@sqlx":           "queries the database",
 }
 
-// spawnMethods are methods that run a function literal on a background
-// goroutine (e.g. sync.WaitGroup.Go, errgroup.Group.Go). I/O inside those
-// literals does not block startup, so it is exempt.
-var spawnMethods = map[string]bool{
-	"Go":     true,
-	"GoCtx":  true,
-	"Spawn":  true,
-	"GoN":    true,
-	"GoSafe": true,
+// goroutineAPIs are method-name/receiver-substring pairs for the APIs known to
+// launch a function literal on a background goroutine. I/O inside those
+// literals does not block startup, so it is exempt. Name lookalikes on other
+// receivers are not exempt.
+var goroutineAPIs = map[string][]string{
+	"Go": {"sync.WaitGroup", "errgroup.Group"},
 }
+
+// syncCallbackInvokers are methods known to invoke a function-literal argument
+// synchronously (services.StateMachine Start/Stop run their callback inline),
+// so those closure bodies are startup code. Closures passed to anything else
+// are treated as created, not executed: their bodies are not walked.
+var syncCallbackInvokers = map[string]bool{
+	"StartOnce": true,
+	"StopOnce":  true,
+}
+
+// lazyPath is the canonical query-time derivation helper: New only registers
+// the closure, which runs (uncached-on-failure) at first use.
+const lazyPath = "github.com/smartcontractkit/chainlink-ccv/common/lazy"
+
+// justifiedNolint matches a noeagerio directive that carries a written
+// justification: "nolint:noeagerio // <nonempty reason>". A bare directive, or
+// a mere mention of one in prose, is not a suppression.
+var justifiedNolint = regexp.MustCompile(`nolint:noeagerio\s*//\s*\S`)
 
 // ioCall records a denylisted call site and why it was flagged.
 type ioCall struct {
@@ -151,7 +160,7 @@ type funcInfo struct {
 }
 
 func run(pass *analysis.Pass) (any, error) {
-	insp := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector) //nolint:errcheck,revive // guaranteed by RunDespiteErrors + Requires
+	insp := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector) //nolint:errcheck,revive // guaranteed by Requires
 	if insp == nil {
 		return nil, nil
 	}
@@ -159,8 +168,8 @@ func run(pass *analysis.Pass) (any, error) {
 	infos := make(map[*types.Func]*funcInfo)
 
 	// Pass 1: for every declared function, collect its direct denylisted calls
-	// and its edges to other in-package functions, skipping bodies that run on
-	// spawned goroutines.
+	// and its edges to other in-package functions, skipping code that runs on
+	// spawned goroutines or in not-yet-executed closures.
 	nodeFilter := []ast.Node{(*ast.FuncDecl)(nil)}
 	insp.Preorder(nodeFilter, func(n ast.Node) {
 		decl := n.(*ast.FuncDecl) //nolint:errcheck,revive // nodeFilter only matches *ast.FuncDecl
@@ -173,7 +182,18 @@ func run(pass *analysis.Pass) (any, error) {
 		}
 		fi := &funcInfo{decl: decl, obj: obj, callees: make(map[*types.Func]bool)}
 		fi.isStartup, fi.startupKind = classifyStartup(decl)
-		walkBody(pass, decl.Body, fi)
+		forEachSyncCall(pass, decl, func(call *ast.CallExpr) {
+			if reason, ok := denyReason(pass, call); ok {
+				// A suppressed call is dropped entirely: the justification
+				// covers it, so it must not taint callers up the chain.
+				if !suppressed(pass, fi.decl, call.Pos()) {
+					fi.ioCalls = append(fi.ioCalls, ioCall{pos: call.Pos(), reason: reason})
+				}
+			}
+			if callee := localFunc(pass, call); callee != nil && !suppressed(pass, fi.decl, call.Pos()) {
+				fi.callees[callee] = true
+			}
+		})
 		infos[obj] = fi
 	})
 
@@ -213,41 +233,164 @@ func run(pass *analysis.Pass) (any, error) {
 				"I/O in %s %s: %s; constructors and Start must not perform I/O — defer to query time (common/lazy) or a background goroutine that reports via Ready/HealthReport",
 				fi.startupKind, fi.decl.Name.Name, c.reason)
 		}
-		// Report calls into tainted helpers with their positions.
-		reportTaintedCallees(pass, fi, tainted, infos)
+		forEachSyncCall(pass, fi.decl, func(call *ast.CallExpr) {
+			callee := localFunc(pass, call)
+			if callee == nil || callee == fi.obj || !tainted[callee] {
+				return
+			}
+			if suppressed(pass, fi.decl, call.Pos()) {
+				return
+			}
+			reason := "performs I/O"
+			if len(infos[callee].ioCalls) > 0 {
+				reason = infos[callee].ioCalls[0].reason
+			}
+			pass.Reportf(call.Pos(),
+				"%s %s calls %s, which performs I/O (%s); constructors and Start must not perform I/O — defer to query time (common/lazy) or a background goroutine that reports via Ready/HealthReport",
+				fi.startupKind, fi.decl.Name.Name, callee.Name(), reason)
+		})
 	}
 	return nil, nil
 }
 
-// reportTaintedCallees flags direct calls from a startup function to in-package
-// helpers that (transitively) perform I/O.
-func reportTaintedCallees(pass *analysis.Pass, fi *funcInfo, tainted map[*types.Func]bool, infos map[*types.Func]*funcInfo) {
-	if fi.decl.Body == nil {
+// forEachSyncCall walks the parts of fn's body that run synchronously when fn
+// itself runs: immediate code, immediately-invoked closures, closures passed
+// to known synchronous callback invokers, and the argument expressions of
+// goroutine launches and deferred registrations (arguments are evaluated
+// eagerly even when the callee is not). visit receives each synchronous call.
+func forEachSyncCall(pass *analysis.Pass, decl *ast.FuncDecl, visit func(call *ast.CallExpr)) {
+	if decl.Body == nil {
 		return
 	}
-	ast.Inspect(fi.decl.Body, func(n ast.Node) bool {
+	// executed marks FuncLits whose bodies run synchronously.
+	executed := make(map[*ast.FuncLit]bool)
+
+	var inspector func(n ast.Node) bool
+	inspector = func(n ast.Node) bool {
 		switch node := n.(type) {
+		case *ast.FuncLit:
+			return executed[node]
 		case *ast.GoStmt:
+			// The launched call itself runs asynchronously; only its argument
+			// expressions (e.g. `go consume(load())` -> load()) are evaluated now.
+			for _, arg := range node.Call.Args {
+				if _, isLit := arg.(*ast.FuncLit); isLit {
+					continue
+				}
+				ast.Inspect(arg, inspector)
+			}
 			return false
 		case *ast.CallExpr:
-			if skipsCallBody(pass, node) {
+			fun := unwrapFun(node.Fun)
+			if lit, ok := fun.(*ast.FuncLit); ok {
+				executed[lit] = true // immediately-invoked closure
+			}
+			switch {
+			case isGoroutineLaunch(pass, node), isDeferredRegistration(pass, node):
+				// The call registers/launches a closure for later; only its
+				// argument expressions are evaluated now.
+				for _, arg := range node.Args {
+					if _, isLit := arg.(*ast.FuncLit); isLit {
+						continue
+					}
+					ast.Inspect(arg, inspector)
+				}
 				return false
 			}
-			callee := localFunc(pass, node)
-			if callee != nil && callee != fi.obj && tainted[callee] {
-				reason := "performs I/O"
-				if len(infos[callee].ioCalls) > 0 {
-					reason = infos[callee].ioCalls[0].reason
-				}
-				if !suppressed(pass, fi.decl, node.Pos()) {
-					pass.Reportf(node.Pos(),
-						"%s %s calls %s, which performs I/O (%s); constructors and Start must not perform I/O — defer to query time (common/lazy) or a background goroutine that reports via Ready/HealthReport",
-						fi.startupKind, fi.decl.Name.Name, callee.Name(), reason)
+			if isSyncCallbackInvoker(node) {
+				for _, arg := range node.Args {
+					if lit, ok := arg.(*ast.FuncLit); ok {
+						executed[lit] = true
+					}
 				}
 			}
+			visit(node)
+			return true
 		}
 		return true
-	})
+	}
+	ast.Inspect(decl.Body, inspector)
+}
+
+// unwrapFun strips explicit type-argument wrappers (f[T](...)) from a call
+// target so generic instantiations resolve like plain calls.
+func unwrapFun(fun ast.Expr) ast.Expr {
+	for {
+		switch f := fun.(type) {
+		case *ast.IndexExpr:
+			fun = f.X
+		case *ast.IndexListExpr:
+			fun = f.X
+		default:
+			return fun
+		}
+	}
+}
+
+// isGoroutineLaunch reports whether the call launches a function literal on a
+// background goroutine via a known API (sync.WaitGroup.Go, errgroup.Group.Go).
+// Spelling alone is not enough: a synchronous lookalike method must stay
+// visible to the analyzer.
+func isGoroutineLaunch(pass *analysis.Pass, call *ast.CallExpr) bool {
+	sel, ok := unwrapFun(call.Fun).(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	receivers, known := goroutineAPIs[sel.Sel.Name]
+	if !known {
+		return false
+	}
+	hasFuncLit := false
+	for _, arg := range call.Args {
+		if _, isLit := arg.(*ast.FuncLit); isLit {
+			hasFuncLit = true
+			break
+		}
+	}
+	if !hasFuncLit {
+		return false
+	}
+	fn, ok := pass.TypesInfo.ObjectOf(sel.Sel).(*types.Func)
+	if !ok || fn.Pkg() == nil {
+		return false
+	}
+	sig, _ := fn.Type().(*types.Signature) //nolint:revive // methods always carry a *types.Signature
+	if sig == nil || sig.Recv() == nil {
+		return false
+	}
+	recv := sig.Recv().Type().String()
+	for _, substr := range receivers {
+		if strings.Contains(recv, substr) {
+			return true
+		}
+	}
+	return false
+}
+
+// isDeferredRegistration reports whether the call merely registers a function
+// literal for execution at query time (common/lazy.New): the closure body is
+// not startup code, and failures are not cached.
+func isDeferredRegistration(pass *analysis.Pass, call *ast.CallExpr) bool {
+	sel, ok := unwrapFun(call.Fun).(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	fn, ok := pass.TypesInfo.ObjectOf(sel.Sel).(*types.Func)
+	if !ok || fn.Pkg() == nil || fn.Name() != "New" {
+		return false
+	}
+	return fn.Pkg().Path() == lazyPath
+}
+
+// isSyncCallbackInvoker reports whether the call invokes its function-literal
+// arguments synchronously (services.StateMachine runs Start/Stop callbacks
+// inline), making those closure bodies startup code.
+func isSyncCallbackInvoker(call *ast.CallExpr) bool {
+	sel, ok := unwrapFun(call.Fun).(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	return syncCallbackInvokers[sel.Sel.Name]
 }
 
 // classifyStartup reports whether decl is a startup path: an exported
@@ -262,39 +405,9 @@ func classifyStartup(decl *ast.FuncDecl) (bool, string) {
 	return false, ""
 }
 
-// walkBody inspects a function body for denylisted calls and local call edges.
-// Bodies running on spawned goroutines (go statements, wg.Go(func(){...}), ...)
-// are skipped: that I/O does not block startup.
-func walkBody(pass *analysis.Pass, body *ast.BlockStmt, fi *funcInfo) {
-	if body == nil {
-		return
-	}
-	ast.Inspect(body, func(n ast.Node) bool {
-		switch node := n.(type) {
-		case *ast.GoStmt:
-			return false
-		case *ast.CallExpr:
-			if skipsCallBody(pass, node) {
-				return false
-			}
-			if reason, ok := denyReason(pass, node); ok {
-				// A suppressed call is dropped entirely: the justification
-				// covers it, so it must not taint callers up the chain.
-				if !suppressed(pass, fi.decl, node.Pos()) {
-					fi.ioCalls = append(fi.ioCalls, ioCall{pos: node.Pos(), reason: reason})
-				}
-			}
-			if callee := localFunc(pass, node); callee != nil {
-				fi.callees[callee] = true
-			}
-		}
-		return true
-	})
-}
-
 // denyReason returns why a call is denylisted, if it is.
 func denyReason(pass *analysis.Pass, call *ast.CallExpr) (string, bool) {
-	sel, ok := call.Fun.(*ast.SelectorExpr)
+	sel, ok := unwrapFun(call.Fun).(*ast.SelectorExpr)
 	if !ok {
 		return "", false
 	}
@@ -328,7 +441,7 @@ func denyReason(pass *analysis.Pass, call *ast.CallExpr) (string, bool) {
 // package, so taint can propagate across helper boundaries.
 func localFunc(pass *analysis.Pass, call *ast.CallExpr) *types.Func {
 	var id *ast.Ident
-	switch fun := call.Fun.(type) {
+	switch fun := unwrapFun(call.Fun).(type) {
 	case *ast.Ident:
 		id = fun
 	case *ast.SelectorExpr:
@@ -343,49 +456,10 @@ func localFunc(pass *analysis.Pass, call *ast.CallExpr) *types.Func {
 	return fn
 }
 
-// isSpawnCall reports whether the call runs a function literal on a background
-// goroutine (e.g. wg.Go(func(){...}), errgroup.Go).
-func isSpawnCall(pass *analysis.Pass, call *ast.CallExpr) bool {
-	sel, ok := call.Fun.(*ast.SelectorExpr)
-	if !ok || !spawnMethods[sel.Sel.Name] {
-		return false
-	}
-	for _, arg := range call.Args {
-		if _, isLit := arg.(*ast.FuncLit); isLit {
-			return true
-		}
-	}
-	return false
-}
-
-// isDeferredRegistration reports whether the call merely registers a function
-// literal for execution at query time (common/lazy.New). The closure body is
-// not startup code: it runs on first use, and failures are not cached.
-func isDeferredRegistration(pass *analysis.Pass, call *ast.CallExpr) bool {
-	sel, ok := call.Fun.(*ast.SelectorExpr)
-	if !ok {
-		return false
-	}
-	fn, ok := pass.TypesInfo.ObjectOf(sel.Sel).(*types.Func)
-	if !ok || fn.Pkg() == nil {
-		return false
-	}
-	if fn.Name() == "New" && fn.Pkg().Name() == "lazy" {
-		return true
-	}
-	return false
-}
-
-// skipsCallBody reports whether the call's function-literal arguments must not
-// be walked as part of the enclosing startup function: the closure either runs
-// on a background goroutine or is deferred to query time.
-func skipsCallBody(pass *analysis.Pass, call *ast.CallExpr) bool {
-	return isSpawnCall(pass, call) || isDeferredRegistration(pass, call)
-}
-
-// suppressed reports whether a finding at pos carries a //nolint:noeagerio
-// comment on its line, the line above, or the enclosing function's doc.
-// Raw comment text is scanned because CommentGroup.Text() strips directives.
+// suppressed reports whether a finding at pos carries a justified
+// //nolint:noeagerio comment on its line, the line above, or the enclosing
+// function's doc. Raw comment text is scanned because CommentGroup.Text()
+// strips directives, and a directive without a written reason does not count.
 func suppressed(pass *analysis.Pass, decl *ast.FuncDecl, pos token.Pos) bool {
 	posn := pass.Fset.Position(pos)
 	if decl.Doc != nil && groupHasNolint(decl.Doc) {
@@ -407,7 +481,7 @@ func suppressed(pass *analysis.Pass, decl *ast.FuncDecl, pos token.Pos) bool {
 
 func groupHasNolint(cg *ast.CommentGroup) bool {
 	for _, c := range cg.List {
-		if strings.Contains(c.Text, "nolint:noeagerio") {
+		if justifiedNolint.MatchString(c.Text) {
 			return true
 		}
 	}

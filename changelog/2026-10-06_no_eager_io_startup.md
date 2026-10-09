@@ -42,9 +42,9 @@ repeated verifier outages (see also PR #1424):
   as soon as `Start` returns (the first fetch could previously be aborted).
 * The coordinator's startup chain-status read is bounded (5s) in addition to
   being non-fatal.
-* New `noeagerio` static analyzer (`tools/noeagerio`, run by
-  `just lint-noeagerio` and the lint CI workflow) forbids I/O in constructors
-  and `Start` methods repo-wide, with `//nolint:noeagerio` as the documented
+* New `noeagerio` static analyzer (`tools/noeagerio`, run by `just lint` and
+  the CI lint job via the lint recipe's lint-noeagerio dependency) forbids I/O
+  in constructors and `Start` methods repo-wide, with `//nolint:noeagerio` as the documented
   escape hatch for deliberate fail-fast exceptions. Policy recorded in
   AGENTS.md.
 
