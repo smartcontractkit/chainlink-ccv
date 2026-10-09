@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -41,7 +42,13 @@ import (
 const defaultHTTPListenPort = 8100
 
 // httpShutdownTimeout bounds the graceful drain of the HTTP server during Stop.
-const httpShutdownTimeout = 5 * time.Second
+const (
+	httpShutdownTimeout = 5 * time.Second
+	// accessorBuildTimeout caps one chain's accessor construction (RPC dial +
+	// chain services) during factory Start; the parent startup context may be
+	// tighter and always wins.
+	accessorBuildTimeout = 30 * time.Second
+)
 
 // factory is a ServiceFactory implementation that creates a committee verifier service.
 type factory struct {
@@ -212,27 +219,39 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 
 	// A failure to stand up one chain's reader (e.g. an unreachable RPC) must not stop the
 	// remaining chains from starting. Log and skip, then only reject the whole coordinator if no
-	// chain is usable.
+	// chain is usable. Chains are built concurrently with a per-chain timeout: accessor
+	// construction dials the chain, so a slow (not failing) RPC must not serialize away the
+	// shared startup budget.
 	chainSelectors := chainaccess.Infos[string](config.OnRampAddresses).GetAllChainSelectors()
 	sourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
+	var readersMu sync.Mutex
+	var wg sync.WaitGroup
 	for _, selector := range chainSelectors {
-		accessor, err := deps.Registry.GetAccessor(ctx, selector)
-		if err != nil {
-			lggr.Errorw("Failed to get accessor, skipping chain", "error", err, "selector", selector)
-			continue
-		}
-		reader, err := accessor.SourceReader()
-		if err != nil {
-			lggr.Errorw("Failed to get source reader, skipping chain", "selector", selector, "error", err)
-			continue
-		}
-		observedReader, err := instrumentSourceReader(reader, config.VerifierID, selector, verifierMonitoring)
-		if err != nil {
-			lggr.Errorw("Failed to instrument source reader, skipping chain", "selector", selector, "error", err)
-			continue
-		}
-		sourceReaders[selector] = observedReader
+		wg.Go(func() {
+			chainCtx, cancel := context.WithTimeout(ctx, accessorBuildTimeout)
+			defer cancel()
+			//nolint:noeagerio // accessor construction dials the chain; it runs concurrently per chain with a bounded ctx, and failures are skipped, not fatal
+			accessor, err := deps.Registry.GetAccessor(chainCtx, selector)
+			if err != nil {
+				lggr.Errorw("Failed to get accessor, skipping chain", "error", err, "selector", selector)
+				return
+			}
+			reader, err := accessor.SourceReader()
+			if err != nil {
+				lggr.Errorw("Failed to get source reader, skipping chain", "selector", selector, "error", err)
+				return
+			}
+			observedReader, err := instrumentSourceReader(reader, config.VerifierID, selector, verifierMonitoring)
+			if err != nil {
+				lggr.Errorw("Failed to instrument source reader, skipping chain", "selector", selector, "error", err)
+				return
+			}
+			readersMu.Lock()
+			sourceReaders[selector] = observedReader
+			readersMu.Unlock()
+		})
 	}
+	wg.Wait()
 	if len(sourceReaders) == 0 {
 		return fmt.Errorf("no source readers configured: ensure at least one chain has a working source reader")
 	}
@@ -279,7 +298,8 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	lggr.Infow("Using signer address", "address", signerAddress)
 
 	// Create chain status manager (PostgreSQL storage) with monitoring decorator
-	chainStatusManager, chainStatusDB, err := createChainStatusManager(lggr, config.VerifierID, verifierMonitoring, secrets)
+	//nolint:noeagerio // the service's own DB is a hard dependency: connect + migrate fail fast (bounded by the startup ctx) and JD/local restarts retry
+	chainStatusManager, chainStatusDB, err := createChainStatusManager(ctx, lggr, config.VerifierID, verifierMonitoring, secrets)
 	if err != nil {
 		lggr.Errorw("Failed to create chain status manager", "error", err)
 		return fmt.Errorf("failed to create chain status manager: %w", err)
@@ -562,8 +582,8 @@ func (f *factory) Stop(ctx context.Context) error {
 	return allErrors
 }
 
-func createChainStatusManager(lggr logger.Logger, verifierID string, monitoring verifier.Monitoring, secrets *vsecrets.VerifierSecrets) (protocol.ChainStatusManager, sqlutil.DataSource, error) {
-	sqlDB, err := ConnectToPostgresDB(lggr, secrets)
+func createChainStatusManager(ctx context.Context, lggr logger.Logger, verifierID string, monitoring verifier.Monitoring, secrets *vsecrets.VerifierSecrets) (protocol.ChainStatusManager, sqlutil.DataSource, error) {
+	sqlDB, err := ConnectToPostgresDB(ctx, lggr, secrets)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to connect to Postgres DB: %w", err)
 	}

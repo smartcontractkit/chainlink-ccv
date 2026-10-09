@@ -1,8 +1,8 @@
 package postgres
 
 import (
+	"context"
 	"fmt"
-	"sync"
 
 	"github.com/jmoiron/sqlx"
 	"github.com/pressly/goose/v3"
@@ -10,12 +10,25 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/migrations"
 )
 
-var migrationMutex = sync.Mutex{}
+var migrationGate = make(chan struct{}, 1)
 
 // RunMigrations applies database-specific SQL migrations.
+//
+// Deprecated: use RunMigrationsContext so a caller's deadline can abort a hung
+// migration; this wrapper is unbounded by any caller context.
 func RunMigrations(db *sqlx.DB, dbType string) error {
-	migrationMutex.Lock()
-	defer migrationMutex.Unlock()
+	return RunMigrationsContext(context.Background(), db, dbType)
+}
+
+// RunMigrationsContext applies PostgreSQL database migrations, aborting when
+// ctx is done.
+func RunMigrationsContext(ctx context.Context, db *sqlx.DB, dbType string) error {
+	select {
+	case migrationGate <- struct{}{}:
+	case <-ctx.Done():
+		return fmt.Errorf("aborted waiting for migration gate: %w", ctx.Err())
+	}
+	defer func() { <-migrationGate }()
 
 	switch dbType {
 	case "postgres", "postgresql":
@@ -30,7 +43,7 @@ func RunMigrations(db *sqlx.DB, dbType string) error {
 		return fmt.Errorf("failed to set goose dialect: %w", err)
 	}
 
-	if err := goose.Up(db.DB, "postgres"); err != nil {
+	if err := goose.UpContext(ctx, db.DB, "postgres"); err != nil {
 		return fmt.Errorf("failed to run postgres migrations: %w", err)
 	}
 

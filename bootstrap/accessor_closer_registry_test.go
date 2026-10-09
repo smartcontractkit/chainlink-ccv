@@ -105,3 +105,51 @@ func TestAccessorCloserRegistry_Concurrent_GetAccessor(t *testing.T) {
 
 	require.NoError(t, tr.CloseAll())
 }
+
+// TestAccessorCloserRegistry_GetAccessor_DelegatesConcurrently guards against
+// holding the tracking mutex across the delegate call: all n inner calls must
+// be in flight simultaneously (the barrier deadlocks, and the test times out,
+// if GetAccessor ever serializes delegation).
+func TestAccessorCloserRegistry_GetAccessor_DelegatesConcurrently(t *testing.T) {
+	t.Parallel()
+	const n = 3
+
+	accs := make([]*mocks.MockAccessor, n)
+	for i := range accs {
+		accs[i] = mocks.NewMockAccessor(t)
+		accs[i].EXPECT().Close().Return(nil).Once()
+	}
+
+	var barrier sync.WaitGroup
+	barrier.Add(n)
+	var idx atomic.Int32
+	inner := mocks.NewMockAccessorFactory(t)
+	inner.EXPECT().GetAccessor(mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, _ protocol.ChainSelector) (chainaccess.Accessor, error) {
+			barrier.Done()
+			barrier.Wait()
+			i := int(idx.Add(1)) - 1
+			return accs[i], nil
+		}).Times(n)
+
+	tr := NewAccessorCloserRegistry(logger.Test(t), inner)
+
+	done := make(chan error, n)
+	var wg sync.WaitGroup
+	wg.Add(n)
+	for range n {
+		go func() {
+			defer wg.Done()
+			_, err := tr.GetAccessor(context.Background(), protocol.ChainSelector(1))
+			done <- err
+		}()
+	}
+	wg.Wait()
+	close(done)
+
+	for err := range done {
+		require.NoError(t, err)
+	}
+	require.NoError(t, tr.CloseAll())
+	require.Equal(t, int32(n), idx.Load(), "all delegate calls must run")
+}

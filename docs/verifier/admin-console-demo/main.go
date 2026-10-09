@@ -76,7 +76,9 @@ func run() error {
 		return fmt.Errorf("failed to open demo database: %w", err)
 	}
 	dbx := sqlx.NewDb(sqlDB, "postgres")
-	if err := db.RunPostgresMigrations(dbx); err != nil {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := db.RunPostgresMigrationsContext(ctx, dbx); err != nil {
 		return fmt.Errorf("failed to run verifier migrations: %w", err)
 	}
 
@@ -100,8 +102,6 @@ func run() error {
 		return err
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 	lggr.Infow("demo ready", "address", "http://"+cfg.ListenAddress)
 	if err := srv.Run(ctx); err != nil {
 		return err

@@ -99,6 +99,7 @@ var denyMethods = map[string]string{
 	"LoadKeystore":               "reads from the keystore",
 	"GetPublicKey":               "queries the KMS",
 	"LoadKMSKeystore":            "queries the KMS",
+	"GetAccessor":                "constructs a chain accessor (dials RPC, starts chain services)",
 	// Known repo entrypoints whose I/O happens across a package boundary and so
 	// cannot be found by local taint propagation.
 	"New@sqlutil/pg":            "opens a database connection",

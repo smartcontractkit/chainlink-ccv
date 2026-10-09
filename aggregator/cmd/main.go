@@ -35,6 +35,10 @@ import (
 	aggregator "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg"
 )
 
+// serverStartupTimeout bounds NewServer's database connect, ping, and
+// migrations: a hung connection must fail fast instead of blocking startup.
+const serverStartupTimeout = 30 * time.Second
+
 func main() {
 	logLevelStr := os.Getenv("LOG_LEVEL")
 	if logLevelStr == "" {
@@ -210,15 +214,21 @@ func runServer(configPath, logLevelStr string, lggr logger.Logger, sugaredLggr l
 
 	protocol.InitChainSelectorCache()
 
-	server, err := aggregator.NewServer(sugaredLggr, config, aggMonitoring)
+	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	// NewServer connects, pings, and migrates the aggregator's own database: a
+	// hung connection must fail fast within a bounded window, not block
+	// startup indefinitely (SIGINT/SIGTERM remain the outer bound).
+	serverCtx, serverCancel := context.WithTimeout(ctx, serverStartupTimeout)
+	defer serverCancel()
+	server, err := aggregator.NewServer(serverCtx, sugaredLggr, config, aggMonitoring)
 	if err != nil {
 		// Startup errors from config validation mention credential env var
 		// names only, never their values.
 		sugaredLggr.Fatalw("failed to create CCV data service", "error", err)
 	}
-	ctx := context.Background()
-	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	lc := &net.ListenConfig{}
 	lis, err := lc.Listen(ctx, "tcp", config.Server.Address)

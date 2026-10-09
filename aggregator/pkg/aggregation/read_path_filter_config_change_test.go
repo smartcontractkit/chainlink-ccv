@@ -20,7 +20,7 @@ import (
 func setupTestPostgresStorage(t *testing.T) (*postgres.DatabaseStorage, func()) {
 	t.Helper()
 	ds, cleanup := testutil.SetupTestPostgresDB(t)
-	err := postgres.RunMigrations(ds, "postgres")
+	err := postgres.RunMigrationsContext(t.Context(), ds, "postgres")
 	require.NoError(t, err)
 	storage := postgres.NewDatabaseStorage(ds, 10, 10*time.Second, logger.Sugared(logger.Test(t)))
 	return storage, cleanup
