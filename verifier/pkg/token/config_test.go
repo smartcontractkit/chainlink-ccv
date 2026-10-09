@@ -308,3 +308,11 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 		})
 	}
 }
+
+func Test_Config_Validate_DuplicateVerifierID(t *testing.T) {
+	cfg := Config{TokenVerifiers: []VerifierConfig{{VerifierID: "a"}, {VerifierID: "b"}}}
+	require.NoError(t, cfg.Validate())
+
+	cfg.TokenVerifiers = append(cfg.TokenVerifiers, VerifierConfig{VerifierID: "a"})
+	require.ErrorContains(t, cfg.Validate(), `duplicate verifier_id "a"`)
+}

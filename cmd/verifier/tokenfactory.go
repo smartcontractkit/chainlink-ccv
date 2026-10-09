@@ -86,6 +86,9 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 	if err := spec.GetAppConfig(&appConfig); err != nil {
 		return fmt.Errorf("unable to decode app config: %w", err)
 	}
+	if err := appConfig.Validate(); err != nil {
+		return fmt.Errorf("invalid token verifier config: %w", err)
+	}
 
 	tvf.lggr = deps.Logger
 	verifierMonitoring, err := monitoring.InitMonitoring("token_verifier")
@@ -102,7 +105,6 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 
 	protocol.InitChainSelectorCache()
 
-	// TODO: validate config?
 	cfg := appConfig
 
 	// Skipped chains/verifiers keep the service NotReady on /health so a

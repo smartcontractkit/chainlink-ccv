@@ -89,6 +89,10 @@ func (v *Verifier) VerifyMessages(
 	ctx context.Context,
 	tasks []verifier.VerificationTask,
 ) []verifier.VerificationResult {
+	if len(tasks) == 0 {
+		return nil
+	}
+
 	// Open every task's attestation span before the batched fetch, so the single HTTP
 	// call underneath it can be attached to a real span instead of rooting its own trace.
 	spans := make(map[string]taskSpan, len(tasks))
@@ -159,6 +163,18 @@ func (v *Verifier) VerifyMessages(
 			span.SetAttributes(attribute.String(tracing.TokenOutcomeKey, outcome))
 		}
 
+		destFamily, err := chainsel.GetSelectorFamily(uint64(task.Message.DestChainSelector))
+		if err != nil {
+			lggr.Errorw("Failed to determine destination chain family", "err", err)
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+			span.End()
+			recordOutcome(monitoring.TokenAttestationFetchOutcomeError)
+			verificationError := verifier.NewVerificationError(err, task)
+			results = append(results, verifier.VerificationResult{Error: &verificationError})
+			continue
+		}
+
 		attestation, exists := attestations[task.MessageID]
 		if !exists {
 			lggr.Debugw("Attestation not found for message")
@@ -188,17 +204,6 @@ func (v *Verifier) VerifyMessages(
 			continue
 		}
 
-		destFamily, err := chainsel.GetSelectorFamily(uint64(task.Message.DestChainSelector))
-		if err != nil {
-			lggr.Errorw("Failed to determine destination chain family", "err", err)
-			span.RecordError(err)
-			span.SetStatus(codes.Error, err.Error())
-			span.End()
-			recordOutcome(monitoring.TokenAttestationFetchOutcomeError)
-			verificationError := v.errorRetry(err, task)
-			results = append(results, verifier.VerificationResult{Error: &verificationError})
-			continue
-		}
 		var verifierFormat protocol.ByteSlice
 		if destFamily == chainsel.FamilySolana {
 			// Solana only requires the payloadHash, the protocol itself delivers the payload to the mailbox
