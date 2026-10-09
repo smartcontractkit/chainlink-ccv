@@ -158,6 +158,7 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		selectorUint, err := strconv.ParseUint(strSel, 10, 64)
 		if err != nil {
 			f.lggr.Errorw("Invalid chain selector in configuration", "error", err, "chainSelector", strSel)
+			startupSkips.Skip(fmt.Sprintf("Chain[%s]", strSel), err)
 			continue
 		}
 		selector := protocol.ChainSelector(selectorUint)

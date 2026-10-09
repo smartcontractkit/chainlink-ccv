@@ -27,8 +27,10 @@ repeated verifier outages (see also PR #1424):
   names each skipped component. A service with no usable chain fails startup, so
   a single-chain service whose chain is down exits and is restarted by its
   orchestrator. A verifier whose configured chains all fail to build a source
-  reader service also fails startup now, instead of starting with no chains. The
-  pricer also serves `/health` (alongside `/metrics`) for the first time.
+  reader service also fails startup now, instead of starting with no chains. An
+  EVM chain with no reachable RPC node at startup now fails to build, so it is
+  skipped like any other chain. The pricer also serves `/health` (alongside
+  `/metrics`) for the first time.
 * `aggregator/pkg`: `NewServer` returns errors instead of calling
   `logger.Fatalf` (signature changed to `(ctx, ...) (*Server, error)`); the
   caller in `main` owns the fail-fast decision.

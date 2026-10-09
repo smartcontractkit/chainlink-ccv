@@ -67,17 +67,18 @@ func NewReadinessResponse(services []ServicesHealth) ReadinessResponse {
 	}
 }
 
-// StatusCode is 503 only when NotReady. Degraded services keep serving, so they stay in rotation.
+// StatusCode is 200 only for Ready and Degraded. Any other status fails closed with 503.
 func (r *ReadinessResponse) StatusCode() int {
-	if r.Status == NotReady {
-		return http.StatusServiceUnavailable
+	if r.Status == Ready || r.Status == Degraded {
+		return http.StatusOK
 	}
-	return http.StatusOK
+	return http.StatusServiceUnavailable
 }
 
 // DegradedReporter is optional. A component that keeps running but is missing something
 // (for example a skipped chain) implements it, and /health reports degraded without 503.
 type DegradedReporter interface {
+	// Degraded returns nil when all of the component's parts are usable.
 	Degraded() error
 }
 

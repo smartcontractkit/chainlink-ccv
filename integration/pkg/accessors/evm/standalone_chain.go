@@ -147,6 +147,12 @@ func newStandaloneChain(ctx context.Context, info Info, lggr logger.Logger) (*st
 		chainClient.Close()
 		return nil, fmt.Errorf("failed to dial production EVM client for chain %s: %w", info.ChainID, err)
 	}
+	// Dial only starts node lifecycles, so unreachable RPCs fail later without an error here. A head
+	// fetch waits (bounded by ctx) for a live node, so a chain with no reachable RPC is not built.
+	if _, err := chainClient.HeadByNumber(ctx, nil); err != nil {
+		chainClient.Close()
+		return nil, fmt.Errorf("no live RPC node for chain %s: %w", info.ChainID, err)
+	}
 
 	// The config emitter reports this chain's RPC endpoints to Beholder as a core node's EVM
 	// relayer does; an empty CSA key falls back to the beholder client's auth key. With Beholder

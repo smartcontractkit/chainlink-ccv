@@ -11,6 +11,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/stretchr/testify/require"
+	"github.com/testcontainers/testcontainers-go"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	ctfblockchain "github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
@@ -38,12 +39,9 @@ type degradedStack struct {
 	aggRedisHostPort int
 }
 
-// TestServiceCommitteeVerifierDegradedChain launches a committee verifier with one healthy EVM chain
-// and one EVM chain whose RPC host does not resolve. The dead chain is skipped at startup, so the
-// verifier must still start and serve /health as degraded, naming only the dead chain.
-//
-// Named TestService... so the test-services CI job (which builds verifier:latest/aggregator:latest
-// and runs -run TestService) picks it up. Requires Docker.
+// TestServiceCommitteeVerifierDegradedChain runs a verifier with one healthy and one unreachable EVM chain.
+// The unreachable chain fails at startup, so the verifier must run and report /health as degraded.
+// Named TestService... so the test-services CI job picks it up. Requires Docker.
 func TestServiceCommitteeVerifierDegradedChain(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping service test in short mode; requires Docker service containers")
@@ -55,6 +53,7 @@ func TestServiceCommitteeVerifierDegradedChain(t *testing.T) {
 		ContainerName: "anvil-degraded-1337",
 	})
 	require.NoError(t, err, "failed to launch anvil chain")
+	terminateOnCleanup(t, healthy.Container)
 	dead := unreachableEVMChain(t, "11155111")
 
 	healthySel := evmSelectorString(t, "1337")
@@ -63,17 +62,18 @@ func TestServiceCommitteeVerifierDegradedChain(t *testing.T) {
 		committee:        "degraded",
 		verifier:         "degraded-verifier",
 		dbName:           "degraded-db",
-		dbHostPort:       8442,
-		aggHostPort:      8213,
-		aggDBHostPort:    7542,
-		aggRedisHostPort: 6489,
+		dbHostPort:       8462,
+		aggHostPort:      8263,
+		aggDBHostPort:    7582,
+		aggRedisHostPort: 6529,
 	}
 
 	out, err := launchDegradedCommitteeVerifier(t, stack, healthy, []*ctfblockchain.Output{healthy, dead}, []string{healthySel, deadSel})
 	require.NoError(t, err, "a skipped chain must not stop the verifier from starting")
 	require.NotNil(t, out)
 
-	// Containers from a failed run are kept for inspection, so dump the verifier's own log on failure.
+	terminateOnCleanup(t, out.Container)
+	// Registered after the terminate above, so this runs first and the log is still readable.
 	var body health.ReadinessResponse
 	t.Cleanup(func() {
 		if t.Failed() {
@@ -105,10 +105,8 @@ func TestServiceCommitteeVerifierDegradedChain(t *testing.T) {
 	require.NotContains(t, skips.Error, fmt.Sprintf("Chain[%s]", healthySel), "the healthy chain must not be reported as skipped")
 }
 
-// TestServiceCommitteeVerifierNoUsableChain launches a committee verifier whose only chain is
-// unreachable. With nothing usable, the verifier must fail startup instead of running empty.
-//
-// Named TestService... so the test-services CI job picks it up. Requires Docker.
+// TestServiceCommitteeVerifierNoUsableChain runs a verifier whose only chain is unreachable.
+// With no usable chain the verifier must fail startup. Named TestService... (requires Docker).
 func TestServiceCommitteeVerifierNoUsableChain(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping service test in short mode; requires Docker service containers")
@@ -120,10 +118,10 @@ func TestServiceCommitteeVerifierNoUsableChain(t *testing.T) {
 		committee:        "unusable",
 		verifier:         "unusable-verifier",
 		dbName:           "unusable-db",
-		dbHostPort:       8452,
-		aggHostPort:      8223,
-		aggDBHostPort:    7552,
-		aggRedisHostPort: 6499,
+		dbHostPort:       8472,
+		aggHostPort:      8273,
+		aggDBHostPort:    7592,
+		aggRedisHostPort: 6539,
 	}
 
 	_, err := launchDegradedCommitteeVerifier(t, stack, nil, []*ctfblockchain.Output{dead}, []string{deadSel})
@@ -293,4 +291,14 @@ func findDegradedService(t *testing.T, body health.ReadinessResponse, name strin
 	}
 	require.Failf(t, "service missing from /health", "no service named %q in %+v", name, body.Services)
 	return health.ServicesHealth{}
+}
+
+// terminateOnCleanup stops c when the test ends, so a failed run does not hold host ports that
+// later tests in the package bind.
+func terminateOnCleanup(t *testing.T, c testcontainers.Container) {
+	t.Helper()
+	if c == nil {
+		return
+	}
+	t.Cleanup(func() { _ = c.Terminate(context.Background()) })
 }

@@ -48,3 +48,14 @@ func TestCheckServiceHealth_DegradedOnlyWhenReadyPasses(t *testing.T) {
 	skips.Skip("Chain[1]", errors.New("RPC down"))
 	assert.Equal(t, Degraded, CheckServiceHealth(skips).Status)
 }
+
+func TestReadinessResponse_StatusCodeFailsClosedForUnknownStatus(t *testing.T) {
+	for _, status := range []ReadinessStatus{Ready, Degraded} {
+		response := ReadinessResponse{Status: status}
+		assert.Equal(t, http.StatusOK, response.StatusCode(), "status %q must keep serving", status)
+	}
+	for _, status := range []ReadinessStatus{NotReady, "", "bogus"} {
+		response := ReadinessResponse{Status: status}
+		assert.Equal(t, http.StatusServiceUnavailable, response.StatusCode(), "status %q must fail closed", status)
+	}
+}

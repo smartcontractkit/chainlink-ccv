@@ -102,3 +102,63 @@ func findHealthService(t *testing.T, body health.ReadinessResponse, name string)
 	require.Failf(t, "service missing from /health", "no service named %q in %+v", name, body.Services)
 	return health.ServicesHealth{}
 }
+
+// A chain_configuration key that is not a chain selector is skipped and named on /health, and the
+// valid chain next to it still runs.
+func TestFactory_Start_DegradedWhenSelectorIsMalformed(t *testing.T) {
+	const goodSelector protocol.ChainSelector = 5009297550715157269
+
+	good := mocks.NewMockAccessor(t)
+	good.EXPECT().ContractTransmitter().Return(mocks.NewMockContractTransmitter(t), nil)
+	good.EXPECT().DestinationReader().Return(mocks.NewMockDestinationReader(t), nil)
+	fac := mocks.NewMockAccessorFactory(t)
+	fac.EXPECT().GetAccessor(mock.Anything, goodSelector).Return(good, nil)
+	evmFactory = fac
+	t.Cleanup(func() { evmFactory = nil })
+
+	port := freeTCPPort(t)
+	appConfig := fmt.Sprintf(`
+executor_id = "test-executor"
+indexer_address = ["http://localhost:9090"]
+http_listen_port = %d
+
+[chain_configuration."%d"]
+off_ramp_address     = "0x0000000000000000000000000000000000000001"
+rmn_address          = "0x0000000000000000000000000000000000000002"
+default_executor_address = "0x0000000000000000000000000000000000000003"
+executor_pool        = ["test-executor"]
+execution_interval   = "1s"
+
+[chain_configuration."not-a-selector"]
+off_ramp_address     = "0x0000000000000000000000000000000000000001"
+rmn_address          = "0x0000000000000000000000000000000000000002"
+default_executor_address = "0x0000000000000000000000000000000000000003"
+executor_pool        = ["test-executor"]
+execution_interval   = "1s"
+`, port, goodSelector)
+
+	lggr := logger.Nop()
+	reg, err := chainaccess.NewRegistry(lggr, "")
+	require.NoError(t, err)
+
+	f := NewFactory()
+	require.NoError(t, f.Start(context.Background(), bootstrap.JobSpec{AppConfig: appConfig}, bootstrap.ServiceDeps{Logger: lggr, Registry: reg}))
+	t.Cleanup(func() { assert.NoError(t, f.Stop(context.Background())) })
+
+	client := &http.Client{Timeout: 3 * time.Second}
+	healthURL := fmt.Sprintf("http://127.0.0.1:%d/health", port)
+	var body health.ReadinessResponse
+	require.Eventually(t, func() bool {
+		resp, err := client.Get(healthURL)
+		if err != nil {
+			return false
+		}
+		defer func() { _ = resp.Body.Close() }()
+		return resp.StatusCode == http.StatusOK && json.NewDecoder(resp.Body).Decode(&body) == nil
+	}, 10*time.Second, 100*time.Millisecond, "executor /health did not answer 200")
+
+	assert.Equal(t, health.Degraded, body.Status)
+	skips := findHealthService(t, body, "executor.StartupSkips")
+	assert.Contains(t, skips.Error, "Chain[not-a-selector]", "a malformed selector must not vanish")
+	assert.Equal(t, health.Ready, findHealthService(t, body, "executor.Coordinator").Status)
+}
