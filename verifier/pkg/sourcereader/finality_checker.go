@@ -307,15 +307,8 @@ func (n *NoOpFinalityViolationChecker) IsFinalityViolated() bool {
 	return false
 }
 
-// logPollerFinalityChecker adapts the log poller's finality-violation signal to
-// protocol.FinalityViolationChecker. The log poller clears its flag once its reorg handling
-// reconciles, so the checker latches the first violation to keep the chain halted until recovery.
-//
-// Accepted risk: the log poller exposes the violation only as an in-memory flag that it clears
-// itself, and this checker samples it once per poll. Violations from the main poll keep the flag
-// set until resolved, but one declared by the backup poller or by Replay can be cleared before the
-// next read and missed: the backup poller re-declares it every run, so it is normally only delayed,
-// while a Replay declaration is one-shot and can be lost.
+// logPollerFinalityChecker adapts and latches the log poller's violation signal until recovery.
+// Sampling limitations and accepted risks are documented in the changelog.
 type logPollerFinalityChecker struct {
 	reporter      chainaccess.FinalityViolationReporter
 	chainSelector protocol.ChainSelector
