@@ -434,6 +434,7 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		messageRulesPoller,
 		chainStatusDB,
 		verifier.WithSourceRecovery(),
+		verifier.WithDedupKeyColumn(),
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create verification coordinator", "error", err)

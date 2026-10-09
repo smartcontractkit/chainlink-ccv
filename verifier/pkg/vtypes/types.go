@@ -2,6 +2,7 @@ package vtypes
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -32,7 +33,13 @@ type VerificationTask struct {
 	TraceContext context.Context `json:"-"`
 }
 
-// JobKey implements jobqueue.Jobable interface.
+// DedupKey implements jobqueue.Jobable; it matches jobqueue.MessageDedupKey.
+func (t VerificationTask) DedupKey() string {
+	chainSelector, messageID := t.JobKey()
+	return fmt.Sprintf("%x:%d", messageID, chainSelector)
+}
+
+// JobKey implements jobqueue.MessageKeyed.
 func (t VerificationTask) JobKey() (chainSelector uint64, messageID []byte) {
 	messageIDBytes := t.Message.MustMessageID()
 	return uint64(t.Message.SourceChainSelector), messageIDBytes[:]
