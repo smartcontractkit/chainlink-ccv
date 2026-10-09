@@ -179,7 +179,7 @@ func (r *Service) resetReader(ctx context.Context, requested recovery.Operation)
 	if !r.disabled.Load() {
 		return fmt.Errorf("reader is already enabled; submit replay for source-range recovery")
 	}
-	checker, checkerErr := newFinalityChecker(r.sourceCfg, r.sourceReader, r.chainSelector, r.logger, r.metrics())
+	checker, checkerErr := newFinalityChecker(r.sourceCfg, r.sourceReader, r.finalityReporter, r.chainSelector, r.logger, r.metrics())
 	if checkerErr != nil {
 		return checkerErr
 	}

@@ -577,14 +577,14 @@ func TestFinalityViolated(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			lp := lpmocks.NewLogPoller(t)
 			lp.EXPECT().Healthy().Return(tc.healthy).Once()
-			require.Equal(t, tc.want, (&SourceReader{lp: lp}).FinalityViolated())
+			require.Equal(t, tc.want, NewLogPollerFinality(lp).FinalityViolated())
 		})
 	}
 }
 
-func TestReportsFinalityViolations(t *testing.T) {
-	require.False(t, (&SourceReader{}).ReportsFinalityViolations(), "a reader without a log poller cannot report")
-	require.True(t, (&SourceReader{lp: lpmocks.NewLogPoller(t)}).ReportsFinalityViolations())
+func TestNewLogPollerFinality_NilWithoutLogPoller(t *testing.T) {
+	require.Nil(t, NewLogPollerFinality(nil))
+	require.Nil(t, NewLogPollerFinality(logpoller.LogPollerDisabled))
 }
 
 // readyLogPollerConfig is a config whose log poller already finished loading.

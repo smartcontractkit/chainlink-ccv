@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
@@ -452,44 +453,31 @@ func (m *recordingFinalityMetrics) SetVerifierFinalityViolated(_ context.Context
 
 func TestNewFinalityChecker_Selection(t *testing.T) {
 	tests := []struct {
-		name string
-		cfg  verifier.SourceConfig
-		want any
+		name     string
+		cfg      verifier.SourceConfig
+		reporter chainaccess.FinalityViolationReporter
+		want     any
 	}{
-		{name: "default uses header checker", cfg: verifier.SourceConfig{}, want: &FinalityViolationCheckerService{}},
-		{name: "log poller finality uses log poller checker", cfg: verifier.SourceConfig{LogPollerFinality: true}, want: &logPollerFinalityChecker{}},
-		{name: "disabled wins over log poller finality", cfg: verifier.SourceConfig{DisableFinalityChecker: true, LogPollerFinality: true}, want: &NoOpFinalityViolationChecker{}},
+		{name: "default uses header checker", want: &FinalityViolationCheckerService{}},
+		{name: "a finality reporter uses log poller checker", reporter: &fakeFinalityReporter{}, want: &logPollerFinalityChecker{}},
+		{name: "disabled wins over a finality reporter", cfg: verifier.SourceConfig{DisableFinalityChecker: true}, reporter: &fakeFinalityReporter{}, want: &NoOpFinalityViolationChecker{}},
 		{name: "disabled", cfg: verifier.SourceConfig{DisableFinalityChecker: true}, want: &NoOpFinalityViolationChecker{}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			reader := &violationReportingReader{MockSourceReader: mocks.NewMockSourceReader(t)}
-			checker, err := newFinalityChecker(tc.cfg, reader, protocol.ChainSelector(1337), logger.Test(t), &recordingFinalityMetrics{})
+			checker, err := newFinalityChecker(tc.cfg, mocks.NewMockSourceReader(t), tc.reporter, protocol.ChainSelector(1337), logger.Test(t), &recordingFinalityMetrics{})
 			require.NoError(t, err)
 			require.IsType(t, tc.want, checker)
 		})
 	}
 }
 
-func TestNewFinalityChecker_LogPollerFinalityRequiresReporter(t *testing.T) {
-	_, err := newFinalityChecker(verifier.SourceConfig{LogPollerFinality: true}, mocks.NewMockSourceReader(t),
-		protocol.ChainSelector(1337), logger.Test(t), &recordingFinalityMetrics{})
-	require.ErrorContains(t, err, "does not report finality violations")
-}
-
-func TestNewFinalityChecker_LogPollerFinalityRequiresSupportedReporter(t *testing.T) {
-	reader := &violationReportingReader{MockSourceReader: mocks.NewMockSourceReader(t), unsupported: true}
-	_, err := newFinalityChecker(verifier.SourceConfig{LogPollerFinality: true}, reader,
-		protocol.ChainSelector(1337), logger.Test(t), &recordingFinalityMetrics{})
-	require.ErrorContains(t, err, "does not report finality violations")
-}
-
 func TestLogPollerFinalityChecker_LatchesAndNeverFetchesHeaders(t *testing.T) {
 	ctx := t.Context()
 	// The mock has no expectations, so any GetBlocksHeaders call fails the test.
-	reader := &violationReportingReader{MockSourceReader: mocks.NewMockSourceReader(t)}
+	reporter := &fakeFinalityReporter{}
 	metrics := &recordingFinalityMetrics{}
-	checker, err := newFinalityChecker(verifier.SourceConfig{LogPollerFinality: true}, reader,
+	checker, err := newFinalityChecker(verifier.SourceConfig{}, mocks.NewMockSourceReader(t), reporter,
 		protocol.ChainSelector(1337), logger.Test(t), metrics)
 	require.NoError(t, err)
 
@@ -497,14 +485,14 @@ func TestLogPollerFinalityChecker_LatchesAndNeverFetchesHeaders(t *testing.T) {
 	require.False(t, checker.IsFinalityViolated())
 	require.Empty(t, metrics.calls)
 
-	reader.violated.Store(true)
+	reporter.violated.Store(true)
 	require.Error(t, checker.UpdateFinalized(ctx, 101))
 	require.True(t, checker.IsFinalityViolated())
 	require.Error(t, checker.UpdateFinalized(ctx, 102))
 	require.Equal(t, []bool{true}, metrics.calls, "the violation metric is emitted once")
 
 	// The log poller clears its flag after reconciling; the checker stays violated.
-	reader.violated.Store(false)
+	reporter.violated.Store(false)
 	require.Error(t, checker.UpdateFinalized(ctx, 103))
 	require.True(t, checker.IsFinalityViolated())
 	require.Equal(t, []bool{true}, metrics.calls)

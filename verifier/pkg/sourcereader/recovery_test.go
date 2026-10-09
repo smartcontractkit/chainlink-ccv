@@ -401,12 +401,11 @@ func TestInitializeStartBlockRejectsUnrepresentableCheckpoints(t *testing.T) {
 // A reset with log poller finality refuses while the log poller reports the violation, without any
 // RPC call, and installs a fresh log poller checker once it clears.
 func TestResetWithLogPollerFinality(t *testing.T) {
-	r, reader, _ := recoveryTestService(t, false, common.AllowAllMessagesChecker{})
+	r, _, _ := recoveryTestService(t, false, common.AllowAllMessagesChecker{})
 	ctx := t.Context()
-	lpReader := &violationReportingReader{MockSourceReader: reader}
-	r.sourceReader = lpReader
+	reporter := &fakeFinalityReporter{}
+	r.finalityReporter = reporter
 	r.sourceCfg.DisableFinalityChecker = false
-	r.sourceCfg.LogPollerFinality = true
 	require.NoError(t, r.chainStatusManager.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{{ChainSelector: 42, FinalizedBlockHeight: big.NewInt(0), Disabled: true}}))
 	_, err := r.initializeStartBlock(ctx)
 	require.NoError(t, err)
@@ -420,12 +419,12 @@ func TestResetWithLogPollerFinality(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	lpReader.violated.Store(true)
+	reporter.violated.Store(true)
 	require.ErrorContains(t, r.resetReader(ctx, reset), "log poller still reports a finality violation")
 	require.True(t, r.disabled.Load(), "the reader stays disabled")
 	require.Same(t, previous, r.finalityChecker)
 
-	lpReader.violated.Store(false)
+	reporter.violated.Store(false)
 	require.NoError(t, r.resetReader(ctx, reset))
 	require.False(t, r.disabled.Load())
 	require.IsType(t, &logPollerFinalityChecker{}, r.finalityChecker)

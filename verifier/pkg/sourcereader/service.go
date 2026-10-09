@@ -62,10 +62,12 @@ type Service struct {
 	curseDetector   common.CurseCheckerService
 	messageRules    common.MessageRulesChecker
 	finalityChecker protocol.FinalityViolationChecker
-	pollInterval    time.Duration
-	pollTimeout     time.Duration
-	maxBlockRange   uint64
-	sourceCfg       verifier.SourceConfig
+	// finalityReporter is the chain's own finality signal, nil when headers are compared instead.
+	finalityReporter chainaccess.FinalityViolationReporter
+	pollInterval     time.Duration
+	pollTimeout      time.Duration
+	maxBlockRange    uint64
+	sourceCfg        verifier.SourceConfig
 
 	// DB-backed task queue
 	taskQueue jobqueue.JobQueue[verifier.VerificationTask]
@@ -92,6 +94,19 @@ type Service struct {
 	filter   chainaccess.MessageFilter
 }
 
+// ServiceOption customizes NewService.
+type ServiceOption func(*serviceOptions)
+
+type serviceOptions struct {
+	finalityReporter chainaccess.FinalityViolationReporter
+}
+
+// WithFinalityReporter makes the service use the chain's own finality signal instead of comparing
+// headers; a nil reporter keeps the header-based checker.
+func WithFinalityReporter(reporter chainaccess.FinalityViolationReporter) ServiceOption {
+	return func(o *serviceOptions) { o.finalityReporter = reporter }
+}
+
 // NewService creates a DB-backed Service that publishes
 // ready tasks directly to the ccv_task_verifier_jobs job queue.
 func NewService(
@@ -106,7 +121,12 @@ func NewService(
 	monitoring verifier.Monitoring,
 	taskQueue jobqueue.JobQueue[verifier.VerificationTask],
 	messageRules common.MessageRulesChecker,
+	opts ...ServiceOption,
 ) (*Service, error) {
+	var options serviceOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
 	if sourceReader == nil {
 		return nil, fmt.Errorf("sourceReader cannot be nil")
 	}
@@ -133,6 +153,7 @@ func NewService(
 	finalityChecker, err := newFinalityChecker(
 		sourceCfg,
 		sourceReader,
+		options.finalityReporter,
 		chainSelector,
 		logger.With(lggr, "component", "FinalityChecker", "chainID", chainSelector),
 		metrics,
@@ -166,6 +187,7 @@ func NewService(
 		curseDetector:      curseDetector,
 		messageRules:       messageRules,
 		finalityChecker:    finalityChecker,
+		finalityReporter:   options.finalityReporter,
 		pollInterval:       interval,
 		pollTimeout:        pollTimeout,
 		sourceCfg:          sourceCfg,

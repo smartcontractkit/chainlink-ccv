@@ -15,25 +15,26 @@
 
 | Symbol | Kind | Search | Location | Section |
 |---|---|---|---|---|
-| `evm.NewEVMSourceReader` | signature-changed | `\bNewEVMSourceReader\(` | `integration/pkg/accessors/evm/evm_source_reader.go:102` | [#newevmsourcereader-signature](#newevmsourcereader-signature) |
-| `evm.SourceReader.FetchMessageSentEvents` | behavior-changed | `\.FetchMessageSentEvents\(` | `integration/pkg/accessors/evm/evm_source_reader.go:460` | [#log-source](#log-source) |
-| `evm.SourceReader.LatestAndFinalizedBlock` | behavior-changed | `\.LatestAndFinalizedBlock\(` | `integration/pkg/accessors/evm/evm_source_reader.go:716` | [#block-capping](#block-capping) |
-| `evm.SourceReader.LatestSafeBlock` | behavior-changed | `\.LatestSafeBlock\(` | `integration/pkg/accessors/evm/evm_source_reader.go:791` | [#block-capping](#block-capping) |
-| `sourcereader.Service` finality checker | behavior-changed | `sourcereader\.NewService\(` | `verifier/pkg/sourcereader/finality_checker.go:356` | [#log-poller-finality](#log-poller-finality) |
-| `sourcereader.Service` start | behavior-changed | `LoadFrom\(startBlock\)` | `verifier/pkg/sourcereader/service.go:198` | [#startup-load](#startup-load) |
-| `sourcereader.Service` read errors | behavior-changed | `Source not ready yet, waiting` | `verifier/pkg/sourcereader/service.go:387` | [#startup-load](#startup-load) |
-| `evm.LogPollerConfig` | behavior-changed | `\bLogPollerConfig\b` | `integration/pkg/accessors/evm/evm_source_reader.go:65` | [#newevmsourcereader-signature](#newevmsourcereader-signature) |
-| `evm.DefaultMessageSentLogRetention` | added | `\bDefaultMessageSentLogRetention\b` | `integration/pkg/accessors/evm/evm_source_reader.go:48` | [#newevmsourcereader-signature](#newevmsourcereader-signature) |
-| `evm.LogPollerEnabled` | added | `\bLogPollerEnabled\(` | `integration/pkg/accessors/evm/evm_source_reader.go:222` | [#log-poller-finality](#log-poller-finality) |
-| `evm.SourceReader.FinalityViolated` | added | `\.FinalityViolated\(` | `integration/pkg/accessors/evm/evm_source_reader.go:534` | [#log-poller-finality](#log-poller-finality) |
-| `evm.SourceReader.LoadFrom` | added | `\.LoadFrom\(` | `integration/pkg/accessors/evm/evm_source_reader.go:239` | [#startup-load](#startup-load) |
-| `evm.SourceReader.Close` | added | `\.Close\(` | `integration/pkg/accessors/evm/evm_source_reader.go:347` | [#filter-lifecycle](#filter-lifecycle) |
-| `evm.ErrLogPollerNotReady` | added | `\bErrLogPollerNotReady\b` | `integration/pkg/accessors/evm/evm_source_reader.go:55` | [#startup-load](#startup-load) |
-| `evm.ErrLogPollerBehind` | added | `\bErrLogPollerBehind\b` | `integration/pkg/accessors/evm/evm_source_reader.go:52` | [#log-source](#log-source) |
+| `evm.NewEVMSourceReader` | signature-changed | `\bNewEVMSourceReader\(` | `integration/pkg/accessors/evm/evm_source_reader.go:101` | [#newevmsourcereader-signature](#newevmsourcereader-signature) |
+| `evm.SourceReader.FetchMessageSentEvents` | behavior-changed | `\.FetchMessageSentEvents\(` | `integration/pkg/accessors/evm/evm_source_reader.go:476` | [#log-source](#log-source) |
+| `evm.SourceReader.LatestAndFinalizedBlock` | behavior-changed | `\.LatestAndFinalizedBlock\(` | `integration/pkg/accessors/evm/evm_source_reader.go:726` | [#block-capping](#block-capping) |
+| `evm.SourceReader.LatestSafeBlock` | behavior-changed | `\.LatestSafeBlock\(` | `integration/pkg/accessors/evm/evm_source_reader.go:801` | [#block-capping](#block-capping) |
+| `sourcereader.Service` finality checker | behavior-changed | `sourcereader\.NewService\(` | `verifier/pkg/sourcereader/finality_checker.go:355` | [#log-poller-finality](#log-poller-finality) |
+| `sourcereader.Service` start | behavior-changed | `LoadFrom\(startBlock\)` | `verifier/pkg/sourcereader/service.go:220` | [#startup-load](#startup-load) |
+| `sourcereader.Service` read errors | behavior-changed | `Source not ready yet, waiting` | `verifier/pkg/sourcereader/service.go:409` | [#startup-load](#startup-load) |
+| `evm.LogPollerConfig` | behavior-changed | `\bLogPollerConfig\b` | `integration/pkg/accessors/evm/evm_source_reader.go:64` | [#newevmsourcereader-signature](#newevmsourcereader-signature) |
+| `evm.DefaultMessageSentLogRetention` | added | `\bDefaultMessageSentLogRetention\b` | `integration/pkg/accessors/evm/evm_source_reader.go:47` | [#newevmsourcereader-signature](#newevmsourcereader-signature) |
+| `evm.LogPollerEnabled` | added | `\bLogPollerEnabled\(` | `integration/pkg/accessors/evm/evm_source_reader.go:221` | [#log-poller-finality](#log-poller-finality) |
+| `evm.NewLogPollerFinality` | added | `\bNewLogPollerFinality\(` | `integration/pkg/accessors/evm/evm_source_reader.go:231` | [#log-poller-finality](#log-poller-finality) |
+| `evm.SourceReader.LoadFrom` | added | `\.LoadFrom\(` | `integration/pkg/accessors/evm/evm_source_reader.go:255` | [#startup-load](#startup-load) |
+| `evm.SourceReader.Close` | added | `\.Close\(` | `integration/pkg/accessors/evm/evm_source_reader.go:363` | [#filter-lifecycle](#filter-lifecycle) |
+| `evm.ErrLogPollerNotReady` | added | `\bErrLogPollerNotReady\b` | `integration/pkg/accessors/evm/evm_source_reader.go:54` | [#startup-load](#startup-load) |
+| `evm.ErrLogPollerBehind` | added | `\bErrLogPollerBehind\b` | `integration/pkg/accessors/evm/evm_source_reader.go:51` | [#log-source](#log-source) |
 | `chainaccess.FinalityViolationReporter` | added | `\bFinalityViolationReporter\b` | `pkg/chainaccess/interfaces.go:69` | [#log-poller-finality](#log-poller-finality) |
 | `chainaccess.ErrSourceNotReady` | added | `\bErrSourceNotReady\b` | `pkg/chainaccess/interfaces.go:76` | [#startup-load](#startup-load) |
 | `chainaccess.SourceLoader` | added | `\bSourceLoader\b` | `pkg/chainaccess/interfaces.go:80` | [#startup-load](#startup-load) |
-| `vtypes.SourceConfig.LogPollerFinality` | added | `\bLogPollerFinality\b` | `verifier/pkg/vtypes/types.go:54` | [#log-poller-finality](#log-poller-finality) |
+| `verifier.WithFinalityReporters` | added | `\bWithFinalityReporters\(` | `verifier/pkg/coordinator.go:85` | [#log-poller-finality](#log-poller-finality) |
+| `sourcereader.WithFinalityReporter` | added | `\bWithFinalityReporter\(` | `verifier/pkg/sourcereader/service.go:106` | [#log-poller-finality](#log-poller-finality) |
 
 ## Breaking Changes
 
@@ -81,12 +82,12 @@ The header at `P` comes from `GetBlocksHeaders`. A missing header is an error. W
 
 ## Log poller finality
 
-- `vtypes.SourceConfig.LogPollerFinality` selects the finality checker. `constructors.NewVerificationCoordinator` sets it from `evm.LogPollerEnabled(chain.LogPoller())`, the same check that makes the reader read from the LogPoller. It is not operator config (`json:"-"`).
-- With it set, the service uses `logPollerFinalityChecker` instead of the header-based checker. It reads only `FinalityViolated()`, which is true when the LogPoller's `Healthy()` returns `commontypes.ErrFinalityViolated`. It makes no RPC calls.
+- `constructors.NewVerificationCoordinator` builds `evm.NewLogPollerFinality(chain.LogPoller())` per chain and passes the map with `verifier.WithFinalityReporters`. It is nil when `evm.LogPollerEnabled` is false, the same check that makes the reader read from the LogPoller, so the two cannot disagree.
+- The coordinator hands each chain's reporter to its service with `sourcereader.WithFinalityReporter`. With one, the service uses `logPollerFinalityChecker` instead of the header-based checker. It reads only `FinalityViolated()`, which is true when the LogPoller's `Healthy()` returns `commontypes.ErrFinalityViolated`. It makes no RPC calls.
 - The LogPoller clears its flag once it reconciles, so the checker latches the first violation. `handleFinalityViolation` disables the chain as before.
 - `SourceConfig.DisableFinalityChecker` still wins and selects the no-op checker.
 - A live recovery reset fails with `log poller still reports a finality violation` while the flag is set, and leaves the reader disabled.
-- `chainaccess.FinalityViolationReporter` (`pkg/chainaccess/interfaces.go:69`) is the optional reader capability. `NewService` fails when `LogPollerFinality` is set and the reader does not implement it. The metrics wrapper in `integration/pkg/sourcereader/observed_source_reader.go` forwards it.
+- `chainaccess.FinalityViolationReporter` (`pkg/chainaccess/interfaces.go:69`) is the injected signal, not a reader capability, so reader decorators such as `integration/pkg/sourcereader/observed_source_reader.go` cannot hide or fake it.
 - Accepted risk: the flag is sampled once per poll. A violation declared by the backup poller is re-declared on its next run, but one declared only by a LogPoller `Replay` can be cleared before it is read. The startup load retries a replay that hits a violation, so it is re-declared on each retry while it persists; it is missed only if the LogPoller reconciles before a poll samples it.
 
 ## Startup load

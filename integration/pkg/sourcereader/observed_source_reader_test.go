@@ -284,37 +284,3 @@ func TestObservedSourceReader_Close(t *testing.T) {
 	require.NoError(t, rd.(io.Closer).Close())
 	require.True(t, delegate.closed)
 }
-
-type reportingReader struct {
-	*mocks.MockSourceReader
-	supported, violated bool
-}
-
-func (r *reportingReader) ReportsFinalityViolations() bool { return r.supported }
-func (r *reportingReader) FinalityViolated() bool          { return r.violated }
-
-func TestObservedSourceReader_FinalityViolationReporting(t *testing.T) {
-	monitor := monitoring.NewFakeVerifierMonitoring()
-	report := func(t *testing.T, delegate chainaccess.SourceReader) chainaccess.FinalityViolationReporter {
-		rd, err := NewObservedSourceReader(delegate, "v1", protocol.ChainSelector(1), monitor)
-		require.NoError(t, err)
-		return rd.(chainaccess.FinalityViolationReporter)
-	}
-
-	t.Run("delegate without the capability cannot report", func(t *testing.T) {
-		rd := report(t, mocks.NewMockSourceReader(t))
-		require.False(t, rd.ReportsFinalityViolations())
-		require.False(t, rd.FinalityViolated())
-	})
-
-	t.Run("forwards a reporting delegate", func(t *testing.T) {
-		rd := report(t, &reportingReader{MockSourceReader: mocks.NewMockSourceReader(t), supported: true, violated: true})
-		require.True(t, rd.ReportsFinalityViolations())
-		require.True(t, rd.FinalityViolated())
-	})
-
-	t.Run("forwards a delegate that cannot report", func(t *testing.T) {
-		rd := report(t, &reportingReader{MockSourceReader: mocks.NewMockSourceReader(t)})
-		require.False(t, rd.ReportsFinalityViolations())
-	})
-}

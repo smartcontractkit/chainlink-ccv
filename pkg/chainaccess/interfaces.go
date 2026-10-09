@@ -64,13 +64,10 @@ type CriticalSourceInvariantCallbackSetter interface {
 	SetCriticalSourceInvariantCallback(callback func(context.Context))
 }
 
-// FinalityViolationReporter is an optional SourceReader capability for readers whose data source
-// detects finality violations itself, such as the EVM log poller.
+// FinalityViolationReporter is a chain's own finality-violation signal, such as the EVM log poller's.
+// The verifier is handed one per chain that has it and uses it instead of comparing block headers.
 type FinalityViolationReporter interface {
-	// ReportsFinalityViolations reports whether FinalityViolated is backed by a data source; when false,
-	// FinalityViolated is always false and must not be relied on.
-	ReportsFinalityViolations() bool
-	// FinalityViolated reports whether the reader's data source currently detects a finality violation.
+	// FinalityViolated reports whether the data source currently detects a finality violation.
 	FinalityViolated() bool
 }
 

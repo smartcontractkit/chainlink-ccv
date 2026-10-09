@@ -39,7 +39,6 @@ import (
 var (
 	_ chainaccess.SourceReader                          = (*SourceReader)(nil)
 	_ chainaccess.CriticalSourceInvariantCallbackSetter = (*SourceReader)(nil)
-	_ chainaccess.FinalityViolationReporter             = (*SourceReader)(nil)
 	_ chainaccess.SourceLoader                          = (*SourceReader)(nil)
 )
 
@@ -221,6 +220,23 @@ func NewEVMSourceReader(
 // finality signal, so the two cannot disagree.
 func LogPollerEnabled(lp logpoller.LogPoller) bool {
 	return lp != nil && lp != logpoller.LogPollerDisabled
+}
+
+// logPollerFinality reports the finality violations the node's log poller detects.
+type logPollerFinality struct {
+	lp logpoller.LogPoller
+}
+
+// NewLogPollerFinality returns the log poller's finality signal, or nil when the log poller is disabled.
+func NewLogPollerFinality(lp logpoller.LogPoller) chainaccess.FinalityViolationReporter {
+	if !LogPollerEnabled(lp) {
+		return nil
+	}
+	return logPollerFinality{lp: lp}
+}
+
+func (f logPollerFinality) FinalityViolated() bool {
+	return errors.Is(f.lp.Healthy(), commontypes.ErrFinalityViolated)
 }
 
 // startLogPoller switches the reader to the log poller and starts the goroutine that loads it once
@@ -527,17 +543,6 @@ func (r *SourceReader) logPollerLogs(ctx context.Context, fromBlock, toBlock uin
 		logs = append(logs, l)
 	}
 	return logs, nil
-}
-
-// ReportsFinalityViolations implements chainaccess.FinalityViolationReporter: only the log poller detects them.
-func (r *SourceReader) ReportsFinalityViolations() bool {
-	return r.lp != nil
-}
-
-// FinalityViolated reports whether the log poller has detected a finality violation; false
-// without a log poller.
-func (r *SourceReader) FinalityViolated() bool {
-	return r.lp != nil && errors.Is(r.lp.Healthy(), commontypes.ErrFinalityViolated)
 }
 
 // logPollerBlock returns the last block the log poller has processed.

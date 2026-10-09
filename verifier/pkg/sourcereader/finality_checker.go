@@ -343,12 +343,12 @@ func (c *logPollerFinalityChecker) IsFinalityViolated() bool {
 	return c.violated.Load()
 }
 
-// newFinalityChecker selects the finality checker for a source chain from its config:
-// DisableFinalityChecker wins, LogPollerFinality uses the log poller's signal, and otherwise the
-// checker compares finalized block headers itself.
+// newFinalityChecker selects the finality checker for a source chain: DisableFinalityChecker wins, a
+// chain's own finality reporter (the log poller) is used when given, and otherwise headers are compared.
 func newFinalityChecker(
 	cfg verifier.SourceConfig,
 	reader chainaccess.SourceReader,
+	reporter chainaccess.FinalityViolationReporter,
 	chainSelector protocol.ChainSelector,
 	lggr logger.Logger,
 	metrics verifier.FinalityCheckerMetrics,
@@ -357,11 +357,7 @@ func newFinalityChecker(
 	case cfg.DisableFinalityChecker:
 		lggr.Infow("FinalityViolationChecker is disabled by config", "chainSelector", chainSelector)
 		return &NoOpFinalityViolationChecker{}, nil
-	case cfg.LogPollerFinality:
-		reporter, ok := reader.(chainaccess.FinalityViolationReporter)
-		if !ok || !reporter.ReportsFinalityViolations() {
-			return nil, fmt.Errorf("log poller finality is enabled but source reader %T does not report finality violations", reader)
-		}
+	case reporter != nil:
 		lggr.Infow("Using log poller finality violation checker", "chainSelector", chainSelector)
 		return &logPollerFinalityChecker{
 			reporter:      reporter,

@@ -76,7 +76,14 @@ type Coordinator struct {
 type CoordinatorOption func(*coordinatorOptions)
 
 type coordinatorOptions struct {
-	sourceRecovery bool
+	sourceRecovery    bool
+	finalityReporters map[protocol.ChainSelector]chainaccess.FinalityViolationReporter
+}
+
+// WithFinalityReporters gives chains their own finality signal, such as the log poller's, in place of
+// the header-based finality checker. Chains without an entry keep comparing headers.
+func WithFinalityReporters(reporters map[protocol.ChainSelector]chainaccess.FinalityViolationReporter) CoordinatorOption {
+	return func(o *coordinatorOptions) { o.finalityReporters = reporters }
 }
 
 // WithSourceRecovery enables durable source-range recovery on the source readers. Standalone
@@ -180,7 +187,7 @@ func NewCoordinatorWithDetector(
 		}
 
 		processors, err := createDurableProcessors(
-			lggr, ds, config, verifier, monitoring, configuredSourceReaders, batchedChainStatusManager, vc.curseDetector, messageTracker, storage, messageRulesChecker, options.sourceRecovery,
+			lggr, ds, config, verifier, monitoring, configuredSourceReaders, batchedChainStatusManager, vc.curseDetector, messageTracker, storage, messageRulesChecker, options.sourceRecovery, options.finalityReporters,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to create durable processors: %w", err)
@@ -236,6 +243,7 @@ func createDurableProcessors(
 	storage protocol.CCVNodeDataWriter,
 	messageRulesChecker common.MessageRulesChecker,
 	sourceRecovery bool,
+	finalityReporters map[protocol.ChainSelector]chainaccess.FinalityViolationReporter,
 ) (*durableProcessors, error) {
 	taskQueue, err := jobqueue.NewPostgresJobQueue[VerificationTask](
 		ds,
@@ -289,6 +297,7 @@ func createDurableProcessors(
 
 	sourceReadersDB, err := createSourceReadersDB(
 		lggr, config, chainStatusManager, curseDetector, monitoring, configuredSourceReaders, taskQueueObserver, messageRulesChecker,
+		finalityReporters,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create DB source reader services: %w", err)
@@ -417,6 +426,7 @@ func createSourceReadersDB(
 	configuredSourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
 	taskQueue jobqueue.JobQueue[VerificationTask],
 	messageRulesChecker common.MessageRulesChecker,
+	finalityReporters map[protocol.ChainSelector]chainaccess.FinalityViolationReporter,
 ) (map[protocol.ChainSelector]*sourcereader.Service, error) {
 	sourceReaderServices := make(map[protocol.ChainSelector]*sourcereader.Service)
 	for chainSelector, sourceReader := range configuredSourceReaders {
@@ -427,6 +437,7 @@ func createSourceReadersDB(
 			config.VerifierID, sourceReader, chainSelector, chainStatusManager,
 			logger.With(lggr, "component", "SourceReaderDB", "chainID", chainSelector),
 			sourceCfg, curseDetector, filter, monitoring, taskQueue, messageRulesChecker,
+			sourcereader.WithFinalityReporter(finalityReporters[chainSelector]),
 		)
 		if err != nil {
 			lggr.Errorw("failed to create Service for chain, skipping this chain", "chainSelector", chainSelector, "error", err)

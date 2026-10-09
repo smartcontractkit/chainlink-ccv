@@ -816,7 +816,7 @@ func TestSRS_FinalityViolation_DisablesChainAndFlushesTasks(t *testing.T) {
 func TestSRS_SourceReaderFinalityViolation_DisablesChainAndStaysDisabled(t *testing.T) {
 	ctx := context.Background()
 	chain := protocol.ChainSelector(1337)
-	reader := &violationReportingReader{MockSourceReader: mocks.NewMockSourceReader(t)}
+	reader := &fakeFinalityReporter{}
 
 	chainStatusMgr := mocks.NewMockChainStatusManager(t)
 	chainStatusMgr.EXPECT().
@@ -827,7 +827,7 @@ func TestSRS_SourceReaderFinalityViolation_DisablesChainAndStaysDisabled(t *test
 			return nil
 		}).Once()
 
-	srs, _, _ := newTestSRS(t, chain, reader.MockSourceReader, chainStatusMgr, mocks.NewMockCurseCheckerService(t), 10*time.Millisecond, 5000)
+	srs, _, _ := newTestSRS(t, chain, mocks.NewMockSourceReader(t), chainStatusMgr, mocks.NewMockCurseCheckerService(t), 10*time.Millisecond, 5000)
 	useLogPollerFinality(t, srs, reader, false)
 	reader.violated.Store(true)
 
@@ -855,9 +855,9 @@ func TestSRS_SourceReaderFinalityViolation_DisablesChainAndStaysDisabled(t *test
 func TestSRS_SourceReaderFinalityViolation_IgnoredWhenFinalityCheckerDisabled(t *testing.T) {
 	ctx := context.Background()
 	chain := protocol.ChainSelector(1337)
-	reader := &violationReportingReader{MockSourceReader: mocks.NewMockSourceReader(t)}
+	reader := &fakeFinalityReporter{}
 
-	srs, _, _ := newTestSRS(t, chain, reader.MockSourceReader, mocks.NewMockChainStatusManager(t), mocks.NewMockCurseCheckerService(t), 10*time.Millisecond, 5000)
+	srs, _, _ := newTestSRS(t, chain, mocks.NewMockSourceReader(t), mocks.NewMockChainStatusManager(t), mocks.NewMockCurseCheckerService(t), 10*time.Millisecond, 5000)
 	useLogPollerFinality(t, srs, reader, true)
 	reader.violated.Store(true)
 
@@ -890,50 +890,35 @@ func TestSRS_Start_LoadsSourceFromStartBlock(t *testing.T) {
 	}
 }
 
-// useLogPollerFinality installs the checker NewService would select for a log-poller-backed reader.
-func useLogPollerFinality(t *testing.T, srs *Service, reader *violationReportingReader, disableFinalityChecker bool) {
+// useLogPollerFinality installs the checker NewService would select for a chain with a finality reporter.
+func useLogPollerFinality(t *testing.T, srs *Service, reporter *fakeFinalityReporter, disableFinalityChecker bool) {
 	t.Helper()
-	srs.sourceReader = reader
-	srs.sourceCfg.LogPollerFinality = true
+	srs.finalityReporter = reporter
 	srs.sourceCfg.DisableFinalityChecker = disableFinalityChecker
-	checker, err := newFinalityChecker(srs.sourceCfg, reader, srs.chainSelector, logger.Test(t), srs.metrics())
+	checker, err := newFinalityChecker(srs.sourceCfg, srs.sourceReader, reporter, srs.chainSelector, logger.Test(t), srs.metrics())
 	require.NoError(t, err)
 	srs.finalityChecker = checker
 }
 
-func TestNewService_LogPollerFinalityRequiresReportingReader(t *testing.T) {
-	_, err := NewService(
+func TestNewService_FinalityReporterSelectsLogPollerChecker(t *testing.T) {
+	reporter := &fakeFinalityReporter{}
+	srs, err := NewService(
 		"test-verifier",
 		mocks.NewMockSourceReader(t),
 		protocol.ChainSelector(1337),
 		mocks.NewMockChainStatusManager(t),
 		logger.Test(t),
-		verifier.SourceConfig{LogPollerFinality: true},
+		verifier.SourceConfig{},
 		mocks.NewMockCurseCheckerService(t),
 		&noopFilter{},
 		verifiermonitoring.NewFakeVerifierMonitoring(),
 		&fakeTaskQueue{},
 		common.AllowAllMessagesChecker{},
-	)
-	require.ErrorContains(t, err, "failed to create finality checker")
-}
-
-func TestNewService_LogPollerFinalitySelectsLogPollerChecker(t *testing.T) {
-	srs, err := NewService(
-		"test-verifier",
-		&violationReportingReader{MockSourceReader: mocks.NewMockSourceReader(t)},
-		protocol.ChainSelector(1337),
-		mocks.NewMockChainStatusManager(t),
-		logger.Test(t),
-		verifier.SourceConfig{LogPollerFinality: true},
-		mocks.NewMockCurseCheckerService(t),
-		&noopFilter{},
-		verifiermonitoring.NewFakeVerifierMonitoring(),
-		&fakeTaskQueue{},
-		common.AllowAllMessagesChecker{},
+		WithFinalityReporter(reporter),
 	)
 	require.NoError(t, err)
 	require.IsType(t, &logPollerFinalityChecker{}, srs.finalityChecker)
+	require.Same(t, reporter, srs.finalityReporter, "kept for the checker a recovery reset rebuilds")
 }
 
 func TestSRS_Reorg_TracksSequenceNumbers(t *testing.T) {
