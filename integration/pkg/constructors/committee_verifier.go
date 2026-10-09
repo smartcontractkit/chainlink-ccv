@@ -108,6 +108,7 @@ func NewVerificationCoordinator(
 	// Initialize chain components.
 	sourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
 	sourceConfigs := make(map[protocol.ChainSelector]verifier.SourceConfig)
+	finalityReporters := make(map[protocol.ChainSelector]chainaccess.FinalityViolationReporter)
 	for sel, chain := range relayers {
 		if _, ok := onRampAddrs[sel]; !ok {
 			lggr.Warnw("No onramp address for chain, skipping.", "chainID", sel)
@@ -141,6 +142,7 @@ func NewVerificationCoordinator(
 			func(ctx context.Context) {
 				chainMetrics.IncrementCriticalSourceInvariantViolations(ctx)
 			},
+			newLogPollerConfig(ds, chain, cfg.VerifierID),
 		)
 		if err != nil {
 			// A failure to build one chain's reader must not stop the remaining chains from
@@ -158,6 +160,9 @@ func NewVerificationCoordinator(
 		}
 
 		sourceReaders[sel] = observedSourceReader
+		if reporter := evm.NewLogPollerFinality(chain.LogPoller()); reporter != nil {
+			finalityReporters[sel] = reporter
+		}
 		sourceConfigs[sel] = verifier.SourceConfig{
 			VerifierAddress:        verifierAddrs[sel],
 			DefaultExecutorAddress: defaultExecutorAddrs[sel],
@@ -328,6 +333,7 @@ func NewVerificationCoordinator(
 		heartbeatSender,
 		messageRulesPoller,
 		ds,
+		verifier.WithFinalityReporters(finalityReporters),
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create verification coordinator", "error", err)

@@ -10,7 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -438,4 +440,60 @@ func TestNoOpFinalityViolationChecker(t *testing.T) {
 	err = checker.UpdateFinalized(ctx, 200)
 	require.NoError(t, err)
 	assert.False(t, checker.IsFinalityViolated())
+}
+
+// recordingFinalityMetrics records every SetVerifierFinalityViolated call.
+type recordingFinalityMetrics struct {
+	calls []bool
+}
+
+func (m *recordingFinalityMetrics) SetVerifierFinalityViolated(_ context.Context, _ protocol.ChainSelector, violated bool) {
+	m.calls = append(m.calls, violated)
+}
+
+func TestNewFinalityChecker_Selection(t *testing.T) {
+	tests := []struct {
+		name     string
+		cfg      verifier.SourceConfig
+		reporter chainaccess.FinalityViolationReporter
+		want     any
+	}{
+		{name: "default uses header checker", want: &FinalityViolationCheckerService{}},
+		{name: "a finality reporter uses log poller checker", reporter: &fakeFinalityReporter{}, want: &logPollerFinalityChecker{}},
+		{name: "disabled wins over a finality reporter", cfg: verifier.SourceConfig{DisableFinalityChecker: true}, reporter: &fakeFinalityReporter{}, want: &NoOpFinalityViolationChecker{}},
+		{name: "disabled", cfg: verifier.SourceConfig{DisableFinalityChecker: true}, want: &NoOpFinalityViolationChecker{}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			checker, err := newFinalityChecker(tc.cfg, mocks.NewMockSourceReader(t), tc.reporter, protocol.ChainSelector(1337), logger.Test(t), &recordingFinalityMetrics{})
+			require.NoError(t, err)
+			require.IsType(t, tc.want, checker)
+		})
+	}
+}
+
+func TestLogPollerFinalityChecker_LatchesAndNeverFetchesHeaders(t *testing.T) {
+	ctx := t.Context()
+	// The mock has no expectations, so any GetBlocksHeaders call fails the test.
+	reporter := &fakeFinalityReporter{}
+	metrics := &recordingFinalityMetrics{}
+	checker, err := newFinalityChecker(verifier.SourceConfig{}, mocks.NewMockSourceReader(t), reporter,
+		protocol.ChainSelector(1337), logger.Test(t), metrics)
+	require.NoError(t, err)
+
+	require.NoError(t, checker.UpdateFinalized(ctx, 100))
+	require.False(t, checker.IsFinalityViolated())
+	require.Empty(t, metrics.calls)
+
+	reporter.violated.Store(true)
+	require.Error(t, checker.UpdateFinalized(ctx, 101))
+	require.True(t, checker.IsFinalityViolated())
+	require.Error(t, checker.UpdateFinalized(ctx, 102))
+	require.Equal(t, []bool{true}, metrics.calls, "the violation metric is emitted once")
+
+	// The log poller clears its flag after reconciling; the checker stays violated.
+	reporter.violated.Store(false)
+	require.Error(t, checker.UpdateFinalized(ctx, 103))
+	require.True(t, checker.IsFinalityViolated())
+	require.Equal(t, []bool{true}, metrics.calls)
 }

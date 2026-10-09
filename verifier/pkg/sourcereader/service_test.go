@@ -2,6 +2,8 @@ package sourcereader
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"math"
 	"math/big"
 	"sync"
@@ -11,10 +13,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap/zapcore"
 
 	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/common/jobqueue"
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	verifiermonitoring "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
@@ -807,6 +811,114 @@ func TestSRS_FinalityViolation_DisablesChainAndFlushesTasks(t *testing.T) {
 	defer srs.mu.RUnlock()
 	require.Len(t, srs.pendingTasks, 0, "pending tasks should be flushed on finality violation")
 	require.Len(t, srs.sentTasks, 0, "sent tasks should be flushed on finality violation")
+}
+
+func TestSRS_SourceReaderFinalityViolation_DisablesChainAndStaysDisabled(t *testing.T) {
+	ctx := context.Background()
+	chain := protocol.ChainSelector(1337)
+	reader := &fakeFinalityReporter{}
+
+	chainStatusMgr := mocks.NewMockChainStatusManager(t)
+	chainStatusMgr.EXPECT().
+		WriteChainStatuses(mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, infos []protocol.ChainStatusInfo) error {
+			require.Len(t, infos, 1)
+			require.True(t, infos[0].Disabled)
+			return nil
+		}).Once()
+
+	srs, _, _ := newTestSRS(t, chain, mocks.NewMockSourceReader(t), chainStatusMgr, mocks.NewMockCurseCheckerService(t), 10*time.Millisecond, 5000)
+	useLogPollerFinality(t, srs, reader, false)
+	reader.violated.Store(true)
+
+	msgs := createTestMessageSentEvents(t, 1, chain, defaultDestChain, []uint64{940})
+	task := verifier.VerificationTask{Message: msgs[0].Message, BlockNumber: msgs[0].BlockNumber, MessageID: msgs[0].MessageID.String()}
+	srs.mu.Lock()
+	srs.pendingTasks[task.MessageID] = task
+	srs.mu.Unlock()
+
+	latest := &protocol.BlockHeader{Number: 1000}
+	finalized := &protocol.BlockHeader{Number: 950}
+	require.False(t, srs.sendReadyMessages(ctx, latest, nil, finalized))
+	require.True(t, srs.disabled.Load(), "a source-reported violation must disable the chain")
+	srs.mu.RLock()
+	require.Empty(t, srs.pendingTasks, "pending tasks should be flushed")
+	srs.mu.RUnlock()
+	require.IsType(t, &logPollerFinalityChecker{}, srs.finalityChecker)
+
+	// The halt is latched: the source clearing its flag must not resume the reader.
+	reader.violated.Store(false)
+	require.False(t, srs.sendReadyMessages(ctx, latest, nil, &protocol.BlockHeader{Number: 960}))
+	require.True(t, srs.disabled.Load())
+}
+
+func TestSRS_SourceReaderFinalityViolation_IgnoredWhenFinalityCheckerDisabled(t *testing.T) {
+	ctx := context.Background()
+	chain := protocol.ChainSelector(1337)
+	reader := &fakeFinalityReporter{}
+
+	srs, _, _ := newTestSRS(t, chain, mocks.NewMockSourceReader(t), mocks.NewMockChainStatusManager(t), mocks.NewMockCurseCheckerService(t), 10*time.Millisecond, 5000)
+	useLogPollerFinality(t, srs, reader, true)
+	reader.violated.Store(true)
+
+	require.True(t, srs.sendReadyMessages(ctx, &protocol.BlockHeader{Number: 1000}, nil, &protocol.BlockHeader{Number: 950}))
+	require.False(t, srs.disabled.Load())
+}
+
+func TestSRS_Start_LoadsSourceFromStartBlock(t *testing.T) {
+	chain := protocol.ChainSelector(1337)
+	for name, disabled := range map[string]bool{
+		"enabled chain":  false,
+		"disabled chain": true, // loaded too, so the index is ready when recovery re-enables the chain
+	} {
+		t.Run(name, func(t *testing.T) {
+			chainStatusMgr := mocks.NewMockChainStatusManager(t)
+			chainStatusMgr.EXPECT().ReadChainStatuses(mock.Anything, mock.Anything).
+				Return(map[protocol.ChainSelector]*protocol.ChainStatusInfo{
+					chain: {ChainSelector: chain, FinalizedBlockHeight: big.NewInt(500), Disabled: disabled},
+				}, nil).Once()
+			reader := &loadingReader{MockSourceReader: mocks.NewMockSourceReader(t)}
+			// A long poll interval keeps the loop from ticking, so only Start's effect is observed.
+			srs, _, _ := newTestSRS(t, chain, reader.MockSourceReader, chainStatusMgr, mocks.NewMockCurseCheckerService(t), time.Hour, 5000)
+			srs.sourceReader = reader
+			require.NoError(t, srs.Start(t.Context()))
+			t.Cleanup(func() { require.NoError(t, srs.Close()) })
+			// LoadFrom runs before startBlockInitialized is set, so the atomic orders the read.
+			require.Eventually(t, srs.startBlockInitialized.Load, tests.WaitTimeout(t), 10*time.Millisecond)
+			require.Equal(t, []uint64{501}, reader.loaded)
+		})
+	}
+}
+
+// useLogPollerFinality installs the checker NewService would select for a chain with a finality reporter.
+func useLogPollerFinality(t *testing.T, srs *Service, reporter *fakeFinalityReporter, disableFinalityChecker bool) {
+	t.Helper()
+	srs.finalityReporter = reporter
+	srs.sourceCfg.DisableFinalityChecker = disableFinalityChecker
+	checker, err := newFinalityChecker(srs.sourceCfg, srs.sourceReader, reporter, srs.chainSelector, logger.Test(t), srs.metrics())
+	require.NoError(t, err)
+	srs.finalityChecker = checker
+}
+
+func TestNewService_FinalityReporterSelectsLogPollerChecker(t *testing.T) {
+	reporter := &fakeFinalityReporter{}
+	srs, err := NewService(
+		"test-verifier",
+		mocks.NewMockSourceReader(t),
+		protocol.ChainSelector(1337),
+		mocks.NewMockChainStatusManager(t),
+		logger.Test(t),
+		verifier.SourceConfig{},
+		mocks.NewMockCurseCheckerService(t),
+		&noopFilter{},
+		verifiermonitoring.NewFakeVerifierMonitoring(),
+		&fakeTaskQueue{},
+		common.AllowAllMessagesChecker{},
+		WithFinalityReporter(reporter),
+	)
+	require.NoError(t, err)
+	require.IsType(t, &logPollerFinalityChecker{}, srs.finalityChecker)
+	require.Same(t, reporter, srs.finalityReporter, "kept for the checker a recovery reset rebuilds")
 }
 
 func TestSRS_Reorg_TracksSequenceNumbers(t *testing.T) {
@@ -2272,4 +2384,61 @@ func TestGetBlockRangesNearMaxHeight(t *testing.T) {
 			{fromBlock: math.MaxUint64 - 3},
 		}, srs.getBlockRanges(math.MaxUint64-25, math.MaxUint64))
 	})
+}
+
+// A read the log poller cannot serve yet must not advance the checkpoint past the unscanned range.
+func TestSRS_ProcessEventCycle_ReadErrorDoesNotAdvance(t *testing.T) {
+	chain := protocol.ChainSelector(1337)
+	reader := mocks.NewMockSourceReader(t)
+	reader.EXPECT().FetchMessageSentEvents(mock.Anything, uint64(501), uint64(0)).
+		Return(nil, errors.New("log poller has not reached the requested block")).Once()
+	srs, _, _ := newTestSRS(t, chain, reader, mocks.NewMockChainStatusManager(t), mocks.NewMockCurseCheckerService(t), time.Hour, 5000)
+	srs.lastProcessedFinalizedBlock.Store(501)
+
+	ok := srs.processEventCycle(t.Context(), &protocol.BlockHeader{Number: 450}, &protocol.BlockHeader{Number: 440})
+
+	require.False(t, ok)
+	require.Equal(t, uint64(501), srs.lastProcessedFinalizedBlock.Load())
+}
+
+// A source that is still loading is logged at info, not warn; neither failure advances the checkpoint.
+func TestSRS_ProcessEventCycle_SourceNotReadyLogsQuietly(t *testing.T) {
+	chain := protocol.ChainSelector(1337)
+	for name, tc := range map[string]struct {
+		readErr   error
+		wantWarns int
+	}{
+		"source still loading": {readErr: fmt.Errorf("%w: log poller filter not loaded", chainaccess.ErrSourceNotReady)},
+		"other read failure":   {readErr: errors.New("rpc down"), wantWarns: 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			reader := mocks.NewMockSourceReader(t)
+			reader.EXPECT().FetchMessageSentEvents(mock.Anything, uint64(501), uint64(0)).Return(nil, tc.readErr).Once()
+			srs, _, _ := newTestSRS(t, chain, reader, mocks.NewMockChainStatusManager(t), mocks.NewMockCurseCheckerService(t), time.Hour, 5000)
+			lggr, logs := logger.TestObserved(t, zapcore.WarnLevel)
+			srs.logger = lggr
+			srs.lastProcessedFinalizedBlock.Store(501)
+
+			require.False(t, srs.processEventCycle(t.Context(), &protocol.BlockHeader{Number: 450}, &protocol.BlockHeader{Number: 440}))
+
+			require.Equal(t, uint64(501), srs.lastProcessedFinalizedBlock.Load())
+			require.Len(t, logs.FilterMessage("Error when querying logs").All(), tc.wantWarns)
+		})
+	}
+}
+
+func TestSRS_Close_ClosesTheSourceReader(t *testing.T) {
+	chain := protocol.ChainSelector(1337)
+	reader := &closingReader{MockSourceReader: mocks.NewMockSourceReader(t)}
+	chainStatusMgr := mocks.NewMockChainStatusManager(t)
+	chainStatusMgr.EXPECT().ReadChainStatuses(mock.Anything, mock.Anything).
+		Return(map[protocol.ChainSelector]*protocol.ChainStatusInfo{
+			chain: {ChainSelector: chain, FinalizedBlockHeight: big.NewInt(500)},
+		}, nil).Once()
+	srs, _, _ := newTestSRS(t, chain, reader.MockSourceReader, chainStatusMgr, mocks.NewMockCurseCheckerService(t), time.Hour, 5000)
+	srs.sourceReader = reader
+	require.NoError(t, srs.Start(t.Context()))
+
+	require.NoError(t, srs.Close())
+	require.True(t, reader.closed.Load())
 }

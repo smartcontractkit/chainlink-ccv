@@ -2,12 +2,14 @@ package sourcereader
 
 import (
 	"fmt"
+	"io"
 	"testing"
 
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 )
@@ -241,4 +243,44 @@ func TestObservedSourceReader_Labels(t *testing.T) {
 	_, _, err = rd2.LatestAndFinalizedBlock(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, []string{"source_chain", "2", "source_chain_name", "unknown:2", "verifier_id", "verifier2"}, monitor.Fake.Labels())
+}
+
+type loadingReader struct {
+	*mocks.MockSourceReader
+	loaded []uint64
+}
+
+func (r *loadingReader) LoadFrom(startBlock uint64) { r.loaded = append(r.loaded, startBlock) }
+
+func TestObservedSourceReader_LoadFrom(t *testing.T) {
+	monitor := monitoring.NewFakeVerifierMonitoring()
+
+	t.Run("forwards to a loading delegate", func(t *testing.T) {
+		delegate := &loadingReader{MockSourceReader: mocks.NewMockSourceReader(t)}
+		rd, err := NewObservedSourceReader(delegate, "v1", protocol.ChainSelector(1), monitor)
+		require.NoError(t, err)
+		rd.(chainaccess.SourceLoader).LoadFrom(501)
+		require.Equal(t, []uint64{501}, delegate.loaded)
+	})
+
+	t.Run("no-op for a delegate without a local index", func(t *testing.T) {
+		rd, err := NewObservedSourceReader(mocks.NewMockSourceReader(t), "v1", protocol.ChainSelector(1), monitor)
+		require.NoError(t, err)
+		rd.(chainaccess.SourceLoader).LoadFrom(501)
+	})
+}
+
+type closingReader struct {
+	*mocks.MockSourceReader
+	closed bool
+}
+
+func (c *closingReader) Close() error { c.closed = true; return nil }
+
+func TestObservedSourceReader_Close(t *testing.T) {
+	delegate := &closingReader{MockSourceReader: mocks.NewMockSourceReader(t)}
+	rd, err := NewObservedSourceReader(delegate, "v1", protocol.ChainSelector(1), monitoring.NewFakeVerifierMonitoring())
+	require.NoError(t, err)
+	require.NoError(t, rd.(io.Closer).Close())
+	require.True(t, delegate.closed)
 }

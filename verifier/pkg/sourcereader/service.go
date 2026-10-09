@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"math/big"
 	"runtime/debug"
@@ -61,10 +62,12 @@ type Service struct {
 	curseDetector   common.CurseCheckerService
 	messageRules    common.MessageRulesChecker
 	finalityChecker protocol.FinalityViolationChecker
-	pollInterval    time.Duration
-	pollTimeout     time.Duration
-	maxBlockRange   uint64
-	sourceCfg       verifier.SourceConfig
+	// finalityReporter is the chain's own finality signal, nil when headers are compared instead.
+	finalityReporter chainaccess.FinalityViolationReporter
+	pollInterval     time.Duration
+	pollTimeout      time.Duration
+	maxBlockRange    uint64
+	sourceCfg        verifier.SourceConfig
 
 	// DB-backed task queue
 	taskQueue jobqueue.JobQueue[verifier.VerificationTask]
@@ -91,6 +94,19 @@ type Service struct {
 	filter   chainaccess.MessageFilter
 }
 
+// ServiceOption customizes NewService.
+type ServiceOption func(*serviceOptions)
+
+type serviceOptions struct {
+	finalityReporter chainaccess.FinalityViolationReporter
+}
+
+// WithFinalityReporter makes the service use the chain's own finality signal instead of comparing
+// headers; a nil reporter keeps the header-based checker.
+func WithFinalityReporter(reporter chainaccess.FinalityViolationReporter) ServiceOption {
+	return func(o *serviceOptions) { o.finalityReporter = reporter }
+}
+
 // NewService creates a DB-backed Service that publishes
 // ready tasks directly to the ccv_task_verifier_jobs job queue.
 func NewService(
@@ -105,7 +121,12 @@ func NewService(
 	monitoring verifier.Monitoring,
 	taskQueue jobqueue.JobQueue[verifier.VerificationTask],
 	messageRules common.MessageRulesChecker,
+	opts ...ServiceOption,
 ) (*Service, error) {
+	var options serviceOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
 	if sourceReader == nil {
 		return nil, fmt.Errorf("sourceReader cannot be nil")
 	}
@@ -129,22 +150,16 @@ func NewService(
 	}
 	metrics := monitoring.Metrics()
 
-	var finalityChecker protocol.FinalityViolationChecker
-	var err error
-
-	if sourceCfg.DisableFinalityChecker {
-		lggr.Infow("FinalityViolationChecker is disabled by config", "chainSelector", chainSelector)
-		finalityChecker = &NoOpFinalityViolationChecker{}
-	} else {
-		finalityChecker, err = NewFinalityViolationCheckerService(
-			sourceReader,
-			chainSelector,
-			logger.With(lggr, "component", "FinalityChecker", "chainID", chainSelector),
-			metrics,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create finality checker: %w", err)
-		}
+	finalityChecker, err := newFinalityChecker(
+		sourceCfg,
+		sourceReader,
+		options.finalityReporter,
+		chainSelector,
+		logger.With(lggr, "component", "FinalityChecker", "chainID", chainSelector),
+		metrics,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create finality checker: %w", err)
 	}
 
 	interval := sourceCfg.PollInterval
@@ -172,6 +187,7 @@ func NewService(
 		curseDetector:      curseDetector,
 		messageRules:       messageRules,
 		finalityChecker:    finalityChecker,
+		finalityReporter:   options.finalityReporter,
 		pollInterval:       interval,
 		pollTimeout:        pollTimeout,
 		sourceCfg:          sourceCfg,
@@ -216,6 +232,9 @@ func (r *Service) initializeAndMonitor() {
 		attemptCancel()
 		if err == nil {
 			r.lastProcessedFinalizedBlock.Store(startBlock)
+			if loader, ok := r.sourceReader.(chainaccess.SourceLoader); ok {
+				loader.LoadFrom(startBlock)
+			}
 			r.startBlockInitialized.Store(true)
 			r.metrics().SetSourceReaderLastProcessedFinalizedBlock(ctx, int64(startBlock)) // #nosec G115 -- chain block heights are within int64 range
 			r.logger.Infow("Initialized start block", "block", startBlock)
@@ -237,6 +256,11 @@ func (r *Service) Close() error {
 		r.logger.Infow("Stopping Service")
 		close(r.stopCh)
 		r.wg.Wait()
+		if closer, ok := r.sourceReader.(io.Closer); ok {
+			if err := closer.Close(); err != nil {
+				r.logger.Warnw("Failed to close source reader", "error", err)
+			}
+		}
 		r.logger.Infow("Service stopped")
 		return nil
 	})
@@ -403,9 +427,12 @@ func (r *Service) processEventCycle(ctx context.Context, latest, finalized *prot
 	r.logger.Debugw("Querying from block", "fromBlock", fromBlock)
 	events, lastQueriedBlock, err := r.loadEvents(logsCtx, fromBlock, latest)
 	if err != nil {
-		r.logger.Warnw("Error when querying logs", "error", err,
-			"fromBlock", fromBlock,
-			"toBlock", "latest")
+		// A source still loading is expected on startup, so it is logged at info; the loop still records poll_error.
+		if errors.Is(err, chainaccess.ErrSourceNotReady) {
+			r.logger.Infow("Source not ready yet, waiting", "fromBlock", fromBlock, "error", err)
+		} else {
+			r.logger.Warnw("Error when querying logs", "error", err, "fromBlock", fromBlock, "toBlock", "latest")
+		}
 
 		// Only return early when no progress was made
 		if lastQueriedBlock == fromBlock {

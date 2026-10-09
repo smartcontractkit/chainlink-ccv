@@ -1,7 +1,10 @@
 package sourcereader
 
 import (
+	"sync/atomic"
 	"testing"
+
+	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -29,3 +32,30 @@ func (n *noopFilter) Filter(_ protocol.MessageSentEvent) bool { return true }
 
 // Ensure noopFilter satisfies the interface at compile time.
 var _ chainaccess.MessageFilter = (*noopFilter)(nil)
+
+// fakeFinalityReporter is a chain's own finality signal, like the EVM log poller's.
+type fakeFinalityReporter struct {
+	violated atomic.Bool
+}
+
+func (f *fakeFinalityReporter) FinalityViolated() bool { return f.violated.Load() }
+
+var _ chainaccess.FinalityViolationReporter = (*fakeFinalityReporter)(nil)
+
+// loadingReader is a source reader that must load a local index from the start block before serving reads.
+type loadingReader struct {
+	*mocks.MockSourceReader
+	loaded []uint64
+}
+
+func (r *loadingReader) LoadFrom(startBlock uint64) { r.loaded = append(r.loaded, startBlock) }
+
+var _ chainaccess.SourceLoader = (*loadingReader)(nil)
+
+// closingReader is a source reader that owns resources released on Close.
+type closingReader struct {
+	*mocks.MockSourceReader
+	closed atomic.Bool
+}
+
+func (c *closingReader) Close() error { c.closed.Store(true); return nil }

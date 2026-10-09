@@ -3,13 +3,18 @@ package sourcereader
 import (
 	"context"
 	"fmt"
+	"io"
 
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 )
 
-var _ chainaccess.SourceReader = (*observedSourceReader)(nil)
+var (
+	_ chainaccess.SourceReader = (*observedSourceReader)(nil)
+	_ chainaccess.SourceLoader = (*observedSourceReader)(nil)
+	_ io.Closer                = (*observedSourceReader)(nil)
+)
 
 // observedSourceReader wraps a SourceReader and use a decorator pattern to track various metrics.
 // Currently, it tracks the latest and finalized block numbers observed from the source chain.
@@ -80,4 +85,19 @@ func (o observedSourceReader) LatestSafeBlock(ctx context.Context) (*protocol.Bl
 			RecordSourceChainSafeBlock(ctx, int64(safe.Number))
 	}
 	return safe, err
+}
+
+// LoadFrom forwards to the delegate so the wrapper does not hide its loading; a no-op when it has none.
+func (o observedSourceReader) LoadFrom(startBlock uint64) {
+	if loader, ok := o.SourceReader.(chainaccess.SourceLoader); ok {
+		loader.LoadFrom(startBlock)
+	}
+}
+
+// Close forwards to the delegate so the wrapper does not hide its cleanup; a no-op when it has none.
+func (o observedSourceReader) Close() error {
+	if closer, ok := o.SourceReader.(io.Closer); ok {
+		return closer.Close()
+	}
+	return nil
 }
