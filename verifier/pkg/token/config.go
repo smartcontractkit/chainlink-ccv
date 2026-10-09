@@ -35,7 +35,7 @@ type Config struct {
 }
 
 // Validate rejects a duplicate VerifierID across TokenVerifiers.
-// TODO: additional validations
+// TODO: additional validations.
 func (c *Config) Validate() error {
 	seen := make(map[string]struct{}, len(c.TokenVerifiers))
 	for _, v := range c.TokenVerifiers {
