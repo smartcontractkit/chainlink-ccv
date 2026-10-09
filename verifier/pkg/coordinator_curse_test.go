@@ -3,6 +3,7 @@ package verifier
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -40,6 +41,10 @@ type curseTestSetup struct {
 	currentLatest    *protocol.BlockHeader
 	currentFinalized *protocol.BlockHeader
 	blocksMu         sync.RWMutex
+
+	// cursedAdmissions counts curse-checker queries that answered "cursed",
+	// letting tests wait until a drop decision was actually made while cursed.
+	cursedAdmissions atomic.Int32
 }
 
 // setupCurseTest creates a complete test setup with coordinator and curse detector.
@@ -159,6 +164,17 @@ func (s *curseTestSetup) cleanup() {
 func (s *curseTestSetup) mustStartCoordinator() {
 	err := s.coordinator.Start(s.ctx)
 	require.NoError(s.t, err)
+	// Source-reader init is asynchronous (it does the startup DB/chain reads in
+	// the background): wait until every chain's reader is ready so curse/lift
+	// ordering relative to event processing is deterministic.
+	require.Eventually(s.t, func() bool {
+		for _, srs := range s.coordinator.sourceReaderServices {
+			if srs.Ready() != nil {
+				return false
+			}
+		}
+		return true
+	}, 10*time.Second, 5*time.Millisecond, "source readers should finish background init")
 	s.t.Log("✅ Coordinator started")
 }
 
@@ -166,7 +182,11 @@ func (s *curseTestSetup) curseLane(destChain protocol.ChainSelector) {
 	s.t.Logf("🔒 Cursing lane: %d -> %d", s.sourceChain, destChain)
 	// Update mock to return true for this specific lane
 	s.mockCurseChecker.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Unset()
-	s.mockCurseChecker.EXPECT().IsRemoteChainCursed(mock.Anything, s.sourceChain, destChain).Return(true, nil).Maybe()
+	s.mockCurseChecker.EXPECT().IsRemoteChainCursed(mock.Anything, s.sourceChain, destChain).
+		Run(func(context.Context, protocol.ChainSelector, protocol.ChainSelector) {
+			s.cursedAdmissions.Add(1)
+		}).
+		Return(true, nil).Maybe()
 	// Keep other lanes uncursed
 	s.mockCurseChecker.EXPECT().IsRemoteChainCursed(mock.Anything, s.sourceChain, mock.MatchedBy(func(chain protocol.ChainSelector) bool {
 		return chain != destChain
@@ -337,7 +357,13 @@ func TestCurseDetection_CurseLifting(t *testing.T) {
 	// Try to send events while cursed - should be dropped
 	droppedEvents := createTestMessageSentEvents(t, 5, sourceChain, destChain, []uint64{98, 99})
 	setup.sendEvents(droppedEvents)
-	time.Sleep(50 * time.Millisecond)
+	// Admission checks each pending task once per poll cycle, and a task
+	// admitted as cursed is dropped for good, so >= one cursed check per event
+	// proves every drop happened before the curse is lifted — sleeping is not
+	// enough now that event pickup is asynchronous.
+	require.Eventually(t, func() bool {
+		return setup.cursedAdmissions.Load() >= int32(len(droppedEvents))
+	}, 10*time.Second, 5*time.Millisecond, "cursed events should be admission-checked while the lane is cursed")
 
 	processedCount := setup.testVerifier.GetProcessedTaskCount()
 	require.Equal(t, 0, processedCount, "Events during curse should be dropped")

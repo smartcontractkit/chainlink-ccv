@@ -51,9 +51,12 @@ type Coordinator struct {
 
 	initFn func(ctx context.Context) error
 
-	curseDetector          common.CurseCheckerService
-	chainStatusBatcher     *chainstatus.Batcher
-	sourceReaderServices   map[protocol.ChainSelector]services.Service
+	curseDetector        common.CurseCheckerService
+	chainStatusBatcher   *chainstatus.Batcher
+	sourceReaderServices map[protocol.ChainSelector]services.Service
+	// sourceReaderStartErrs records per-chain source readers that failed to
+	// start so HealthReport keeps them visible after they are skipped.
+	sourceReaderStartErrs  map[protocol.ChainSelector]error
 	taskVerifierProcessor  services.Service
 	storageWriterProcessor services.Service
 	heartbeatReporter      *heartbeat.Reporter
@@ -131,10 +134,11 @@ func NewCoordinatorWithDetector(
 	}
 	lggr = logger.With(lggr, "verifierID", config.VerifierID)
 	vc := &Coordinator{
-		lggr:            lggr,
-		verifierID:      config.VerifierID,
-		monitoring:      monitoring,
-		messageRulesSvc: messageRulesSvc,
+		lggr:                  lggr,
+		verifierID:            config.VerifierID,
+		monitoring:            monitoring,
+		messageRulesSvc:       messageRulesSvc,
+		sourceReaderStartErrs: make(map[protocol.ChainSelector]error),
 	}
 	vc.initFn = func(ctx context.Context) error {
 		// Batch the chain status writes. The source readers write a status on every
@@ -373,12 +377,20 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 			}
 		}
 
-		if vc.sourceReaderServices != nil {
-			for chainSelector, srs := range vc.sourceReaderServices {
-				if err := srs.Start(ctx); err != nil {
-					return fmt.Errorf("failed to start source reader service for chain %s: %w", chainSelector, err)
-				}
+		// A failure to start one chain's source reader must not stop the remaining
+		// chains. Log, record for health reporting, and only fail the coordinator
+		// when no chain started at all.
+		configuredChains := len(vc.sourceReaderServices)
+		for chainSelector, srs := range vc.sourceReaderServices {
+			if err := srs.Start(ctx); err != nil {
+				vc.lggr.Errorw("Failed to start source reader service, skipping chain",
+					"chainSelector", chainSelector, "error", err)
+				vc.sourceReaderStartErrs[chainSelector] = err
+				delete(vc.sourceReaderServices, chainSelector)
 			}
+		}
+		if configuredChains > 0 && len(vc.sourceReaderServices) == 0 {
+			return fmt.Errorf("failed to start any source reader service across %d chains", configuredChains)
 		}
 
 		if vc.heartbeatReporter != nil {
@@ -577,6 +589,9 @@ func (vc *Coordinator) HealthReport() map[string]error {
 		for _, srs := range vc.sourceReaderServices {
 			maps.Copy(report, srs.HealthReport())
 		}
+	}
+	for chainSelector, err := range vc.sourceReaderStartErrs {
+		report[fmt.Sprintf("%s.SourceReader[%s]", vc.Name(), chainSelector)] = err
 	}
 	if vc.curseDetector != nil {
 		maps.Copy(report, vc.curseDetector.HealthReport())
