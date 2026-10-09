@@ -67,6 +67,9 @@ type CriticalSourceInvariantCallbackSetter interface {
 // FinalityViolationReporter is an optional SourceReader capability for readers whose data source
 // detects finality violations itself, such as the EVM log poller.
 type FinalityViolationReporter interface {
+	// ReportsFinalityViolations reports whether FinalityViolated is backed by a data source; when false,
+	// FinalityViolated is always false and must not be relied on.
+	ReportsFinalityViolations() bool
 	// FinalityViolated reports whether the reader's data source currently detects a finality violation.
 	FinalityViolated() bool
 }

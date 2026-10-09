@@ -529,6 +529,11 @@ func (r *SourceReader) logPollerLogs(ctx context.Context, fromBlock, toBlock uin
 	return logs, nil
 }
 
+// ReportsFinalityViolations implements chainaccess.FinalityViolationReporter: only the log poller detects them.
+func (r *SourceReader) ReportsFinalityViolations() bool {
+	return r.lp != nil
+}
+
 // FinalityViolated reports whether the log poller has detected a finality violation; false
 // without a log poller.
 func (r *SourceReader) FinalityViolated() bool {

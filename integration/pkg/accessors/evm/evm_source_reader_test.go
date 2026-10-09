@@ -582,6 +582,11 @@ func TestFinalityViolated(t *testing.T) {
 	}
 }
 
+func TestReportsFinalityViolations(t *testing.T) {
+	require.False(t, (&SourceReader{}).ReportsFinalityViolations(), "a reader without a log poller cannot report")
+	require.True(t, (&SourceReader{lp: lpmocks.NewLogPoller(t)}).ReportsFinalityViolations())
+}
+
 // readyLogPollerConfig is a config whose log poller already finished loading.
 func readyLogPollerConfig() *LogPollerConfig {
 	ready := new(atomic.Bool)

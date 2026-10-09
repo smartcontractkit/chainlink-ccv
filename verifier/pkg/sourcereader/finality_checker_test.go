@@ -477,6 +477,13 @@ func TestNewFinalityChecker_LogPollerFinalityRequiresReporter(t *testing.T) {
 	require.ErrorContains(t, err, "does not report finality violations")
 }
 
+func TestNewFinalityChecker_LogPollerFinalityRequiresSupportedReporter(t *testing.T) {
+	reader := &violationReportingReader{MockSourceReader: mocks.NewMockSourceReader(t), unsupported: true}
+	_, err := newFinalityChecker(verifier.SourceConfig{LogPollerFinality: true}, reader,
+		protocol.ChainSelector(1337), logger.Test(t), &recordingFinalityMetrics{})
+	require.ErrorContains(t, err, "does not report finality violations")
+}
+
 func TestLogPollerFinalityChecker_LatchesAndNeverFetchesHeaders(t *testing.T) {
 	ctx := t.Context()
 	// The mock has no expectations, so any GetBlocksHeaders call fails the test.

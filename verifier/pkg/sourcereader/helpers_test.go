@@ -37,10 +37,12 @@ var _ chainaccess.MessageFilter = (*noopFilter)(nil)
 // like the EVM reader backed by the log poller.
 type violationReportingReader struct {
 	*mocks.MockSourceReader
-	violated atomic.Bool
+	violated    atomic.Bool
+	unsupported bool
 }
 
-func (v *violationReportingReader) FinalityViolated() bool { return v.violated.Load() }
+func (v *violationReportingReader) ReportsFinalityViolations() bool { return !v.unsupported }
+func (v *violationReportingReader) FinalityViolated() bool          { return v.violated.Load() }
 
 var _ chainaccess.FinalityViolationReporter = (*violationReportingReader)(nil)
 

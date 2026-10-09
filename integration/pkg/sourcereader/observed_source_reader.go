@@ -88,6 +88,12 @@ func (o observedSourceReader) LatestSafeBlock(ctx context.Context) (*protocol.Bl
 	return safe, err
 }
 
+// ReportsFinalityViolations forwards to the delegate; false when it has no finality reporting.
+func (o observedSourceReader) ReportsFinalityViolations() bool {
+	reporter, ok := o.SourceReader.(chainaccess.FinalityViolationReporter)
+	return ok && reporter.ReportsFinalityViolations()
+}
+
 // FinalityViolated forwards to the delegate so the wrapper does not hide its finality reporting.
 func (o observedSourceReader) FinalityViolated() bool {
 	reporter, ok := o.SourceReader.(chainaccess.FinalityViolationReporter)

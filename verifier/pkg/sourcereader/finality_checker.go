@@ -359,7 +359,7 @@ func newFinalityChecker(
 		return &NoOpFinalityViolationChecker{}, nil
 	case cfg.LogPollerFinality:
 		reporter, ok := reader.(chainaccess.FinalityViolationReporter)
-		if !ok {
+		if !ok || !reporter.ReportsFinalityViolations() {
 			return nil, fmt.Errorf("log poller finality is enabled but source reader %T does not report finality violations", reader)
 		}
 		lggr.Infow("Using log poller finality violation checker", "chainSelector", chainSelector)
