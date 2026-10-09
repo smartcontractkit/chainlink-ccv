@@ -19,12 +19,16 @@ repeated verifier outages (see also PR #1424):
   exits the process; fails only when none started.
 * `pricer`: a chain that fails to start is skipped and surfaced via the new
   `HealthReport()`; fails only when no chain started.
-* Startup skips now page instead of vanishing: the indexer and token verifier
-  register a `common/health.StartupSkips` reporter, and the verifier coordinator
-  and pricer fold skips into `Ready()`, so any skipped
-  verifier/reader/source/chain keeps the service NotReady (503 on
-  `/health/ready`) until the misconfiguration is fixed. The pricer also serves
-  `/health` (alongside `/metrics`) for the first time.
+* Startup skips are reported as degraded instead of vanishing. The indexer, token
+  verifier, and committee verifier register a `common/health.StartupSkips`
+  reporter, and the verifier coordinator and pricer report skips through
+  `Degraded()`. A service with at least one usable chain stays in rotation:
+  `/health` returns `status: degraded` with HTTP 200, and `services[].report`
+  names each skipped component. A service with no usable chain fails startup, so
+  a single-chain service whose chain is down exits and is restarted by its
+  orchestrator. A verifier whose configured chains all fail to build a source
+  reader service also fails startup now, instead of starting with no chains. The
+  pricer also serves `/health` (alongside `/metrics`) for the first time.
 * `aggregator/pkg`: `NewServer` returns errors instead of calling
   `logger.Fatalf` (signature changed to `(ctx, ...) (*Server, error)`); the
   caller in `main` owns the fail-fast decision.

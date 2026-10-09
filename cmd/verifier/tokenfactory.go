@@ -105,8 +105,8 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 	// TODO: validate config?
 	cfg := appConfig
 
-	// Skipped chains/verifiers keep the service NotReady on /health so a
-	// misconfig pages instead of silently disappearing.
+	// Skipped chains/verifiers degrade the service on /health, which names each one.
+	// The factory fails below when none is usable.
 	startupSkips := health.NewStartupSkips("verifier.StartupSkips")
 
 	// On-ramp addresses are the application-owned source-chain set. RPC connection and tuning

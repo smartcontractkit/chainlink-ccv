@@ -146,6 +146,8 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	destReaders := make(map[protocol.ChainSelector]chainaccess.DestinationReader)
 	rmnReaders := make(map[protocol.ChainSelector]chainaccess.RMNCurseReader)
 	enabledDestChains := make([]protocol.ChainSelector, 0)
+	// Skipped chains are reported on /health as degraded. The factory fails below when none is usable.
+	startupSkips := health.NewStartupSkips("executor.StartupSkips")
 
 	// Chains are built concurrently with a per-chain timeout: GetAccessor dials
 	// the chain and starts its TXM, so a slow (not failing) chain must not
@@ -167,6 +169,7 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 			accessor, err := deps.Registry.GetAccessor(chainCtx, selector)
 			if err != nil {
 				f.lggr.Errorw("Failed to get accessor for chain", "error", err, "chainSelector", strSel)
+				startupSkips.Skip(fmt.Sprintf("Chain[%d]", selector), err)
 				return
 			}
 
@@ -175,6 +178,7 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 
 			if drErr != nil || ctErr != nil {
 				f.lggr.Warnw("Skipping chain: missing DestinationReader or ContractTransmitter", "chainSelector", strSel, "destReaderErr", drErr, "transmitterErr", ctErr)
+				startupSkips.Skip(fmt.Sprintf("Chain[%d]", selector), errors.Join(drErr, ctErr))
 				return
 			}
 
@@ -288,6 +292,7 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 
 	healthManager := health.NewManager()
 	healthManager.Register(f.coordinator)
+	healthManager.Register(startupSkips)
 	health.RegisterOn(healthManager, router)
 
 	server := &http.Server{

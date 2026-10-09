@@ -13,8 +13,8 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-// A skipped verifier must be recorded in the startup skips reporter so
-// /health/ready returns 503 and pages instead of silently missing the verifier.
+// A skipped verifier must be recorded in the startup skips reporter so /health
+// reports it as degraded instead of silently missing the verifier.
 func TestCreateAllVerifierReaders_RecordsSkips(t *testing.T) {
 	cfg := &config.Config{
 		Verifiers: []config.VerifierConfig{
@@ -28,9 +28,10 @@ func TestCreateAllVerifierReaders_RecordsSkips(t *testing.T) {
 	err := createAllVerifierReaders(t.Context(), lggr, registry.NewVerifierRegistry(), cfg, monitoring.NewNoopIndexerMonitoring(), startupSkips)
 
 	require.NoError(t, err, "one usable verifier must be enough to start")
-	require.ErrorContains(t, startupSkips.Ready(), "1 component(s) skipped at startup")
-	require.ErrorContains(t, startupSkips.Ready(), "VerifierReader[bad]: unknown verifier type")
-	assert.NotContains(t, startupSkips.Ready().Error(), "VerifierReader[good]")
+	require.NoError(t, startupSkips.Ready(), "a skip must not make the indexer NotReady")
+	require.ErrorContains(t, startupSkips.Degraded(), "1 component(s) skipped at startup")
+	require.ErrorContains(t, startupSkips.Degraded(), "VerifierReader[bad]: unknown verifier type")
+	assert.NotContains(t, startupSkips.Degraded().Error(), "VerifierReader[good]")
 }
 
 func TestCreateAllVerifierReaders_FailsWhenNoVerifierUsable(t *testing.T) {

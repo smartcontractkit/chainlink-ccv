@@ -10,6 +10,7 @@ type ReadinessStatus string
 
 const (
 	Ready    ReadinessStatus = "ready"
+	Degraded ReadinessStatus = "degraded"
 	NotReady ReadinessStatus = "not_ready"
 )
 
@@ -48,11 +49,15 @@ func (r *LivenessResponse) StatusCode() int {
 	return http.StatusServiceUnavailable
 }
 
+// NotReady wins over Degraded, which wins over Ready.
 func NewReadinessResponse(services []ServicesHealth) ReadinessResponse {
 	status := Ready
 	for _, component := range services {
-		if component.Status == NotReady {
+		switch {
+		case component.Status == NotReady:
 			status = NotReady
+		case component.Status == Degraded && status == Ready:
+			status = Degraded
 		}
 	}
 
@@ -62,11 +67,18 @@ func NewReadinessResponse(services []ServicesHealth) ReadinessResponse {
 	}
 }
 
+// StatusCode is 503 only when NotReady. Degraded services keep serving, so they stay in rotation.
 func (r *ReadinessResponse) StatusCode() int {
-	if r.Status == Ready {
-		return http.StatusOK
+	if r.Status == NotReady {
+		return http.StatusServiceUnavailable
 	}
-	return http.StatusServiceUnavailable
+	return http.StatusOK
+}
+
+// DegradedReporter is optional. A component that keeps running but is missing something
+// (for example a skipped chain) implements it, and /health reports degraded without 503.
+type DegradedReporter interface {
+	Degraded() error
 }
 
 func CheckServiceHealth(
@@ -77,6 +89,11 @@ func CheckServiceHealth(
 	if err1 := reporter.Ready(); err1 != nil {
 		status = NotReady
 		prettyError = err1.Error()
+	} else if dr, ok := reporter.(DegradedReporter); ok {
+		if err2 := dr.Degraded(); err2 != nil {
+			status = Degraded
+			prettyError = err2.Error()
+		}
 	}
 
 	errorReport := make(map[string]string)

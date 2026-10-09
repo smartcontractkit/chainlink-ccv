@@ -326,12 +326,13 @@ func (p *Pricer) Close() error {
 
 func (p *Pricer) Name() string { return "pricer.Pricer" }
 
-// Ready reports skipped chains so a partially started pricer shows NotReady on
-// /health and pages instead of silently missing a chain.
+// Ready reports only the pricer's own state. Skipped chains are degraded, see Degraded.
 func (p *Pricer) Ready() error {
-	if err := p.StateMachine.Ready(); err != nil {
-		return err
-	}
+	return p.StateMachine.Ready()
+}
+
+// Degraded reports chains that failed to start. The pricer keeps running with the chains that started.
+func (p *Pricer) Degraded() error {
 	p.chainStartErrsMu.RLock()
 	defer p.chainStartErrsMu.RUnlock()
 	if len(p.chainStartErrs) == 0 {
@@ -347,7 +348,7 @@ func (p *Pricer) Ready() error {
 // HealthReport surfaces chains that failed to start so a skipped chain is
 // visible instead of silently absent.
 func (p *Pricer) HealthReport() map[string]error {
-	report := map[string]error{p.Name(): p.Ready()}
+	report := map[string]error{p.Name(): errors.Join(p.Ready(), p.Degraded())}
 	p.chainStartErrsMu.RLock()
 	for selector, err := range p.chainStartErrs {
 		report[fmt.Sprintf("%s.Chain[%s]", p.Name(), selector)] = err

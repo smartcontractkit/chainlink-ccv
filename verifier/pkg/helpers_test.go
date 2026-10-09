@@ -475,7 +475,7 @@ func createDurableProcessorsWithWakeupInterval(
 		return nil, nil, nil, fmt.Errorf("failed to create result queue: %w", err)
 	}
 
-	sourceReadersDB, err := createSourceReadersDB(
+	sourceReadersDB, _, err := createSourceReadersDB(
 		lggr, config, chainStatusManager, curseDetector, monitoring, configuredSourceReaders, taskQueue, common.AllowAllMessagesChecker{},
 	)
 	if err != nil {
