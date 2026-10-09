@@ -19,9 +19,9 @@
 | `evm.SourceReader.FetchMessageSentEvents` | behavior-changed | `\.FetchMessageSentEvents\(` | `integration/pkg/accessors/evm/evm_source_reader.go:476` | [#log-source](#log-source) |
 | `evm.SourceReader.LatestAndFinalizedBlock` | behavior-changed | `\.LatestAndFinalizedBlock\(` | `integration/pkg/accessors/evm/evm_source_reader.go:726` | [#block-capping](#block-capping) |
 | `evm.SourceReader.LatestSafeBlock` | behavior-changed | `\.LatestSafeBlock\(` | `integration/pkg/accessors/evm/evm_source_reader.go:801` | [#block-capping](#block-capping) |
-| `sourcereader.Service` finality checker | behavior-changed | `sourcereader\.NewService\(` | `verifier/pkg/sourcereader/finality_checker.go:355` | [#log-poller-finality](#log-poller-finality) |
-| `sourcereader.Service` start | behavior-changed | `LoadFrom\(startBlock\)` | `verifier/pkg/sourcereader/service.go:220` | [#startup-load](#startup-load) |
-| `sourcereader.Service` read errors | behavior-changed | `Source not ready yet, waiting` | `verifier/pkg/sourcereader/service.go:409` | [#startup-load](#startup-load) |
+| `sourcereader.Service` finality checker | behavior-changed | `sourcereader\.NewService\(` | `verifier/pkg/sourcereader/finality_checker.go:348` | [#log-poller-finality](#log-poller-finality) |
+| `sourcereader.Service` start | behavior-changed | `LoadFrom\(startBlock\)` | `verifier/pkg/sourcereader/service.go:236` | [#startup-load](#startup-load) |
+| `sourcereader.Service` read errors | behavior-changed | `Source not ready yet, waiting` | `verifier/pkg/sourcereader/service.go:432` | [#startup-load](#startup-load) |
 | `evm.LogPollerConfig` | behavior-changed | `\bLogPollerConfig\b` | `integration/pkg/accessors/evm/evm_source_reader.go:64` | [#newevmsourcereader-signature](#newevmsourcereader-signature) |
 | `evm.DefaultMessageSentLogRetention` | added | `\bDefaultMessageSentLogRetention\b` | `integration/pkg/accessors/evm/evm_source_reader.go:47` | [#newevmsourcereader-signature](#newevmsourcereader-signature) |
 | `evm.LogPollerEnabled` | added | `\bLogPollerEnabled\(` | `integration/pkg/accessors/evm/evm_source_reader.go:221` | [#log-poller-finality](#log-poller-finality) |
@@ -125,5 +125,5 @@ Known limits: a job whose node crashed and which is then removed without the nod
 
 ## References
 
-- Commits: `72ee0792` source reader log poller, `f1fb991c` tests, `17fb462c` lint fix, `8865f3c6` finality violation from the LogPoller. The CLI rewind from `f86b2af0` is replaced by the startup load.
+- Commits: `cba838c7` source reader log poller, `4c52b8ab`/`a112a7cf` finality violation from the LogPoller, `641f6887` startup replay, `c22ba7d7` background startup load, `d3b8dbfc`/`5332a027` filter lifecycle, `ace9425f`/`c3e6abd6` injected finality reporters. The CLI rewind is replaced by the startup load.
 - Prior changelog entries this builds on: `2026-09-29_source_reader_block_confirmation.md`, `2026-09-11_source_recovery.md`.
