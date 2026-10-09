@@ -35,9 +35,10 @@ RPC, or keystore read must happen at query time — via `common/lazy.Lazy` for
 cached-on-success derivations — or in a background goroutine that reports its
 state through `Ready()`/`HealthReport()`. Per-chain and per-source failures
 degrade: log, skip, record in the health report, and fail startup only when
-*nothing* usable remains. A startup skip must also flip `Ready()` (register a
-`common/health.StartupSkips` reporter, or the component's own report) so
-`/health/ready` returns 503 — a skipped source should page, not vanish. The
+*nothing* usable remains. A startup skip must show as degraded, not vanish:
+register a `common/health.StartupSkips` reporter, or implement `Degraded() error`
+on the component, so `/health` reports `degraded` and names the skipped component.
+A skip does not return 503. The
 `noeagerio` analyzer (`tools/noeagerio`, run by `just lint` via the
 `lint-noeagerio` recipe) enforces this; a deliberate fail-fast exception
 (identity keys, the service's own DB) needs `//nolint:noeagerio` with a reason.

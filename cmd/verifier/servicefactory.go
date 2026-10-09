@@ -223,6 +223,8 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	// construction dials the chain, so a slow (not failing) RPC must not serialize away the
 	// shared startup budget.
 	chainSelectors := chainaccess.Infos[string](config.OnRampAddresses).GetAllChainSelectors()
+	// Skipped chains are reported on /health as degraded. The factory fails below when none is usable.
+	startupSkips := health.NewStartupSkips("verifier.StartupSkips")
 	sourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
 	var readersMu sync.Mutex
 	var wg sync.WaitGroup
@@ -234,16 +236,19 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 			accessor, err := deps.Registry.GetAccessor(chainCtx, selector)
 			if err != nil {
 				lggr.Errorw("Failed to get accessor, skipping chain", "error", err, "selector", selector)
+				startupSkips.Skip(fmt.Sprintf("Chain[%d]", selector), err)
 				return
 			}
 			reader, err := accessor.SourceReader()
 			if err != nil {
 				lggr.Errorw("Failed to get source reader, skipping chain", "selector", selector, "error", err)
+				startupSkips.Skip(fmt.Sprintf("Chain[%d]", selector), err)
 				return
 			}
 			observedReader, err := instrumentSourceReader(reader, config.VerifierID, selector, verifierMonitoring)
 			if err != nil {
 				lggr.Errorw("Failed to instrument source reader, skipping chain", "selector", selector, "error", err)
+				startupSkips.Skip(fmt.Sprintf("Chain[%d]", selector), err)
 				return
 			}
 			readersMu.Lock()
@@ -463,6 +468,7 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 
 	healthManager := health.NewManager()
 	healthManager.Register(coordinator)
+	healthManager.Register(startupSkips)
 	health.RegisterOn(healthManager, router)
 
 	router.GET("/stats", func(c *gin.Context) {

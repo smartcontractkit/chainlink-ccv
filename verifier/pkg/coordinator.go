@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/common"
@@ -193,6 +194,7 @@ func NewCoordinatorWithDetector(
 		for chainSelector, srs := range processors.sourceReaderServices {
 			vc.sourceReaderServices[chainSelector] = srs
 		}
+		maps.Copy(vc.sourceReaderStartErrs, processors.sourceReaderCreateErrs)
 		if heartbeatClient != nil && config.HeartbeatInterval > 0 {
 			allSelectors := make([]protocol.ChainSelector, 0, len(sourceReaders))
 			for selector := range sourceReaders {
@@ -215,6 +217,7 @@ func NewCoordinatorWithDetector(
 // durableProcessors holds all services created by createDurableProcessors.
 type durableProcessors struct {
 	sourceReaderServices   map[protocol.ChainSelector]*sourcereader.Service
+	sourceReaderCreateErrs map[protocol.ChainSelector]error
 	taskVerifierProcessor  services.Service
 	storageWriterProcessor services.Service
 	taskQueueObserver      services.Service
@@ -287,7 +290,7 @@ func createDurableProcessors(
 		return nil, fmt.Errorf("failed to create result queue observer: %w", err)
 	}
 
-	sourceReadersDB, err := createSourceReadersDB(
+	sourceReadersDB, sourceReaderCreateErrs, err := createSourceReadersDB(
 		lggr, config, chainStatusManager, curseDetector, monitoring, configuredSourceReaders, taskQueueObserver, messageRulesChecker,
 	)
 	if err != nil {
@@ -320,6 +323,7 @@ func createDurableProcessors(
 
 	return &durableProcessors{
 		sourceReaderServices:   sourceReadersDB,
+		sourceReaderCreateErrs: sourceReaderCreateErrs,
 		taskVerifierProcessor:  taskVerifierProcessor,
 		storageWriterProcessor: storageWriterProcessor,
 		taskQueueObserver:      taskQueueObserver,
@@ -417,8 +421,9 @@ func createSourceReadersDB(
 	configuredSourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
 	taskQueue jobqueue.JobQueue[VerificationTask],
 	messageRulesChecker common.MessageRulesChecker,
-) (map[protocol.ChainSelector]*sourcereader.Service, error) {
+) (map[protocol.ChainSelector]*sourcereader.Service, map[protocol.ChainSelector]error, error) {
 	sourceReaderServices := make(map[protocol.ChainSelector]*sourcereader.Service)
+	skipped := make(map[protocol.ChainSelector]error)
 	for chainSelector, sourceReader := range configuredSourceReaders {
 		sourceCfg := config.SourceConfigs[chainSelector]
 		filter := chainaccess.NewReceiptIssuerFilter(sourceCfg.VerifierAddress, sourceCfg.DefaultExecutorAddress)
@@ -430,11 +435,17 @@ func createSourceReadersDB(
 		)
 		if err != nil {
 			lggr.Errorw("failed to create Service for chain, skipping this chain", "chainSelector", chainSelector, "error", err)
+			skipped[chainSelector] = err
 			continue
 		}
 		sourceReaderServices[chainSelector] = srs
 	}
-	return sourceReaderServices, nil
+	// Skipped chains degrade the coordinator, but none usable means nothing to coordinate.
+	if len(sourceReaderServices) == 0 && len(configuredSourceReaders) > 0 {
+		return nil, nil, fmt.Errorf("no source reader service could be created for %d configured chain(s): %w",
+			len(configuredSourceReaders), errors.Join(slices.Collect(maps.Values(skipped))...))
+	}
+	return sourceReaderServices, skipped, nil
 }
 
 func filterConfiguredSourceReaders(
@@ -579,12 +590,14 @@ func (vc *Coordinator) Name() string {
 	return fmt.Sprintf("verifier.Coordinator[%s]", vc.verifierID)
 }
 
-// Ready reports skipped source readers so a coordinator missing a chain shows
-// NotReady on /health and pages instead of silently missing the chain.
+// Ready reports only the coordinator's own state. Skipped source readers are degraded, see Degraded.
 func (vc *Coordinator) Ready() error {
-	if err := vc.StateMachine.Ready(); err != nil {
-		return err
-	}
+	return vc.StateMachine.Ready()
+}
+
+// Degraded reports source readers skipped at startup. The coordinator keeps running
+// with the chains that started, and /health shows the skipped ones.
+func (vc *Coordinator) Degraded() error {
 	vc.RLock()
 	defer vc.RUnlock()
 	if len(vc.sourceReaderStartErrs) == 0 {
@@ -599,7 +612,7 @@ func (vc *Coordinator) Ready() error {
 
 func (vc *Coordinator) HealthReport() map[string]error {
 	report := make(map[string]error)
-	report[vc.Name()] = vc.Ready()
+	report[vc.Name()] = errors.Join(vc.Ready(), vc.Degraded())
 	if vc.messageRulesSvc != nil {
 		if hr, ok := vc.messageRulesSvc.(protocol.HealthReporter); ok {
 			maps.Copy(report, hr.HealthReport())

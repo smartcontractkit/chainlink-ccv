@@ -78,10 +78,11 @@ func TestPricer_Start_SkipsFailedChain(t *testing.T) {
 	require.False(t, bad.started)
 	require.NotContains(t, p.chains, badChain, "failed chain is removed from the active set")
 
-	// The skipped chain must make the whole service NotReady so /health/ready
-	// returns 503 and pages.
-	require.ErrorContains(t, p.Ready(), "1 chain(s) skipped at startup")
-	require.ErrorContains(t, p.Ready(), "RPC down")
+	// The skipped chain degrades the pricer. Ready stays nil so /health/ready keeps
+	// returning 200, and Degraded names the skipped chain.
+	require.NoError(t, p.Ready())
+	require.ErrorContains(t, p.Degraded(), "1 chain(s) skipped at startup")
+	require.ErrorContains(t, p.Degraded(), "RPC down")
 
 	report := p.HealthReport()
 	require.ErrorContains(t, report["pricer.Pricer"], "skipped at startup")
