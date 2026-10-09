@@ -38,6 +38,7 @@ var _ crypto.Signer = (*CSASigner)(nil)
 
 // NewCSASigner returns a [crypto.Signer] for the named Ed25519 key in ks.
 func NewCSASigner(ctx context.Context, ks keystore.Keystore, keyName string) (*CSASigner, error) {
+	//nolint:noeagerio // fail-fast by design: without the CSA key the node cannot identify itself, so the keystore read happens at startup rather than at first use
 	resp, err := ks.GetKeys(ctx, keystore.GetKeysRequest{
 		KeyNames: []string{keyName},
 	})

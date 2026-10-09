@@ -14,6 +14,7 @@ import (
 	"go.uber.org/zap/zapcore"
 
 	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
+	ccvhealth "github.com/smartcontractkit/chainlink-ccv/common/health"
 	ccvmonitoring "github.com/smartcontractkit/chainlink-ccv/common/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/common/monitoring/logging"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api"
@@ -119,12 +120,15 @@ func main() {
 	// Initialize the indexer storage
 	indexerStorage := createStorage(ctx, lggr, config, indexerMonitoring)
 	verifierRegistry := createRegistry()
-	err = createAllVerifierReaders(ctx, lggr, verifierRegistry, config, indexerMonitoring)
+	// Skipped readers/sources keep the service NotReady on /health so a
+	// misconfig pages instead of silently disappearing.
+	startupSkips := ccvhealth.NewStartupSkips("indexer.StartupSkips")
+	err = createAllVerifierReaders(ctx, lggr, verifierRegistry, config, indexerMonitoring, startupSkips)
 	if err != nil {
 		lggr.Fatalf("Failed to initalize verifier readers: %v", err)
 	}
 
-	messageDiscovery, err := createDiscovery(ctx, lggr, config, indexerStorage, indexerMonitoring, verifierRegistry)
+	messageDiscovery, err := createDiscovery(ctx, lggr, config, indexerStorage, indexerMonitoring, verifierRegistry, startupSkips)
 	if err != nil {
 		lggr.Fatalf("Failed to initialize message discovery: %v", err)
 	}
@@ -142,7 +146,7 @@ func main() {
 	}
 	pool.Start(ctx)
 
-	v1 := api.NewV1API(lggr, config, indexerStorage, indexerMonitoring, []protocol.HealthReporter{indexerStorage})
+	v1 := api.NewV1API(lggr, config, indexerStorage, indexerMonitoring, []protocol.HealthReporter{indexerStorage, startupSkips})
 	listenPort := config.API.ListenPort
 	if listenPort == 0 {
 		listenPort = 8100
@@ -157,12 +161,22 @@ func createRegistry() *registry.VerifierRegistry {
 	return registry.NewVerifierRegistry()
 }
 
-func createAllVerifierReaders(ctx context.Context, lggr logger.Logger, verifierRegistry *registry.VerifierRegistry, config *config.Config, indexerMonitoring common.IndexerMonitoring) error {
+func createAllVerifierReaders(ctx context.Context, lggr logger.Logger, verifierRegistry *registry.VerifierRegistry, config *config.Config, indexerMonitoring common.IndexerMonitoring, startupSkips *ccvhealth.StartupSkips) error {
+	// A failure to stand up one verifier's reader (e.g. a bad address) must not
+	// stop the remaining verifiers. Log, skip, and record for /health; only
+	// fail when no verifier is usable.
+	created := 0
 	for _, verifierConfig := range config.Verifiers {
 		err := createReadersForVerifier(ctx, lggr, verifierRegistry, &verifierConfig, indexerMonitoring, config.Resilience)
 		if err != nil {
-			return err
+			lggr.Errorw("Skipping verifier, failed to create readers", "verifier", verifierConfig.Name, "error", err)
+			startupSkips.Skip(fmt.Sprintf("VerifierReader[%s]", verifierConfig.Name), err)
+			continue
 		}
+		created++
+	}
+	if len(config.Verifiers) > 0 && created == 0 {
+		return fmt.Errorf("failed to create readers for any of the %d configured verifiers", len(config.Verifiers))
 	}
 
 	return nil
@@ -170,6 +184,26 @@ func createAllVerifierReaders(ctx context.Context, lggr logger.Logger, verifierR
 
 func createReadersForVerifier(ctx context.Context, lggr logger.Logger, verifierRegistry *registry.VerifierRegistry, verifierConfig *config.VerifierConfig, monitoring common.IndexerMonitoring, resilience config.ResilienceConfig) error {
 	metrics := monitoring.Metrics().With("target", verifierConfig.Name)
+
+	// Validate every issuer address (and their uniqueness) before anything is
+	// started or registered: a skipped verifier must not leave a running reader
+	// or partially registered addresses behind. After this check, AddVerifier
+	// cannot fail on duplicate registration, so the register loop needs no
+	// rollback that would risk removing another verifier's shared registration.
+	addresses := make([]protocol.UnknownAddress, 0, len(verifierConfig.IssuerAddresses))
+	seen := make(map[string]struct{}, len(verifierConfig.IssuerAddresses))
+	for _, address := range verifierConfig.IssuerAddresses {
+		unknownAddress, err := protocol.NewUnknownAddressFromHex(address)
+		if err != nil {
+			return fmt.Errorf("invalid issuer address %q: %w", address, err)
+		}
+		if _, dup := seen[unknownAddress.String()]; dup {
+			return fmt.Errorf("duplicate issuer address %q", address)
+		}
+		seen[unknownAddress.String()] = struct{}{}
+		addresses = append(addresses, unknownAddress)
+	}
+
 	reader, err := createReader(lggr, verifierConfig, metrics, resilience)
 	if err != nil {
 		return err
@@ -181,14 +215,11 @@ func createReadersForVerifier(ctx context.Context, lggr logger.Logger, verifierR
 		return err
 	}
 
-	for _, address := range verifierConfig.IssuerAddresses {
-		unknownAddress, err := protocol.NewUnknownAddressFromHex(address)
-		if err != nil {
-			return err
-		}
-
-		err = verifierRegistry.AddVerifier(unknownAddress, verifierConfig.Name, verifierReader)
-		if err != nil {
+	for _, unknownAddress := range addresses {
+		if err := verifierRegistry.AddVerifier(unknownAddress, verifierConfig.Name, verifierReader); err != nil {
+			if closeErr := verifierReader.Close(); closeErr != nil {
+				lggr.Warnw("Failed to close verifier reader after registration error", "verifier", verifierConfig.Name, "error", closeErr)
+			}
 			return err
 		}
 	}
@@ -217,7 +248,7 @@ func createReader(lggr logger.Logger, cfg *config.VerifierConfig, m common.Index
 	}
 }
 
-func createDiscovery(ctx context.Context, lggr logger.Logger, cfg *config.Config, storage common.IndexerStorage, monitoring common.IndexerMonitoring, registry *registry.VerifierRegistry) (common.MessageDiscovery, error) {
+func createDiscovery(ctx context.Context, lggr logger.Logger, cfg *config.Config, storage common.IndexerStorage, monitoring common.IndexerMonitoring, registry *registry.VerifierRegistry, startupSkips *ccvhealth.StartupSkips) (common.MessageDiscovery, error) {
 	configs := cfg.DiscoveryConfigs()
 	sources := make([]common.MessageDiscovery, 0, len(configs))
 	ntpProviders := make(map[string]*backofftimeprovider.BackoffNTPProvider)
@@ -252,8 +283,10 @@ func createDiscovery(ctx context.Context, lggr logger.Logger, cfg *config.Config
 			Secret: discCfg.Secret,
 		}, discCfg.InsecureConnection, config.EffectiveMaxResponseBytes(discCfg.MaxResponseBytes), metrics, readers.NewResilienceConfig(cfg.Resilience))
 		if err != nil {
-			cleanupOnError()
-			return nil, err
+			// One misconfigured discovery source must not stop the others.
+			lggr.Errorw("Skipping discovery source, failed to create aggregator reader", "address", discCfg.Address, "error", err)
+			startupSkips.Skip(fmt.Sprintf("DiscoverySource[%s]", discCfg.Address), err)
+			continue
 		}
 
 		ntpKey := fmt.Sprintf("%s|%d", discCfg.NtpServer, discCfg.Timeout)
@@ -276,12 +309,17 @@ func createDiscovery(ctx context.Context, lggr logger.Logger, cfg *config.Config
 			discovery.WithPrimaryWriteNotifier(writeNotifier), // nil for single-source; no-op
 		)
 		if err != nil {
-			cleanupOnError()
-			return nil, err
+			// One misconfigured discovery source must not stop the others.
+			lggr.Errorw("Skipping discovery source, failed to create message discovery", "address", discCfg.Address, "error", err)
+			startupSkips.Skip(fmt.Sprintf("DiscoverySource[%s]", discCfg.Address), err)
+			continue
 		}
 		sources = append(sources, aggDiscovery)
 	}
 
+	if len(configs) > 0 && len(sources) == 0 {
+		return nil, fmt.Errorf("failed to create any discovery source across %d configured", len(configs))
+	}
 	if len(sources) == 1 {
 		return sources[0], nil
 	}

@@ -39,7 +39,7 @@ func (f *fakeSourceReaderService) HealthReport() map[string]error {
 }
 
 // One chain failing to start must not stop the others, and the failure must
-// stay visible in the health report.
+// stay visible in Ready (so /health pages) and the health report.
 func TestCoordinator_Start_SkipsFailedSourceReader(t *testing.T) {
 	const (
 		badChain  protocol.ChainSelector = 1
@@ -63,8 +63,14 @@ func TestCoordinator_Start_SkipsFailedSourceReader(t *testing.T) {
 	require.ErrorContains(t, vc.sourceReaderStartErrs[badChain], "RPC down")
 	require.NotContains(t, vc.sourceReaderServices, badChain, "failed chain is removed from the active set")
 
+	// The skipped chain must make the whole coordinator NotReady so
+	// /health/ready returns 503 and pages.
+	require.ErrorContains(t, vc.Ready(), "1 source reader(s) skipped at startup")
+	require.ErrorContains(t, vc.Ready(), "RPC down")
+
 	report := vc.HealthReport()
 	require.ErrorContains(t, report["verifier.Coordinator[test-verifier].SourceReader[1]"], "RPC down")
+	require.ErrorContains(t, report["verifier.Coordinator[test-verifier]"], "skipped at startup")
 }
 
 // If every chain fails to start there is nothing to coordinate: that remains fatal.
