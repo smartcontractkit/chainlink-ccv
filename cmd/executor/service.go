@@ -229,6 +229,7 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		defaultExecutorAddresses[sel], err = protocol.NewUnknownAddressFromHex(chainConfig.DefaultExecutorAddress)
 		if err != nil {
 			f.lggr.Errorw("Invalid default executor address in configuration", "error", err, "chainSelector", strSel)
+			startupSkips.Skip(fmt.Sprintf("DefaultExecutorAddress[%s]", strSel), err)
 			continue
 		}
 	}

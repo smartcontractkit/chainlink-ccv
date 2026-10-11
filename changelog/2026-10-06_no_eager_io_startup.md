@@ -20,16 +20,17 @@ repeated verifier outages (see also PR #1424):
 * `pricer`: a chain that fails to start is skipped and surfaced via the new
   `HealthReport()`; fails only when no chain started.
 * Startup skips are reported as degraded instead of vanishing. The indexer, token
-  verifier, and committee verifier register a `common/health.StartupSkips`
-  reporter, and the verifier coordinator and pricer report skips through
-  `Degraded()`. A service with at least one usable chain stays in rotation:
-  `/health` returns `status: degraded` with HTTP 200, and `services[].report`
-  names each skipped component. A service with no usable chain fails startup, so
-  a single-chain service whose chain is down exits and is restarted by its
-  orchestrator. A verifier whose configured chains all fail to build a source
-  reader service also fails startup now, instead of starting with no chains. An
-  EVM chain with no reachable RPC node at startup now fails to build, so it is
-  skipped like any other chain. The pricer also serves `/health` (alongside
+  verifier, committee verifier, and executor register a
+  `common/health.StartupSkips` reporter, and the verifier coordinator and pricer
+  report skips through `Degraded()`. A service with at least one usable chain
+  stays in rotation: `/health` returns `status: degraded` with HTTP 200, and
+  `services[].report` names each skipped component. A service with no usable
+  chain fails startup. A verifier whose configured chains all fail to build a
+  source reader service also fails startup now, instead of starting with no
+  chains. The verifier coordinator also reports a running chain whose source
+  reader is not ready (for example its RPC is unreachable) as degraded; the chain
+  recovers on its own when the RPC returns. When no source reader is ready the
+  coordinator is NotReady (HTTP 503). The pricer also serves `/health` (alongside
   `/metrics`) for the first time.
 * `aggregator/pkg`: `NewServer` returns errors instead of calling
   `logger.Fatalf` (signature changed to `(ctx, ...) (*Server, error)`); the

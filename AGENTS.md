@@ -38,7 +38,7 @@ degrade: log, skip, record in the health report, and fail startup only when
 *nothing* usable remains. A startup skip must show as degraded, not vanish:
 register a `common/health.StartupSkips` reporter, or implement `Degraded() error`
 on the component, so `/health` reports `degraded` and names the skipped component.
-A skip does not return 503. The
+A skip does not return 503; a component with no usable chain left reports NotReady. The
 `noeagerio` analyzer (`tools/noeagerio`, run by `just lint` via the
 `lint-noeagerio` recipe) enforces this; a deliberate fail-fast exception
 (identity keys, the service's own DB) needs `//nolint:noeagerio` with a reason.

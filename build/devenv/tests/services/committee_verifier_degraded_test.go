@@ -40,7 +40,7 @@ type degradedStack struct {
 }
 
 // TestServiceCommitteeVerifierDegradedChain runs a verifier with one healthy and one unreachable EVM chain.
-// The unreachable chain fails at startup, so the verifier must run and report /health as degraded.
+// The unreachable chain's source reader never becomes ready, so /health must report degraded, not 503.
 // Named TestService... so the test-services CI job picks it up. Requires Docker.
 func TestServiceCommitteeVerifierDegradedChain(t *testing.T) {
 	if testing.Short() {
@@ -51,6 +51,8 @@ func TestServiceCommitteeVerifierDegradedChain(t *testing.T) {
 		Type:          ctfblockchain.TypeAnvil,
 		ChainID:       "1337",
 		ContainerName: "anvil-degraded-1337",
+		// Distinct from the local-mode tests' anvil ports, which are not terminated.
+		Port: "8549",
 	})
 	require.NoError(t, err, "failed to launch anvil chain")
 	terminateOnCleanup(t, healthy.Container)
@@ -69,44 +71,25 @@ func TestServiceCommitteeVerifierDegradedChain(t *testing.T) {
 	}
 
 	out, err := launchDegradedCommitteeVerifier(t, stack, healthy, []*ctfblockchain.Output{healthy, dead}, []string{healthySel, deadSel})
-	require.NoError(t, err, "a skipped chain must not stop the verifier from starting")
+	require.NoError(t, err, "an unreachable chain must not stop the verifier from starting")
 	require.NotNil(t, out)
 
-	terminateOnCleanup(t, out.Container)
-	// Registered after the terminate above, so this runs first and the log is still readable.
-	var body health.ReadinessResponse
-	t.Cleanup(func() {
-		if t.Failed() {
-			t.Logf("/health body: %+v", body)
-			t.Logf("verifier log tail:\n%s", services.ContainerLogTail(context.Background(), out.Container, 64<<10))
-		}
-	})
-
-	healthURL := out.ExternalHTTPURL + "/health"
-	client := &http.Client{Timeout: 3 * time.Second}
-	require.Eventually(t, func() bool {
-		resp, err := client.Get(healthURL)
-		if err != nil {
-			return false
-		}
-		defer func() { _ = resp.Body.Close() }()
-		body = health.ReadinessResponse{}
-		return resp.StatusCode == http.StatusOK && json.NewDecoder(resp.Body).Decode(&body) == nil
-	}, 60*time.Second, 2*time.Second, "verifier /health did not answer 200 with a skipped chain")
-
+	body := watchVerifierHealth(t, out)
+	waitForHealth(t, out.ExternalHTTPURL+"/health", http.StatusOK, body)
 	require.Equal(t, health.Degraded, body.Status, "one dead chain must degrade the verifier, not stop it")
 
-	coordinator := findDegradedService(t, body, "verifier.Coordinator["+stack.verifier+"]")
-	require.Equal(t, health.Ready, coordinator.Status, "the coordinator runs with the healthy chain")
+	coordinator := findDegradedService(t, *body, "verifier.Coordinator["+stack.verifier+"]")
+	require.Equal(t, health.Degraded, coordinator.Status, "the coordinator runs with the healthy chain")
+	require.Contains(t, coordinator.Error, fmt.Sprintf("SourceReader[%s]", deadSel), "the dead chain must be named")
+	require.NotContains(t, coordinator.Error, fmt.Sprintf("SourceReader[%s]", healthySel), "the healthy chain must not be reported")
 
-	skips := findDegradedService(t, body, "verifier.StartupSkips")
-	require.Equal(t, health.Degraded, skips.Status)
-	require.Contains(t, skips.Error, fmt.Sprintf("Chain[%s]", deadSel), "the dead chain must be named")
-	require.NotContains(t, skips.Error, fmt.Sprintf("Chain[%s]", healthySel), "the healthy chain must not be reported as skipped")
+	// The dead chain is still built, so it recovers once its RPC answers; it is not a startup skip.
+	skips := findDegradedService(t, *body, "verifier.StartupSkips")
+	require.Equal(t, health.Ready, skips.Status)
 }
 
 // TestServiceCommitteeVerifierNoUsableChain runs a verifier whose only chain is unreachable.
-// With no usable chain the verifier must fail startup. Named TestService... (requires Docker).
+// With no ready chain the verifier runs but reports NotReady (503). Named TestService... (requires Docker).
 func TestServiceCommitteeVerifierNoUsableChain(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping service test in short mode; requires Docker service containers")
@@ -124,10 +107,49 @@ func TestServiceCommitteeVerifierNoUsableChain(t *testing.T) {
 		aggRedisHostPort: 6539,
 	}
 
-	_, err := launchDegradedCommitteeVerifier(t, stack, nil, []*ctfblockchain.Output{dead}, []string{deadSel})
-	require.Error(t, err, "a verifier with no usable chain must not come up")
-	require.ErrorContains(t, err, "verifier application did not become ready")
-	require.ErrorContains(t, err, "no source readers configured", "the container log must show why startup failed")
+	out, err := launchDegradedCommitteeVerifier(t, stack, nil, []*ctfblockchain.Output{dead}, []string{deadSel})
+	require.NoError(t, err, "the chain is built even though its RPC is down")
+	require.NotNil(t, out)
+
+	body := watchVerifierHealth(t, out)
+	waitForHealth(t, out.ExternalHTTPURL+"/health", http.StatusServiceUnavailable, body)
+	require.Equal(t, health.NotReady, body.Status, "a verifier with no ready chain must be NotReady")
+
+	coordinator := findDegradedService(t, *body, "verifier.Coordinator["+stack.verifier+"]")
+	require.Equal(t, health.NotReady, coordinator.Status)
+	require.Contains(t, coordinator.Error, "no source reader is ready")
+	require.Contains(t, coordinator.Error, fmt.Sprintf("SourceReader[%s]", deadSel))
+}
+
+// watchVerifierHealth terminates the verifier on cleanup and, if the test failed, logs the last
+// /health body and the container log tail. The returned body is filled by waitForHealth.
+func watchVerifierHealth(t *testing.T, out *committeeverifier.Output) *health.ReadinessResponse {
+	t.Helper()
+	terminateOnCleanup(t, out.Container)
+	// Registered after the terminate above, so this runs first and the log is still readable.
+	body := &health.ReadinessResponse{}
+	t.Cleanup(func() {
+		if t.Failed() {
+			t.Logf("/health body: %+v", *body)
+			t.Logf("verifier log tail:\n%s", services.ContainerLogTail(context.Background(), out.Container, 64<<10))
+		}
+	})
+	return body
+}
+
+// waitForHealth polls healthURL until it answers wantCode with a decodable body, stored in body.
+func waitForHealth(t *testing.T, healthURL string, wantCode int, body *health.ReadinessResponse) {
+	t.Helper()
+	client := &http.Client{Timeout: 3 * time.Second}
+	require.Eventually(t, func() bool {
+		resp, err := client.Get(healthURL)
+		if err != nil {
+			return false
+		}
+		defer func() { _ = resp.Body.Close() }()
+		*body = health.ReadinessResponse{}
+		return resp.StatusCode == wantCode && json.NewDecoder(resp.Body).Decode(body) == nil
+	}, 90*time.Second, 2*time.Second, "verifier /health did not answer %d", wantCode)
 }
 
 // launchDegradedCommitteeVerifier starts an aggregator and a committee verifier in local mode. The
@@ -254,8 +276,8 @@ func launchDegradedCommitteeVerifier(
 	return committeeverifier.New(&in, outputs, nil, chainreg.GetRegistry().GetVerifierModifiers())
 }
 
-// unreachableEVMChain describes an EVM chain whose RPC hosts do not resolve, so dialing it fails at
-// startup. The hostnames have no container behind them, so the failure is fast and certain.
+// unreachableEVMChain describes an EVM chain whose RPC hosts do not resolve, so every RPC call to it
+// fails. The hostnames have no container behind them, so the failure is fast and certain.
 func unreachableEVMChain(t *testing.T, chainID string) *ctfblockchain.Output {
 	t.Helper()
 	return &ctfblockchain.Output{
