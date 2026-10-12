@@ -237,20 +237,24 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 			if err != nil {
 				lggr.Errorw("Failed to get accessor, skipping chain", "error", err, "selector", selector)
 				startupSkips.Skip(fmt.Sprintf("Chain[%d]", selector), err)
+				verifierMonitoring.RecordChainHealthy(ctx, selector, false)
 				return
 			}
 			reader, err := accessor.SourceReader()
 			if err != nil {
 				lggr.Errorw("Failed to get source reader, skipping chain", "selector", selector, "error", err)
 				startupSkips.Skip(fmt.Sprintf("Chain[%d]", selector), err)
+				verifierMonitoring.RecordChainHealthy(ctx, selector, false)
 				return
 			}
 			observedReader, err := instrumentSourceReader(reader, config.VerifierID, selector, verifierMonitoring)
 			if err != nil {
 				lggr.Errorw("Failed to instrument source reader, skipping chain", "selector", selector, "error", err)
 				startupSkips.Skip(fmt.Sprintf("Chain[%d]", selector), err)
+				verifierMonitoring.RecordChainHealthy(ctx, selector, false)
 				return
 			}
+			verifierMonitoring.RecordChainHealthy(ctx, selector, true)
 			readersMu.Lock()
 			sourceReaders[selector] = observedReader
 			readersMu.Unlock()

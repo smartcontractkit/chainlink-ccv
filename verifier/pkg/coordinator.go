@@ -436,6 +436,9 @@ func createSourceReadersDB(
 		if err != nil {
 			lggr.Errorw("failed to create Service for chain, skipping this chain", "chainSelector", chainSelector, "error", err)
 			skipped[chainSelector] = err
+			if monitoring != nil {
+				monitoring.RecordChainHealthy(context.Background(), chainSelector, false)
+			}
 			continue
 		}
 		sourceReaderServices[chainSelector] = srs

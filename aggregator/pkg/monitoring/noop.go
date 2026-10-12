@@ -7,13 +7,15 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	commonmetrics "github.com/smartcontractkit/chainlink-ccv/common/metrics"
 	"github.com/smartcontractkit/chainlink-ccv/common/monitoring/tracing"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 )
 
 // noopServiceMetrics implements commonmetrics.ServiceMetrics with no-op behavior for noop monitoring.
 type noopServiceMetrics struct{}
 
-func (noopServiceMetrics) RecordServiceStarted(context.Context) {}
+func (noopServiceMetrics) RecordServiceStarted(context.Context)                                  {}
+func (noopServiceMetrics) RecordChainHealthy(context.Context, protocol.ChainSelector, bool) {}
 
 type NoopAggregatorMonitoring struct {
 	tracing tracing.Tracing

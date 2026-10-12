@@ -127,6 +127,7 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 			if err != nil {
 				tvf.lggr.Errorw("Skipping chain, failed to get accessor for chain selector", "error", err, "chainSelector", selector)
 				startupSkips.Skip(fmt.Sprintf("Chain[%d]", selector), err)
+				verifierMonitoring.RecordChainHealthy(ctx, selector, false)
 				return
 			}
 			reader, err := accessor.SourceReader()
@@ -136,8 +137,10 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 			if err != nil {
 				tvf.lggr.Warnw("Skipping chain, source reader not available", "chainSelector", selector, "error", err)
 				startupSkips.Skip(fmt.Sprintf("Chain[%d]", selector), err)
+				verifierMonitoring.RecordChainHealthy(ctx, selector, false)
 				return
 			}
+			verifierMonitoring.RecordChainHealthy(ctx, selector, true)
 			accessorsMu.Lock()
 			sourceReaders[selector] = reader
 			accessorsMu.Unlock()

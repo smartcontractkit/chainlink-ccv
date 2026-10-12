@@ -171,6 +171,7 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 			if err != nil {
 				f.lggr.Errorw("Failed to get accessor for chain", "error", err, "chainSelector", strSel)
 				startupSkips.Skip(fmt.Sprintf("Chain[%d]", selector), err)
+				executorMonitoring.RecordChainHealthy(ctx, selector, false)
 				return
 			}
 
@@ -180,10 +181,12 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 			if drErr != nil || ctErr != nil {
 				f.lggr.Warnw("Skipping chain: missing DestinationReader or ContractTransmitter", "chainSelector", strSel, "destReaderErr", drErr, "transmitterErr", ctErr)
 				startupSkips.Skip(fmt.Sprintf("Chain[%d]", selector), errors.Join(drErr, ctErr))
+				executorMonitoring.RecordChainHealthy(ctx, selector, false)
 				return
 			}
 
 			attachExecutorMonitoring(dr, ct, executorMonitoring)
+			executorMonitoring.RecordChainHealthy(ctx, selector, true)
 
 			chainsMu.Lock()
 			defer chainsMu.Unlock()
@@ -230,6 +233,7 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		if err != nil {
 			f.lggr.Errorw("Invalid default executor address in configuration", "error", err, "chainSelector", strSel)
 			startupSkips.Skip(fmt.Sprintf("DefaultExecutorAddress[%s]", strSel), err)
+			executorMonitoring.RecordChainHealthy(ctx, sel, false)
 			continue
 		}
 	}
