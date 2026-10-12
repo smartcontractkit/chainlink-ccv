@@ -63,7 +63,7 @@ func (i *IndexerBeholderMonitoring) Tracing() tracing.Tracing {
 // noopServiceMetrics implements commonmetrics.ServiceMetrics with no-op behavior for noop monitoring.
 type noopServiceMetrics struct{}
 
-func (noopServiceMetrics) RecordServiceStarted(context.Context)                                  {}
+func (noopServiceMetrics) RecordServiceStarted(context.Context)                             {}
 func (noopServiceMetrics) RecordChainHealthy(context.Context, protocol.ChainSelector, bool) {}
 
 // NoopIndexerMonitoring provides a no-op implementation of IndexerMonitoring.

@@ -110,9 +110,9 @@ func (msrs *MockSourceReaderSetup) ExpectFetchMessageSentEvent(maybeVerification
 // noopMonitoring is a simple noop monitoring implementation for tests.
 type noopMonitoring struct{}
 
-func (m *noopMonitoring) Metrics() MetricLabeler                                         { return &noopMetricLabeler{} }
-func (m *noopMonitoring) Tracing() Tracing                                               { return tracing.NewTracing(beholder.GetTracer()) }
-func (m *noopMonitoring) RecordServiceStarted(context.Context)                           {}
+func (m *noopMonitoring) Metrics() MetricLabeler                                           { return &noopMetricLabeler{} }
+func (m *noopMonitoring) Tracing() Tracing                                                 { return tracing.NewTracing(beholder.GetTracer()) }
+func (m *noopMonitoring) RecordServiceStarted(context.Context)                             {}
 func (m *noopMonitoring) RecordChainHealthy(context.Context, protocol.ChainSelector, bool) {}
 
 type noopMetricLabeler struct{}

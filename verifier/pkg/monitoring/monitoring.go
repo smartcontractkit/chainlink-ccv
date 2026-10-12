@@ -60,7 +60,7 @@ var (
 // noopServiceMetrics implements commonmetrics.ServiceMetrics with no-op behavior for tests/fakes.
 type noopServiceMetrics struct{}
 
-func (noopServiceMetrics) RecordServiceStarted(context.Context)                                  {}
+func (noopServiceMetrics) RecordServiceStarted(context.Context)                             {}
 func (noopServiceMetrics) RecordChainHealthy(context.Context, protocol.ChainSelector, bool) {}
 
 type FakeVerifierMonitoring struct {
