@@ -8,6 +8,7 @@ import (
 
 	"github.com/rs/zerolog"
 
+	chainsel "github.com/smartcontractkit/chain-selectors"
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
@@ -537,6 +538,29 @@ func MaxDataSize(lib ccv.Lib, src, dest uint64, args Args) tcapi.TestCase {
 	return maxDataSize(lib, src, dest, args)
 }
 
+// v3MaxDataOverheadByFamily bounds the non-payload bytes billed inside
+// maxDataBytes on the V3 path: one CCV payload plus the executor receipt
+// (143 base + 2 dest addrs). EVM 582+143+40=765, Stellar 390+143+64=597.
+var v3MaxDataOverheadByFamily = map[string]int{
+	chainsel.FamilyEVM:     800,
+	chainsel.FamilyStellar: 640,
+}
+
+// v3MaxDataOverheadDefault covers unmeasured families; the largest measured
+// overhead is EVM's 765, so 1024 leaves headroom for longer CCV payloads.
+const v3MaxDataOverheadDefault = 1024
+
+func v3MaxDataOverhead(dest uint64) int {
+	family, err := chainsel.GetSelectorFamily(dest)
+	if err != nil {
+		return v3MaxDataOverheadDefault
+	}
+	if overhead, ok := v3MaxDataOverheadByFamily[family]; ok {
+		return overhead
+	}
+	return v3MaxDataOverheadDefault
+}
+
 func maxDataSize(lib ccv.Lib, src, dest uint64, args Args) *v3TestCase {
 	return &v3TestCase{
 		v3TestCaseBase: v3TestCaseBase{
@@ -555,7 +579,13 @@ func maxDataSize(lib ccv.Lib, src, dest uint64, args Args) *v3TestCase {
 			if !ok {
 				return false
 			}
-			maxDataSizeProvider, ok := env.Dst.(cciptestinterfaces.MaxDataSizeProvider)
+			// The budget is read from the SOURCE chain's fee quoter dest chain
+			// config for the destination — the storage that validates the send.
+			v3Src, err := tc.lib.V3Source(ctx, tc.src)
+			if err != nil {
+				return false
+			}
+			maxDataSizeProvider, ok := v3Src.(cciptestinterfaces.MaxDataSizeProvider)
 			if !ok {
 				return false
 			}
@@ -563,7 +593,11 @@ func maxDataSize(lib ccv.Lib, src, dest uint64, args Args) *v3TestCase {
 			if err != nil {
 				return false
 			}
-			tc.msgData = bytes.Repeat([]byte("a"), int(maxDataBytes))
+			dataLen := int(maxDataBytes) - v3MaxDataOverhead(tc.dst)
+			if dataLen < 0 {
+				return false
+			}
+			tc.msgData = bytes.Repeat([]byte("a"), dataLen)
 
 			receiver, err := env.DstResolver.GetContractReceiver(env.DS, tc.dst, common.DefaultReceiverQualifier)
 			if err != nil {

@@ -436,8 +436,9 @@ type SenderAddressProvider interface {
 }
 
 // MaxDataSizeProvider is implemented by any chain that can report the maximum
-// message data size it can receive from a given remote chain. This is a
-// destination-side capability: it is asked of the chain receiving the message.
+// message data size it can send to a given remote chain. This is a source-side
+// capability: the budget is the chain's own fee quoter dest chain config for
+// the remote, which is the storage that validates the send.
 type MaxDataSizeProvider interface {
 	// GetMaxDataBytes gets the maximum data size for a CCIP message to the specified remote chain.
 	GetMaxDataBytes(ctx context.Context, remoteChainSelector uint64) (uint32, error)
