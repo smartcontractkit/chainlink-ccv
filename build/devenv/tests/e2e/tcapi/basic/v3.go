@@ -8,7 +8,6 @@ import (
 
 	"github.com/rs/zerolog"
 
-	chainsel "github.com/smartcontractkit/chain-selectors"
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
@@ -538,29 +537,6 @@ func MaxDataSize(lib ccv.Lib, src, dest uint64, args Args) tcapi.TestCase {
 	return maxDataSize(lib, src, dest, args)
 }
 
-// v3MaxDataOverheadByFamily bounds the non-payload bytes billed inside
-// maxDataBytes on the V3 path: one CCV payload plus the executor receipt
-// (143 base + 2 dest addrs). EVM 582+143+40=765, Stellar 390+143+64=597.
-var v3MaxDataOverheadByFamily = map[string]int{
-	chainsel.FamilyEVM:     800,
-	chainsel.FamilyStellar: 640,
-}
-
-// v3MaxDataOverheadDefault covers unmeasured families; the largest measured
-// overhead is EVM's 765, so 1024 leaves headroom for longer CCV payloads.
-const v3MaxDataOverheadDefault = 1024
-
-func v3MaxDataOverhead(dest uint64) int {
-	family, err := chainsel.GetSelectorFamily(dest)
-	if err != nil {
-		return v3MaxDataOverheadDefault
-	}
-	if overhead, ok := v3MaxDataOverheadByFamily[family]; ok {
-		return overhead
-	}
-	return v3MaxDataOverheadDefault
-}
-
 func maxDataSize(lib ccv.Lib, src, dest uint64, args Args) *v3TestCase {
 	return &v3TestCase{
 		v3TestCaseBase: v3TestCaseBase{
@@ -579,8 +555,10 @@ func maxDataSize(lib ccv.Lib, src, dest uint64, args Args) *v3TestCase {
 			if !ok {
 				return false
 			}
-			// The budget is read from the SOURCE chain's fee quoter dest chain
-			// config for the destination — the storage that validates the send.
+			// The budget and the overhead billed inside it both come from the
+			// SOURCE chain — the same billing model (the source fee quoter's
+			// dest chain config for the destination, the storage that validates
+			// the send) that the V3 providers read from.
 			v3Src, err := tc.lib.V3Source(ctx, tc.src)
 			if err != nil {
 				return false
@@ -593,18 +571,38 @@ func maxDataSize(lib ccv.Lib, src, dest uint64, args Args) *v3TestCase {
 			if err != nil {
 				return false
 			}
-			dataLen := int(maxDataBytes) - v3MaxDataOverhead(tc.dst)
+			overheadProvider, ok := v3Src.(cciptestinterfaces.MessageOverheadProvider)
+			if !ok {
+				return false
+			}
+			overhead, err := overheadProvider.GetMessageOverheadBytes(ctx, tc.dst)
+			if err != nil {
+				return false
+			}
+			dataLen := int(maxDataBytes) - int(overhead)
 			if dataLen < 0 {
 				return false
 			}
 			// A max-size payload needs exec gas proportional to its size: the
-			// default 200K (tcapi.DefaultV3ExecutionGasLimit) cannot cover the
-			// ~16 gas/byte intrinsic cost of a ~30KB exec tx, so the exec tx
-			// would be unmineable — no ExecutionStateChanged is ever emitted and
-			// the txm wedges the lane retrying it. 1M clears EVM intrinsic
-			// (~500K) plus OffRamp processing with headroom, and stays under the
-			// dest FQ MaxPerMsgGasLimit (3M in the devenv override).
-			tc.args.Send.ExecutionGasLimit = 1_000_000
+			// cross-family 200K default (tcapi.DefaultV3ExecutionGasLimit)
+			// cannot cover the ~16 gas/byte intrinsic cost of a ~30KB exec tx
+			// on EVM, so the exec tx would be unmineable — no
+			// ExecutionStateChanged is ever emitted and the txm wedges the lane
+			// retrying it. The destination family sizes it against its own
+			// execution cost model, within its fee quoter's MaxPerMsgGasLimit.
+			v3Dst, err := tc.lib.V3Destination(ctx, tc.dst)
+			if err != nil {
+				return false
+			}
+			gasLimitProvider, ok := v3Dst.(cciptestinterfaces.ExecutionGasLimitProvider)
+			if !ok {
+				return false
+			}
+			gasLimit, err := gasLimitProvider.GetExecutionGasLimit(ctx, tc.src, uint32(dataLen))
+			if err != nil {
+				return false
+			}
+			tc.args.Send.ExecutionGasLimit = gasLimit
 			tc.msgData = bytes.Repeat([]byte("a"), dataLen)
 
 			receiver, err := env.DstResolver.GetContractReceiver(env.DS, tc.dst, common.DefaultReceiverQualifier)

@@ -444,6 +444,35 @@ type MaxDataSizeProvider interface {
 	GetMaxDataBytes(ctx context.Context, remoteChainSelector uint64) (uint32, error)
 }
 
+// MessageOverheadProvider is implemented by any chain that can report how many
+// non-payload bytes the V3 send path bills inside the destination fee quoter's
+// maxDataBytes budget: the committee verifier payload, this source family's
+// MessageV1 codec base, and the destination address fields. This is a
+// source-side capability — the same billing model MaxDataSizeProvider reads
+// the budget from — so a caller computes a max-size payload as
+// GetMaxDataBytes(remote) - GetMessageOverheadBytes(remote).
+type MessageOverheadProvider interface {
+	// GetMessageOverheadBytes gets the non-payload bytes billed inside the
+	// maxDataBytes budget for a CCIP message from this chain to the specified
+	// remote chain.
+	GetMessageOverheadBytes(ctx context.Context, remoteChainSelector uint64) (uint32, error)
+}
+
+// ExecutionGasLimitProvider is implemented by any chain that can report the
+// execution gas limit a V3 message needs for THIS chain to execute it. This is
+// a destination-side capability: the value lands in the message's extra args
+// and the executor uses it to size the destination execute transaction, so
+// each destination family owns the sizing against its own execution cost model
+// (EVM: intrinsic gas per calldata byte plus offRamp processing; Stellar: the
+// Soroban compute budget for offRamp.execute). Implementations should keep the
+// result within the fee quoter MaxPerMsgGasLimit configured for the remote.
+type ExecutionGasLimitProvider interface {
+	// GetExecutionGasLimit gets the execution gas limit required to execute on
+	// this chain a CCIP message from the specified remote chain whose data
+	// field is dataLen bytes long.
+	GetExecutionGasLimit(ctx context.Context, remoteChainSelector uint64, dataLen uint32) (uint32, error)
+}
+
 // GenericChainMessage is a generic type to indicate to users that the message generated from BuildChainMessage is expected to be passed directly to SendChainMessage.
 // For example, EVM will return a routerwrapper.ClientEVM2AnyMessage.
 type GenericChainMessage any
