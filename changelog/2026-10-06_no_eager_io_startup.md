@@ -32,7 +32,7 @@ repeated verifier outages (see also PR #1424):
   recovers on its own when the RPC returns. When no source reader is ready the
   coordinator is NotReady (HTTP 503). The pricer also serves `/health` (alongside
   `/metrics`) for the first time.
-* `common/metrics`: added `ccv_chain_healthy` gauge metric (1 = healthy, 0 = degraded/failed)
+* `common/metrics`: added `ccip_chain_healthy` gauge metric (1 = healthy, 0 = degraded/failed)
   emitted via `ServiceMetrics.RecordChainHealthy` for every configured chain at startup in
   the committee verifier, token verifier, and executor, and updated dynamically upon
   runtime recovery or disablement.

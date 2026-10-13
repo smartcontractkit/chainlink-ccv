@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
 func TestStartupSkips_NoSkipsIsReady(t *testing.T) {
@@ -61,4 +63,17 @@ func TestStartupSkips_SameComponentOverwrites(t *testing.T) {
 	assert.ErrorContains(t, s.Degraded(), "1 component(s) skipped at startup")
 	assert.ErrorContains(t, s.Degraded(), "second")
 	assert.NotContains(t, s.Degraded().Error(), "first")
+}
+
+func TestStartupSkips_SkipChain(t *testing.T) {
+	s := NewStartupSkips("svc.StartupSkips")
+	s.SkipChain(protocol.ChainSelector(123), errors.New("dial failed"))
+	s.SkipChain("invalid-sel", errors.New("parse error"))
+
+	assert.Equal(t, "Chain[123]", ChainComponent(protocol.ChainSelector(123)))
+	assert.Equal(t, "Chain[invalid-sel]", ChainComponent("invalid-sel"))
+
+	report := s.HealthReport()
+	assert.ErrorContains(t, report["svc.StartupSkips[Chain[123]]"], "dial failed")
+	assert.ErrorContains(t, report["svc.StartupSkips[Chain[invalid-sel]]"], "parse error")
 }

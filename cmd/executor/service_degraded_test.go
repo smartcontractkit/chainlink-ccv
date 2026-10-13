@@ -88,8 +88,8 @@ execution_interval   = "1s"
 
 	skips := findHealthService(t, body, "executor.StartupSkips")
 	assert.Equal(t, health.Degraded, skips.Status)
-	assert.Contains(t, skips.Error, fmt.Sprintf("Chain[%d]: RPC down", badSelector))
-	assert.NotContains(t, skips.Error, fmt.Sprintf("Chain[%d]", goodSelector))
+	assert.Contains(t, skips.Error, fmt.Sprintf("%s: RPC down", health.ChainComponent(badSelector)))
+	assert.NotContains(t, skips.Error, health.ChainComponent(goodSelector))
 }
 
 func findHealthService(t *testing.T, body health.ReadinessResponse, name string) health.ServicesHealth {
@@ -159,6 +159,6 @@ execution_interval   = "1s"
 
 	assert.Equal(t, health.Degraded, body.Status)
 	skips := findHealthService(t, body, "executor.StartupSkips")
-	assert.Contains(t, skips.Error, "Chain[not-a-selector]", "a malformed selector must not vanish")
+	assert.Contains(t, skips.Error, health.ChainComponent("not-a-selector"), "a malformed selector must not vanish")
 	assert.Equal(t, health.Ready, findHealthService(t, body, "executor.Coordinator").Status)
 }

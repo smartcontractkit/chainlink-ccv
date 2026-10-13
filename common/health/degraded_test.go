@@ -45,7 +45,7 @@ func TestCheckServiceHealth_DegradedOnlyWhenReadyPasses(t *testing.T) {
 	assert.Equal(t, NotReady, CheckServiceHealth(plainReporter{err: errors.New("down")}).Status)
 
 	skips := NewStartupSkips("svc.StartupSkips")
-	skips.Skip("Chain[1]", errors.New("RPC down"))
+	skips.SkipChain(1, errors.New("RPC down"))
 	assert.Equal(t, Degraded, CheckServiceHealth(skips).Status)
 }
 

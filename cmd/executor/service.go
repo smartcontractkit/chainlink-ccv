@@ -158,7 +158,7 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		selectorUint, err := strconv.ParseUint(strSel, 10, 64)
 		if err != nil {
 			f.lggr.Errorw("Invalid chain selector in configuration", "error", err, "chainSelector", strSel)
-			startupSkips.Skip(fmt.Sprintf("Chain[%s]", strSel), err)
+			startupSkips.SkipChain(strSel, err)
 			continue
 		}
 		selector := protocol.ChainSelector(selectorUint)
@@ -170,7 +170,7 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 			accessor, err := deps.Registry.GetAccessor(chainCtx, selector)
 			if err != nil {
 				f.lggr.Errorw("Failed to get accessor for chain", "error", err, "chainSelector", strSel)
-				startupSkips.Skip(fmt.Sprintf("Chain[%d]", selector), err)
+				startupSkips.SkipChain(selector, err)
 				executorMonitoring.RecordChainHealthy(ctx, selector, false)
 				return
 			}
@@ -180,7 +180,7 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 
 			if drErr != nil || ctErr != nil {
 				f.lggr.Warnw("Skipping chain: missing DestinationReader or ContractTransmitter", "chainSelector", strSel, "destReaderErr", drErr, "transmitterErr", ctErr)
-				startupSkips.Skip(fmt.Sprintf("Chain[%d]", selector), errors.Join(drErr, ctErr))
+				startupSkips.SkipChain(selector, errors.Join(drErr, ctErr))
 				executorMonitoring.RecordChainHealthy(ctx, selector, false)
 				return
 			}

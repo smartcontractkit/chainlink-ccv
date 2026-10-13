@@ -29,6 +29,11 @@ func NewStartupSkips(name string) *StartupSkips {
 	return &StartupSkips{name: name, skips: make(map[string]error)}
 }
 
+// ChainComponent formats a chain selector as a standard component name: Chain[<selector>].
+func ChainComponent(sel any) string {
+	return fmt.Sprintf("Chain[%v]", sel)
+}
+
 // Skip records that a component failed to start and was skipped.
 func (s *StartupSkips) Skip(component string, err error) {
 	if err == nil {
@@ -37,6 +42,11 @@ func (s *StartupSkips) Skip(component string, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.skips[component] = err
+}
+
+// SkipChain records that a chain failed to start and was skipped.
+func (s *StartupSkips) SkipChain(sel any, err error) {
+	s.Skip(ChainComponent(sel), err)
 }
 
 func (s *StartupSkips) Name() string { return s.name }

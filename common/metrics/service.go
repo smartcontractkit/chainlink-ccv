@@ -14,8 +14,8 @@ import (
 const (
 	// ServiceStartedGaugeName is the metric name used by all CCIP services.
 	ServiceStartedGaugeName = "ccip_service_started"
-	// ChainHealthyGaugeName tracks chain health across CCV services.
-	ChainHealthyGaugeName = "ccv_chain_healthy"
+	// ChainHealthyGaugeName tracks chain health across CCIP services.
+	ChainHealthyGaugeName = "ccip_chain_healthy"
 	// ServiceNameLabel is the label key for the service name (e.g. indexer, aggregator, verifier, executor).
 	ServiceNameLabel = "service_name"
 	// ChainSelectorLabel is the label key for the chain selector.
