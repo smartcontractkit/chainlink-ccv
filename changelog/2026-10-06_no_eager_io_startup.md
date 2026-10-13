@@ -19,12 +19,23 @@ repeated verifier outages (see also PR #1424):
   exits the process; fails only when none started.
 * `pricer`: a chain that fails to start is skipped and surfaced via the new
   `HealthReport()`; fails only when no chain started.
-* Startup skips now page instead of vanishing: the indexer and token verifier
-  register a `common/health.StartupSkips` reporter, and the verifier coordinator
-  and pricer fold skips into `Ready()`, so any skipped
-  verifier/reader/source/chain keeps the service NotReady (503 on
-  `/health/ready`) until the misconfiguration is fixed. The pricer also serves
-  `/health` (alongside `/metrics`) for the first time.
+* Startup skips are reported as degraded instead of vanishing. The indexer, token
+  verifier, committee verifier, and executor register a
+  `common/health.StartupSkips` reporter, and the verifier coordinator and pricer
+  report skips through `Degraded()`. A service with at least one usable chain
+  stays in rotation: `/health` returns `status: degraded` with HTTP 200, and
+  `services[].report` names each skipped component. A service with no usable
+  chain fails startup. A verifier whose configured chains all fail to build a
+  source reader service also fails startup now, instead of starting with no
+  chains. The verifier coordinator also reports a running chain whose source
+  reader is not ready (for example its RPC is unreachable) as degraded; the chain
+  recovers on its own when the RPC returns. When no source reader is ready the
+  coordinator is NotReady (HTTP 503). The pricer also serves `/health` (alongside
+  `/metrics`) for the first time.
+* `common/metrics`: added `ccip_chain_healthy` gauge metric (1 = healthy, 0 = degraded/failed)
+  emitted via `ServiceMetrics.RecordChainHealthy` for every configured chain at startup in
+  the committee verifier, token verifier, and executor, and updated dynamically upon
+  runtime recovery or disablement.
 * `aggregator/pkg`: `NewServer` returns errors instead of calling
   `logger.Fatalf` (signature changed to `(ctx, ...) (*Server, error)`); the
   caller in `main` owns the fail-fast decision.

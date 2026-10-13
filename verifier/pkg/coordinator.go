@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/common"
@@ -193,6 +194,7 @@ func NewCoordinatorWithDetector(
 		for chainSelector, srs := range processors.sourceReaderServices {
 			vc.sourceReaderServices[chainSelector] = srs
 		}
+		maps.Copy(vc.sourceReaderStartErrs, processors.sourceReaderCreateErrs)
 		if heartbeatClient != nil && config.HeartbeatInterval > 0 {
 			allSelectors := make([]protocol.ChainSelector, 0, len(sourceReaders))
 			for selector := range sourceReaders {
@@ -215,6 +217,7 @@ func NewCoordinatorWithDetector(
 // durableProcessors holds all services created by createDurableProcessors.
 type durableProcessors struct {
 	sourceReaderServices   map[protocol.ChainSelector]*sourcereader.Service
+	sourceReaderCreateErrs map[protocol.ChainSelector]error
 	taskVerifierProcessor  services.Service
 	storageWriterProcessor services.Service
 	taskQueueObserver      services.Service
@@ -287,7 +290,7 @@ func createDurableProcessors(
 		return nil, fmt.Errorf("failed to create result queue observer: %w", err)
 	}
 
-	sourceReadersDB, err := createSourceReadersDB(
+	sourceReadersDB, sourceReaderCreateErrs, err := createSourceReadersDB(
 		lggr, config, chainStatusManager, curseDetector, monitoring, configuredSourceReaders, taskQueueObserver, messageRulesChecker,
 	)
 	if err != nil {
@@ -320,6 +323,7 @@ func createDurableProcessors(
 
 	return &durableProcessors{
 		sourceReaderServices:   sourceReadersDB,
+		sourceReaderCreateErrs: sourceReaderCreateErrs,
 		taskVerifierProcessor:  taskVerifierProcessor,
 		storageWriterProcessor: storageWriterProcessor,
 		taskQueueObserver:      taskQueueObserver,
@@ -417,8 +421,9 @@ func createSourceReadersDB(
 	configuredSourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
 	taskQueue jobqueue.JobQueue[VerificationTask],
 	messageRulesChecker common.MessageRulesChecker,
-) (map[protocol.ChainSelector]*sourcereader.Service, error) {
+) (map[protocol.ChainSelector]*sourcereader.Service, map[protocol.ChainSelector]error, error) {
 	sourceReaderServices := make(map[protocol.ChainSelector]*sourcereader.Service)
+	skipped := make(map[protocol.ChainSelector]error)
 	for chainSelector, sourceReader := range configuredSourceReaders {
 		sourceCfg := config.SourceConfigs[chainSelector]
 		filter := chainaccess.NewReceiptIssuerFilter(sourceCfg.VerifierAddress, sourceCfg.DefaultExecutorAddress)
@@ -430,11 +435,20 @@ func createSourceReadersDB(
 		)
 		if err != nil {
 			lggr.Errorw("failed to create Service for chain, skipping this chain", "chainSelector", chainSelector, "error", err)
+			skipped[chainSelector] = err
+			if monitoring != nil {
+				monitoring.RecordChainHealthy(context.Background(), chainSelector, false)
+			}
 			continue
 		}
 		sourceReaderServices[chainSelector] = srs
 	}
-	return sourceReaderServices, nil
+	// Skipped chains degrade the coordinator, but none usable means nothing to coordinate.
+	if len(sourceReaderServices) == 0 && len(configuredSourceReaders) > 0 {
+		return nil, nil, fmt.Errorf("no source reader service could be created for %d configured chain(s): %w",
+			len(configuredSourceReaders), errors.Join(slices.Collect(maps.Values(skipped))...))
+	}
+	return sourceReaderServices, skipped, nil
 }
 
 func filterConfiguredSourceReaders(
@@ -579,27 +593,83 @@ func (vc *Coordinator) Name() string {
 	return fmt.Sprintf("verifier.Coordinator[%s]", vc.verifierID)
 }
 
-// Ready reports skipped source readers so a coordinator missing a chain shows
-// NotReady on /health and pages instead of silently missing the chain.
+// Ready fails while the coordinator is not running, or when no source reader is ready:
+// with every chain down there is nothing to verify, so the service reports NotReady.
 func (vc *Coordinator) Ready() error {
+	if !vc.TryRLock() {
+		return vc.lifecycleErr()
+	}
+	defer vc.RUnlock()
+	return vc.readyLocked()
+}
+
+// Degraded reports chains skipped at startup or whose source reader is not ready, while
+// at least one other chain keeps the coordinator running.
+func (vc *Coordinator) Degraded() error {
+	if !vc.TryRLock() {
+		return nil // Start or Close is running; Ready reports the lifecycle state.
+	}
+	defer vc.RUnlock()
+	return vc.degradedLocked()
+}
+
+// lifecycleErr is the health status while Start or Close holds the write lock, so health
+// checks report the state instead of blocking on it.
+func (vc *Coordinator) lifecycleErr() error {
 	if err := vc.StateMachine.Ready(); err != nil {
 		return err
 	}
-	vc.RLock()
-	defer vc.RUnlock()
-	if len(vc.sourceReaderStartErrs) == 0 {
-		return nil
+	return errors.New("coordinator is starting or stopping")
+}
+
+func (vc *Coordinator) readyLocked() error {
+	if err := vc.StateMachine.Ready(); err != nil {
+		return err
 	}
-	errs := make([]error, 0, len(vc.sourceReaderStartErrs))
-	for _, err := range vc.sourceReaderStartErrs {
-		errs = append(errs, err)
+	notReady := vc.notReadySourceReadersLocked()
+	if len(notReady) > 0 && len(notReady) == len(vc.sourceReaderServices) {
+		return fmt.Errorf("no source reader is ready across %d chain(s): %w", len(notReady), errors.Join(notReady...))
 	}
-	return fmt.Errorf("%d source reader(s) skipped at startup: %w", len(errs), errors.Join(errs...))
+	return nil
+}
+
+func (vc *Coordinator) degradedLocked() error {
+	var errs []error
+	if len(vc.sourceReaderStartErrs) > 0 {
+		skipped := make([]error, 0, len(vc.sourceReaderStartErrs))
+		for _, sel := range slices.Sorted(maps.Keys(vc.sourceReaderStartErrs)) {
+			skipped = append(skipped, fmt.Errorf("SourceReader[%s]: %w", sel, vc.sourceReaderStartErrs[sel]))
+		}
+		errs = append(errs, fmt.Errorf("%d source reader(s) skipped at startup: %w", len(skipped), errors.Join(skipped...)))
+	}
+	if notReady := vc.notReadySourceReadersLocked(); len(notReady) > 0 {
+		errs = append(errs, fmt.Errorf("%d source reader(s) not ready: %w", len(notReady), errors.Join(notReady...)))
+	}
+	return errors.Join(errs...)
+}
+
+// notReadySourceReadersLocked returns one error per running source reader that is not ready.
+func (vc *Coordinator) notReadySourceReadersLocked() []error {
+	var errs []error
+	for _, sel := range slices.Sorted(maps.Keys(vc.sourceReaderServices)) {
+		if err := vc.sourceReaderServices[sel].Ready(); err != nil {
+			errs = append(errs, fmt.Errorf("SourceReader[%s]: %w", sel, err))
+		}
+	}
+	return errs
 }
 
 func (vc *Coordinator) HealthReport() map[string]error {
+	if !vc.TryRLock() {
+		return map[string]error{vc.Name(): vc.lifecycleErr()}
+	}
+	defer vc.RUnlock()
 	report := make(map[string]error)
-	report[vc.Name()] = vc.Ready()
+	status := vc.readyLocked()
+	if status == nil {
+		status = vc.degradedLocked()
+	}
+	report[vc.Name()] = status
 	if vc.messageRulesSvc != nil {
 		if hr, ok := vc.messageRulesSvc.(protocol.HealthReporter); ok {
 			maps.Copy(report, hr.HealthReport())

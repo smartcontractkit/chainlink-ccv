@@ -219,9 +219,11 @@ func (r *Service) initializeAndMonitor() {
 			r.startBlockInitialized.Store(true)
 			r.metrics().SetSourceReaderLastProcessedFinalizedBlock(ctx, int64(startBlock)) // #nosec G115 -- chain block heights are within int64 range
 			r.logger.Infow("Initialized start block", "block", startBlock)
+			r.monitoring.RecordChainHealthy(ctx, r.chainSelector, true)
 			break
 		}
 		r.logger.Errorw("Failed to initialize start block, will retry", "error", err, "retryIn", r.pollInterval)
+		r.monitoring.RecordChainHealthy(ctx, r.chainSelector, false)
 		select {
 		case <-ctx.Done():
 			return
@@ -1198,6 +1200,7 @@ func (r *Service) recordDisabledState(ctx context.Context) {
 		state = monitoring.SourceReaderStateFinalityBlocked
 	}
 	r.metrics().SetSourceReaderState(ctx, state)
+	r.monitoring.RecordChainHealthy(ctx, r.chainSelector, false)
 }
 
 func (r *Service) messageMetrics(message protocol.Message) verifier.MetricLabeler {

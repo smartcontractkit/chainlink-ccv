@@ -105,8 +105,8 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 	// TODO: validate config?
 	cfg := appConfig
 
-	// Skipped chains/verifiers keep the service NotReady on /health so a
-	// misconfig pages instead of silently disappearing.
+	// Skipped chains/verifiers degrade the service on /health, which names each one.
+	// The factory fails below when none is usable.
 	startupSkips := health.NewStartupSkips("verifier.StartupSkips")
 
 	// On-ramp addresses are the application-owned source-chain set. RPC connection and tuning
@@ -126,7 +126,8 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 			accessor, err := deps.Registry.GetAccessor(chainCtx, selector)
 			if err != nil {
 				tvf.lggr.Errorw("Skipping chain, failed to get accessor for chain selector", "error", err, "chainSelector", selector)
-				startupSkips.Skip(fmt.Sprintf("Chain[%d]", selector), err)
+				startupSkips.SkipChain(selector, err)
+				verifierMonitoring.RecordChainHealthy(ctx, selector, false)
 				return
 			}
 			reader, err := accessor.SourceReader()
@@ -135,9 +136,11 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 			accessorsMu.Unlock()
 			if err != nil {
 				tvf.lggr.Warnw("Skipping chain, source reader not available", "chainSelector", selector, "error", err)
-				startupSkips.Skip(fmt.Sprintf("Chain[%d]", selector), err)
+				startupSkips.SkipChain(selector, err)
+				verifierMonitoring.RecordChainHealthy(ctx, selector, false)
 				return
 			}
+			verifierMonitoring.RecordChainHealthy(ctx, selector, true)
 			accessorsMu.Lock()
 			sourceReaders[selector] = reader
 			accessorsMu.Unlock()

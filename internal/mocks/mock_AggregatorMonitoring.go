@@ -7,6 +7,7 @@ import (
 
 	common "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	tracing "github.com/smartcontractkit/chainlink-ccv/common/monitoring/tracing"
+	protocol "github.com/smartcontractkit/chainlink-ccv/protocol"
 	mock "github.com/stretchr/testify/mock"
 )
 
@@ -67,6 +68,41 @@ func (_c *MockAggregatorMonitoring_Metrics_Call) Return(_a0 common.AggregatorMet
 
 func (_c *MockAggregatorMonitoring_Metrics_Call) RunAndReturn(run func() common.AggregatorMetricLabeler) *MockAggregatorMonitoring_Metrics_Call {
 	_c.Call.Return(run)
+	return _c
+}
+
+// RecordChainHealthy provides a mock function with given fields: ctx, selector, healthy
+func (_m *MockAggregatorMonitoring) RecordChainHealthy(ctx context.Context, selector protocol.ChainSelector, healthy bool) {
+	_m.Called(ctx, selector, healthy)
+}
+
+// MockAggregatorMonitoring_RecordChainHealthy_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RecordChainHealthy'
+type MockAggregatorMonitoring_RecordChainHealthy_Call struct {
+	*mock.Call
+}
+
+// RecordChainHealthy is a helper method to define mock.On call
+//   - ctx context.Context
+//   - selector protocol.ChainSelector
+//   - healthy bool
+func (_e *MockAggregatorMonitoring_Expecter) RecordChainHealthy(ctx interface{}, selector interface{}, healthy interface{}) *MockAggregatorMonitoring_RecordChainHealthy_Call {
+	return &MockAggregatorMonitoring_RecordChainHealthy_Call{Call: _e.mock.On("RecordChainHealthy", ctx, selector, healthy)}
+}
+
+func (_c *MockAggregatorMonitoring_RecordChainHealthy_Call) Run(run func(ctx context.Context, selector protocol.ChainSelector, healthy bool)) *MockAggregatorMonitoring_RecordChainHealthy_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(protocol.ChainSelector), args[2].(bool))
+	})
+	return _c
+}
+
+func (_c *MockAggregatorMonitoring_RecordChainHealthy_Call) Return() *MockAggregatorMonitoring_RecordChainHealthy_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockAggregatorMonitoring_RecordChainHealthy_Call) RunAndReturn(run func(context.Context, protocol.ChainSelector, bool)) *MockAggregatorMonitoring_RecordChainHealthy_Call {
+	_c.Run(run)
 	return _c
 }
 
