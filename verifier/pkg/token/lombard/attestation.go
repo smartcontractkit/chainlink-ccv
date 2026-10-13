@@ -3,7 +3,6 @@ package lombard
 import (
 	"context"
 	"fmt"
-	"slices"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 
@@ -269,17 +268,26 @@ func (h *HTTPAttestationService) Fetch(
 
 		blobStr := blob.String()
 
-		// Prefer APPROVED status if multiple entries exist for the same hash
-		idx := slices.IndexFunc(attestations, func(attestation AttestationResponse) bool {
-			return attestation.MessageHash == blobStr && attestation.Status == AttestationStatusApproved
-		})
-		if idx == -1 {
-			idx = slices.IndexFunc(attestations, func(attestation AttestationResponse) bool {
-				return attestation.MessageHash == blobStr
-			})
+		// Select the first APPROVED entry with data.
+		// Otherwise, select the first APPROVED entry, then the first matching entry.
+		var selected *AttestationResponse
+		for i := range attestations {
+			candidate := &attestations[i]
+			if candidate.MessageHash != blobStr {
+				continue
+			}
+			if candidate.Status == AttestationStatusApproved && candidate.Data != "" {
+				selected = candidate
+				break
+			}
+			if selected == nil {
+				selected = candidate
+			} else if candidate.Status == AttestationStatusApproved && selected.Status != AttestationStatusApproved {
+				selected = candidate
+			}
 		}
-		if idx != -1 {
-			result[task.MessageID] = NewAttestation(h.verifierVersion, attestations[idx], blob)
+		if selected != nil {
+			result[task.MessageID] = NewAttestation(h.verifierVersion, *selected, blob)
 		} else {
 			h.lggr.Errorw("Failed to find attestation for task in the response",
 				"messageID", task.MessageID)
