@@ -537,9 +537,3 @@ require (
 exclude github.com/golang-jwt/jwt/v4 v4.5.1
 
 replace github.com/fbsobreira/gotron-sdk => github.com/smartcontractkit/chainlink-tron/relayer/gotron-sdk v0.0.5-0.20251014124537-af6b1684fe15
-
-// Repeat replaces from chainlink-canton
-replace github.com/digital-asset/dazl-client/v8 => github.com/noders-team/dazl-client/v8 v8.7.1-2
-
-// Pin codec to v1.2.x: chainlink-evm's generated code uses GenVersion/GenHelper removed in v1.3.0
-replace github.com/ugorji/go/codec => github.com/ugorji/go/codec v1.2.12
