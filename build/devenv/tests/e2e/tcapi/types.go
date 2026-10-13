@@ -98,6 +98,27 @@ type SendArgs struct {
 	SendOption          cciptestinterfaces.ChainSendOption
 }
 
+// defaultExecutionGasLimit resolves the execution gas limit used when neither
+// SendArgs nor MessageOptions set one: the destination family's provider,
+// sized to the message's actual payload, or the cross-family default for
+// families that don't implement the provider.
+func defaultExecutionGasLimit(
+	ctx context.Context,
+	src cciptestinterfaces.V3Source,
+	dst cciptestinterfaces.V3Destination,
+	dataLen int,
+) (uint32, error) {
+	gasLimitProvider, ok := dst.(cciptestinterfaces.ExecutionGasLimitProvider)
+	if !ok {
+		return DefaultV3ExecutionGasLimit, nil
+	}
+	gasLimit, err := gasLimitProvider.GetExecutionGasLimit(ctx, src.ChainSelector(), uint32(dataLen))
+	if err != nil {
+		return 0, fmt.Errorf("failed to get execution gas limit: %w", err)
+	}
+	return gasLimit, nil
+}
+
 // SendV3Message builds and sends a V3 message using BuildV3ExtraArgs, BuildChainMessage, and SendChainMessage.
 func SendV3Message(
 	ctx context.Context,
@@ -110,18 +131,11 @@ func SendV3Message(
 	if sendArgs.ExecutionGasLimit != 0 {
 		opts.ExecutionGasLimit = sendArgs.ExecutionGasLimit
 	} else if opts.ExecutionGasLimit == 0 {
-		// Ask the destination family, which owns the execution cost model, for
-		// a value sized to the message's actual payload; families that don't
-		// implement the provider fall back to the cross-family default.
-		if gasLimitProvider, ok := dst.(cciptestinterfaces.ExecutionGasLimitProvider); ok {
-			gasLimit, err := gasLimitProvider.GetExecutionGasLimit(ctx, src.ChainSelector(), uint32(len(fields.Data)))
-			if err != nil {
-				return cciptestinterfaces.MessageSentEvent{}, nil, fmt.Errorf("failed to get execution gas limit: %w", err)
-			}
-			opts.ExecutionGasLimit = gasLimit
-		} else {
-			opts.ExecutionGasLimit = DefaultV3ExecutionGasLimit
+		gasLimit, err := defaultExecutionGasLimit(ctx, src, dst, len(fields.Data))
+		if err != nil {
+			return cciptestinterfaces.MessageSentEvent{}, nil, err
 		}
+		opts.ExecutionGasLimit = gasLimit
 	}
 
 	extraArgs, err := src.BuildV3ExtraArgs(opts, dst, sendArgs.ExtraArgsParams, sendArgs.TokenReceiverParams, sendArgs.TokenArgsParams)
