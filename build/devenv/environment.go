@@ -11,7 +11,6 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/rs/zerolog"
@@ -1062,7 +1061,7 @@ func registerExecutorsWithJD(ctx context.Context, executors []*executorsvc.Input
 			jdInfra.RegisterNodeAlias(exec.NOPAlias, reg.NodeID)
 			mu.Unlock()
 
-			if err := jobs.WaitForBootstrapConnection(gCtx, jdClient, reg.NodeID, 60*time.Second); err != nil {
+			if err := jobs.WaitForBootstrapConnection(gCtx, jdClient, reg.NodeID, jobs.NodeConnectTimeout()); err != nil {
 				return fmt.Errorf("executor %s failed to connect to JD: %w", exec.ContainerName, err)
 			}
 
@@ -1380,7 +1379,7 @@ func registerStandaloneVerifiersWithJD(ctx context.Context, verifiers []*committ
 			mu.Unlock()
 
 			// Wait for bootstrap to connect to JD
-			if err := jobs.WaitForBootstrapConnection(gCtx, jdClient, reg.NodeID, 60*time.Second); err != nil {
+			if err := jobs.WaitForBootstrapConnection(gCtx, jdClient, reg.NodeID, jobs.NodeConnectTimeout()); err != nil {
 				return fmt.Errorf("bootstrap %s failed to connect to JD: %w", ver.ContainerName, err)
 			}
 

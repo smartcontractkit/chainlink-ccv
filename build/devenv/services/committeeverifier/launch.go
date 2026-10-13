@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sync"
-	"time"
 
 	"golang.org/x/sync/errgroup"
 
@@ -147,7 +146,7 @@ func RegisterStandaloneVerifiersWithJD(ctx context.Context, verifiers []*Input, 
 			mu.Lock()
 			ver.Out.JDNodeID = reg.NodeID
 			mu.Unlock()
-			if err := jobs.WaitForBootstrapConnection(gCtx, jdClient, reg.NodeID, 60*time.Second); err != nil {
+			if err := jobs.WaitForBootstrapConnection(gCtx, jdClient, reg.NodeID, jobs.NodeConnectTimeout()); err != nil {
 				return fmt.Errorf("bootstrap %s failed to connect to JD: %w", ver.ContainerName, err)
 			}
 			return nil

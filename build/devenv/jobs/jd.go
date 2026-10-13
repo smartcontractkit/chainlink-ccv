@@ -337,6 +337,31 @@ func createAndVerifyChainConfig(
 	})
 }
 
+// EnvVarNodeConnectTimeout overrides the timeout used when waiting for nodes
+// and bootstraps to connect to JD (any Go duration string, e.g. "5m"). Set it
+// when bringup runs on a slow or emulated machine, or a large devenv, where
+// the default is too tight.
+const EnvVarNodeConnectTimeout = "CCV_NODE_CONNECT_TIMEOUT"
+
+// DefaultNodeConnectTimeout is the default wait for a node or bootstrap to
+// connect to JD. The wait polls every 2s; from container start to the node's
+// WSRPC dial landing can take well over a minute on large or emulated
+// devenvs, which the previous 60s default did not tolerate.
+const DefaultNodeConnectTimeout = 3 * time.Minute
+
+// NodeConnectTimeout returns the JD connection wait used for nodes and
+// bootstraps: CCV_NODE_CONNECT_TIMEOUT when set to a valid positive duration,
+// else DefaultNodeConnectTimeout.
+func NodeConnectTimeout() time.Duration {
+	if v := os.Getenv(EnvVarNodeConnectTimeout); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			return d
+		}
+		Plog.Warn().Str(EnvVarNodeConnectTimeout, v).Msg("invalid duration (want e.g. \"5m\"), using default")
+	}
+	return DefaultNodeConnectTimeout
+}
+
 // WaitForNodeConnection polls JD until the node reports connected or the timeout expires.
 func WaitForNodeConnection(ctx context.Context, jdClient offchain.Client, nodeID string, timeout time.Duration) error {
 	if jdClient == nil {
@@ -345,17 +370,32 @@ func WaitForNodeConnection(ctx context.Context, jdClient offchain.Client, nodeID
 	if nodeID == "" {
 		return fmt.Errorf("node ID is required to wait for a JD connection")
 	}
-	deadline := time.Now().Add(timeout)
+	return waitForConnection(ctx, jdClient, nodeID, timeout, "node")
+}
+
+// waitForConnection is the shared poll loop behind WaitForNodeConnection and
+// WaitForBootstrapConnection. It polls every 2s until JD reports the node
+// connected. Transient GetNode errors are tolerated (JD may itself still be
+// settling); only the deadline ends the wait.
+func waitForConnection(ctx context.Context, jdClient offchain.Client, nodeID string, timeout time.Duration, kind string) error {
+	start := time.Now()
+	deadline := start.Add(timeout)
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
+
+	// The wait used to hard-timeout at 60s; past that mark, say so once at
+	// warn level so the longer default stays visible at default log level.
+	var warnedSlow bool
 
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
+			elapsed := time.Since(start)
 			if time.Now().After(deadline) {
-				return fmt.Errorf("timeout waiting for node %s to connect", nodeID)
+				return fmt.Errorf("timeout waiting for %s %s to connect to JD after %s (extend with %s=<duration>, e.g. 5m)",
+					kind, nodeID, elapsed.Round(time.Second), EnvVarNodeConnectTimeout)
 			}
 
 			nodeResp, err := jdClient.GetNode(ctx, &nodev1.GetNodeRequest{Id: nodeID})
@@ -368,6 +408,15 @@ func WaitForNodeConnection(ctx context.Context, jdClient offchain.Client, nodeID
 			if isConnected {
 				Plog.Info().Str("nodeID", nodeID).Msg("Node connected to JD")
 				return nil
+			}
+
+			if !warnedSlow && elapsed > time.Minute {
+				warnedSlow = true
+				Plog.Warn().
+					Str("nodeID", nodeID).
+					Dur("elapsed", elapsed.Round(time.Second)).
+					Dur("timeout", timeout).
+					Msg(kind + " still not connected to JD after 60s (previously a hard timeout); continuing to wait")
 			}
 
 			Plog.Debug().Str("nodeID", nodeID).Bool("isConnected", isConnected).Msg("Node not yet connected, waiting...")
@@ -406,7 +455,7 @@ func ConnectNodesToJD(ctx context.Context, infra *JDInfrastructure, clientLookup
 
 	Plog.Info().Msg("Waiting for all nodes to connect to JD...")
 
-	connectionTimeout := 60 * time.Second
+	connectionTimeout := NodeConnectTimeout()
 	for alias, nodeID := range infra.NodeIDMap {
 		if err := WaitForNodeConnection(ctx, infra.OffchainClient, nodeID, connectionTimeout); err != nil {
 			Plog.Warn().

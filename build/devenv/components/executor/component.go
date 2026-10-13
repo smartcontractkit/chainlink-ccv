@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math/big"
 	"sync"
-	"time"
 
 	"golang.org/x/sync/errgroup"
 
@@ -238,7 +237,7 @@ func registerWithJD(ctx context.Context, executors []*executorsvc.Input, jdInfra
 			exec.Out.JDNodeID = reg.NodeID
 			jdInfra.RegisterNodeAlias(exec.NOPAlias, reg.NodeID)
 			mu.Unlock()
-			if err := jobs.WaitForBootstrapConnection(gCtx, jdInfra.OffchainClient, reg.NodeID, 60*time.Second); err != nil {
+			if err := jobs.WaitForBootstrapConnection(gCtx, jdInfra.OffchainClient, reg.NodeID, jobs.NodeConnectTimeout()); err != nil {
 				return fmt.Errorf("executor %s failed to connect to JD: %w", exec.ContainerName, err)
 			}
 			return nil

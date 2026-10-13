@@ -91,32 +91,5 @@ func RegisterBootstrapWithJD(ctx context.Context, jdClient offchain.Client, reg 
 
 // WaitForBootstrapConnection waits for a bootstrap to connect to JD after registration.
 func WaitForBootstrapConnection(ctx context.Context, jdClient offchain.Client, nodeID string, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			if time.Now().After(deadline) {
-				return fmt.Errorf("timeout waiting for bootstrap %s to connect to JD", nodeID)
-			}
-
-			nodeResp, err := jdClient.GetNode(ctx, &nodev1.GetNodeRequest{Id: nodeID})
-			if err != nil {
-				Plog.Debug().Str("nodeID", nodeID).Err(err).Msg("Failed to get node status, retrying...")
-				continue
-			}
-
-			isConnected := nodeResp.Node != nil && nodeResp.Node.IsConnected
-			if isConnected {
-				Plog.Info().Str("nodeID", nodeID).Msg("Bootstrap connected to JD")
-				return nil
-			}
-
-			Plog.Debug().Str("nodeID", nodeID).Bool("isConnected", isConnected).Msg("Bootstrap not yet connected, waiting...")
-		}
-	}
+	return waitForConnection(ctx, jdClient, nodeID, timeout, "bootstrap")
 }
