@@ -597,6 +597,14 @@ func maxDataSize(lib ccv.Lib, src, dest uint64, args Args) *v3TestCase {
 			if dataLen < 0 {
 				return false
 			}
+			// A max-size payload needs exec gas proportional to its size: the
+			// default 200K (tcapi.DefaultV3ExecutionGasLimit) cannot cover the
+			// ~16 gas/byte intrinsic cost of a ~30KB exec tx, so the exec tx
+			// would be unmineable — no ExecutionStateChanged is ever emitted and
+			// the txm wedges the lane retrying it. 1M clears EVM intrinsic
+			// (~500K) plus OffRamp processing with headroom, and stays under the
+			// dest FQ MaxPerMsgGasLimit (3M in the devenv override).
+			tc.args.Send.ExecutionGasLimit = 1_000_000
 			tc.msgData = bytes.Repeat([]byte("a"), dataLen)
 
 			receiver, err := env.DstResolver.GetContractReceiver(env.DS, tc.dst, common.DefaultReceiverQualifier)
