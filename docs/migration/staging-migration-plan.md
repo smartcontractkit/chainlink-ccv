@@ -45,15 +45,21 @@ operators. This document adapts it for staging, where one team does both halves.
     the JD-registered signing address. This catches a wrong-bundle export while the node is
     still up.
   - `ccv migrate inspect-config --config <node.toml>` prints the effective per-chain settings the
-    standalone processes will run (finality, TXM block time, flagged when the 2s fallback
-    fired, node set) plus every node setting the conversion drops. This is the pre-cutover
-    settings diff.
-  - The TXM block-time fallback is a single generic 2s value, not a curated per-chain table;
-    it warns at startup on every chain that runs a TXM, and P5 sets real values per chain.
-  - Startup does not fail on a per-chain config problem: a chain whose reader fails to resolve
-    is logged and skipped, and the process refuses to start only when no chain is usable
-    (`cmd/verifier/servicefactory.go`). The step 2 diff is the guard against a silently
-    missing chain.
+    standalone processes will run (finality, `txm_block_time`, `txm_block_time_source` —
+    `operator_config`, `curated_chain_default`, or `generic_fallback` — and node set), any
+    unconvertible `[[EVM]]` blocks under `failed_chains`, plus every node setting the conversion
+    drops. This is the pre-cutover settings diff.
+  - Curated per-chain TXM block times (`curatedTXMBlockTimeByChainID` in
+    `integration/pkg/accessors/evmconfig/node_convert.go`, PR #1461) supply `12s` for Ethereum
+    Mainnet and Ethereum Sepolia (and chain-appropriate values for other >2s chains), while
+    <=2s chains use the `2s` floor (`DefaultTXMBlockTime = 2s`, the minimum `chainlink-evm`
+    accepts).
+  - Startup checks declared `[[chains]]` against `EVM_CONFIG_PATH` at boot
+    (`chainaccess.CheckDeclaredChainCoverage`, failing fast if a declared chain is missing or in
+    `failed_chains`). Once a job starts, per-chain reader/writer resolution failures are logged
+    and tolerated as long as at least one chain starts (`cmd/verifier/servicefactory.go`,
+    `cmd/executor/service.go`, PRs #1496/#1497/#1507), reporting `"status": "degraded"` with
+    per-component details on `/health` and `/health/ready` (PR #1476).
 
 ## Hard rules (from the runbook)
 
@@ -237,32 +243,30 @@ plan.
 
 ### P3. Charts and config dirs
 
-Verifier: the `committee-verifier-base` chart already exists in chainlink-ccv-deploy
-(`deploy/charts/committee-verifier-base`, v0.1.1, listed in `build.charts.inventory`) with zero
-deploy instances; the verifier releases point straight at it.
+Verifier: the `committee-verifier-base` chart exists in chainlink-ccv-deploy
+(`deploy/charts/committee-verifier-base`, v0.1.2, listed in `build.charts.inventory`, with
+`templates/role-otel-sidecar.yaml` for the OTEL sidecar's `k8sattributes` processor and
+`generic-app.selectorLabels` on `pdb.yaml`/`servicemonitor.yaml`); the verifier releases point
+straight at it.
 
-Executor: do not write a chart. chainlink-ccv-non-evm-deploy has `deploy/charts/executor-solana`
-(v0.2.2), the chart its `executor-solana-0/1/2` staging releases run on today. Its templates are
-family-neutral: image, `configs` rendered into one ConfigMap, `volumes`/`volumeMounts` for the
-secret and config files, `envVars`, `/health` probes on `service.port`, optional `managedDB`, an
-OTEL sidecar slot. The only Solana-specific content is the default `image.repository`, the chart
-name, and the README. Copy it into chainlink-ccv-deploy as `deploy/charts/executor-evm` (rename
-in `Chart.yaml`, version 0.1.0), add it to `build.charts.inventory`, and the existing
-`push-helm-charts.yaml` publishes it on the PR like every other chart. The non-evm repo's
-`deploy/config/executor-solana/` values (`staging-common.yaml`, `staging-config.yaml`,
-`executor-solana-0/staging.yaml`) are the model for ours: bootstrap secrets projected onto
-`/etc/bootstrap/secrets.toml` with `subPath`, `BOOTSTRAPPER_CONFIG_PATH` pointing at the
-non-secret bootstrap TOML from `configs`, probes on the bootstrap `[server].listen_port`.
+Executor: `deploy/charts/executor-evm` (v0.1.0, listed in `build.charts.inventory`) is modeled on
+`chainlink-ccv-non-evm-deploy/deploy/charts/executor-solana` and `committee-verifier-base`: image,
+`configs` rendered into one ConfigMap, `volumes`/`volumeMounts` for the secret and config files,
+`envVars`, `/health` probes on `service.port`, optional `managedDB`, and the OTEL sidecar RBAC role.
+The existing `push-helm-charts.yaml` workflow publishes both charts on merge.
 
 Both processes take their file locations from the same env vars (`BOOTSTRAPPER_CONFIG_PATH`,
-`BOOTSTRAPPER_SECRETS_PATH`, `COMMITTEE_VERIFIER_SECRETS_PATH`; `bootstrap/bootstrap.go`,
+`EVM_CONFIG_PATH`, `BOOTSTRAPPER_SECRETS_PATH`, `COMMITTEE_VERIFIER_SECRETS_PATH`;
+`bootstrap/bootstrap.go`, `integration/pkg/accessors/evmconfig/config.go`,
 `verifier/pkg/vsecrets/vsecrets.go` in chainlink-ccv). The bootstrap health endpoint is `/health`
-on `[server].listen_port`, default 9988 (`docs/config/bootstrap/config.documented.toml`). The
-chart defaults probe `/healthz` (verifier base) and port 8080 (both), so set the probes per
-instance the way the canton values (`deploy/config/staging/committee-verifier-canton/staging.yaml`)
-do.
+on `[server].listen_port`, default 9988 (`docs/config/bootstrap/config.documented.toml`). Note that
+in JD mode (`startWithJDLifecycle`), the app HTTP server (`:8100` on verifier, `:8101` on executor)
+only starts after JD proposes a job in cutover step 9, while the bootstrap `infoServer` on `:9988`
+starts immediately at boot (`/health` returns 200; `/ready` returns 503 until a job starts). Both
+`livenessProbe` and `readinessProbe` in Helm values therefore target `/health` on port `9988` so
+pods deployed in P7/step 6 pass readiness before step 9.
 
-Config dirs, one per family chart, named like the releases:
+Config dirs, one per family chart, named like the releases (scaffolded for node 1):
 
 - `deploy/config/staging/committee-verifier-evm/`: `common.yaml` (image, resources, labels,
   sidecar), `config.yaml` (non-secret `configs:` TOMLs), `committee-verifier-evm-$i.yaml`
@@ -331,12 +335,26 @@ kubectl --context $CTX -n $NS get secret ccv-evm-$i-verifier-app-database-connec
 
 Each connection secret carries `POSTGRES_HOST/PORT/USER/PASSWORD/DB`.
 
-### P5. Per-chain txm_block_time
+### P5. Per-chain txm_block_time (completed)
 
-Agree the values for the five chains (open question 3), then set
-`Transactions.TransactionManagerV2.BlockTime` per chain in the EVM TOML the standalone processes
-mount; that is the only TXM setting the conversion carries over. Verified in cutover step 2 with
-`inspect-config`.
+Running `ccv migrate inspect-config` against the staging node EVM config
+(`deploy/config/staging/chainlink-ccv/rpcs.yaml` + `chains.yaml`) and the extracted standalone
+`evm-config.toml` (`deploy/config/staging/committee-verifier-evm/config.yaml`) produces zero
+`failed_chains` and the following effective settings for the five staging committee chains:
+
+| Chain | Selector | Chain ID | `finality_depth` | `finality_tag_enabled` | `txm_block_time` | `txm_block_time_source` | RPCs (WS) |
+|---|---|---|---|---|---|---|---|
+| `ethereum-testnet-sepolia` | `16015286601757825753` | `11155111` | `50` | `true` | `12s` | `curated_chain_default` | 3 (all WS) |
+| `ethereum-testnet-sepolia-arbitrum-1` | `3478487238524512106` | `421614` | `50` | `true` | `2s` | `generic_fallback` | 3 (all WS) |
+| `ethereum-testnet-sepolia-base-1` | `10344971235874465080` | `84532` | `200` | `true` | `2s` | `generic_fallback` | 2 (all WS) |
+| `polygon-testnet-amoy` | `16281711391670634445` | `80002` | `500` | `true` | `2s` | `generic_fallback` | 2 (all WS) |
+| `avalanche-testnet-fuji` | `14767482510784806043` | `43113` | `10` | `true` | `2s` | `generic_fallback` | 2 (all WS) |
+
+No manual `Transactions.TransactionManagerV2.BlockTime` overrides are needed in the staging
+`evm-config.toml`: Ethereum Sepolia receives `12s` from `curatedTXMBlockTimeByChainID` (PR #1461),
+and upstream `chainlink-evm` rejects `BlockTime < 2s` (`DefaultTXMBlockTime = 2 * time.Second`),
+so `2s` is already the minimum legal value for Arbitrum Sepolia, Base Sepolia, Polygon Amoy, and
+Avalanche Fuji. Verified again in cutover step 2 with `inspect-config`.
 
 ### P6. Secrets per node
 
@@ -405,9 +423,10 @@ only overwritten by the next actual deploy of that release). Preview before depl
 
 ```sh
 cd $DEPLOY && gcli helm template -e stage -N committee-verifier-evm-1 -c griddle.yaml
+# or without gcli: python3 scripts/griddle_template.py -e stage -N committee-verifier-evm-1 --dry-run
 ```
 
-### P8. expected_id per node, from JD
+### P8. expected_id per node, from JD (pre-extracted)
 
 ```sh
 cd $CLD
@@ -417,6 +436,32 @@ go run ./domains/ccv/cmd validate nop-support -e staging_testnet
 
 Record each node's `OnchainSigningAddress`; that value is `$EXPECTED_ID` in step 3. While here,
 also record each node's current CSA key: the rollback path needs it (step 7).
+
+Pre-extracted from `domains/ccv/staging_testnet/state_v2.json` and `topology.toml` (all 21 nodes are in `executor_pools.default` on all 5 EVM chains; the `default` committee memberships per node are listed in the last column):
+
+| `i` | `NODE` (`chainlink-ccv-staging-$i`) | JD `nodeID` | `EXPECTED_ID` (`OnchainSigningAddress`) | Current `csaKey` (for rollback) | `default` Committee Chains |
+|---|---|---|---|---|---|
+| `0` | `chainlink-ccv-staging-0` | `node_tSJyxmzinkkBCTBmmWEif` | `0xf5a79545c47626e887c997947bc151dd8e1cd119` | `be7b515dcba8644713ef97b2d13d14a8bb9bd82dae57166db29c406e4e2baa51` | sepolia, base-sepolia, fuji (+ `secondary` on all 5) |
+| `1` | `chainlink-ccv-staging-1` | `node_i2JZrhxmAg8K9fW5Gvc3p` | `0x7a73ab91f326ff363a809a0a1f2fca775a7b833a` | `90f6e2c9ff28bac3842795ba8e9376e8ab5caa22f3e2614de7525c06a9df3fa1` | sepolia, base-sepolia, fuji |
+| `2` | `chainlink-ccv-staging-2` | `node_ETjCLpmUnUZVCmbR5x2Bs` | `0xd560730b7cc1b0121285d8f00e65be7094e185e5` | `79ff7e4178d64f6e7a87f5b7d9df27b6e90dcada6a0c5c33cdf422a3521005dd` | sepolia, amoy, fuji |
+| `3` | `chainlink-ccv-staging-3` | `node_12Rgtg5jTpyodhKhqyKcQ` | `0x5f9788949ed8c6bc0aab30a23d7b987047ff2f01` | `ba310e8dee96fd13fc07d00d189262d5eb15b084bf87d1ec78aadbad0f679cd5` | sepolia, amoy, fuji |
+| `4` | `chainlink-ccv-staging-4` | `node_H9h8C4BXwAkfcUBZ82Zn2` | `0x0fde5b6082f90e2e43a3111618a5cdd24b045d02` | `c05c438d738afac0f41bd52fd47618b66260272507fa9e51631473f09de9a8d9` | sepolia, amoy, fuji |
+| `5` | `chainlink-ccv-staging-5` | `node_PbkLq7oDW2gXNUJ6ZmQhr` | `0x6e301a383c68898faf4b7a66dca11df9a8db2f48` | `13b8a0e40303ff9730b185da4c17db4bd85f374a0ce4855613ce595704bc8cf7` | sepolia, arb-sepolia, base-sepolia |
+| `6` | `chainlink-ccv-staging-6` | `node_sZCxytw5BNe7yMKtXiZkW` | `0xb07c183e24a056cbfb1b42fddf5bd2f537f752db` | `11fde00c137fba8c192fcbb8442825eaee9abca05ad5b896380007eaa337c928` | sepolia, arb-sepolia, base-sepolia |
+| `7` | `chainlink-ccv-staging-7` | `node_bo7KWbwnLZJLQaaxMwjeN` | `0xdb9cf3fcb9bdedc8783894bf8d9d8e0ec641342e` | `149444e8e9b1dbcc81e8d0f10bfa92ecd1e7a5b8c4322dff62f17ca6179f6004` | sepolia, arb-sepolia, amoy |
+| `8` | `chainlink-ccv-staging-8` | `node_MAmH6ecGvEwsGCDEG5rSZ` | `0x418a72c5c5789188bf526ac978fe9faccc4a7d61` | `15b622172dd092303a8ed00403789fa62f8561abf70448d00cabca3bb44e3bd3` | sepolia, arb-sepolia, amoy |
+| `9` | `chainlink-ccv-staging-9` | `node_ixwrvUY91DULFurjJFJFN` | `0x1da76d603c752235b191054190078c433408f20b` | `fc34178bc16262904ff142db15eed49ef782e8bbee2182c00f11eb5e034aa2cb` | sepolia, arb-sepolia |
+| `10` | `chainlink-ccv-staging-10` | `node_fjAxw3eskCXpdQGe7RRkV` | `0xe49c91674c67cb8506c2a7df4bd23c91d3ebdfdf` | `39d25a0b83fe4a3771c958be40bfe4905bd8e822aac82c6a2175d0e2e0fc404d` | arb-sepolia, base-sepolia, fuji |
+| `11` | `chainlink-ccv-staging-11` | `node_goPAVmZXSJdVdbyBTqujA` | `0x765f5b1ac1ef78772dff5c2aa25454336f1d3058` | `49cf72eec5631e17b25d0123495c25fbde1197b8ea883b877856afe4d72f4c51` | arb-sepolia, amoy, fuji |
+| `12` | `chainlink-ccv-staging-12` | `node_WoAUC8EasVzywE5yqQoZ2` | `0x8c0c2b9ddad65ee50f3c5e30dd1566a85f5b5357` | `5367a745a1563d86f193532c3c879de000f2b6ee9e58059780a7e8e76b79e21f` | arb-sepolia, fuji |
+| `13` | `chainlink-ccv-staging-13` | `node_aVVsNYYWqZxuKymkoFh4q` | `0x5a7e4c7ba296e37b9189aa81784f1919610e1c16` | `7469688cceade61d1b5b31b65b40360835dfe60aea24472abf55bd609d72d59e` | base-sepolia, fuji |
+| `14` | `chainlink-ccv-staging-14` | `node_1b1PrckNBud1DdMmcp4uf` | `0x4e1527efd9de84526dae3b475e0cc5e7987b1d01` | `95cc2a5c471fc8eec930e0278cf57b8d94370e90928d6d62fb4780fd5f08d5fa` | base-sepolia, fuji |
+| `15` | `chainlink-ccv-staging-15` | `node_UUkACpneCivMV1i7XtCkF` | `0xafe7b91825dbe7a0c41e5d711c0b2c4cbd20b481` | `3e4a344d80d61148dc234f30a64969f0164d5d6b41c5863dfc0dc0c3b28f0d78` | arb-sepolia, base-sepolia |
+| `16` | `chainlink-ccv-staging-16` | `node_Ji7guBBXDWJ1Z6nBcJZAR` | `0xd5f84d3182d1e57de3fec12d3cce501f507d0e55` | `aeba5c8c6fcf68b3e03453371d3b713dd4813b906069b8e50c3487882883c977` | arb-sepolia, amoy |
+| `17` | `chainlink-ccv-staging-17` | `node_dqhFHPxQfji1qydkkV671` | `0x80190830684043dda66193142d8594c712556c59` | `42f8c9d6c7d81bce5b670006cbb806c2f5d8a21561d5e36e80a21976bd061b9e` | base-sepolia, amoy |
+| `18` | `chainlink-ccv-staging-18` | `node_dzjeC4mj574v14hfzBogy` | `0xa0211cd441274e37db292726fac6a19fb25f67b9` | `a62b9047b2d78c177348c23e47c8cde94bdd903114c2bee4d374bc66be0e4f4c` | base-sepolia |
+| `19` | `chainlink-ccv-staging-19` | `node_yQ9bqxHQVrKSd1Cccd4ix` | `0x7b9f3303baad0b738cfb3251ce5d5ab2943fa386` | `378571a8feedfa8f7cbaccccf73111a74b108703e41656836be2dd2ed7f4c1bb` | amoy |
+| `20` | `chainlink-ccv-staging-20` | `node_WxLBzEknoUfFpfhVLEfC4` | `0xa76ac8de1ab07dffd464284392d257bae5cabd62` | `e5671d6d8f89e627f2097acd42600352bcde28d99141867293c5f8d8865a101a` | amoy |
 
 ### P9. Funding source
 
@@ -453,16 +498,17 @@ needs the selectors.
 ### 2. Diff the config
 
 Pull the node's effective EVM TOML (render the release locally with
-`gcli helm template -e stage -N chainlink-ccv -c griddle.yaml` and extract it from the ConfigMap,
-or read the live ConfigMap), then:
+`gcli helm template -e stage -N chainlink-ccv -c griddle.yaml`, or read the live ConfigMap, or
+inspect the standalone `evm-config.toml` from `deploy/config/staging/committee-verifier-evm/config.yaml`), then:
 
 ```sh
 cd $CCV
 go run ./cmd/verifier/committee ccv migrate inspect-config --config /tmp/node-$i.toml
 ```
 
-Review the warnings and per-chain effective settings; accept or correct each deviation. No chain
-may show `txm_block_time_is_default: true` (that is the 2s fallback; fix the config per P5).
+Confirm `failed_chains` is empty and each of the five chains matches the P5 baseline (`12s` via
+`curated_chain_default` on Ethereum Sepolia; `2s` floor via `generic_fallback` on Arbitrum Sepolia,
+Base Sepolia, Polygon Amoy, and Avalanche Fuji).
 
 ### 3. Export the verifier key
 
@@ -561,6 +607,8 @@ new node id to `domains/ccv/staging_testnet/nodes.json`, which is part of the co
 
 ```sh
 kubectl --context $CTX -n $NS logs deploy/$EXE | grep executor_evm_transmitter_key
+# or via the bootstrapper info server on :9988:
+# curl -s -d '{"KeyNames":["executor_evm_transmitter_key"]}' http://localhost:9988/keystore/reader/getaddresses
 ```
 
 The line is `key created` (or `key already exists` on a restart) and the address is in the
@@ -624,9 +672,9 @@ kubectl --context $CTX -n $NS port-forward deploy/$VER 8100:8100 & PF1=$!
 kubectl --context $CTX -n $NS port-forward deploy/$EXE 8101:8101 & PF2=$!
 kubectl --context $CTX -n $NS port-forward deploy/$VER 9988:9988 & PF3=$!
 sleep 2
-curl -s http://localhost:8100/health
-curl -s http://localhost:8101/health
-curl -s http://localhost:9988/ready   # now 200
+curl -s http://localhost:8100/health         # expect "status":"pass" (not "degraded"; /health/ready and /health/live also available)
+curl -s http://localhost:8101/health         # expect "status":"pass" (not "degraded")
+curl -s http://localhost:9988/ready          # now 200
 kill $PF1 $PF2 $PF3
 ```
 
@@ -695,8 +743,10 @@ faster than expected is a reason to look at transmit failures before the next no
    retire the secondary committee (revoke the job, leave the contracts), or give node 0 a second
    standalone verifier for it? Either way node 0 migrates last.
 2. What is the staging funding source for node accounts, and who owns sending from it? (P9)
-3. Per-chain `txm_block_time` values for the five chains. Proposal to react to: sepolia 12s,
-   arbitrum-sepolia 1s, base-sepolia 2s, amoy 2s, fuji 2s. Needs agreement before P5.
+3. *(Resolved)* Per-chain `txm_block_time` values for the five chains: Ethereum Sepolia (`11155111`)
+   gets `12s` via `curatedTXMBlockTimeByChainID` (PR #1461), and Arbitrum Sepolia (`421614`),
+   Base Sepolia (`84532`), Polygon Amoy (`80002`), and Avalanche Fuji (`43113`) use `2s` (the
+   minimum `BlockTime` allowed by `chainlink-evm`). See P5.
 
 ## What staging does not decide
 
