@@ -460,12 +460,18 @@ type MessageOverheadProvider interface {
 
 // ExecutionGasLimitProvider is implemented by any chain that can report the
 // execution gas limit a V3 message needs for THIS chain to execute it. This is
-// a destination-side capability: the value lands in the message's extra args
-// and the executor uses it to size the destination execute transaction, so
-// each destination family owns the sizing against its own execution cost model
-// (EVM: intrinsic gas per calldata byte plus offRamp processing; Stellar: the
-// Soroban compute budget for offRamp.execute). Implementations should keep the
-// result within the fee quoter MaxPerMsgGasLimit configured for the remote.
+// a destination-side capability: the value lands in the destination family's
+// extra args, where it plays a dual role — the offRamp delivers it verbatim as
+// the receiver callback's gas budget (ccipReceiveGasLimit), and the executor
+// sizes the destination execute transaction from the message's gas fields (on
+// EVM: the tx gas is message.executionGasLimit plus a buffered
+// ccipReceiveGasLimit), so the destination family must size it against its own
+// exec-tx cost model (EVM: intrinsic gas per calldata byte plus offRamp
+// processing; Stellar: the Soroban compute budget for offRamp.execute). When
+// clamping to the fee quoter's MaxPerMsgGasLimit configured for the remote,
+// implementations must reserve room for the gas terms the OnRamp adds on top
+// of the extra-args value — the MessageGasLimitTooHigh check covers their
+// whole sum.
 type ExecutionGasLimitProvider interface {
 	// GetExecutionGasLimit gets the execution gas limit required to execute on
 	// this chain a CCIP message from the specified remote chain whose data
