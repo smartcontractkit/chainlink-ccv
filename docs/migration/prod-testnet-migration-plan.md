@@ -160,7 +160,7 @@ For each of the 59 EVM chains: run `ccv migrate inspect-config` against the node
 TOML (the `chainlink-ccv-testnet` values carry 61 `[[EVM]]` entries; the committee
 serves 59 — reconcile the difference during the first node's diff) and record
 accept-or-correct for every warning and every chain's `txm_block_time` /
-`txm_block_time_source` (`operator_config`, `curated_chain_default`, or
+`txm_block_time_source` (`operator`, `curated_chain_default`, or
 `generic_fallback`). Unconvertible `[[EVM]]` entries are reported under `failed_chains`
 (and boot-time `chainaccess.CheckDeclaredChainCoverage` rejects any declared `[[chains]]`
 entry that is missing or in `failed_chains`), so `failed_chains` must be empty for all 59

@@ -46,11 +46,11 @@ operators. This document adapts it for staging, where one team does both halves.
     still up.
   - `ccv migrate inspect-config --config <node.toml>` prints the effective per-chain settings the
     standalone processes will run (finality, `txm_block_time`, `txm_block_time_source` —
-    `operator_config`, `curated_chain_default`, or `generic_fallback` — and node set), any
+    `operator`, `curated_chain_default`, or `generic_fallback` — and node set), any
     unconvertible `[[EVM]]` blocks under `failed_chains`, plus every node setting the conversion
     drops. This is the pre-cutover settings diff.
   - Curated per-chain TXM block times (`curatedTXMBlockTimeByChainID` in
-    `integration/pkg/accessors/evmconfig/node_convert.go`, PR #1461) supply `12s` for Ethereum
+    `integration/pkg/accessors/evmconfig/chainlink_config.go`, PR #1461) supply `12s` for Ethereum
     Mainnet and Ethereum Sepolia (and chain-appropriate values for other >2s chains), while
     <=2s chains use the `2s` floor (`DefaultTXMBlockTime = 2s`, the minimum `chainlink-evm`
     accepts).
@@ -244,12 +244,12 @@ plan.
 ### P3. Charts and config dirs
 
 Verifier: the `committee-verifier-base` chart exists in chainlink-ccv-deploy
-(`deploy/charts/committee-verifier-base`, v0.1.2, listed in `build.charts.inventory`, with
+(`deploy/charts/committee-verifier-base`, v0.1.3, listed in `build.charts.inventory`, with
 `templates/role-otel-sidecar.yaml` for the OTEL sidecar's `k8sattributes` processor and
 `generic-app.selectorLabels` on `pdb.yaml`/`servicemonitor.yaml`); the verifier releases point
 straight at it.
 
-Executor: `deploy/charts/executor-evm` (v0.1.0, listed in `build.charts.inventory`) is modeled on
+Executor: `deploy/charts/executor-evm` (v0.1.1, listed in `build.charts.inventory`) is modeled on
 `chainlink-ccv-non-evm-deploy/deploy/charts/executor-solana` and `committee-verifier-base`: image,
 `configs` rendered into one ConfigMap, `volumes`/`volumeMounts` for the secret and config files,
 `envVars`, `/health` probes on `service.port`, optional `managedDB`, and the OTEL sidecar RBAC role.
@@ -606,9 +606,9 @@ new node id to `domains/ccv/staging_testnet/nodes.json`, which is part of the co
 ### 8. Fund the executor
 
 ```sh
-kubectl --context $CTX -n $NS logs deploy/$EXE | grep executor_evm_transmitter_key
+kubectl --context $CTX -n $NS logs deploy/$EXE | grep evm/tx/executor_evm_transmitter_key
 # or via the bootstrapper info server on :9988:
-# curl -s -d '{"KeyNames":["executor_evm_transmitter_key"]}' http://localhost:9988/keystore/reader/getaddresses
+# curl -s -d '{"KeyNames":["evm/tx/executor_evm_transmitter_key"]}' http://localhost:9988/keystore/reader/getaddresses
 ```
 
 The line is `key created` (or `key already exists` on a restart) and the address is in the
