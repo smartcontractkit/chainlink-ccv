@@ -444,13 +444,8 @@ type MaxDataSizeProvider interface {
 	GetMaxDataBytes(ctx context.Context, remoteChainSelector uint64) (uint32, error)
 }
 
-// MessageOverheadProvider is implemented by any chain that can report how many
-// non-payload bytes the V3 send path bills inside the destination fee quoter's
-// maxDataBytes budget: the committee verifier payload, this source family's
-// MessageV1 codec base, and the destination address fields. This is a
-// source-side capability — the same billing model MaxDataSizeProvider reads
-// the budget from — so a caller computes a max-size payload as
-// GetMaxDataBytes(remote) - GetMessageOverheadBytes(remote).
+// MessageOverheadProvider reports non-payload bytes billed within a V3 source
+// fee quoter's maxDataBytes budget.
 type MessageOverheadProvider interface {
 	// GetMessageOverheadBytes gets the non-payload bytes billed inside the
 	// maxDataBytes budget for a CCIP message from this chain to the specified
