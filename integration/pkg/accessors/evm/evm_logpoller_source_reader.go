@@ -2,6 +2,7 @@ package evm
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"math"
@@ -48,8 +49,6 @@ type LogPollerConfig struct {
 	LogPoller  logpoller.LogPoller
 	VerifierID string
 	Retention  time.Duration
-	// FilterRegistered reports whether the node has already stored the named log poller filter.
-	FilterRegistered func(ctx context.Context, name string) (bool, error)
 }
 
 // LogPollerEnabled reports whether the node's LogPoller feature is on for a chain. It decides both
@@ -105,9 +104,6 @@ func NewLogPollerSourceReader(ctx context.Context, p SourceReaderParams, cfg *Lo
 	if cfg.VerifierID == "" {
 		errs = append(errs, errors.New("log poller verifierID is not set"))
 	}
-	if cfg.FilterRegistered == nil {
-		errs = append(errs, errors.New("log poller filter lookup is not set"))
-	}
 	core, err := newSourceReaderCore(p)
 	if err != nil {
 		errs = append(errs, err)
@@ -138,28 +134,14 @@ func (r *LogPollerSourceReader) LoadFrom(startBlock uint64) {
 	r.wg.Go(func() { r.initLogPoller(startBlock) })
 }
 
-// logPollerLoad is fixed on the first attempt, so a retry does not mistake this reader's own
-// registration for a pre-existing filter.
-type logPollerLoad struct {
-	fromBlock     uint64
-	filterExisted bool
-}
-
 // initLogPoller retries loading the log poller from the start block with backoff until it succeeds or
 // the reader closes.
 func (r *LogPollerSourceReader) initLogPoller(from uint64) {
 	ctx, cancel := r.stopCh.NewCtx()
 	defer cancel()
-	var load *logPollerLoad
 	backoff := logPollerInitBackoff
 	for {
-		var err error
-		if load == nil {
-			load, err = r.planLogPollerLoad(ctx, from)
-		}
-		if err == nil {
-			err = r.loadLogPoller(ctx, *load)
-		}
+		err := r.loadLogPoller(ctx, from)
 		if err == nil {
 			r.ready.Store(true)
 			r.lggr.Infow("Log poller ready, reading CCIPMessageSent logs from it", "filter", r.filterName)
@@ -175,29 +157,46 @@ func (r *LogPollerSourceReader) initLogPoller(from uint64) {
 	}
 }
 
-func (r *LogPollerSourceReader) planLogPollerLoad(ctx context.Context, from uint64) (*logPollerLoad, error) {
-	existed, err := r.cfg.FilterRegistered(ctx, r.filterName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to check log poller filter %s: %w", r.filterName, err)
-	}
-	return &logPollerLoad{fromBlock: from, filterExisted: existed}, nil
-}
-
-// loadLogPoller registers the filter and replays the log poller from the start block. A pre-existing
-// filter first has the log poller's logs and blocks from the start block deleted, so they are re-fetched.
-func (r *LogPollerSourceReader) loadLogPoller(ctx context.Context, load logPollerLoad) error {
-	if load.fromBlock > math.MaxInt64 {
-		return fmt.Errorf("replay block %d is out of range for the log poller", load.fromBlock)
+// loadLogPoller registers the filter, deletes the log poller's logs and blocks from the start block,
+// and replays from it, so everything after the checkpoint is re-fetched.
+func (r *LogPollerSourceReader) loadLogPoller(ctx context.Context, fromBlock uint64) error {
+	if fromBlock > math.MaxInt64 {
+		return fmt.Errorf("replay block %d is out of range for the log poller", fromBlock)
 	}
 	if err := r.registerLogPollerFilter(ctx); err != nil {
 		return err
 	}
-	if load.filterExisted {
-		if err := r.lp.DeleteLogsAndBlocksAfter(ctx, int64(load.fromBlock)); err != nil { // #nosec G115 -- range checked above
-			return fmt.Errorf("failed to delete log poller data from block %d: %w", load.fromBlock, err)
-		}
+	if err := r.lp.DeleteLogsAndBlocksAfter(ctx, int64(fromBlock)); err != nil { // #nosec G115 -- range checked above
+		return fmt.Errorf("failed to delete log poller data from block %d: %w", fromBlock, err)
 	}
-	return r.replayLogPoller(ctx, load.fromBlock)
+	if err := r.anchorLogPoller(ctx, fromBlock); err != nil {
+		return err
+	}
+	return r.replayLogPoller(ctx, fromBlock)
+}
+
+// anchorLogPoller saves the block before fromBlock as the log poller's last processed block when the
+// delete left it with none. An empty log poller starts its next poll at the chain's finalized block,
+// and Replay does not return the errors of the part it hands to the poll loop, so without an anchor a
+// failed replay would leave the blocks from fromBlock up to there unindexed while the reader reads them.
+func (r *LogPollerSourceReader) anchorLogPoller(ctx context.Context, fromBlock uint64) error {
+	_, err := r.lp.LatestBlock(ctx)
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("failed to get log poller latest block: %w", err)
+	}
+	if fromBlock < 2 {
+		return nil // No block before it to anchor on; the replay covers the chain from genesis.
+	}
+	skipCtx, cancel := context.WithTimeout(ctx, logPollerOpTimeout)
+	defer cancel()
+	// fromBlock-1 is the finalized checkpoint, so SkipToBlock accepts it as the anchor.
+	if err := r.lp.SkipToBlock(skipCtx, int64(fromBlock)); err != nil { // #nosec G115 -- range checked by loadLogPoller
+		return fmt.Errorf("failed to anchor log poller at block %d: %w", fromBlock-1, err)
+	}
+	return nil
 }
 
 // registerLogPollerFilter registers the CCIPMessageSent filter with the log poller.
