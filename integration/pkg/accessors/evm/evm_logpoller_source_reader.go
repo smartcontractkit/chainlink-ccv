@@ -300,84 +300,70 @@ func (r *LogPollerSourceReader) logPollerLogs(ctx context.Context, fromBlock, to
 	return logs, nil
 }
 
-// logPollerBlocks returns the last block the log poller has processed and the finalized and safe
-// blocks it saved with it. Only the finalized and safe blocks are certain to be on the canonical
-// chain: the processed block can still be on a fork the log poller has not reorged away from.
-func (r *LogPollerSourceReader) logPollerBlocks(ctx context.Context) (processed, finalized, safe uint64, err error) {
+// logPollerLatestBlock returns the last block the log poller has processed, with the finalized and safe
+// block numbers it saved with it. The log poller reads those from the chain's head tracker when it polls,
+// so they are the head tracker's blocks as of the last block it indexed.
+func (r *LogPollerSourceReader) logPollerLatestBlock(ctx context.Context) (logpoller.Block, error) {
 	b, err := r.lp.LatestBlock(ctx)
 	if err != nil {
-		return 0, 0, 0, fmt.Errorf("failed to get log poller latest block: %w", err)
+		return logpoller.Block{}, fmt.Errorf("failed to get log poller latest block: %w", err)
 	}
 	if b.BlockNumber < 0 || b.FinalizedBlockNumber < 0 || b.SafeBlockNumber < 0 {
-		return 0, 0, 0, fmt.Errorf("log poller block numbers cannot be negative: %d, %d, %d",
+		return logpoller.Block{}, fmt.Errorf("log poller block numbers cannot be negative: %d, %d, %d",
 			b.BlockNumber, b.FinalizedBlockNumber, b.SafeBlockNumber)
 	}
-	return uint64(b.BlockNumber), uint64(b.FinalizedBlockNumber), uint64(b.SafeBlockNumber), nil
+	return b, nil
 }
 
 // logPollerBlock returns the last block the log poller has processed.
 func (r *LogPollerSourceReader) logPollerBlock(ctx context.Context) (uint64, error) {
-	processed, _, _, err := r.logPollerBlocks(ctx)
-	return processed, err
+	b, err := r.logPollerLatestBlock(ctx)
+	return uint64(b.BlockNumber), err // #nosec G115 -- checked non-negative by logPollerLatestBlock
 }
 
-// LatestAndFinalizedBlock returns the head tracker's latest and finalized block headers, so the verifier
-// never advances past logs the log poller has not indexed. Latest is capped at the log poller's last
-// processed block and finalized at its own finalized block, which a pending reorg cannot change.
+// LatestAndFinalizedBlock returns the log poller's last processed block and the finalized block saved with
+// it, so the verifier never advances past logs the log poller has not indexed.
 func (r *LogPollerSourceReader) LatestAndFinalizedBlock(ctx context.Context) (latest, finalized *protocol.BlockHeader, err error) {
-	latest, finalized, err = r.headTrackerBlocks(ctx)
+	b, err := r.logPollerLatestBlock(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
-
-	processed, lpFinalized, _, err := r.logPollerBlocks(ctx)
+	finalized, err = r.logPollerHeaderAt(ctx, b.FinalizedBlockNumber)
 	if err != nil {
 		return nil, nil, err
 	}
-	if processed < latest.Number || lpFinalized < finalized.Number {
-		r.lggr.Debugw("Log poller is behind the head tracker, capping blocks", "logPollerBlock", processed,
-			"logPollerFinalized", lpFinalized, "latest", latest.Number, "finalized", finalized.Number)
-	}
-	if processed < latest.Number {
-		if latest, err = r.headerAt(ctx, processed); err != nil {
-			return nil, nil, err
-		}
-	}
-	if lpFinalized < finalized.Number {
-		if finalized, err = r.headerAt(ctx, lpFinalized); err != nil {
-			return nil, nil, err
-		}
-	}
-	return latest, finalized, nil
+	return logPollerHeader(b), finalized, nil
 }
 
-// LatestSafeBlock returns the head tracker's safe block header, not above the safe block the log
-// poller saved. Returns nil without an error when the chain does not support the safe tag.
+// LatestSafeBlock returns the safe block the log poller saved with its last processed block.
 func (r *LogPollerSourceReader) LatestSafeBlock(ctx context.Context) (*protocol.BlockHeader, error) {
-	safe, err := r.headTrackerSafeBlock(ctx)
-	if err != nil || safe == nil {
-		return safe, err
-	}
-
-	_, _, lpSafe, err := r.logPollerBlocks(ctx)
+	b, err := r.logPollerLatestBlock(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if lpSafe >= safe.Number {
-		return safe, nil
-	}
-	return r.headerAt(ctx, lpSafe)
+	return r.logPollerHeaderAt(ctx, b.SafeBlockNumber)
 }
 
-// headerAt returns the header of block n.
-func (r *LogPollerSourceReader) headerAt(ctx context.Context, n uint64) (*protocol.BlockHeader, error) {
-	headers, err := r.GetBlocksHeaders(ctx, []uint64{n})
+// logPollerHeaderAt returns the header of block n from the log poller's own blocks, which falls back to
+// RPC only for a block it has not stored.
+func (r *LogPollerSourceReader) logPollerHeaderAt(ctx context.Context, n int64) (*protocol.BlockHeader, error) {
+	blocks, err := r.lp.GetBlocksRange(ctx, []uint64{uint64(n)}) // #nosec G115 -- checked non-negative by logPollerLatestBlock
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get log poller block %d: %w", n, err)
 	}
-	h, ok := headers[n]
-	if !ok {
-		return nil, fmt.Errorf("header for block %d not found", n)
+	if len(blocks) != 1 || blocks[0].BlockNumber != n {
+		return nil, fmt.Errorf("log poller block %d not found", n)
 	}
-	return &h, nil
+	return logPollerHeader(blocks[0]), nil
+}
+
+// logPollerHeader converts a log poller block to a header. The log poller does not store parent hashes,
+// so ParentHash is zero; only the header-based finality checker reads it, and log poller chains use the
+// log poller's finality signal instead.
+func logPollerHeader(b logpoller.Block) *protocol.BlockHeader {
+	return &protocol.BlockHeader{
+		Number:    uint64(b.BlockNumber), // #nosec G115 -- callers check it is non-negative
+		Hash:      protocol.Bytes32(b.BlockHash),
+		Timestamp: b.BlockTimestamp,
+	}
 }

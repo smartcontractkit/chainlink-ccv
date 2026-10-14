@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"math/big"
 	"testing"
 	"time"
 
@@ -15,7 +16,6 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
 	commontypes "github.com/smartcontractkit/chainlink-common/pkg/types"
-	evmclient "github.com/smartcontractkit/chainlink-evm/pkg/client"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client/clienttest"
 	"github.com/smartcontractkit/chainlink-evm/pkg/heads"
 	"github.com/smartcontractkit/chainlink-evm/pkg/logpoller"
@@ -104,53 +104,54 @@ func TestFetchMessageSentEvents_LogPollerRange(t *testing.T) {
 // stubHeadTracker serves fixed heads; any other Tracker call panics on the nil embedded interface.
 type stubHeadTracker struct {
 	heads.Tracker
-	latest, finalized, safe int64
+	latest, finalized int64
 }
 
 func (s stubHeadTracker) LatestAndFinalizedBlock(context.Context) (*evmtypes.Head, *evmtypes.Head, error) {
 	return &evmtypes.Head{Number: s.latest}, &evmtypes.Head{Number: s.finalized}, nil
 }
 
-func (s stubHeadTracker) LatestSafeBlock(context.Context) (*evmtypes.Head, error) {
-	return &evmtypes.Head{Number: s.safe}, nil
-}
-
-// The verifier must never advance past blocks whose logs the log poller has not indexed yet, and
-// finalized must not rely on the log poller's processed block, which can still be on a forked chain.
-func TestBlocksAreCappedAtLogPollerBlock(t *testing.T) {
-	for _, tc := range []struct {
-		name                     string
-		processed, lpFin, lpSafe int64
-		latest, finalized, safe  uint64
-	}{
-		{name: "log poller caught up", processed: 150, lpFin: 80, lpSafe: 90, latest: 100, finalized: 80, safe: 90},
-		{name: "log poller finalized behind head tracker", processed: 100, lpFin: 70, lpSafe: 85, latest: 100, finalized: 70, safe: 85},
-		{name: "log poller far behind", processed: 50, lpFin: 40, lpSafe: 45, latest: 50, finalized: 40, safe: 45},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			lp := lpmocks.NewLogPoller(t)
-			lp.EXPECT().LatestBlock(mock.Anything).Return(logpoller.Block{
-				BlockNumber: tc.processed, FinalizedBlockNumber: tc.lpFin, SafeBlockNumber: tc.lpSafe,
-			}, nil)
-			// A capped block is re-read by number; when nothing is capped no header RPC is allowed.
-			var cc evmclient.Client = clienttest.NewClient(t)
-			if tc.processed < 100 || tc.lpFin < 80 || tc.lpSafe < 90 {
-				cc = newBatchFillingClient(t, "")
-			}
-			core := newTestSourceReader(t, cc).sourceReaderCore
-			core.headTracker = stubHeadTracker{latest: 100, finalized: 80, safe: 90}
-			r := &LogPollerSourceReader{sourceReaderCore: core, lp: lp}
-
-			latest, finalized, err := r.LatestAndFinalizedBlock(t.Context())
-			require.NoError(t, err)
-			require.Equal(t, tc.latest, latest.Number)
-			require.Equal(t, tc.finalized, finalized.Number)
-
-			safe, err := r.LatestSafeBlock(t.Context())
-			require.NoError(t, err)
-			require.Equal(t, tc.safe, safe.Number)
-		})
+// The verifier must never advance past blocks the log poller has not indexed, so its block headers are the
+// log poller's own blocks, read without the head tracker or RPC.
+func TestBlockHeadersComeFromLogPoller(t *testing.T) {
+	ts := time.Unix(1700000000, 0)
+	block := func(n int64) logpoller.Block {
+		return logpoller.Block{BlockNumber: n, BlockHash: common.BigToHash(big.NewInt(n)), BlockTimestamp: ts}
 	}
+	header := func(n int64) *protocol.BlockHeader {
+		return &protocol.BlockHeader{Number: uint64(n), Hash: protocol.Bytes32(common.BigToHash(big.NewInt(n))), Timestamp: ts} // #nosec G115 -- test block numbers are small
+	}
+	newReader := func(t *testing.T) (*LogPollerSourceReader, *lpmocks.LogPoller) {
+		lp := lpmocks.NewLogPoller(t)
+		latest := block(100)
+		latest.FinalizedBlockNumber, latest.SafeBlockNumber = 80, 90
+		lp.EXPECT().LatestBlock(mock.Anything).Return(latest, nil)
+		// No head tracker or chain client: reading either panics.
+		return &LogPollerSourceReader{sourceReaderCore: sourceReaderCore{lggr: logger.Test(t)}, lp: lp}, lp
+	}
+
+	t.Run("latest, finalized and safe are the log poller's blocks", func(t *testing.T) {
+		r, lp := newReader(t)
+		lp.EXPECT().GetBlocksRange(mock.Anything, []uint64{80}).Return([]logpoller.Block{block(80)}, nil).Once()
+		lp.EXPECT().GetBlocksRange(mock.Anything, []uint64{90}).Return([]logpoller.Block{block(90)}, nil).Once()
+
+		latest, finalized, err := r.LatestAndFinalizedBlock(t.Context())
+		require.NoError(t, err)
+		require.Equal(t, header(100), latest)
+		require.Equal(t, header(80), finalized)
+
+		safe, err := r.LatestSafeBlock(t.Context())
+		require.NoError(t, err)
+		require.Equal(t, header(90), safe)
+	})
+
+	t.Run("a block other than the one requested is an error", func(t *testing.T) {
+		r, lp := newReader(t)
+		lp.EXPECT().GetBlocksRange(mock.Anything, []uint64{80}).Return([]logpoller.Block{block(79)}, nil).Once()
+
+		_, _, err := r.LatestAndFinalizedBlock(t.Context())
+		require.ErrorContains(t, err, "log poller block 80 not found")
+	})
 }
 
 func TestLogPollerEnabled(t *testing.T) {
@@ -234,7 +235,7 @@ func TestLogPollerStartup(t *testing.T) {
 	start := func(t *testing.T, lp *lpmocks.LogPoller) *LogPollerSourceReader {
 		cfg := &LogPollerConfig{LogPoller: lp, VerifierID: "verifier-1", Retention: time.Hour}
 		lp.EXPECT().UnregisterFilter(mock.Anything, name).Return(nil).Maybe()
-		reader, err := NewLogPollerSourceReader(t.Context(), testSourceReaderParams(t, stubHeadTracker{latest: 1000, finalized: 900, safe: 950}), cfg)
+		reader, err := NewLogPollerSourceReader(t.Context(), testSourceReaderParams(t, stubHeadTracker{latest: 1000, finalized: 900}), cfg)
 		require.NoError(t, err)
 		r := reader.(*LogPollerSourceReader)
 		t.Cleanup(func() { require.NoError(t, r.Close()) })
