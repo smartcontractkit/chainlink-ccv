@@ -377,7 +377,8 @@ func WaitForNodeConnection(ctx context.Context, jdClient offchain.Client, nodeID
 
 // waitForConnection is the shared poll loop behind WaitForNodeConnection and
 // WaitForBootstrapConnection: polls every 2s until JD reports the node
-// connected, tolerating transient GetNode errors; only the deadline ends it.
+// connected, tolerating transient GetNode errors; each GetNode is bounded by
+// the remaining deadline so a hung RPC cannot outlive the timeout.
 func waitForConnection(ctx context.Context, jdClient offchain.Client, nodeID string, timeout time.Duration, kind string) error {
 	start := time.Now()
 	deadline := start.Add(timeout)
@@ -399,7 +400,11 @@ func waitForConnection(ctx context.Context, jdClient offchain.Client, nodeID str
 					kind, nodeID, elapsed.Round(time.Second))
 			}
 
-			nodeResp, err := jdClient.GetNode(ctx, &nodev1.GetNodeRequest{Id: nodeID})
+			// Bound the RPC by the remaining deadline: with only the caller's
+			// context a hung GetNode could block past it indefinitely.
+			rpcCtx, cancelRPC := context.WithTimeout(ctx, time.Until(deadline))
+			nodeResp, err := jdClient.GetNode(rpcCtx, &nodev1.GetNodeRequest{Id: nodeID})
+			cancelRPC()
 			if err != nil {
 				Plog.Debug().Str("nodeID", nodeID).Err(err).Msg("Failed to get node status, retrying...")
 				continue
