@@ -23,19 +23,8 @@ var (
 )
 
 // evmV3MessageOverheadBytes is the non-payload overhead billed inside the
-// destination fee quoter's maxDataBytes budget for a data-only message from
-// this chain: the committee verifier payload (582, reported per CV by its
-// on-chain getFee), this family's MessageV1 codec base (143,
-// MessageV1Codec.MESSAGE_V1_EVM_SOURCE_BASE_SIZE), and the two destination
-// address fields — 2*20 for an EVM destination (765), 2*32 for a Stellar
-// destination (789). The value uses the largest destination family's address
-// length so it covers every lane, leaving an EVM-destination lane 24 bytes of
-// slack. The terms are exact for the devenv lane shape — one CV and empty
-// executor args (EVM GetExecutorArgs returns nil, and the OnRamp bills
-// extraArgs.executorArgs.length inside this same budget) — so a lane that
-// grows a second CV or non-empty executor args reverts MessageTooLarge
-// loudly at the boundary on a max-size send instead of silently undershooting,
-// which is the failure a boundary test should produce.
+// dest fee quoter's maxDataBytes budget for a data-only message from this
+// chain: 582 CV payload + 143 codec base + 2*32 dest addrs (largest family).
 const evmV3MessageOverheadBytes = 789
 
 // Execution gas sizing for the destination execute transaction (offRamp.execute):
@@ -56,12 +45,8 @@ const (
 	// the message beyond the tx's intrinsic cost.
 	evmOffRampExecGasMargin uint64 = 500_000
 	// evmOnRampGasReserve is the gas the OnRamp adds to gasLimitSum on top of
-	// the extra-args value: the dest chain config's baseExecutionGasCost
-	// (150_000, GetConnectionProfile) plus each CCV's gasForVerification
-	// (500_000, CommitteeVerifierGasForVerification; devenv lanes carry one
-	// CCV). The fee quoter's MessageGasLimitTooHigh check validates the whole
-	// sum, so the clamp in GetExecutionGasLimit reserves this before applying
-	// MaxPerMsgGasLimit.
+	// the extra-args value: the dest chain config's baseExecutionGasCost 150_000
+	// plus each CCV's gasForVerification for 500_000.
 	evmOnRampGasReserve uint64 = 650_000
 )
 
@@ -73,16 +58,6 @@ func (m *CCIP17EVM) GetMessageOverheadBytes(_ context.Context, _ uint64) (uint32
 
 // GetExecutionGasLimit returns the execution gas limit for the extra args of
 // a message from remoteChainSelector whose data field is dataLen bytes long.
-// The value has a dual role on this chain: the offRamp delivers it verbatim to
-// the receiver callback (ccipReceiveGasLimit, CallWithExactGas), and the
-// executor sizes the execute transaction from the message's gas fields —
-// feeLimit = message.executionGasLimit + buffered ccipReceiveGasLimit — so it
-// must cover the exec tx's own costs (intrinsic gas per calldata byte plus
-// offRamp processing); no other message field carries them. The result is
-// clamped to the fee quoter's MaxPerMsgGasLimit for the remote minus the gas
-// the OnRamp adds on top of the extra-args value, because the
-// MessageGasLimitTooHigh check validates their whole sum; a failed config
-// lookup skips the clamp rather than failing the sizing.
 func (m *CCIP17EVM) GetExecutionGasLimit(ctx context.Context, remoteChainSelector uint64, dataLen uint32) (uint32, error) {
 	gas := evmExecTxIntrinsicBase +
 		evmExecTxGasPerDataByte*(uint64(dataLen)+evmExecTxCalldataFraming) +
