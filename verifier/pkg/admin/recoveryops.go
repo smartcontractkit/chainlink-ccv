@@ -44,7 +44,14 @@ func (h *handlers) registerRecoveryRoutes(r *gin.Engine) {
 }
 
 func (h *handlers) recoveryPage(c *gin.Context) {
-	h.render(c, http.StatusOK, views.RecoveryPage(h.csrfToken(c)))
+	prefill := views.RecoveryPrefillVM{
+		Owner:     strings.TrimSpace(c.Query("owner")),
+		Chain:     strings.TrimSpace(c.Query("chain")),
+		FromBlock: strings.TrimSpace(c.Query("from_block")),
+		ToBlock:   strings.TrimSpace(c.Query("to_block")),
+		Mode:      strings.TrimSpace(c.Query("mode")),
+	}
+	h.render(c, http.StatusOK, views.RecoveryPage(h.csrfToken(c), prefill))
 }
 
 // recoveryFormInput is the validated recovery form. A nil ToBlock means the reader's
@@ -298,6 +305,9 @@ func (h *handlers) recoverySubmit(c *gin.Context) {
 		return
 	}
 	res := h.recoverySubmitOne(c, in)
+	if res.Error == "" {
+		c.Header("HX-Trigger", "refreshOperations")
+	}
 	h.render(c, http.StatusOK, views.RecoverySubmitResult(res, in.requestID))
 }
 

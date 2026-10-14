@@ -23,6 +23,16 @@ type DetailVM struct {
 	SourceChain       string
 	ChainDetail       string
 	Chains            []ChainStatusVM
+	RecentAction      *DetailRecentActionVM
+	RecoveryURL       string
+}
+
+// DetailRecentActionVM represents a recent action log mutation for this message.
+type DetailRecentActionVM struct {
+	Time    string
+	Actor   string
+	Outcome string
+	Detail  string
 }
 
 // ArchivedJobVM is one failed archive row plus its reschedule affordance.
@@ -34,6 +44,7 @@ type ArchivedJobVM struct {
 
 // DropEventVM is one durable drop/incident event (R4 evidence).
 type DropEventVM struct {
+	MessageID     string
 	Kind          string
 	Stage         string
 	Reason        string
@@ -59,10 +70,13 @@ type ChainStatusVM struct {
 
 templ DetailPage(csrfToken string, vm DetailVM) {
 	@Layout("Message detail") {
-		<h1>Message <code class="mid">{ vm.MessageID }</code></h1>
+		<h1>
+			Message <code class="mid">{ vm.MessageID }</code>
+			@CopyButton(vm.MessageID)
+		</h1>
 		if vm.TraceURL != "" {
 			<p>
-				<a href={ templ.SafeURL(vm.TraceURL) }>Trace viewer</a>
+				<a href={ templ.SafeURL(vm.TraceURL) } target="_blank" rel="noopener noreferrer">Trace viewer ↗</a>
 			</p>
 		}
 		if vm.UnreachableDetail != "" {
@@ -80,24 +94,40 @@ templ DetailPage(csrfToken string, vm DetailVM) {
 	}
 }
 
-// detailVerdict renders the overall state: archived failures, an observed pre-admission
-// drop, not found, or unknown because a lookup failed.
+// detailVerdict renders the overall state: archived failures, a recent reschedule,
+// an observed pre-admission drop, not found, or unknown because a lookup failed.
 templ detailVerdict(vm DetailVM) {
 	if len(vm.Failed) > 0 {
 		<div class="banner">
 			{ fmt.Sprint(len(vm.Failed)) } archived failed job(s) for this message — reschedule below.
 		</div>
+	} else if vm.RecentAction != nil {
+		<div class="banner">
+			<strong>Message recently rescheduled:</strong> On { vm.RecentAction.Time } by actor <code>{ vm.RecentAction.Actor }</code> ({ vm.RecentAction.Outcome }).
+			The job is now in the active queue or processing. <a href="/actions">View in Action Log →</a>
+		</div>
 	} else if len(vm.Events) > 0 {
 		<div class="banner">
 			No archived failed jobs, but the source reader observed drop/incident events for this message: it
 			was dropped before queue admission, so there is nothing to reschedule. Recovery means a bounded
-			source re-read from the <a href="/recovery">source recovery</a> page.
+			source re-read from the <a href={ templ.SafeURL(detailRecoveryHref(vm)) }>source recovery</a> page.
+			if vm.RecoveryURL != "" && vm.RecoveryURL != "/recovery" {
+				<br/>
+				<a href={ templ.SafeURL(vm.RecoveryURL) } class="btn-link primary">Recover this source range →</a>
+			}
 		</div>
 	} else if vm.ArchiveDetail == "" && vm.EventsDetail == "" {
 		<p><em>Message not found: no archived failed jobs and no observed drop/incident events.</em></p>
 	} else {
 		<div class="banner">Some lookups failed, so the message's state is unknown — see the errors below.</div>
 	}
+}
+
+func detailRecoveryHref(vm DetailVM) string {
+	if vm.RecoveryURL != "" {
+		return vm.RecoveryURL
+	}
+	return "/recovery"
 }
 
 templ detailArchive(csrfToken string, vm DetailVM) {
@@ -130,7 +160,10 @@ templ detailArchive(csrfToken string, vm DetailVM) {
 						<tr>
 							<td>{ string(job.Job.Queue) }</td>
 							<td><code>{ job.Job.OwnerID }</code></td>
-							<td><code>{ job.Job.JobID }</code></td>
+							<td>
+								<code>{ job.Job.JobID }</code>
+								@CopyButton(job.Job.JobID)
+							</td>
 							<td>{ job.Job.FailureCategory }</td>
 							<td>{ job.Job.LastError }</td>
 							<td>{ fmt.Sprint(job.Job.AttemptCount) }</td>
@@ -151,6 +184,17 @@ templ detailArchive(csrfToken string, vm DetailVM) {
 				</tbody>
 			</table>
 		</div>
+		if len(vm.Failed) > 1 {
+			<p>
+				<form method="post" action="/reschedule/preview" class="inline">
+					@CSRFField(csrfToken)
+					for _, job := range vm.Failed {
+						<input type="hidden" name="target" value={ job.RescheduleTarget }/>
+					}
+					<button type="submit">Reschedule all ({ fmt.Sprint(len(vm.Failed)) } failed jobs)</button>
+				</form>
+			</p>
+		}
 		<details class="explain">
 			<summary>Archive retention &amp; what reschedule does</summary>
 			Archive rows are retained for 30 days from archiving and swept roughly every 4 hours.
@@ -204,9 +248,24 @@ templ detailEvidence(vm DetailVM) {
 								<td>{ e.Reason }</td>
 								<td><code>{ e.OwnerID }</code></td>
 								<td>{ e.SourceChain }</td>
-								<td>{ e.SourceBlock }</td>
-								<td>{ e.TxHash }</td>
-								<td>{ e.IncidentID }</td>
+								<td>
+									{ e.SourceBlock }
+									if e.SourceBlock != "—" && e.SourceBlock != "" {
+										@CopyButton(e.SourceBlock)
+									}
+								</td>
+								<td>
+									<code class="mid">{ e.TxHash }</code>
+									if e.TxHash != "—" && e.TxHash != "" {
+										@CopyButton(e.TxHash)
+									}
+								</td>
+								<td>
+									<code class="mid">{ e.IncidentID }</code>
+									if e.IncidentID != "—" && e.IncidentID != "" {
+										@CopyButton(e.IncidentID)
+									}
+								</td>
 								<td>{ formatT(e.FirstObserved) }</td>
 								<td>{ formatT(e.LastObserved) }</td>
 								<td>{ e.Observations }</td>
@@ -264,16 +323,21 @@ templ detailChainStatus(vm DetailVM) {
 				</tbody>
 			</table>
 		</div>
-		if anyChainDisabled(vm.Chains) {
+		if AnyChainDisabled(vm.Chains) {
 			<div class="banner">
 				The reader for this source chain is disabled: recovery requires the investigated reset-reader
-				action on the <a href="/recovery">source recovery</a> page — ordinary replay will not re-enable it.
+				action on the <a href={ templ.SafeURL(detailRecoveryHref(vm)) }>source recovery</a> page — ordinary replay will not re-enable it.
+				if vm.RecoveryURL != "" && vm.RecoveryURL != "/recovery" {
+					<br/>
+					<a href={ templ.SafeURL(vm.RecoveryURL) } class="btn-link primary">Investigate reader reset →</a>
+				}
 			</div>
 		}
 	}
 }
 
-func anyChainDisabled(rows []ChainStatusVM) bool {
+// AnyChainDisabled reports whether any chain status row reports a disabled reader.
+func AnyChainDisabled(rows []ChainStatusVM) bool {
 	for _, r := range rows {
 		if r.Disabled {
 			return true

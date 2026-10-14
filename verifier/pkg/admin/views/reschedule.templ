@@ -1,5 +1,7 @@
 package views
 
+import "fmt"
+
 // RescheduleTargetVM is one preview row: the rechecked state of a requested target.
 // Excluded and unknown targets render disabled — unknown is never proof a replay is
 // needed. Target is the original pipe-encoded form value, resubmitted on execute.
@@ -27,13 +29,18 @@ type RescheduleResultVM struct {
 	Detail    string
 }
 
-func hasExecutable(targets []RescheduleTargetVM) bool {
+func executableCount(targets []RescheduleTargetVM) int {
+	n := 0
 	for _, t := range targets {
 		if t.Executable {
-			return true
+			n++
 		}
 	}
-	return false
+	return n
+}
+
+func hasExecutable(targets []RescheduleTargetVM) bool {
+	return executableCount(targets) > 0
 }
 
 // retryTargets are the non-success outcomes the retry form resubmits; the
@@ -72,13 +79,16 @@ templ reschedulePreviewContent(csrfToken string, targets []RescheduleTargetVM, e
 				Rescheduling a <strong>storage-writer</strong> job retries delivering the saved verification result.
 				Neither re-checks source-chain finality.
 			</details>
+			<p id="reschedule-selection-summary">
+				<strong id="reschedule-selected-count">{ fmt.Sprint(executableCount(targets)) }</strong> of { fmt.Sprint(executableCount(targets)) } executable target(s) selected ({ fmt.Sprint(len(targets)) } total in preview).
+			</p>
 			if hasExecutable(targets) {
 				<form method="post" action="/reschedule/execute">
 					@CSRFField(csrfToken)
 					@reschedulePreviewTable(targets)
 					<p>
 						<label>Retry window: <input type="text" name="retry_duration" value="1h"/></label>
-						<button type="submit">Reschedule selected</button>
+						<button type="submit" id="reschedule-submit-btn">Reschedule selected ({ fmt.Sprint(executableCount(targets)) })</button>
 					</p>
 				</form>
 			} else {
@@ -94,7 +104,20 @@ templ reschedulePreviewTable(targets []RescheduleTargetVM) {
 		<table>
 			<thead>
 				<tr>
-					<th></th>
+					<th>
+						<input
+							type="checkbox"
+							id="reschedule-select-all"
+							data-select-all="target"
+							if hasExecutable(targets) {
+								checked
+							} else {
+								disabled
+							}
+							title="Select or deselect all executable targets"
+							aria-label="Select or deselect all executable targets"
+						/>
+					</th>
 					<th>Owner</th>
 					<th>Queue</th>
 					<th>Job ID</th>
@@ -116,8 +139,14 @@ templ reschedulePreviewTable(targets []RescheduleTargetVM) {
 						</td>
 						<td><code>{ t.OwnerID }</code></td>
 						<td>{ t.Queue }</td>
-						<td><code>{ t.JobID }</code></td>
-						<td><code class="mid">{ t.MessageID }</code></td>
+						<td>
+							<code>{ t.JobID }</code>
+							@CopyButton(t.JobID)
+						</td>
+						<td>
+							<code class="mid">{ t.MessageID }</code>
+							@CopyButton(t.MessageID)
+						</td>
 						<td>{ t.FailureCategory }</td>
 						<td>
 							if t.Executable {
@@ -179,8 +208,16 @@ templ rescheduleResultsContent(csrfToken string, results []RescheduleResultVM, r
 							<tr>
 								<td><code>{ r.OwnerID }</code></td>
 								<td>{ r.Queue }</td>
-								<td><code>{ r.JobID }</code></td>
-								<td><code class="mid">{ r.MessageID }</code></td>
+								<td>
+									<code>{ r.JobID }</code>
+									@CopyButton(r.JobID)
+								</td>
+								<td>
+									<a href={ templ.SafeURL("/messages/" + r.MessageID) }>
+										<code class="mid">{ r.MessageID }</code>
+									</a>
+									@CopyButton(r.MessageID)
+								</td>
 								if r.Outcome == "success" {
 									<td class="state-ready">{ r.Outcome }</td>
 								} else if r.Outcome == "failed" {
@@ -195,15 +232,24 @@ templ rescheduleResultsContent(csrfToken string, results []RescheduleResultVM, r
 				</table>
 			</div>
 			if len(retryTargets(results)) > 0 {
-				<form method="post" action="/reschedule/execute">
-					@CSRFField(csrfToken)
-					for _, r := range retryTargets(results) {
-						<input type="hidden" name="target" value={ r.Target }/>
-					}
-					<input type="hidden" name="retry_duration" value={ retryDuration }/>
-					<button type="submit">Retry failed/skipped targets</button>
-				</form>
+				<p>
+					<form method="post" action="/reschedule/execute" class="inline">
+						@CSRFField(csrfToken)
+						for _, r := range retryTargets(results) {
+							<input type="hidden" name="target" value={ r.Target }/>
+						}
+						<input type="hidden" name="retry_duration" value={ retryDuration }/>
+						<button type="submit">Retry failed/skipped targets</button>
+					</form>
+				</p>
 			}
+			<p>
+				if len(results) > 0 && results[0].MessageID != "" {
+					<a href={ templ.SafeURL("/messages/" + results[0].MessageID) } class="btn-link primary">← Return to message detail</a>
+				}
+				<a href="/search" class="btn-link">Message search</a>
+				<a href="/actions" class="btn-link">View action log</a>
+			</p>
 		}
 	</div>
 }
