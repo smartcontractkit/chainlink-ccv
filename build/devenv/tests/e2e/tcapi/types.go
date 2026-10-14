@@ -48,10 +48,8 @@ type TestCase interface {
 	HavePrerequisites(ctx context.Context) bool
 }
 
-// DefaultV3ExecutionGasLimit is the cross-family execution gas limit used as a
-// fallback when SendArgs and MessageOptions omit it AND the destination chain
-// does not implement cciptestinterfaces.ExecutionGasLimitProvider; when the
-// destination implements the provider, its size-aware value is used instead.
+// DefaultV3ExecutionGasLimit is used when neither send arguments nor message
+// options provide one and the destination has no size-aware provider.
 const DefaultV3ExecutionGasLimit uint32 = 200_000
 
 // RunConfig holds optional overrides for wait/confirm timeouts in TCAPI Run methods.
