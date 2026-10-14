@@ -124,11 +124,38 @@ func parseRecoveryForm(c *gin.Context, full bool) (recoveryFormInput, error) {
 	if !full {
 		return in, nil
 	}
+	if err := validatePreviewedRecoveryForm(c, in); err != nil {
+		return in, err
+	}
 	in.note = strings.TrimSpace(c.PostForm("note"))
 	if in.note == "" {
 		return in, errors.New("a recovery note is required — record the reason and the investigated boundary evidence")
 	}
 	return in, nil
+}
+
+// validatePreviewedRecoveryForm rejects a submit when the preview's hidden scope fields
+// no longer match the form's current editable values.
+func validatePreviewedRecoveryForm(c *gin.Context, in recoveryFormInput) error {
+	toStr := ""
+	if in.to != nil {
+		toStr = strconv.FormatUint(*in.to, 10)
+	}
+	checks := [][2]string{
+		{c.PostForm("previewed_mode"), in.mode},
+		{c.PostForm("previewed_owner"), in.owner},
+		{c.PostForm("previewed_chain"), in.chain},
+		{c.PostForm("previewed_from_block"), strconv.FormatUint(in.from, 10)},
+	}
+	for _, pair := range checks {
+		if pair[0] != "" && strings.TrimSpace(pair[0]) != pair[1] {
+			return errors.New("recovery inputs changed since preview; re-run Preview capability before submitting")
+		}
+	}
+	if rawTo, hasTo := c.GetPostForm("previewed_to_block"); hasTo && strings.TrimSpace(rawTo) != toStr {
+		return errors.New("recovery inputs changed since preview; re-run Preview capability before submitting")
+	}
+	return nil
 }
 
 // recoveryReaderInfo mirrors the per-reader JSON the store embeds in EventPage.Readers.
@@ -232,7 +259,19 @@ func (h *handlers) recoveryPreview(c *gin.Context) {
 		h.render(c, http.StatusBadRequest, views.RecoveryPreviewError(err.Error()))
 		return
 	}
-	vm := views.RecoveryPreviewVM{Mode: in.mode, SubmitEnabled: true, RequestID: in.requestID}
+	toStr := ""
+	if in.to != nil {
+		toStr = strconv.FormatUint(*in.to, 10)
+	}
+	vm := views.RecoveryPreviewVM{
+		Owner:         in.owner,
+		Chain:         in.chain,
+		FromBlock:     strconv.FormatUint(in.from, 10),
+		ToBlock:       toStr,
+		Mode:          in.mode,
+		SubmitEnabled: true,
+		RequestID:     in.requestID,
+	}
 	vm.Finding = h.recoveryPreviewNode(c.Request.Context(), in)
 	if !vm.Finding.Allowed {
 		vm.SubmitEnabled = false

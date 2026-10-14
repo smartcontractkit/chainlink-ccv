@@ -12,6 +12,7 @@ import (
 // mark failed lookups, rendered as errors and never as empties.
 type DetailVM struct {
 	MessageID         string
+	Owner             string
 	TraceURL          string
 	UnreachableDetail string
 	ArchiveDetail     string
@@ -103,8 +104,8 @@ templ detailVerdict(vm DetailVM) {
 		</div>
 	} else if vm.RecentAction != nil {
 		<div class="banner">
-			<strong>Message recently rescheduled:</strong> On { vm.RecentAction.Time } by actor <code>{ vm.RecentAction.Actor }</code> ({ vm.RecentAction.Outcome }).
-			The job is now in the active queue or processing. <a href="/actions">View in Action Log →</a>
+			<strong>Message recently rescheduled:</strong> Restored from the failed archive on { vm.RecentAction.Time } by actor <code>{ vm.RecentAction.Actor }</code> ({ vm.RecentAction.Outcome }).
+			This records a past restoration — current active-queue or processing status is not checked on this page. <a href="/actions">View in Action Log →</a>
 		</div>
 	} else if len(vm.Events) > 0 {
 		<div class="banner">
@@ -327,7 +328,7 @@ templ detailChainStatus(vm DetailVM) {
 			<div class="banner">
 				The reader for this source chain is disabled: recovery requires the investigated reset-reader
 				action on the <a href={ templ.SafeURL(detailRecoveryHref(vm)) }>source recovery</a> page — ordinary replay will not re-enable it.
-				if vm.RecoveryURL != "" && vm.RecoveryURL != "/recovery" {
+				if OwnerChainDisabled(vm.Chains, vm.Owner) && vm.RecoveryURL != "" && vm.RecoveryURL != "/recovery" {
 					<br/>
 					<a href={ templ.SafeURL(vm.RecoveryURL) } class="btn-link primary">Investigate reader reset →</a>
 				}
@@ -338,8 +339,13 @@ templ detailChainStatus(vm DetailVM) {
 
 // AnyChainDisabled reports whether any chain status row reports a disabled reader.
 func AnyChainDisabled(rows []ChainStatusVM) bool {
+	return OwnerChainDisabled(rows, "")
+}
+
+// OwnerChainDisabled reports whether the selected owner (or any row when owner is empty) has a disabled reader.
+func OwnerChainDisabled(rows []ChainStatusVM, owner string) bool {
 	for _, r := range rows {
-		if r.Disabled {
+		if (owner == "" || r.VerifierID == owner) && r.Disabled {
 			return true
 		}
 	}

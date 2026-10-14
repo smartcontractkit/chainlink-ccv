@@ -3,6 +3,7 @@ package committeeverifier
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
@@ -561,7 +562,7 @@ func baseImageRequest(in *Input, envVars map[string]string, bootstrapConfigFileP
 					{HostPort: ""}, // Docker assigns a random free host port.
 				},
 				network.MustParsePort(services.DefaultAdminConsolePortTCP): []network.PortBinding{
-					{HostPort: ""}, // Docker assigns a random free host port.
+					{HostIP: netip.MustParseAddr("127.0.0.1"), HostPort: ""}, // Bind admin console to host loopback only.
 				},
 			}
 		},

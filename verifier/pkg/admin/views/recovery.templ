@@ -6,6 +6,10 @@ import "time"
 // the generated (or echoed) request ID; the fragment carries it as a hidden field so
 // the submit echoes it and a lost response can be retried safely.
 type RecoveryPreviewVM struct {
+	Owner         string
+	Chain         string
+	FromBlock     string
+	ToBlock       string
 	Mode          string
 	SubmitEnabled bool
 	RequestID     string
@@ -244,6 +248,11 @@ templ RecoveryPreview(vm RecoveryPreviewVM) {
 			<div class="error">{ vm.Finding.BlockedReason }</div>
 		}
 	}
+	<input type="hidden" name="previewed_mode" value={ vm.Mode }/>
+	<input type="hidden" name="previewed_owner" value={ vm.Owner }/>
+	<input type="hidden" name="previewed_chain" value={ vm.Chain }/>
+	<input type="hidden" name="previewed_from_block" value={ vm.FromBlock }/>
+	<input type="hidden" name="previewed_to_block" value={ vm.ToBlock }/>
 	if vm.RequestID != "" {
 		<input type="hidden" name="request_id" value={ vm.RequestID }/>
 		<p>

@@ -4,6 +4,7 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -250,7 +251,7 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 					{HostPort: strconv.Itoa(in.Port)},
 				},
 				network.MustParsePort(DefaultAdminConsolePortTCP): []network.PortBinding{
-					{HostPort: ""},
+					{HostIP: netip.MustParseAddr("127.0.0.1"), HostPort: ""},
 				},
 			}
 		},

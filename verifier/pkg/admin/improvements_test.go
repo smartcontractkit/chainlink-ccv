@@ -16,6 +16,8 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/cli/jobqueue"
 	recoverycli "github.com/smartcontractkit/chainlink-ccv/cli/recovery"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
 	recoverystore "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/recovery"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -50,7 +52,8 @@ func TestDetailRecentAction(t *testing.T) {
 	body := rec.Body.String()
 	require.Contains(t, body, "Message recently rescheduled")
 	require.Contains(t, body, "operator-alice")
-	require.Contains(t, body, "active queue or processing")
+	require.Contains(t, body, "Restored from the failed archive")
+	require.Contains(t, body, "current active-queue or processing status is not checked")
 	require.NotContains(t, body, "onclick=")
 }
 
@@ -149,6 +152,10 @@ func TestDetailTraceURLInterpolation(t *testing.T) {
 
 func TestDetailRecoveryDeepLink(t *testing.T) {
 	msgID := detailTestMessageID(t)
+	chainRows := []chainstatus.Row{
+		{ChainSelector: protocol.ChainSelector(1), VerifierID: "CCTPVerifier", Disabled: false},
+		{ChainSelector: protocol.ChainSelector(1), VerifierID: "OtherVerifier", Disabled: true},
+	}
 	src := detailSources{
 		jq: &fakeJobQueueStore{},
 		rec: &fakeRecoveryStore{page: recoverystore.EventPage{
@@ -158,6 +165,7 @@ func TestDetailRecoveryDeepLink(t *testing.T) {
 				SourceBlock: new("42000"),
 			}},
 		}},
+		chain: recoveryChainStatusesStub{rows: chainRows},
 	}
 	gin.SetMode(gin.TestMode)
 	h := &handlers{
@@ -172,6 +180,25 @@ func TestDetailRecoveryDeepLink(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	body := rec.Body.String()
 	require.Contains(t, body, "/recovery?chain=1&amp;from_block=42000&amp;mode=replay&amp;owner=CCTPVerifier")
+	require.NotContains(t, body, "Investigate reader reset →")
+
+	// When the targeted owner itself is disabled, the deep link selects reset-reader.
+	src.rec = &fakeRecoveryStore{page: recoverystore.EventPage{
+		Events: []recoverystore.Event{{
+			OwnerID:     "OtherVerifier",
+			SourceChain: "1",
+			SourceBlock: new("42000"),
+		}},
+	}}
+	rec = httptest.NewRecorder()
+	c, _ = gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodGet, "/messages/"+formatMessageID(msgID), nil)
+	h.renderDetail(c, src, msgID)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	body = rec.Body.String()
+	require.Contains(t, body, "/recovery?chain=1&amp;from_block=42000&amp;mode=reset-reader&amp;owner=OtherVerifier")
+	require.Contains(t, body, "Investigate reader reset →")
 }
 
 func TestRecoveryPagePrefill(t *testing.T) {
@@ -437,6 +464,26 @@ func TestRecoverySubmitHXTrigger(t *testing.T) {
 	body := rec.Body.String()
 	require.Contains(t, body, "11111111-2222-3333-4444-555555555555")
 	require.Contains(t, body, "state accepted")
+
+	// Submitting reset-reader against a preview generated for replay (or a changed owner/chain) is rejected.
+	staleForm := url.Values{
+		"owner":          {"owner-2"},
+		"chain":          {"1"},
+		"from_block":     {"1000"},
+		"to_block":       {"1200"},
+		"mode":           {"reset-reader"},
+		"previewed_mode": {"replay"},
+		"note":           {"Stale preview attempt"},
+		"request_id":     {"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"},
+	}
+	rec = httptest.NewRecorder()
+	c, _ = gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/recovery/submit", strings.NewReader(staleForm.Encode()))
+	c.Request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.recoverySubmit(c)
+
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Contains(t, rec.Body.String(), "recovery inputs changed since preview")
 }
 
 type fakeRecoverySubmitStore struct {
