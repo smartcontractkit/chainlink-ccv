@@ -112,11 +112,8 @@ type CCTPCodec interface {
 //
 // Thread-safety: All methods must be safe for concurrent calls.
 type FeeQuoter interface {
-	// MonitorFQ returns the current Fee Quoter on-chain state and runs a goroutine
-	// that streams a fresh FQState snapshot on the returned channel whenever the
-	// state changes. Errors encountered while monitoring are sent on the error
-	// channel. Both channels are closed when the context is canceled.
-	MonitorFQ(ctx context.Context) (protocol.FQState, <-chan protocol.FQState, <-chan error, error)
+	// GetFQState reads the Fee Quoter's current on-chain state.
+	GetFQState(ctx context.Context) (protocol.FQState, error)
 	// UpdatePrices generates and broadcasts a transaction for the given fee token
 	// and gas token price updates to the chain.
 	UpdatePrices(ctx context.Context, tokenPrices []protocol.FeeTokenPriceUpdate, gasPrices []protocol.GasTokenPriceUpdate) error

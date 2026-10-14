@@ -6,14 +6,14 @@ import (
 )
 
 // NativeGasPrice is a chain's gas price in its native token, split into
-// execution and data availability (DA) fees. Values are normalized to the
-// smallest native token unit per gas unit, with 1e36 precision.
+// execution and data availability (DA) fees. Values are whole native tokens
+// per gas unit, with 1e36 precision. Each chain family applies its own decimals.
 type NativeGasPrice struct {
-	// ExecutionFee is the base execution fee, in smallest native token units
-	// per gas unit, with 1e36 precision.
+	// ExecutionFee is the base execution fee, in whole native tokens per gas
+	// unit, with 1e36 precision.
 	ExecutionFee *big.Int
-	// DAFee is the data availability fee, if the chain has one, in smallest
-	// native token units per gas unit, with 1e36 precision.
+	// DAFee is the data availability fee, if the chain has one, in whole native
+	// tokens per gas unit, with 1e36 precision.
 	DAFee *big.Int
 }
 
@@ -37,7 +37,7 @@ type FeeToken struct {
 
 // FeeTokenPrice is a fee token's price and when it was updated.
 type FeeTokenPrice struct {
-	// Price is the token's price, in 1e18 USD per 1e18 smallest token units.
+	// Price is the token's price, in 1e18 USD per whole token.
 	Price *big.Int
 	// UpdatedAt is when the price was last updated on-chain.
 	UpdatedAt time.Time
@@ -70,8 +70,7 @@ type FQState struct {
 type FeeTokenPriceUpdate struct {
 	// Address is the on-chain address of the fee token to update.
 	Address UnknownAddress
-	// Price is the new price for the token, in 1e18 USD per 1e18 smallest token
-	// units.
+	// Price is the new price for the token, in 1e18 USD per whole token.
 	Price *big.Int
 }
 
