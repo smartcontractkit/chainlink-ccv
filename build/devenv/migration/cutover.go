@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math/big"
 	"path/filepath"
-	"time"
 
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/clclient"
 	ctfblockchain "github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
@@ -21,10 +20,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	hmacutil "github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 )
-
-// nodeConnectTimeout bounds the wait for a standalone process to authenticate with JD. It is
-// generous because the verifier has to come up, import a key, and dial JD before it counts.
-const nodeConnectTimeout = 90 * time.Second
 
 // NOP is one node operator moving from CL mode to standalone.
 type NOP struct {
@@ -55,7 +50,8 @@ type Input struct {
 	Aggregators []*services.AggregatorInput
 	// BlockchainOutputs are the chains the launched services connect to.
 	BlockchainOutputs []*ctfblockchain.Output
-	// JDInfra carries the JD output and a live offchain client.
+	// JDInfra carries the JD output, a live offchain client, and the
+	// configured node connect timeout.
 	JDInfra *jobs.JDInfrastructure
 	// Topology is mutated in place: each migrated operator's mode becomes standalone, so the job
 	// spec changesets emit standalone-shaped specs on their next run.
@@ -313,7 +309,7 @@ func adoptVerifierIdentities(
 			return err
 		}
 		if err := jobs.WaitForNodeConnection(ctx, in.JDInfra.OffchainClient,
-			nopResult.VerifierJDNodeID, nodeConnectTimeout); err != nil {
+			nopResult.VerifierJDNodeID, in.JDInfra.ConnectTimeout()); err != nil {
 			return fmt.Errorf("verifier %s: %w", ver.ContainerName, err)
 		}
 		ver.Out.JDNodeID = nopResult.VerifierJDNodeID
@@ -385,7 +381,7 @@ func launchExecutors(
 		if err := jobs.RegisterBootstrapWithJD(ctx, in.JDInfra.OffchainClient, reg); err != nil {
 			return fmt.Errorf("failed to register standalone executor %s with JD: %w", exec.ContainerName, err)
 		}
-		if err := jobs.WaitForNodeConnection(ctx, in.JDInfra.OffchainClient, reg.NodeID, nodeConnectTimeout); err != nil {
+		if err := jobs.WaitForNodeConnection(ctx, in.JDInfra.OffchainClient, reg.NodeID, in.JDInfra.ConnectTimeout()); err != nil {
 			return fmt.Errorf("executor %s: %w", exec.ContainerName, err)
 		}
 		out.JDNodeID = reg.NodeID
