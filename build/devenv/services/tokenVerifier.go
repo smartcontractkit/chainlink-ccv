@@ -4,7 +4,6 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
-	"net/netip"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -251,7 +250,7 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 					{HostPort: strconv.Itoa(in.Port)},
 				},
 				network.MustParsePort(DefaultAdminConsolePortTCP): []network.PortBinding{
-					{HostIP: netip.MustParseAddr("127.0.0.1"), HostPort: ""},
+					{HostPort: ""}, // Leave HostIP unset so Docker shares the 0.0.0.0 ephemeral port pool.
 				},
 			}
 		},
