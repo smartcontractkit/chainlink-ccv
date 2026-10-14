@@ -92,6 +92,14 @@ func (o observedSourceReader) LoadFrom(startBlock uint64) {
 	}
 }
 
+// Loaded forwards to a loading delegate so the wrapper does not hide its load state; nil otherwise.
+func (o observedSourceReader) Loaded() error {
+	if loader, ok := o.SourceReader.(chainaccess.SourceLoader); ok {
+		return loader.Loaded()
+	}
+	return nil
+}
+
 // Close forwards to a loading delegate so the wrapper does not hide its cleanup; a no-op otherwise.
 func (o observedSourceReader) Close() error {
 	if loader, ok := o.SourceReader.(chainaccess.SourceLoader); ok {

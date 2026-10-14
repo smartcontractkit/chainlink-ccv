@@ -80,6 +80,9 @@ var ErrSourceNotReady = errors.New("source not ready")
 type SourceLoader interface {
 	// LoadFrom starts loading from startBlock without blocking; reads return ErrSourceNotReady until done.
 	LoadFrom(startBlock uint64)
+	// Loaded returns nil once loading has finished and an error wrapping ErrSourceNotReady until then, which
+	// the verifier reports in its health.
+	Loaded() error
 	// Close stops loading and releases what LoadFrom set up. Only SourceLoaders are closed by the verifier.
 	Close() error
 }

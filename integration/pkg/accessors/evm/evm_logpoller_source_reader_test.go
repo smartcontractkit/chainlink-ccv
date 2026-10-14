@@ -369,8 +369,10 @@ func TestLogPollerStartup(t *testing.T) {
 		expectDelete(lp, 501, 1)
 		lp.EXPECT().Replay(mock.Anything, int64(501)).Return(nil).Once()
 		r := start(t, lp)
+		require.ErrorIs(t, r.Loaded(), chainaccess.ErrSourceNotReady)
 		r.LoadFrom(501)
 		waitReady(t, r)
+		require.NoError(t, r.Loaded())
 	})
 
 	t.Run("delete failure is retried before any replay", func(t *testing.T) {

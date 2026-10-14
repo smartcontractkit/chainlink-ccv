@@ -865,7 +865,7 @@ func TestSRS_SourceReaderFinalityViolation_IgnoredWhenFinalityCheckerDisabled(t 
 	require.False(t, srs.disabled.Load())
 }
 
-func TestSRS_Start_LoadsSourceFromStartBlock(t *testing.T) {
+func TestSRS_Start_LoadsSourceFromStartBlockAndReportsItsLoadState(t *testing.T) {
 	chain := protocol.ChainSelector(1337)
 	for name, disabled := range map[string]bool{
 		"enabled chain":  false,
@@ -877,15 +877,31 @@ func TestSRS_Start_LoadsSourceFromStartBlock(t *testing.T) {
 				Return(map[protocol.ChainSelector]*protocol.ChainStatusInfo{
 					chain: {ChainSelector: chain, FinalizedBlockHeight: big.NewInt(500), Disabled: disabled},
 				}, nil).Once()
-			reader := &loadingReader{MockSourceReader: mocks.NewMockSourceReader(t)}
+			notLoaded := errors.New("log poller still loading")
+			reader := &loadingReader{MockSourceReader: mocks.NewMockSourceReader(t), loadedErr: notLoaded}
 			// A long poll interval keeps the loop from ticking, so only Start's effect is observed.
 			srs, _, _ := newTestSRS(t, chain, reader.MockSourceReader, chainStatusMgr, mocks.NewMockCurseCheckerService(t), time.Hour, 5000)
 			srs.sourceReader = reader
+			health := &chainHealthRecorder{}
+			fakeMonitoring := verifiermonitoring.NewFakeVerifierMonitoring()
+			fakeMonitoring.ServiceMetrics = health
+			srs.monitoring = fakeMonitoring
 			require.NoError(t, srs.Start(t.Context()))
 			t.Cleanup(func() { require.NoError(t, srs.Close()) })
 			// LoadFrom runs before startBlockInitialized is set, so the atomic orders the read.
 			require.Eventually(t, srs.startBlockInitialized.Load, tests.WaitTimeout(t), 10*time.Millisecond)
-			require.Equal(t, []uint64{501}, reader.loaded)
+			require.Equal(t, []uint64{501}, reader.loadFromCalls)
+
+			// Still loading: the chain is not ready and is recorded unhealthy.
+			require.ErrorIs(t, srs.Ready(), notLoaded)
+			require.Equal(t, []bool{false}, health.recorded())
+
+			// Loaded: ready, and recorded healthy once, so a later unhealthy record is not overridden.
+			reader.loadedErr = nil
+			require.NoError(t, srs.Ready())
+			srs.recordLoadedHealth(t.Context())
+			srs.recordLoadedHealth(t.Context())
+			require.Equal(t, []bool{false, true}, health.recorded())
 		})
 	}
 }

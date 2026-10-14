@@ -1,6 +1,7 @@
 package sourcereader
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 
@@ -246,11 +247,16 @@ func TestObservedSourceReader_Labels(t *testing.T) {
 
 type loadingReader struct {
 	*mocks.MockSourceReader
-	loaded []uint64
-	closed bool
+	loadFromCalls []uint64
+	loadedErr     error // returned by Loaded
+	closed        bool
 }
 
-func (r *loadingReader) LoadFrom(startBlock uint64) { r.loaded = append(r.loaded, startBlock) }
+func (r *loadingReader) LoadFrom(startBlock uint64) {
+	r.loadFromCalls = append(r.loadFromCalls, startBlock)
+}
+
+func (r *loadingReader) Loaded() error { return r.loadedErr }
 
 func (r *loadingReader) Close() error { r.closed = true; return nil }
 
@@ -258,17 +264,20 @@ func TestObservedSourceReader_LoadFrom(t *testing.T) {
 	monitor := monitoring.NewFakeVerifierMonitoring()
 
 	t.Run("forwards to a loading delegate", func(t *testing.T) {
-		delegate := &loadingReader{MockSourceReader: mocks.NewMockSourceReader(t)}
+		loadedErr := errors.New("still loading")
+		delegate := &loadingReader{MockSourceReader: mocks.NewMockSourceReader(t), loadedErr: loadedErr}
 		rd, err := NewObservedSourceReader(delegate, "v1", protocol.ChainSelector(1), monitor)
 		require.NoError(t, err)
 		rd.(chainaccess.SourceLoader).LoadFrom(501)
-		require.Equal(t, []uint64{501}, delegate.loaded)
+		require.Equal(t, []uint64{501}, delegate.loadFromCalls)
+		require.ErrorIs(t, rd.(chainaccess.SourceLoader).Loaded(), loadedErr)
 	})
 
-	t.Run("no-op for a delegate without a local index", func(t *testing.T) {
+	t.Run("a delegate without a local index is always loaded", func(t *testing.T) {
 		rd, err := NewObservedSourceReader(mocks.NewMockSourceReader(t), "v1", protocol.ChainSelector(1), monitor)
 		require.NoError(t, err)
 		rd.(chainaccess.SourceLoader).LoadFrom(501)
+		require.NoError(t, rd.(chainaccess.SourceLoader).Loaded())
 	})
 }
 

@@ -134,6 +134,15 @@ func (r *LogPollerSourceReader) LoadFrom(startBlock uint64) {
 	r.wg.Go(func() { r.initLogPoller(startBlock) })
 }
 
+// Loaded returns nil once the log poller is loaded and ErrLogPollerNotReady until then, so a startup that
+// keeps failing shows in the verifier's health.
+func (r *LogPollerSourceReader) Loaded() error {
+	if r.ready.Load() {
+		return nil
+	}
+	return ErrLogPollerNotReady
+}
+
 // initLogPoller retries loading the log poller from the start block with backoff until it succeeds or
 // the reader closes.
 func (r *LogPollerSourceReader) initLogPoller(from uint64) {

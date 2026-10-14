@@ -1,6 +1,9 @@
 package sourcereader
 
 import (
+	"context"
+	"slices"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -45,15 +48,40 @@ var _ chainaccess.FinalityViolationReporter = (*fakeFinalityReporter)(nil)
 // loadingReader is a source reader that must load a local index from the start block before serving reads.
 type loadingReader struct {
 	*mocks.MockSourceReader
-	loaded []uint64
-	closed atomic.Bool
+	loadFromCalls []uint64
+	loadedErr     error // returned by Loaded
+	closed        atomic.Bool
 }
 
-func (r *loadingReader) LoadFrom(startBlock uint64) { r.loaded = append(r.loaded, startBlock) }
+func (r *loadingReader) LoadFrom(startBlock uint64) {
+	r.loadFromCalls = append(r.loadFromCalls, startBlock)
+}
+
+func (r *loadingReader) Loaded() error { return r.loadedErr }
 
 func (r *loadingReader) Close() error { r.closed.Store(true); return nil }
 
 var _ chainaccess.SourceLoader = (*loadingReader)(nil)
+
+// chainHealthRecorder records the values passed to RecordChainHealthy.
+type chainHealthRecorder struct {
+	mu      sync.Mutex
+	healthy []bool
+}
+
+func (c *chainHealthRecorder) RecordServiceStarted(context.Context) {}
+
+func (c *chainHealthRecorder) RecordChainHealthy(_ context.Context, _ protocol.ChainSelector, healthy bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.healthy = append(c.healthy, healthy)
+}
+
+func (c *chainHealthRecorder) recorded() []bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return slices.Clone(c.healthy)
+}
 
 // closingReader is a source reader with a Close but no local index, so the verifier must not close it.
 type closingReader struct {

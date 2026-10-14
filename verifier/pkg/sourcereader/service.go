@@ -85,6 +85,9 @@ type Service struct {
 	reorgTracker                *ReorgTracker
 	disabled                    atomic.Bool
 	finalityBlocked             atomic.Bool
+	// awaitingLoad is set when the source was still loading at start, so the chain is recorded healthy
+	// once it loads. Only the monitoring goroutine writes it.
+	awaitingLoad bool
 
 	// ChainStatus management
 	chainStatusManager protocol.ChainStatusManager
@@ -234,10 +237,13 @@ func (r *Service) initializeAndMonitor() {
 			if loader, ok := r.sourceReader.(chainaccess.SourceLoader); ok {
 				loader.LoadFrom(startBlock)
 			}
+			// A source still loading cannot serve reads yet, so the chain is healthy only once it loads.
+			loaded := r.sourceLoaded() == nil
+			r.awaitingLoad = !loaded
 			r.startBlockInitialized.Store(true)
 			r.metrics().SetSourceReaderLastProcessedFinalizedBlock(ctx, int64(startBlock)) // #nosec G115 -- chain block heights are within int64 range
 			r.logger.Infow("Initialized start block", "block", startBlock)
-			r.monitoring.RecordChainHealthy(ctx, r.chainSelector, true)
+			r.monitoring.RecordChainHealthy(ctx, r.chainSelector, loaded)
 			break
 		}
 		r.logger.Errorw("Failed to initialize start block, will retry", "error", err, "retryIn", r.pollInterval)
@@ -283,6 +289,9 @@ func (r *Service) Ready() error {
 	}
 	if !r.startBlockInitialized.Load() {
 		return errors.New("start block not yet initialized")
+	}
+	if err := r.sourceLoaded(); err != nil {
+		return err
 	}
 	if r.finalityBlocked.Load() {
 		return errors.New("finality blocked")
@@ -335,6 +344,7 @@ func (r *Service) eventMonitoringLoop() {
 				if pollSucceeded {
 					r.metrics().SetSourceReaderLastSuccessfulPollTimestamp(ctx, time.Now().Unix())
 					r.metrics().SetSourceReaderState(ctx, monitoring.SourceReaderStateRunning)
+					r.recordLoadedHealth(ctx)
 				} else {
 					r.metrics().SetSourceReaderState(ctx, monitoring.SourceReaderStatePollError)
 				}
@@ -1218,6 +1228,24 @@ func (r *Service) metrics() verifier.MetricLabeler {
 		"source_chain", r.chainSelector.String(),
 		"source_chain_name", r.chainSelector.ChainName(),
 	)
+}
+
+// sourceLoaded returns the source reader's load state: nil for a reader with nothing to load.
+func (r *Service) sourceLoaded() error {
+	if loader, ok := r.sourceReader.(chainaccess.SourceLoader); ok {
+		return loader.Loaded()
+	}
+	return nil
+}
+
+// recordLoadedHealth records the chain healthy once a source that was loading at start has loaded. It
+// records only that transition, so it never overrides a later unhealthy state such as a disabled chain.
+func (r *Service) recordLoadedHealth(ctx context.Context) {
+	if !r.awaitingLoad || r.sourceLoaded() != nil {
+		return
+	}
+	r.awaitingLoad = false
+	r.monitoring.RecordChainHealthy(ctx, r.chainSelector, true)
 }
 
 func (r *Service) recordDisabledState(ctx context.Context) {
