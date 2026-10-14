@@ -2,7 +2,6 @@ package sourcereader
 
 import (
 	"fmt"
-	"io"
 	"testing"
 
 	"github.com/stretchr/testify/mock"
@@ -248,9 +247,12 @@ func TestObservedSourceReader_Labels(t *testing.T) {
 type loadingReader struct {
 	*mocks.MockSourceReader
 	loaded []uint64
+	closed bool
 }
 
 func (r *loadingReader) LoadFrom(startBlock uint64) { r.loaded = append(r.loaded, startBlock) }
+
+func (r *loadingReader) Close() error { r.closed = true; return nil }
 
 func TestObservedSourceReader_LoadFrom(t *testing.T) {
 	monitor := monitoring.NewFakeVerifierMonitoring()
@@ -278,9 +280,21 @@ type closingReader struct {
 func (c *closingReader) Close() error { c.closed = true; return nil }
 
 func TestObservedSourceReader_Close(t *testing.T) {
-	delegate := &closingReader{MockSourceReader: mocks.NewMockSourceReader(t)}
-	rd, err := NewObservedSourceReader(delegate, "v1", protocol.ChainSelector(1), monitoring.NewFakeVerifierMonitoring())
-	require.NoError(t, err)
-	require.NoError(t, rd.(io.Closer).Close())
-	require.True(t, delegate.closed)
+	monitor := monitoring.NewFakeVerifierMonitoring()
+
+	t.Run("forwards to a loading delegate", func(t *testing.T) {
+		delegate := &loadingReader{MockSourceReader: mocks.NewMockSourceReader(t)}
+		rd, err := NewObservedSourceReader(delegate, "v1", protocol.ChainSelector(1), monitor)
+		require.NoError(t, err)
+		require.NoError(t, rd.(chainaccess.SourceLoader).Close())
+		require.True(t, delegate.closed)
+	})
+
+	t.Run("leaves a delegate that is only a closer open", func(t *testing.T) {
+		delegate := &closingReader{MockSourceReader: mocks.NewMockSourceReader(t)}
+		rd, err := NewObservedSourceReader(delegate, "v1", protocol.ChainSelector(1), monitor)
+		require.NoError(t, err)
+		require.NoError(t, rd.(chainaccess.SourceLoader).Close())
+		require.False(t, delegate.closed)
+	})
 }

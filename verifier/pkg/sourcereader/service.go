@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"math"
 	"math/big"
 	"runtime/debug"
@@ -238,9 +237,11 @@ func (r *Service) initializeAndMonitor() {
 			r.startBlockInitialized.Store(true)
 			r.metrics().SetSourceReaderLastProcessedFinalizedBlock(ctx, int64(startBlock)) // #nosec G115 -- chain block heights are within int64 range
 			r.logger.Infow("Initialized start block", "block", startBlock)
+			r.monitoring.RecordChainHealthy(ctx, r.chainSelector, true)
 			break
 		}
 		r.logger.Errorw("Failed to initialize start block, will retry", "error", err, "retryIn", r.pollInterval)
+		r.monitoring.RecordChainHealthy(ctx, r.chainSelector, false)
 		select {
 		case <-ctx.Done():
 			return
@@ -256,8 +257,8 @@ func (r *Service) Close() error {
 		r.logger.Infow("Stopping Service")
 		close(r.stopCh)
 		r.wg.Wait()
-		if closer, ok := r.sourceReader.(io.Closer); ok {
-			if err := closer.Close(); err != nil {
+		if loader, ok := r.sourceReader.(chainaccess.SourceLoader); ok {
+			if err := loader.Close(); err != nil {
 				r.logger.Warnw("Failed to close source reader", "error", err)
 			}
 		}
@@ -1225,6 +1226,7 @@ func (r *Service) recordDisabledState(ctx context.Context) {
 		state = monitoring.SourceReaderStateFinalityBlocked
 	}
 	r.metrics().SetSourceReaderState(ctx, state)
+	r.monitoring.RecordChainHealthy(ctx, r.chainSelector, false)
 }
 
 func (r *Service) messageMetrics(message protocol.Message) verifier.MetricLabeler {

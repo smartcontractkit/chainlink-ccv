@@ -6,10 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"math"
 	"math/big"
-	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/ethereum/go-ethereum"
@@ -23,11 +20,8 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_6_0/rmn_remote"
 	"github.com/smartcontractkit/chainlink-ccv/common/lazy"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-	"github.com/smartcontractkit/chainlink-common/pkg/services"
-	commontypes "github.com/smartcontractkit/chainlink-common/pkg/types"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 	"github.com/smartcontractkit/chainlink-evm/pkg/heads"
-	"github.com/smartcontractkit/chainlink-evm/pkg/logpoller"
 	evmtypes "github.com/smartcontractkit/chainlink-evm/pkg/types"
 
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/rmnremotereader"
@@ -39,39 +33,26 @@ import (
 var (
 	_ chainaccess.SourceReader                          = (*SourceReader)(nil)
 	_ chainaccess.CriticalSourceInvariantCallbackSetter = (*SourceReader)(nil)
-	_ chainaccess.SourceLoader                          = (*SourceReader)(nil)
 )
 
-// DefaultMessageSentLogRetention is how long the log poller keeps CCIPMessageSent logs. It must
-// exceed the longest expected verifier outage, or logs the verifier has not read yet are pruned.
-const DefaultMessageSentLogRetention = 30 * 24 * time.Hour
-
-// ErrLogPollerBehind is returned when a read starts past the log poller's last processed block, so
-// the caller retries instead of treating the unscanned range as scanned.
-var ErrLogPollerBehind = errors.New("log poller has not reached the requested block")
-
-// ErrLogPollerNotReady is returned by reads until the log poller filter is registered and replayed.
-var ErrLogPollerNotReady = fmt.Errorf("%w: log poller filter not loaded", chainaccess.ErrSourceNotReady)
-
-const (
-	logPollerInitBackoff    = time.Second
-	maxLogPollerInitBackoff = time.Minute
-	logPollerOpTimeout      = 10 * time.Second
-)
-
-// LogPollerConfig makes the source reader read CCIPMessageSent logs from the Chainlink node's log
-// poller instead of eth_getLogs.
-type LogPollerConfig struct {
-	LogPoller  logpoller.LogPoller
-	VerifierID string
-	Retention  time.Duration
-	// Ready (logPollerReady) starts false and is set once the filter is registered and the log poller replayed.
-	Ready *atomic.Bool
-	// FilterRegistered reports whether the node has already stored the named log poller filter.
-	FilterRegistered func(ctx context.Context, name string) (bool, error)
+// SourceReaderParams are the dependencies shared by the RPC and log poller source readers.
+type SourceReaderParams struct {
+	ChainClient   client.Client
+	HeadTracker   heads.Tracker
+	OnRampAddress common.Address
+	// ConfiguredRMNRemoteAddress is DEPRECATED, zero when unset: the RMN Remote address is derived from
+	// the OnRamp's static config. When set and it disagrees, a warning is logged and the derived one used.
+	ConfiguredRMNRemoteAddress common.Address
+	CCIPMessageSentTopic       string
+	ChainSelector              protocol.ChainSelector
+	Logger                     logger.Logger
+	HeaderFetchBatchSize       int
+	OnCriticalInvariant        func(context.Context)
 }
 
-type SourceReader struct {
+// sourceReaderCore is what both source readers share: block headers, head tracker reads, RMN curse
+// reads and CCIPMessageSent decoding. Each reader adds its own log source on top.
+type sourceReaderCore struct {
 	chainClient   client.Client
 	headTracker   heads.Tracker
 	onRampAddress common.Address
@@ -85,38 +66,22 @@ type SourceReader struct {
 	onRampABI                        *abi.ABI // Cached ABI to avoid re-parsing
 	onCriticalInvariant              func(context.Context)
 	sourceReaderHeaderFetchBatchSize int
-
-	// lp is the node's log poller, nil when logs are read over RPC (e.g. the standalone verifier).
-	lp         logpoller.LogPoller
-	lpCfg      *LogPollerConfig
-	filterName string
-	// startBlock carries the first LoadFrom block to the startup goroutine; buffered so LoadFrom never blocks.
-	startBlock chan uint64
-	loadOnce   sync.Once
-	stopCh     services.StopChan
-	wg         sync.WaitGroup
-	closeOnce  sync.Once
 }
 
-func NewEVMSourceReader(
-	ctx context.Context,
-	chainClient client.Client,
-	headTracker heads.Tracker,
-	onRampAddress common.Address,
-	// configuredRMNRemoteAddress is DEPRECATED: the RMN Remote address is derived from the
-	// OnRamp's on-chain static config, which is authoritative. It is still accepted so callers
-	// and configs from before the derivation cutover keep working; pass the zero address when
-	// unconfigured. When set and it disagrees with the derived address, a warning is logged
-	// and the derived address is used.
-	configuredRMNRemoteAddress common.Address,
-	ccipMessageSentTopic string,
-	chainSelector protocol.ChainSelector,
-	lggr logger.Logger,
-	headerFetchBatchSize int,
-	onCriticalInvariant func(context.Context),
-	// lpCfg makes the reader read logs from the node's log poller; nil reads logs over RPC.
-	lpCfg *LogPollerConfig,
-) (chainaccess.SourceReader, error) {
+// SourceReader reads CCIPMessageSent logs over RPC with eth_getLogs.
+type SourceReader struct {
+	sourceReaderCore
+}
+
+func NewEVMSourceReader(ctx context.Context, p SourceReaderParams) (chainaccess.SourceReader, error) {
+	core, err := newSourceReaderCore(p)
+	if err != nil {
+		return nil, err
+	}
+	return &SourceReader{sourceReaderCore: core}, nil
+}
+
+func newSourceReaderCore(p SourceReaderParams) (sourceReaderCore, error) {
 	var errs []error
 	appendIfNil := func(field any, fieldName string) {
 		if field == nil {
@@ -124,44 +89,34 @@ func NewEVMSourceReader(
 		}
 	}
 
-	appendIfNil(chainClient, "chainClient")
-	appendIfNil(headTracker, "headTracker")
-	appendIfNil(lggr, "logger")
+	appendIfNil(p.ChainClient, "chainClient")
+	appendIfNil(p.HeadTracker, "headTracker")
+	appendIfNil(p.Logger, "logger")
 
-	if onRampAddress == (common.Address{}) {
+	if p.OnRampAddress == (common.Address{}) {
 		errs = append(errs, fmt.Errorf("onRampAddress is not set"))
 	}
-	if ccipMessageSentTopic == "" {
+	if p.CCIPMessageSentTopic == "" {
 		errs = append(errs, fmt.Errorf("ccipMessageSentTopic is not set"))
 	}
-	if chainSelector == 0 {
+	if p.ChainSelector == 0 {
 		errs = append(errs, fmt.Errorf("chainSelector is not set"))
-	}
-	if lpCfg != nil && lpCfg.VerifierID == "" {
-		errs = append(errs, fmt.Errorf("log poller verifierID is not set"))
-	}
-	if lpCfg != nil && LogPollerEnabled(lpCfg.LogPoller) {
-		if lpCfg.Ready == nil {
-			errs = append(errs, errors.New("log poller ready flag is not set"))
-		}
-		if lpCfg.FilterRegistered == nil {
-			errs = append(errs, errors.New("log poller filter lookup is not set"))
-		}
 	}
 
 	if len(errs) > 0 {
-		return nil, errors.Join(errs...)
+		return sourceReaderCore{}, errors.Join(errs...)
 	}
 
 	// Bind to the OnRamp contract to derive the RMN Remote address from its static config.
 	// Binding only parses the ABI and issues no RPC; the authoritative RMN Remote address is
 	// read lazily on first GetRMNCursedSubjects so construction never fails on an RPC error.
-	onRampCaller, err := onramp.NewOnRampCaller(onRampAddress, chainClient)
+	onRampCaller, err := onramp.NewOnRampCaller(p.OnRampAddress, p.ChainClient)
 	if err != nil {
-		return nil, fmt.Errorf("failed to bind OnRamp contract at %s: %w",
-			onRampAddress.Hex(), err)
+		return sourceReaderCore{}, fmt.Errorf("failed to bind OnRamp contract at %s: %w",
+			p.OnRampAddress.Hex(), err)
 	}
 
+	lggr := p.Logger
 	// Derive + bind the RMN Remote caller on first use, then cache it. A transient failure is
 	// not cached, so a rate-limited or otherwise unavailable RPC retries on the next call.
 	rmnRemoteCaller := lazy.New(func(ctx context.Context) (rmn_remote.RMNRemoteCaller, error) {
@@ -173,15 +128,15 @@ func NewEVMSourceReader(
 			return rmn_remote.RMNRemoteCaller{}, err
 		}
 		lggr.Infow("Derived RMN Remote address from OnRamp static config",
-			"chainSelector", chainSelector,
+			"chainSelector", p.ChainSelector,
 			"rmnRemoteAddress", rmnRemoteAddress.Hex())
-		if configuredRMNRemoteAddress != (common.Address{}) && configuredRMNRemoteAddress != rmnRemoteAddress {
+		if p.ConfiguredRMNRemoteAddress != (common.Address{}) && p.ConfiguredRMNRemoteAddress != rmnRemoteAddress {
 			lggr.Warnw("Configured RMN Remote address does not match the OnRamp static config; using the derived address",
-				"chainSelector", chainSelector,
-				"configuredRmnRemoteAddress", configuredRMNRemoteAddress.Hex(),
+				"chainSelector", p.ChainSelector,
+				"configuredRmnRemoteAddress", p.ConfiguredRMNRemoteAddress.Hex(),
 				"rmnRemoteAddress", rmnRemoteAddress.Hex())
 		}
-		caller, err := rmn_remote.NewRMNRemoteCaller(rmnRemoteAddress, chainClient)
+		caller, err := rmn_remote.NewRMNRemoteCaller(rmnRemoteAddress, p.ChainClient)
 		if err != nil {
 			return rmn_remote.RMNRemoteCaller{}, fmt.Errorf("failed to bind RMN Remote contract at %s: %w",
 				rmnRemoteAddress.Hex(), err)
@@ -192,188 +147,23 @@ func NewEVMSourceReader(
 	// Get and cache the OnRamp ABI once during initialization
 	onRampABI, err := onramp.OnRampMetaData.GetAbi()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get OnRamp ABI: %w", err)
+		return sourceReaderCore{}, fmt.Errorf("failed to get OnRamp ABI: %w", err)
 	}
 
-	reader := &SourceReader{
-		chainClient:                      chainClient,
-		headTracker:                      headTracker,
-		onRampAddress:                    onRampAddress,
-		configuredRMNRemoteAddress:       configuredRMNRemoteAddress,
+	core := sourceReaderCore{
+		chainClient:                      p.ChainClient,
+		headTracker:                      p.HeadTracker,
+		onRampAddress:                    p.OnRampAddress,
+		configuredRMNRemoteAddress:       p.ConfiguredRMNRemoteAddress,
 		rmnRemoteCaller:                  rmnRemoteCaller,
-		ccipMessageSentTopic:             ccipMessageSentTopic,
-		chainSelector:                    chainSelector,
+		ccipMessageSentTopic:             p.CCIPMessageSentTopic,
+		chainSelector:                    p.ChainSelector,
 		lggr:                             lggr,
 		onRampABI:                        onRampABI,
-		sourceReaderHeaderFetchBatchSize: sourceReaderHeaderFetchBatchSize(headerFetchBatchSize),
+		sourceReaderHeaderFetchBatchSize: sourceReaderHeaderFetchBatchSize(p.HeaderFetchBatchSize),
 	}
-	reader.SetCriticalSourceInvariantCallback(onCriticalInvariant)
-
-	if lpCfg != nil && LogPollerEnabled(lpCfg.LogPoller) {
-		reader.startLogPoller(lpCfg)
-	}
-	return reader, nil
-}
-
-// LogPollerEnabled reports whether the node's LogPoller feature is on for a chain. It decides both
-// whether the reader reads logs from the log poller and whether the verifier uses the log poller's
-// finality signal, so the two cannot disagree.
-func LogPollerEnabled(lp logpoller.LogPoller) bool {
-	return lp != nil && lp != logpoller.LogPollerDisabled
-}
-
-// logPollerFinality reports the finality violations the node's log poller detects.
-type logPollerFinality struct {
-	lp logpoller.LogPoller
-}
-
-// NewLogPollerFinality returns the log poller's finality signal, or nil when the log poller is disabled.
-func NewLogPollerFinality(lp logpoller.LogPoller) chainaccess.FinalityViolationReporter {
-	if !LogPollerEnabled(lp) {
-		return nil
-	}
-	return logPollerFinality{lp: lp}
-}
-
-func (f logPollerFinality) FinalityViolated() bool {
-	return errors.Is(f.lp.Healthy(), commontypes.ErrFinalityViolated)
-}
-
-// startLogPoller switches the reader to the log poller and starts the goroutine that loads it once
-// LoadFrom supplies the start block; reads fail with ErrLogPollerNotReady until then.
-func (r *SourceReader) startLogPoller(lpCfg *LogPollerConfig) {
-	r.lp = lpCfg.LogPoller
-	r.lpCfg = lpCfg
-	r.filterName = logpoller.FilterName("ccv-verifier", lpCfg.VerifierID, r.onRampAddress.Hex())
-	r.startBlock = make(chan uint64, 1)
-	r.stopCh = make(services.StopChan)
-	r.wg.Go(r.initLogPoller)
-}
-
-// LoadFrom starts loading the log poller from startBlock, the first block the verifier reads. Only the
-// first call counts; it is a no-op without a log poller.
-func (r *SourceReader) LoadFrom(startBlock uint64) {
-	if r.lp == nil {
-		return
-	}
-	r.loadOnce.Do(func() { r.startBlock <- startBlock })
-}
-
-// logPollerLoad is fixed on the first attempt, so a retry does not mistake this reader's own
-// registration for a pre-existing filter.
-type logPollerLoad struct {
-	fromBlock     uint64
-	filterExisted bool
-}
-
-// initLogPoller waits for the start block, then retries loading the log poller with backoff until it
-// succeeds or the reader closes.
-func (r *SourceReader) initLogPoller() {
-	ctx, cancel := r.stopCh.NewCtx()
-	defer cancel()
-	var from uint64
-	select {
-	case from = <-r.startBlock:
-	case <-ctx.Done():
-		return
-	}
-	var load *logPollerLoad
-	backoff := logPollerInitBackoff
-	for {
-		var err error
-		if load == nil {
-			load, err = r.planLogPollerLoad(ctx, from)
-		}
-		if err == nil {
-			err = r.loadLogPoller(ctx, *load)
-		}
-		if err == nil {
-			r.lpCfg.Ready.Store(true)
-			r.lggr.Infow("Log poller ready, reading CCIPMessageSent logs from it", "filter", r.filterName)
-			return
-		}
-		r.lggr.Warnw("Log poller startup failed, retrying", "filter", r.filterName, "retryIn", backoff, "error", err)
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(backoff):
-		}
-		backoff = min(2*backoff, maxLogPollerInitBackoff)
-	}
-}
-
-func (r *SourceReader) planLogPollerLoad(ctx context.Context, from uint64) (*logPollerLoad, error) {
-	existed, err := r.lpCfg.FilterRegistered(ctx, r.filterName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to check log poller filter %s: %w", r.filterName, err)
-	}
-	return &logPollerLoad{fromBlock: from, filterExisted: existed}, nil
-}
-
-// loadLogPoller registers the filter and replays the log poller from the start block. A pre-existing
-// filter first has the log poller's logs and blocks from the start block deleted, so they are re-fetched.
-func (r *SourceReader) loadLogPoller(ctx context.Context, load logPollerLoad) error {
-	if load.fromBlock > math.MaxInt64 {
-		return fmt.Errorf("replay block %d is out of range for the log poller", load.fromBlock)
-	}
-	if err := r.registerLogPollerFilter(ctx); err != nil {
-		return err
-	}
-	if load.filterExisted {
-		if err := r.lp.DeleteLogsAndBlocksAfter(ctx, int64(load.fromBlock)); err != nil { // #nosec G115 -- range checked above
-			return fmt.Errorf("failed to delete log poller data from block %d: %w", load.fromBlock, err)
-		}
-	}
-	return r.replayLogPoller(ctx, load.fromBlock)
-}
-
-// registerLogPollerFilter registers the CCIPMessageSent filter with the log poller.
-func (r *SourceReader) registerLogPollerFilter(ctx context.Context) error {
-	regCtx, cancel := context.WithTimeout(ctx, logPollerOpTimeout)
-	defer cancel()
-	if err := r.lp.RegisterFilter(regCtx, logpoller.Filter{
-		Name:      r.filterName,
-		Addresses: []common.Address{r.onRampAddress},
-		EventSigs: []common.Hash{common.HexToHash(r.ccipMessageSentTopic)},
-		Retention: r.lpCfg.Retention,
-	}); err != nil {
-		return fmt.Errorf("failed to register log poller filter %s: %w", r.filterName, err)
-	}
-	return nil
-}
-
-// replayLogPoller replays the log poller from fromBlock up to its latest finalized block and waits for it.
-func (r *SourceReader) replayLogPoller(ctx context.Context, fromBlock uint64) error {
-	latest, _, err := r.headTrackerBlocks(ctx)
-	if err != nil {
-		return err
-	}
-	if fromBlock > latest.Number {
-		return nil // Not mined yet: the log poller indexes it as it arrives.
-	}
-	// A finality violation here is declared on the log poller itself, so Healthy() reports it.
-	if err := r.lp.Replay(ctx, int64(max(fromBlock, 1))); err != nil { // #nosec G115 -- range checked by loadLogPoller
-		return fmt.Errorf("log poller replay from block %d failed: %w", fromBlock, err)
-	}
-	return nil
-}
-
-// Close stops loading the log poller and unregisters this reader's filter. On a restart the next start
-// registers it again and replays from the checkpoint.
-func (r *SourceReader) Close() error {
-	if r.lp == nil {
-		return nil
-	}
-	r.closeOnce.Do(func() {
-		close(r.stopCh)
-		r.wg.Wait()
-		ctx, cancel := context.WithTimeout(context.Background(), logPollerOpTimeout)
-		defer cancel()
-		if err := r.lp.UnregisterFilter(ctx, r.filterName); err != nil {
-			r.lggr.Warnw("Failed to unregister log poller filter", "filter", r.filterName, "error", err)
-		}
-	})
-	return nil
+	core.SetCriticalSourceInvariantCallback(p.OnCriticalInvariant)
+	return core, nil
 }
 
 // onRampStaticConfigGetter is the slice of the OnRamp binding the source reader needs, defined
@@ -398,7 +188,7 @@ func deriveRMNRemoteFromOnRamp(ctx context.Context, onRamp onRampStaticConfigGet
 
 // SetCriticalSourceInvariantCallback attaches the metric callback invoked when source-chain data
 // violates a configured on-chain invariant. It must be called before the reader starts.
-func (r *SourceReader) SetCriticalSourceInvariantCallback(callback func(context.Context)) {
+func (r *sourceReaderCore) SetCriticalSourceInvariantCallback(callback func(context.Context)) {
 	if callback == nil {
 		callback = func(context.Context) {}
 	}
@@ -411,7 +201,7 @@ func (r *SourceReader) SetCriticalSourceInvariantCallback(callback func(context.
 // Batches are chunked to avoid an oversized single payload.
 // Zero is a valid height (genesis) and is fetched literally: unlike the former
 // []*big.Int input there is no nil element that silently resolves to "latest".
-func (r *SourceReader) GetBlocksHeaders(ctx context.Context, blockNumbers []uint64) (map[uint64]protocol.BlockHeader, error) {
+func (r *sourceReaderCore) GetBlocksHeaders(ctx context.Context, blockNumbers []uint64) (map[uint64]protocol.BlockHeader, error) {
 	headers := make(map[uint64]protocol.BlockHeader, len(blockNumbers))
 	batchSize := sourceReaderHeaderFetchBatchSize(r.sourceReaderHeaderFetchBatchSize)
 	for bn := 0; bn < len(blockNumbers); bn += batchSize {
@@ -430,7 +220,7 @@ func (r *SourceReader) GetBlocksHeaders(ctx context.Context, blockNumbers []uint
 // and returns the resulting headers keyed by block number. Individual batch
 // element failures are logged and skipped so a single bad block does not discard
 // the whole batch.
-func (r *SourceReader) fetchHeadBatch(ctx context.Context, blockNumbers []uint64) (map[uint64]protocol.BlockHeader, error) {
+func (r *sourceReaderCore) fetchHeadBatch(ctx context.Context, blockNumbers []uint64) (map[uint64]protocol.BlockHeader, error) {
 	batch := make([]rpc.BatchElem, len(blockNumbers))
 	for i, n := range blockNumbers {
 		var head *evmtypes.Head
@@ -472,18 +262,9 @@ func (r *SourceReader) fetchHeadBatch(ctx context.Context, blockNumbers []uint64
 }
 
 // FetchMessageSentEvents returns MessageSentEvents in the given block range.
-// A toBlock of 0 queries up to the latest block; with a log poller, that is the last block it has processed.
+// A toBlock of 0 queries up to the latest block.
 func (r *SourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, toBlock uint64) ([]protocol.MessageSentEvent, error) {
-	var logs []types.Log
-	var err error
-	if r.lp != nil {
-		if !r.lpCfg.Ready.Load() {
-			return nil, ErrLogPollerNotReady
-		}
-		logs, err = r.logPollerLogs(ctx, fromBlock, toBlock)
-	} else {
-		logs, err = r.rpcLogs(ctx, fromBlock, toBlock)
-	}
+	logs, err := r.rpcLogs(ctx, fromBlock, toBlock)
 	if err != nil {
 		return nil, err
 	}
@@ -511,55 +292,9 @@ func (r *SourceReader) rpcLogs(ctx context.Context, fromBlock, toBlock uint64) (
 	return logs, nil
 }
 
-// logPollerLogs reads CCIPMessageSent logs in the given block range from the log poller.
-func (r *SourceReader) logPollerLogs(ctx context.Context, fromBlock, toBlock uint64) ([]types.Log, error) {
-	end := toBlock
-	if end == 0 {
-		processed, err := r.logPollerBlock(ctx)
-		if err != nil {
-			return nil, err
-		}
-		end = processed
-	}
-	if fromBlock > end {
-		return nil, fmt.Errorf("%w: from block %d, log poller at %d", ErrLogPollerBehind, fromBlock, end)
-	}
-
-	lpLogs, err := r.lp.LogsWithSigs(ctx, int64(fromBlock), int64(end), // #nosec G115 -- block numbers fit in int64
-
-		[]common.Hash{common.HexToHash(r.ccipMessageSentTopic)}, r.onRampAddress)
-	if err != nil {
-		r.lggr.Warnw("Failed to query log poller", "error", err)
-		return nil, err
-	}
-
-	logs := make([]types.Log, 0, len(lpLogs))
-	for i := range lpLogs {
-		l := lpLogs[i].ToGethLog()
-		// ToGethLog drops the block timestamp, which parseMessageSentLogs reports as the source-block time.
-		if ts := lpLogs[i].BlockTimestamp; !ts.IsZero() {
-			l.BlockTimestamp = uint64(ts.Unix()) // #nosec G115 -- chain timestamps are positive
-		}
-		logs = append(logs, l)
-	}
-	return logs, nil
-}
-
-// logPollerBlock returns the last block the log poller has processed.
-func (r *SourceReader) logPollerBlock(ctx context.Context) (uint64, error) {
-	b, err := r.lp.LatestBlock(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get log poller latest block: %w", err)
-	}
-	if b.BlockNumber < 0 {
-		return 0, fmt.Errorf("log poller block number cannot be negative: %d", b.BlockNumber)
-	}
-	return uint64(b.BlockNumber), nil
-}
-
 // parseMessageSentLogs decodes and validates CCIPMessageSent logs. Invalid logs are reported
 // through onCriticalInvariant and skipped.
-func (r *SourceReader) parseMessageSentLogs(ctx context.Context, logs []types.Log) []protocol.MessageSentEvent {
+func (r *sourceReaderCore) parseMessageSentLogs(ctx context.Context, logs []types.Log) []protocol.MessageSentEvent {
 	results := make([]protocol.MessageSentEvent, 0, len(logs))
 
 	// Process found events
@@ -719,51 +454,21 @@ func (r *SourceReader) parseMessageSentLogs(ctx context.Context, logs []types.Lo
 	return results
 }
 
-// LatestAndFinalizedBlock returns the latest and finalized block headers. With a log poller,
-// neither is above the last block the log poller has processed, so the verifier never advances
-// past logs that are not indexed yet.
+// LatestAndFinalizedBlock returns the latest and finalized block headers.
 // Implements chainaccess.HeadTracker interface.
 func (r *SourceReader) LatestAndFinalizedBlock(ctx context.Context) (latest, finalized *protocol.BlockHeader, err error) {
-	latest, finalized, err = r.headTrackerBlocks(ctx)
-	if err != nil || r.lp == nil {
-		return latest, finalized, err
-	}
-
-	processed, err := r.logPollerBlock(ctx)
-	if err != nil {
-		return nil, nil, err
-	}
-	if processed >= latest.Number {
-		return latest, finalized, nil
-	}
-	capped, err := r.headerAt(ctx, processed)
-	if err != nil {
-		return nil, nil, err
-	}
-	r.lggr.Debugw("Log poller is behind the head tracker, capping blocks",
-		"logPollerBlock", processed, "latest", latest.Number, "finalized", finalized.Number)
-	latest = capped
-	if processed < finalized.Number {
-		finalized = capped
-	}
-	return latest, finalized, nil
+	return r.headTrackerBlocks(ctx)
 }
 
-// headerAt returns the header of block n.
-func (r *SourceReader) headerAt(ctx context.Context, n uint64) (*protocol.BlockHeader, error) {
-	headers, err := r.GetBlocksHeaders(ctx, []uint64{n})
-	if err != nil {
-		return nil, err
-	}
-	h, ok := headers[n]
-	if !ok {
-		return nil, fmt.Errorf("header for block %d not found", n)
-	}
-	return &h, nil
+// LatestSafeBlock returns the latest safe block header.
+// Returns nil without an error when the underlying chain does not support the safe tag.
+// Implements chainaccess.HeadTracker interface.
+func (r *SourceReader) LatestSafeBlock(ctx context.Context) (*protocol.BlockHeader, error) {
+	return r.headTrackerSafeBlock(ctx)
 }
 
 // headTrackerBlocks returns the head tracker's latest and finalized block headers.
-func (r *SourceReader) headTrackerBlocks(ctx context.Context) (latest, finalized *protocol.BlockHeader, err error) {
+func (r *sourceReaderCore) headTrackerBlocks(ctx context.Context) (latest, finalized *protocol.BlockHeader, err error) {
 	latestHead, finalizedHead, err := r.headTracker.LatestAndFinalizedBlock(ctx)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get latest and finalized blocks: %w", err)
@@ -794,29 +499,9 @@ func (r *SourceReader) headTrackerBlocks(ctx context.Context) (latest, finalized
 	return latest, finalized, nil
 }
 
-// LatestSafeBlock returns the latest safe block header. With a log poller, it is not above the
-// last block the log poller has processed.
-// Returns nil without an error when the underlying chain does not support the safe tag.
-// Implements chainaccess.HeadTracker interface.
-func (r *SourceReader) LatestSafeBlock(ctx context.Context) (*protocol.BlockHeader, error) {
-	safe, err := r.headTrackerSafeBlock(ctx)
-	if err != nil || safe == nil || r.lp == nil {
-		return safe, err
-	}
-
-	processed, err := r.logPollerBlock(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if processed >= safe.Number {
-		return safe, nil
-	}
-	return r.headerAt(ctx, processed)
-}
-
 // headTrackerSafeBlock returns the head tracker's safe block header, nil when the chain does not
 // support the safe tag.
-func (r *SourceReader) headTrackerSafeBlock(ctx context.Context) (*protocol.BlockHeader, error) {
+func (r *sourceReaderCore) headTrackerSafeBlock(ctx context.Context) (*protocol.BlockHeader, error) {
 	safeHead, err := r.headTracker.LatestSafeBlock(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get safe block: %w", err)
@@ -837,7 +522,7 @@ func (r *SourceReader) headTrackerSafeBlock(ctx context.Context) (*protocol.Bloc
 
 // GetRMNCursedSubjects queries this source chain's RMN Remote contract.
 // Implements SourceReader and chainaccess.RMNCurseReader interfaces.
-func (r *SourceReader) GetRMNCursedSubjects(ctx context.Context) ([]protocol.Bytes16, error) {
+func (r *sourceReaderCore) GetRMNCursedSubjects(ctx context.Context) ([]protocol.Bytes16, error) {
 	// Resolve the RMN Remote caller lazily (first call derives it on-chain) so construction
 	// performs no RPC and a transient derivation failure is surfaced here to be retried.
 	caller, err := r.rmnRemoteCaller.Value(ctx)

@@ -80,6 +80,12 @@ func TestE2ESmoke_Basic(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("log poller source reader in use", func(t *testing.T) {
+		in, loadErr := ccv.LoadOutput[ccv.Cfg](GetSmokeTestConfig())
+		require.NoError(t, loadErr)
+		requireLogPollerSourceReaderInUse(t, in)
+	})
 }
 
 func mustGetEOAReceiverAddress(t *testing.T, c cciptestinterfaces.CCIP17) protocol.UnknownAddress {

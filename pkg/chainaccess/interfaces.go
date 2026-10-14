@@ -80,6 +80,8 @@ var ErrSourceNotReady = errors.New("source not ready")
 type SourceLoader interface {
 	// LoadFrom starts loading from startBlock without blocking; reads return ErrSourceNotReady until done.
 	LoadFrom(startBlock uint64)
+	// Close stops loading and releases what LoadFrom set up. Only SourceLoaders are closed by the verifier.
+	Close() error
 }
 
 // ExecutorMonitoringSetter is an optional capability of accessor-provided destination readers and

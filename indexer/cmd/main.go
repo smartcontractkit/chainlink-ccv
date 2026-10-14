@@ -120,8 +120,8 @@ func main() {
 	// Initialize the indexer storage
 	indexerStorage := createStorage(ctx, lggr, config, indexerMonitoring)
 	verifierRegistry := createRegistry()
-	// Skipped readers/sources keep the service NotReady on /health so a
-	// misconfig pages instead of silently disappearing.
+	// Skipped readers/sources degrade the service on /health, which names each one.
+	// The factory fails below when none is usable.
 	startupSkips := ccvhealth.NewStartupSkips("indexer.StartupSkips")
 	err = createAllVerifierReaders(ctx, lggr, verifierRegistry, config, indexerMonitoring, startupSkips)
 	if err != nil {

@@ -146,6 +146,8 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	destReaders := make(map[protocol.ChainSelector]chainaccess.DestinationReader)
 	rmnReaders := make(map[protocol.ChainSelector]chainaccess.RMNCurseReader)
 	enabledDestChains := make([]protocol.ChainSelector, 0)
+	// Skipped chains are reported on /health as degraded. The factory fails below when none is usable.
+	startupSkips := health.NewStartupSkips("executor.StartupSkips")
 
 	// Chains are built concurrently with a per-chain timeout: GetAccessor dials
 	// the chain and starts its TXM, so a slow (not failing) chain must not
@@ -156,6 +158,7 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		selectorUint, err := strconv.ParseUint(strSel, 10, 64)
 		if err != nil {
 			f.lggr.Errorw("Invalid chain selector in configuration", "error", err, "chainSelector", strSel)
+			startupSkips.SkipChain(strSel, err)
 			continue
 		}
 		selector := protocol.ChainSelector(selectorUint)
@@ -167,6 +170,8 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 			accessor, err := deps.Registry.GetAccessor(chainCtx, selector)
 			if err != nil {
 				f.lggr.Errorw("Failed to get accessor for chain", "error", err, "chainSelector", strSel)
+				startupSkips.SkipChain(selector, err)
+				executorMonitoring.RecordChainHealthy(ctx, selector, false)
 				return
 			}
 
@@ -175,10 +180,13 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 
 			if drErr != nil || ctErr != nil {
 				f.lggr.Warnw("Skipping chain: missing DestinationReader or ContractTransmitter", "chainSelector", strSel, "destReaderErr", drErr, "transmitterErr", ctErr)
+				startupSkips.SkipChain(selector, errors.Join(drErr, ctErr))
+				executorMonitoring.RecordChainHealthy(ctx, selector, false)
 				return
 			}
 
 			attachExecutorMonitoring(dr, ct, executorMonitoring)
+			executorMonitoring.RecordChainHealthy(ctx, selector, true)
 
 			chainsMu.Lock()
 			defer chainsMu.Unlock()
@@ -224,6 +232,8 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		defaultExecutorAddresses[sel], err = protocol.NewUnknownAddressFromHex(chainConfig.DefaultExecutorAddress)
 		if err != nil {
 			f.lggr.Errorw("Invalid default executor address in configuration", "error", err, "chainSelector", strSel)
+			startupSkips.Skip(fmt.Sprintf("DefaultExecutorAddress[%s]", strSel), err)
+			executorMonitoring.RecordChainHealthy(ctx, sel, false)
 			continue
 		}
 	}
@@ -288,6 +298,7 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 
 	healthManager := health.NewManager()
 	healthManager.Register(f.coordinator)
+	healthManager.Register(startupSkips)
 	health.RegisterOn(healthManager, router)
 
 	server := &http.Server{

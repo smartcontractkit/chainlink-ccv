@@ -137,19 +137,16 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 			closeErr := runtime.Close()
 			return nil, errors.Join(fmt.Errorf("failed to get EVM head tracker for chain %d: tracker is nil", chainSelector), closeErr)
 		}
-		sr, err := NewEVMSourceReader(
-			ctx,
-			chainClient,
-			headTracker,
-			common.HexToAddress(onRampAddress),
-			common.HexToAddress(rmnRemoteAddress),
-			onramp.OnRampCCIPMessageSent{}.Topic().Hex(),
-			chainSelector,
-			chainLggr,
-			runtime.SourceReaderHeaderFetchBatchSize(),
-			nil,
-			nil, // standalone verifier has no log poller, it reads logs over rpc
-		)
+		sr, err := NewEVMSourceReader(ctx, SourceReaderParams{
+			ChainClient:                chainClient,
+			HeadTracker:                headTracker,
+			OnRampAddress:              common.HexToAddress(onRampAddress),
+			ConfiguredRMNRemoteAddress: common.HexToAddress(rmnRemoteAddress),
+			CCIPMessageSentTopic:       onramp.OnRampCCIPMessageSent{}.Topic().Hex(),
+			ChainSelector:              chainSelector,
+			Logger:                     chainLggr,
+			HeaderFetchBatchSize:       runtime.SourceReaderHeaderFetchBatchSize(),
+		})
 		if err != nil {
 			closeErr := runtime.Close()
 			return nil, errors.Join(fmt.Errorf("failed to create EVM source reader: %w", err), closeErr)

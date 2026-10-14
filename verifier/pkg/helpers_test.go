@@ -110,9 +110,10 @@ func (msrs *MockSourceReaderSetup) ExpectFetchMessageSentEvent(maybeVerification
 // noopMonitoring is a simple noop monitoring implementation for tests.
 type noopMonitoring struct{}
 
-func (m *noopMonitoring) Metrics() MetricLabeler               { return &noopMetricLabeler{} }
-func (m *noopMonitoring) Tracing() Tracing                     { return tracing.NewTracing(beholder.GetTracer()) }
-func (m *noopMonitoring) RecordServiceStarted(context.Context) {}
+func (m *noopMonitoring) Metrics() MetricLabeler                                           { return &noopMetricLabeler{} }
+func (m *noopMonitoring) Tracing() Tracing                                                 { return tracing.NewTracing(beholder.GetTracer()) }
+func (m *noopMonitoring) RecordServiceStarted(context.Context)                             {}
+func (m *noopMonitoring) RecordChainHealthy(context.Context, protocol.ChainSelector, bool) {}
 
 type noopMetricLabeler struct{}
 
@@ -475,7 +476,7 @@ func createDurableProcessorsWithWakeupInterval(
 		return nil, nil, nil, fmt.Errorf("failed to create result queue: %w", err)
 	}
 
-	sourceReadersDB, err := createSourceReadersDB(
+	sourceReadersDB, _, err := createSourceReadersDB(
 		lggr, config, chainStatusManager, curseDetector, monitoring, configuredSourceReaders, taskQueue, common.AllowAllMessagesChecker{}, nil,
 	)
 	if err != nil {

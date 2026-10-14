@@ -25,7 +25,7 @@ require (
 	github.com/prometheus/client_golang v1.23.2
 	github.com/rs/zerolog v1.35.1
 	github.com/sethvargo/go-retry v0.3.0
-	github.com/smartcontractkit/chain-selectors v1.0.111
+	github.com/smartcontractkit/chain-selectors v1.0.112
 	github.com/smartcontractkit/chainlink-ccip/chains/evm v0.0.0-20261001213322-a2d686f610ca
 	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20261001213322-a2d686f610ca
 	github.com/smartcontractkit/chainlink-ccv v0.0.2-0.20260608205628-b1fb1b311772
@@ -537,9 +537,3 @@ require (
 exclude github.com/golang-jwt/jwt/v4 v4.5.1
 
 replace github.com/fbsobreira/gotron-sdk => github.com/smartcontractkit/chainlink-tron/relayer/gotron-sdk v0.0.5-0.20251014124537-af6b1684fe15
-
-// Repeat replaces from chainlink-canton
-replace github.com/digital-asset/dazl-client/v8 => github.com/noders-team/dazl-client/v8 v8.7.1-2
-
-// Pin codec to v1.2.x: chainlink-evm's generated code uses GenVersion/GenHelper removed in v1.3.0
-replace github.com/ugorji/go/codec => github.com/ugorji/go/codec v1.2.12

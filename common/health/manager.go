@@ -70,7 +70,7 @@ func (m *Manager) StartPeriodicHealthLogging(ctx context.Context, l logger.Sugar
 			}
 
 			logFn := l.Debugw
-			if response.Status == NotReady {
+			if response.Status != Ready {
 				logFn = l.Warnw
 			}
 

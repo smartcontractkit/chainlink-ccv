@@ -46,13 +46,16 @@ var _ chainaccess.FinalityViolationReporter = (*fakeFinalityReporter)(nil)
 type loadingReader struct {
 	*mocks.MockSourceReader
 	loaded []uint64
+	closed atomic.Bool
 }
 
 func (r *loadingReader) LoadFrom(startBlock uint64) { r.loaded = append(r.loaded, startBlock) }
 
+func (r *loadingReader) Close() error { r.closed.Store(true); return nil }
+
 var _ chainaccess.SourceLoader = (*loadingReader)(nil)
 
-// closingReader is a source reader that owns resources released on Close.
+// closingReader is a source reader with a Close but no local index, so the verifier must not close it.
 type closingReader struct {
 	*mocks.MockSourceReader
 	closed atomic.Bool

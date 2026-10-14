@@ -123,27 +123,33 @@ func NewVerificationCoordinator(
 			"chain_selector", fmt.Sprintf("%d", sel),
 			"chain_name", sel.ChainName(),
 		)
-		sourceReader, err := evm.NewEVMSourceReader(
-			// This CL entry point has no context parameter (its signature is consumed by the
-			// Chainlink node repo and must stay unchanged); the reader bounds the one-shot
-			// static-config read with its own timeout.
-			context.Background(),
-			chain.Client(),
-			chain.HeadTracker(),
+		params := evm.SourceReaderParams{
+			ChainClient: chain.Client(),
+			HeadTracker: chain.HeadTracker(),
 			// TODO: use UnknownAddress instead of ethereum address.
-			common.HexToAddress(onRampAddrs[sel].String()),
+			OnRampAddress: common.HexToAddress(onRampAddrs[sel].String()),
 			// Deprecated configured RMN Remote, zero when unset: the reader derives the
 			// authoritative address on-chain and warns if this disagrees with it.
-			common.HexToAddress(rmnRemoteAddrs[sel].String()),
-			onramp.OnRampCCIPMessageSent{}.Topic().Hex(),
-			sel,
-			logger.With(lggr, "component", "SourceReader", "chainID", sel),
-			evmconfig.DefaultSourceReaderHeaderFetchBatchSize,
-			func(ctx context.Context) {
+			ConfiguredRMNRemoteAddress: common.HexToAddress(rmnRemoteAddrs[sel].String()),
+			CCIPMessageSentTopic:       onramp.OnRampCCIPMessageSent{}.Topic().Hex(),
+			ChainSelector:              sel,
+			Logger:                     logger.With(lggr, "component", "SourceReader", "chainID", sel),
+			HeaderFetchBatchSize:       evmconfig.DefaultSourceReaderHeaderFetchBatchSize,
+			OnCriticalInvariant: func(ctx context.Context) {
 				chainMetrics.IncrementCriticalSourceInvariantViolations(ctx)
 			},
-			newLogPollerConfig(ds, chain, cfg.VerifierID),
-		)
+		}
+		// This CL entry point has no context parameter (its signature is consumed by the Chainlink
+		// node repo and must stay unchanged), so the readers get a background context.
+		// A chain with the node's log poller enabled reads logs from it and uses its finality signal.
+		var sourceReader chainaccess.SourceReader
+		var finalityReporter chainaccess.FinalityViolationReporter
+		if lp := chain.LogPoller(); evm.LogPollerEnabled(lp) {
+			sourceReader, err = evm.NewLogPollerSourceReader(context.Background(), params, newLogPollerConfig(ds, chain, cfg.VerifierID, lggr))
+			finalityReporter = evm.NewLogPollerFinality(lp)
+		} else {
+			sourceReader, err = evm.NewEVMSourceReader(context.Background(), params)
+		}
 		if err != nil {
 			// A failure to build one chain's reader must not stop the remaining chains from
 			// starting. Log and skip this chain so the rest of the coordinator can come up.
@@ -160,8 +166,8 @@ func NewVerificationCoordinator(
 		}
 
 		sourceReaders[sel] = observedSourceReader
-		if reporter := evm.NewLogPollerFinality(chain.LogPoller()); reporter != nil {
-			finalityReporters[sel] = reporter
+		if finalityReporter != nil {
+			finalityReporters[sel] = finalityReporter
 		}
 		sourceConfigs[sel] = verifier.SourceConfig{
 			VerifierAddress:        verifierAddrs[sel],

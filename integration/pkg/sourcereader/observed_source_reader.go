@@ -3,7 +3,6 @@ package sourcereader
 import (
 	"context"
 	"fmt"
-	"io"
 
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -13,7 +12,6 @@ import (
 var (
 	_ chainaccess.SourceReader = (*observedSourceReader)(nil)
 	_ chainaccess.SourceLoader = (*observedSourceReader)(nil)
-	_ io.Closer                = (*observedSourceReader)(nil)
 )
 
 // observedSourceReader wraps a SourceReader and use a decorator pattern to track various metrics.
@@ -94,10 +92,10 @@ func (o observedSourceReader) LoadFrom(startBlock uint64) {
 	}
 }
 
-// Close forwards to the delegate so the wrapper does not hide its cleanup; a no-op when it has none.
+// Close forwards to a loading delegate so the wrapper does not hide its cleanup; a no-op otherwise.
 func (o observedSourceReader) Close() error {
-	if closer, ok := o.SourceReader.(io.Closer); ok {
-		return closer.Close()
+	if loader, ok := o.SourceReader.(chainaccess.SourceLoader); ok {
+		return loader.Close()
 	}
 	return nil
 }

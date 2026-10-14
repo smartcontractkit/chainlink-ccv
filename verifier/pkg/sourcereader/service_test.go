@@ -2427,18 +2427,31 @@ func TestSRS_ProcessEventCycle_SourceNotReadyLogsQuietly(t *testing.T) {
 	}
 }
 
-func TestSRS_Close_ClosesTheSourceReader(t *testing.T) {
+func TestSRS_Close_ClosesOnlyASourceLoader(t *testing.T) {
 	chain := protocol.ChainSelector(1337)
-	reader := &closingReader{MockSourceReader: mocks.NewMockSourceReader(t)}
-	chainStatusMgr := mocks.NewMockChainStatusManager(t)
-	chainStatusMgr.EXPECT().ReadChainStatuses(mock.Anything, mock.Anything).
-		Return(map[protocol.ChainSelector]*protocol.ChainStatusInfo{
-			chain: {ChainSelector: chain, FinalizedBlockHeight: big.NewInt(500)},
-		}, nil).Once()
-	srs, _, _ := newTestSRS(t, chain, reader.MockSourceReader, chainStatusMgr, mocks.NewMockCurseCheckerService(t), time.Hour, 5000)
-	srs.sourceReader = reader
-	require.NoError(t, srs.Start(t.Context()))
+	newStartedSRS := func(t *testing.T, reader chainaccess.SourceReader, srMock *mocks.MockSourceReader) *Service {
+		chainStatusMgr := mocks.NewMockChainStatusManager(t)
+		chainStatusMgr.EXPECT().ReadChainStatuses(mock.Anything, mock.Anything).
+			Return(map[protocol.ChainSelector]*protocol.ChainStatusInfo{
+				chain: {ChainSelector: chain, FinalizedBlockHeight: big.NewInt(500)},
+			}, nil).Once()
+		srs, _, _ := newTestSRS(t, chain, srMock, chainStatusMgr, mocks.NewMockCurseCheckerService(t), time.Hour, 5000)
+		srs.sourceReader = reader
+		require.NoError(t, srs.Start(t.Context()))
+		return srs
+	}
 
-	require.NoError(t, srs.Close())
-	require.True(t, reader.closed.Load())
+	t.Run("closes a source loader", func(t *testing.T) {
+		reader := &loadingReader{MockSourceReader: mocks.NewMockSourceReader(t)}
+		srs := newStartedSRS(t, reader, reader.MockSourceReader)
+		require.NoError(t, srs.Close())
+		require.True(t, reader.closed.Load())
+	})
+
+	t.Run("leaves a plain closer open", func(t *testing.T) {
+		reader := &closingReader{MockSourceReader: mocks.NewMockSourceReader(t)}
+		srs := newStartedSRS(t, reader, reader.MockSourceReader)
+		require.NoError(t, srs.Close())
+		require.False(t, reader.closed.Load())
+	})
 }
