@@ -15,14 +15,7 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 )
 
-// V3 send-path billing limits: the non-payload bytes the destination fee
-// quoter's maxDataBytes budget bills on top of the user payload, and the
-// execution gas a message of a given payload size needs to be executed on
-// this chain.
-//
-// Implements the optional per-family capability interfaces from
-// cciptestinterfaces; the asserts below make a missing method a compile
-// error for the EVM family.
+// Ensure EVM exposes its V3 message-overhead and gas-limit capabilities.
 
 var (
 	_ cciptestinterfaces.MessageOverheadProvider   = (*CCIP17EVM)(nil)
