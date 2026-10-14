@@ -42,11 +42,36 @@ templ ActionsPage(actions []ActionVM, olderBefore int64) {
 							<tr>
 								<td>{ fmt.Sprint(a.ID) }</td>
 								<td>{ a.CreatedAt.UTC().Format(time.RFC3339) }</td>
-								<td>{ a.Actor }</td>
-								<td>{ a.Action }</td>
-								<td><code class="mid">{ a.Target }</code></td>
-								<td><code class="mid">{ a.OperationID }</code></td>
-								<td>{ a.Outcome }</td>
+								<td><code>{ a.Actor }</code></td>
+								<td><strong>{ a.Action }</strong></td>
+								<td>
+									if len(a.Target) > 2 && a.Target[:2] == "0x" {
+										<a href={ templ.SafeURL("/messages/" + a.Target) }>
+											<code class="mid">{ a.Target }</code>
+										</a>
+										@CopyButton(a.Target)
+									} else if a.Target != "" && a.Target != "—" {
+										<code class="mid">{ a.Target }</code>
+										@CopyButton(a.Target)
+									} else {
+										—
+									}
+								</td>
+								<td>
+									if a.OperationID != "" && a.OperationID != "—" {
+										<code class="mid">{ a.OperationID }</code>
+										@CopyButton(a.OperationID)
+									} else {
+										—
+									}
+								</td>
+								if a.Outcome == "success" {
+									<td class="state-ready">{ a.Outcome }</td>
+								} else if a.Outcome == "failed" {
+									<td class="state-unreachable">{ a.Outcome }</td>
+								} else {
+									<td>{ a.Outcome }</td>
+								}
 								<td><small>{ a.Detail }</small></td>
 							</tr>
 						}

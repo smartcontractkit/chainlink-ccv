@@ -436,11 +436,42 @@ type SenderAddressProvider interface {
 }
 
 // MaxDataSizeProvider is implemented by any chain that can report the maximum
-// message data size it can receive from a given remote chain. This is a
-// destination-side capability: it is asked of the chain receiving the message.
+// message data size it can send to a given remote chain. This is a source-side
+// capability: the budget is the chain's own fee quoter dest chain config for
+// the remote, which is the storage that validates the send.
 type MaxDataSizeProvider interface {
 	// GetMaxDataBytes gets the maximum data size for a CCIP message to the specified remote chain.
 	GetMaxDataBytes(ctx context.Context, remoteChainSelector uint64) (uint32, error)
+}
+
+// MessageOverheadProvider reports non-payload bytes billed within a V3 source
+// fee quoter's maxDataBytes budget.
+type MessageOverheadProvider interface {
+	// GetMessageOverheadBytes gets the non-payload bytes billed inside the
+	// maxDataBytes budget for a message to the specified remote chain; a
+	// max-size payload is GetMaxDataBytes(remote) minus this value.
+	GetMessageOverheadBytes(ctx context.Context, remoteChainSelector uint64) (uint32, error)
+}
+
+// ExecutionGasLimitProvider is implemented by any chain that can report the
+// execution gas limit a V3 message needs for THIS chain to execute it. This is
+// a destination-side capability: the value lands in the destination family's
+// extra args, where it plays a dual role — the offRamp delivers it verbatim as
+// the receiver callback's gas budget (ccipReceiveGasLimit), and the executor
+// sizes the destination execute transaction from the message's gas fields (on
+// EVM: the tx gas is message.executionGasLimit plus a buffered
+// ccipReceiveGasLimit), so the destination family must size it against its own
+// exec-tx cost model (EVM: intrinsic gas per calldata byte plus offRamp
+// processing; Stellar: the Soroban compute budget for offRamp.execute). When
+// clamping to the fee quoter's MaxPerMsgGasLimit configured for the remote,
+// implementations must reserve room for the gas terms the OnRamp adds on top
+// of the extra-args value — the MessageGasLimitTooHigh check covers their
+// whole sum.
+type ExecutionGasLimitProvider interface {
+	// GetExecutionGasLimit gets the execution gas limit required to execute on
+	// this chain a CCIP message from the specified remote chain whose data
+	// field is dataLen bytes long.
+	GetExecutionGasLimit(ctx context.Context, remoteChainSelector uint64, dataLen uint32) (uint32, error)
 }
 
 // GenericChainMessage is a generic type to indicate to users that the message generated from BuildChainMessage is expected to be passed directly to SendChainMessage.
