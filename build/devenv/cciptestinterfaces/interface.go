@@ -448,8 +448,8 @@ type MaxDataSizeProvider interface {
 // fee quoter's maxDataBytes budget.
 type MessageOverheadProvider interface {
 	// GetMessageOverheadBytes gets the non-payload bytes billed inside the
-	// maxDataBytes budget for a CCIP message from this chain to the specified
-	// remote chain.
+	// maxDataBytes budget for a message to the specified remote chain; a
+	// max-size payload is GetMaxDataBytes(remote) minus this value.
 	GetMessageOverheadBytes(ctx context.Context, remoteChainSelector uint64) (uint32, error)
 }
 
