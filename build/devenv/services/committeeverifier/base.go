@@ -183,6 +183,7 @@ type Output struct {
 	ContainerName      string `toml:"container_name"`
 	ExternalHTTPURL    string `toml:"http_url"`
 	InternalHTTPURL    string `toml:"internal_http_url"`
+	AdminUIURL         string `toml:"admin_ui_url"`
 	DBURL              string `toml:"db_url"`
 	DBConnectionString string `toml:"db_connection_string"`
 	UseCache           bool   `toml:"use_cache"`
@@ -325,6 +326,10 @@ func launchVerifier(ctx context.Context, in *Input, outputs []*blockchain.Output
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate bootstrap secrets: %w", err)
 	}
+	adminConsoleConfig, err := services.GenerateAdminConsoleConfig()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate admin console config: %w", err)
+	}
 	confDir := util.CCVConfigDir()
 	bootstrapConfigFilePath := filepath.Join(confDir,
 		fmt.Sprintf("bootstrap-%s-config-%d.toml", in.CommitteeName, in.NodeIndex+1))
@@ -342,6 +347,11 @@ func launchVerifier(ctx context.Context, in *Input, outputs []*blockchain.Output
 	// the `ccv` CLI run via `docker exec`, which may run as a different UID than the bind-mount owner.
 	if err := os.WriteFile(verifierSecretsFilePath, verifierSecrets, 0o644); err != nil {
 		return nil, fmt.Errorf("failed to write verifier secrets to file: %w", err)
+	}
+	adminConsoleConfigFilePath := filepath.Join(confDir,
+		fmt.Sprintf("verifier-%s-admin-config-%d.toml", in.CommitteeName, in.NodeIndex+1))
+	if err := os.WriteFile(adminConsoleConfigFilePath, adminConsoleConfig, 0o644); err != nil {
+		return nil, fmt.Errorf("failed to write admin console config to file: %w", err)
 	}
 
 	// In local mode the bootstrapper reads the app config from a file at local_app_config_path. It is
@@ -361,7 +371,7 @@ func launchVerifier(ctx context.Context, in *Input, outputs []*blockchain.Output
 			envVars = services.ForwardedAWSEnv()
 		}
 	}
-	req, err := baseImageRequest(in, envVars, bootstrapConfigFilePath, bootstrapSecretsFilePath, verifierSecretsFilePath)
+	req, err := baseImageRequest(in, envVars, bootstrapConfigFilePath, bootstrapSecretsFilePath, verifierSecretsFilePath, adminConsoleConfigFilePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create base image request: %w", err)
 	}
@@ -433,6 +443,10 @@ func launchVerifier(ctx context.Context, in *Input, outputs []*blockchain.Output
 	if err != nil {
 		return nil, fmt.Errorf("failed to get verifier mapped port: %w", err)
 	}
+	adminMapped, err := c.MappedPort(ctx, services.DefaultAdminConsolePortTCP)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get admin console mapped port: %w", err)
+	}
 
 	inspect, err := c.Inspect(ctx)
 	if err != nil {
@@ -449,6 +463,7 @@ func launchVerifier(ctx context.Context, in *Input, outputs []*blockchain.Output
 		ContainerName:   inspect.Name,
 		ExternalHTTPURL: fmt.Sprintf("http://%s:%s", host, verifierMapped.Port()),
 		InternalHTTPURL: fmt.Sprintf("http://%s:%d", containerName, DefaultVerifierPort),
+		AdminUIURL:      fmt.Sprintf("http://%s:%s", host, adminMapped.Port()),
 		DBConnectionString: fmt.Sprintf("postgresql://%s:%s@localhost:%s/%s?sslmode=disable",
 			in.ContainerName, in.ContainerName, dbMapped.Port(), in.ContainerName),
 		BootstrapDBURL: fmt.Sprintf("http://%s:%s", host, bootstrapMapped.Port()),
@@ -524,7 +539,7 @@ func startContainer(ctx context.Context, req testcontainers.ContainerRequest) (t
 	return nil, fmt.Errorf("failed to start container after %d attempts: %w", maxAttempts, lastErr)
 }
 
-func baseImageRequest(in *Input, envVars map[string]string, bootstrapConfigFilePath, bootstrapSecretsFilePath, verifierSecretsFilePath string) (testcontainers.ContainerRequest, error) {
+func baseImageRequest(in *Input, envVars map[string]string, bootstrapConfigFilePath, bootstrapSecretsFilePath, verifierSecretsFilePath, adminConsoleConfigFilePath string) (testcontainers.ContainerRequest, error) {
 	req := testcontainers.ContainerRequest{
 		Image:    in.Image,
 		Name:     in.ContainerName,
@@ -535,7 +550,7 @@ func baseImageRequest(in *Input, envVars map[string]string, bootstrapConfigFileP
 		},
 		Env: envVars,
 		// This is the container port, not the host port, so it can be the same across different containers.
-		ExposedPorts: []string{DefaultVerifierPortTCP, services.DefaultBootstrapListenPortTCP},
+		ExposedPorts: []string{DefaultVerifierPortTCP, services.DefaultBootstrapListenPortTCP, services.DefaultAdminConsolePortTCP},
 		HostConfigModifier: func(h *container.HostConfig) {
 			h.ExtraHosts = append(h.ExtraHosts, services.HostGatewayExtraHost)
 			h.PortBindings = network.PortMap{
@@ -543,6 +558,9 @@ func baseImageRequest(in *Input, envVars map[string]string, bootstrapConfigFileP
 					{HostPort: ""}, // Docker assigns a random free host port.
 				},
 				network.MustParsePort(services.DefaultBootstrapListenPortTCP): []network.PortBinding{
+					{HostPort: ""}, // Docker assigns a random free host port.
+				},
+				network.MustParsePort(services.DefaultAdminConsolePortTCP): []network.PortBinding{
 					{HostPort: ""}, // Docker assigns a random free host port.
 				},
 			}
@@ -591,6 +609,10 @@ func baseImageRequest(in *Input, envVars map[string]string, bootstrapConfigFileP
 	req.Mounts = append(req.Mounts, testcontainers.BindMount(
 		verifierSecretsFilePath,
 		vsecrets.DefaultCommitteeVerifierSecretsPath,
+	))
+	req.Mounts = append(req.Mounts, testcontainers.BindMount(
+		adminConsoleConfigFilePath,
+		services.DefaultAdminConsoleConfigPath,
 	))
 	// Note: in local mode the app config is delivered by copying it into the running container
 	// (see DeliverLocalAppConfig), not via a bind mount.

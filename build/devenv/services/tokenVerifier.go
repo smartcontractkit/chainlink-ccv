@@ -46,7 +46,7 @@ type TokenVerifierInput struct {
 	Version        int                   `toml:"version"`
 	Mode           Mode                  `toml:"mode"`
 	DB             *TokenVerifierDBInput `toml:"db"`
-	Out            *TokenVerifierOutput  `toml:"-"`
+	Out            *TokenVerifierOutput  `toml:"out"`
 	Image          string                `toml:"image"`
 	SourceCodePath string                `toml:"source_code_path"`
 	RootPath       string                `toml:"root_path"`
@@ -72,6 +72,7 @@ type TokenVerifierOutput struct {
 	ContainerName      string `toml:"container_name"`
 	ExternalHTTPURL    string `toml:"http_url"`
 	InternalHTTPURL    string `toml:"internal_http_url"`
+	AdminUIURL         string `toml:"admin_ui_url"`
 	UseCache           bool   `toml:"use_cache"`
 	DBConnectionString string `toml:"db_connection_string"`
 }
@@ -214,6 +215,15 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 		return nil, fmt.Errorf("failed to write token verifier secrets to file: %w", err)
 	}
 
+	adminConsoleConfig, err := GenerateAdminConsoleConfig()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate token verifier admin console config: %w", err)
+	}
+	adminConsoleConfigFilePath := filepath.Join(confDir, fmt.Sprintf("%s-admin-config.toml", in.ContainerName))
+	if err := os.WriteFile(adminConsoleConfigFilePath, adminConsoleConfig, 0o644); err != nil {
+		return nil, fmt.Errorf("failed to write token verifier admin console config to file: %w", err)
+	}
+
 	// The app-config path is delivered via the bootstrap config's local_app_config_path (set above),
 	// not an env var; only the bootstrap config path itself is pointed at via env.
 	envVars := make(map[string]string)
@@ -231,13 +241,16 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 		Env: envVars,
 		// ExposedPorts
 		// add more internal ports here with /tcp suffix, ex.: 9222/tcp
-		ExposedPorts: []string{"8100/tcp"},
+		ExposedPorts: []string{"8100/tcp", DefaultAdminConsolePortTCP},
 		HostConfigModifier: func(h *container.HostConfig) {
 			h.ExtraHosts = append(h.ExtraHosts, HostGatewayExtraHost)
 			h.PortBindings = network.PortMap{
 				// add more internal/external pairs here, ex.: 9222/tcp as a key and HostPort is the exposed port (no /tcp prefix!)
 				network.MustParsePort("8100/tcp"): []network.PortBinding{
 					{HostPort: strconv.Itoa(in.Port)},
+				},
+				network.MustParsePort(DefaultAdminConsolePortTCP): []network.PortBinding{
+					{HostPort: ""},
 				},
 			}
 		},
@@ -251,6 +264,7 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 		testcontainers.BindMount(appConfigFilePath, "/etc/token-verifier/config.toml"),
 		testcontainers.BindMount(bootstrapConfigFilePath, bootstrap.DefaultConfigPath),
 		testcontainers.BindMount(verifierSecretsFilePath, vsecrets.DefaultTokenVerifierSecretsPath),
+		testcontainers.BindMount(adminConsoleConfigFilePath, DefaultAdminConsoleConfigPath),
 	)
 
 	// Note: identical code to aggregator.go/executor.go -- will indexer be identical as well?
@@ -306,11 +320,16 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 	if err != nil {
 		return nil, fmt.Errorf("failed to get container host: %w", err)
 	}
+	adminMapped, err := c.MappedPort(ctx, DefaultAdminConsolePortTCP)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get token verifier admin console mapped port: %w", err)
+	}
 
 	return &TokenVerifierOutput{
 		ContainerName:   in.ContainerName,
 		ExternalHTTPURL: fmt.Sprintf("http://%s:%d", host, in.Port),
 		InternalHTTPURL: fmt.Sprintf("http://%s:%d", in.ContainerName, in.Port),
+		AdminUIURL:      fmt.Sprintf("http://%s:%s", host, adminMapped.Port()),
 		DBConnectionString: fmt.Sprintf("postgresql://%s:%s@localhost:%d/%s?sslmode=disable",
 			in.ContainerName, in.ContainerName, in.DB.Port, in.ContainerName),
 	}, nil
