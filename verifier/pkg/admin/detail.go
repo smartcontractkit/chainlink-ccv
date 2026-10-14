@@ -141,7 +141,8 @@ func toArchivedJobVM(j jobqueue.ArchivedJob) views.ArchivedJobVM {
 
 func toDropEventVM(e recoverystore.Event) views.DropEventVM {
 	return views.DropEventVM{
-		Kind: e.Kind, Stage: e.Stage, Reason: e.Reason, OwnerID: e.OwnerID,
+		MessageID: detailDeref(e.MessageID),
+		Kind:      e.Kind, Stage: e.Stage, Reason: e.Reason, OwnerID: e.OwnerID,
 		SourceChain: e.SourceChain, SourceBlock: detailDeref(e.SourceBlock),
 		TxHash: detailDeref(e.TxHash), IncidentID: detailDeref(e.IncidentID),
 		Observations:  e.Observations,

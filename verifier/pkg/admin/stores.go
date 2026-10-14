@@ -14,13 +14,25 @@ import (
 // application database. The caller (the verifier process) owns the handle and has
 // already applied the verifier migrations, the admin action log included.
 type stores struct {
-	db   *sqlx.DB
-	lggr logger.Logger
+	db          *sqlx.DB
+	lggr        logger.Logger
+	jqOverride  jobqueue.Store
+	recOverride recoverycli.Store
 }
 
-func (s stores) JobQueue() jobqueue.Store { return jobqueue.NewPostgresStore(s.db) }
+func (s stores) JobQueue() jobqueue.Store {
+	if s.jqOverride != nil {
+		return s.jqOverride
+	}
+	return jobqueue.NewPostgresStore(s.db)
+}
 
-func (s stores) Recovery() recoverycli.Store { return recovery.NewStore(s.db) }
+func (s stores) Recovery() recoverycli.Store {
+	if s.recOverride != nil {
+		return s.recOverride
+	}
+	return recovery.NewStore(s.db)
+}
 
 func (s stores) ChainStatuses() *chainstatus.PostgresChainStatusStore {
 	return chainstatus.NewPostgresChainStatusStore(s.db, s.lggr)

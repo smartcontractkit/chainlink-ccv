@@ -34,6 +34,7 @@ type ArchivedJobVM struct {
 
 // DropEventVM is one durable drop/incident event (R4 evidence).
 type DropEventVM struct {
+	MessageID     string
 	Kind          string
 	Stage         string
 	Reason        string
