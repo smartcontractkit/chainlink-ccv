@@ -1,9 +1,14 @@
 package jobs
 
 import (
+	"context"
 	"testing"
 	"time"
 
+	"google.golang.org/grpc"
+
+	"github.com/smartcontractkit/chainlink-deployments-framework/offchain"
+	nodev1 "github.com/smartcontractkit/chainlink-protos/job-distributor/v1/node"
 	"github.com/stretchr/testify/require"
 )
 
@@ -36,4 +41,24 @@ func TestJDInfrastructureConnectTimeout(t *testing.T) {
 		infra := &JDInfrastructure{NodeConnectTimeout: "0s"}
 		require.Equal(t, DefaultNodeConnectTimeout, infra.ConnectTimeout())
 	})
+}
+
+// hungGetNodeClient blocks every GetNode until its request context is
+// cancelled, simulating an unresponsive JD.
+type hungGetNodeClient struct {
+	offchain.Client
+}
+
+func (hungGetNodeClient) GetNode(ctx context.Context, _ *nodev1.GetNodeRequest, _ ...grpc.CallOption) (*nodev1.GetNodeResponse, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+// TestWaitForNodeConnectionBoundsHungRPC guards the per-RPC deadline: a hung
+// GetNode must not outlive the configured timeout.
+func TestWaitForNodeConnectionBoundsHungRPC(t *testing.T) {
+	start := time.Now()
+	err := WaitForNodeConnection(t.Context(), hungGetNodeClient{}, "node-1", 3*time.Second)
+	require.ErrorContains(t, err, "timeout waiting for node node-1 to connect to JD")
+	require.Less(t, time.Since(start), 10*time.Second, "a hung GetNode must not outlive the timeout")
 }

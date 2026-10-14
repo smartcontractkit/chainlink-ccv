@@ -240,7 +240,7 @@ func runPhase3Core(
 	); err != nil {
 		return nil, nil, fmt.Errorf("committeeccv: failed to launch standalone verifiers: %w", err)
 	}
-	if err := committeeverifier.RegisterStandaloneVerifiersWithJD(ctx, verifiers, inputs.jdInfra); err != nil {
+	if err := committeeverifier.RegisterStandaloneVerifiersWithJDFromInfra(ctx, verifiers, inputs.jdInfra); err != nil {
 		return nil, nil, fmt.Errorf("committeeccv: failed to register standalone verifiers with JD: %w", err)
 	}
 	for _, ver := range verifiers {

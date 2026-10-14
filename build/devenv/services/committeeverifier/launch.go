@@ -4,8 +4,11 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"golang.org/x/sync/errgroup"
+
+	"github.com/smartcontractkit/chainlink-deployments-framework/offchain"
 
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
@@ -111,15 +114,29 @@ func LaunchStandaloneVerifiers(
 	return nil
 }
 
-// RegisterStandaloneVerifiersWithJD registers standalone verifiers with JD in parallel
-// and waits for each to establish its WSRPC connection, using the infra's
-// configured node connect timeout.
-func RegisterStandaloneVerifiersWithJD(ctx context.Context, verifiers []*Input, jdInfra *jobs.JDInfrastructure) error {
+// RegisterStandaloneVerifiersWithJD registers standalone verifiers with JD in
+// parallel and waits for each to establish its WSRPC connection, using the
+// default node connect timeout. Kept for compatibility; prefer
+// RegisterStandaloneVerifiersWithJDFromInfra, which honors [jd]
+// node_connect_timeout.
+func RegisterStandaloneVerifiersWithJD(ctx context.Context, verifiers []*Input, jdClient offchain.Client) error {
+	return registerStandaloneVerifiersWithJD(ctx, verifiers, jdClient, jobs.DefaultNodeConnectTimeout)
+}
+
+// RegisterStandaloneVerifiersWithJDFromInfra is RegisterStandaloneVerifiersWithJD
+// with the JD details taken from the infra, so the waits honor its configured
+// [jd] node_connect_timeout.
+func RegisterStandaloneVerifiersWithJDFromInfra(ctx context.Context, verifiers []*Input, jdInfra *jobs.JDInfrastructure) error {
 	if jdInfra == nil || jdInfra.OffchainClient == nil {
 		return nil
 	}
-	jdClient := jdInfra.OffchainClient
-	connectTimeout := jdInfra.ConnectTimeout()
+	return registerStandaloneVerifiersWithJD(ctx, verifiers, jdInfra.OffchainClient, jdInfra.ConnectTimeout())
+}
+
+// registerStandaloneVerifiersWithJD registers standalone verifiers with JD in
+// parallel and waits for each to establish its WSRPC connection within
+// connectTimeout.
+func registerStandaloneVerifiersWithJD(ctx context.Context, verifiers []*Input, jdClient offchain.Client, connectTimeout time.Duration) error {
 	var standalone []*Input
 	for _, ver := range verifiers {
 		if ver.Mode == services.Standalone {
