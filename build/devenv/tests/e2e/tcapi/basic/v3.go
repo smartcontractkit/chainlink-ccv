@@ -555,10 +555,7 @@ func maxDataSize(lib ccv.Lib, src, dest uint64, args Args) *v3TestCase {
 			if !ok {
 				return false
 			}
-			// The budget and the overhead billed inside it both come from the
-			// SOURCE chain — the same billing model (the source fee quoter's
-			// dest chain config for the destination, the storage that validates
-			// the send) that the V3 providers read from.
+			// The source fee quoter owns both the budget and billed overhead for this lane.
 			v3Src, err := tc.lib.V3Source(ctx, tc.src)
 			if err != nil {
 				return false
@@ -583,13 +580,7 @@ func maxDataSize(lib ccv.Lib, src, dest uint64, args Args) *v3TestCase {
 			if dataLen < 0 {
 				return false
 			}
-			// A max-size payload needs exec gas proportional to its size: the
-			// cross-family 200K default (tcapi.DefaultV3ExecutionGasLimit)
-			// cannot cover the ~16 gas/byte intrinsic cost of a ~30KB exec tx
-			// on EVM, so the exec tx would be unmineable — no
-			// ExecutionStateChanged is ever emitted and the txm wedges the lane
-			// retrying it. The destination family sizes it against its own
-			// execution cost model, within its fee quoter's MaxPerMsgGasLimit.
+			// A max-size payload needs exec gas proportional to its size.
 			v3Dst, err := tc.lib.V3Destination(ctx, tc.dst)
 			if err != nil {
 				return false
