@@ -11,6 +11,7 @@ templ Layout(title string) {
 			<link rel="icon" type="image/svg+xml" href="/static/favicon.svg"/>
 			<link rel="stylesheet" href="/static/admin.css"/>
 			<script src="/static/htmx.min.js"></script>
+			<script src="/static/admin.js"></script>
 		</head>
 		<body>
 			<header class="topbar">
@@ -84,4 +85,17 @@ templ PlaceholderPage(title, detail string) {
 // CSRFField is the hidden input every mutation form must include.
 templ CSRFField(token string) {
 	<input type="hidden" name="csrf_token" value={ token }/>
+}
+
+// CopyButton is a clean inline click-to-copy button for hashes, message IDs, and UUIDs.
+templ CopyButton(text string) {
+	<button
+		type="button"
+		class="copy-btn"
+		data-copy={ text }
+		title="Copy to clipboard"
+		aria-label="Copy to clipboard"
+	>
+		<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+	</button>
 }
