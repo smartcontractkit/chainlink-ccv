@@ -275,8 +275,12 @@ func (a *accessor) ContractTransmitter() (chainaccess.ContractTransmitter, error
 	return a.contractTransmitter, nil
 }
 
-func (a *accessor) FeeQuoter() (chainaccess.FeeQuoter, error) {
-	return nil, errors.New("fee quoter not available")
+func (a *accessor) FeeQuoterReader() (chainaccess.FeeQuoterReader, error) {
+	return nil, errors.New("fee quoter reader not available")
+}
+
+func (a *accessor) FeeQuoterWriter() (chainaccess.FeeQuoterWriter, error) {
+	return nil, errors.New("fee quoter writer not available")
 }
 
 func (a *accessor) GasPriceReader() (chainaccess.GasPriceReader, error) {
