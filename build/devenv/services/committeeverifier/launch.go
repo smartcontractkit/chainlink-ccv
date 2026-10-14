@@ -115,10 +115,8 @@ func LaunchStandaloneVerifiers(
 }
 
 // RegisterStandaloneVerifiersWithJD registers standalone verifiers with JD in
-// parallel and waits for each to establish its WSRPC connection, using the
-// default node connect timeout. Kept for compatibility; prefer
-// RegisterStandaloneVerifiersWithJDFromInfra, which honors [jd]
-// node_connect_timeout.
+// parallel using the default node connect timeout; it is kept for compatibility.
+// Prefer RegisterStandaloneVerifiersWithJDFromInfra for [jd] node_connect_timeout.
 func RegisterStandaloneVerifiersWithJD(ctx context.Context, verifiers []*Input, jdClient offchain.Client) error {
 	return registerStandaloneVerifiersWithJD(ctx, verifiers, jdClient, jobs.DefaultNodeConnectTimeout)
 }

@@ -5,11 +5,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 
 	"github.com/smartcontractkit/chainlink-deployments-framework/offchain"
 	nodev1 "github.com/smartcontractkit/chainlink-protos/job-distributor/v1/node"
-	"github.com/stretchr/testify/require"
 )
 
 func TestJDInfrastructureConnectTimeout(t *testing.T) {
@@ -44,7 +44,7 @@ func TestJDInfrastructureConnectTimeout(t *testing.T) {
 }
 
 // hungGetNodeClient blocks every GetNode until its request context is
-// cancelled, simulating an unresponsive JD.
+// canceled, simulating an unresponsive JD.
 type hungGetNodeClient struct {
 	offchain.Client
 }
