@@ -7,8 +7,6 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/smartcontractkit/chainlink-deployments-framework/offchain"
-
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
@@ -114,8 +112,14 @@ func LaunchStandaloneVerifiers(
 }
 
 // RegisterStandaloneVerifiersWithJD registers standalone verifiers with JD in parallel
-// and waits for each to establish its WSRPC connection.
-func RegisterStandaloneVerifiersWithJD(ctx context.Context, verifiers []*Input, jdClient offchain.Client) error {
+// and waits for each to establish its WSRPC connection, using the infra's
+// configured node connect timeout.
+func RegisterStandaloneVerifiersWithJD(ctx context.Context, verifiers []*Input, jdInfra *jobs.JDInfrastructure) error {
+	if jdInfra == nil || jdInfra.OffchainClient == nil {
+		return nil
+	}
+	jdClient := jdInfra.OffchainClient
+	connectTimeout := jdInfra.ConnectTimeout()
 	var standalone []*Input
 	for _, ver := range verifiers {
 		if ver.Mode == services.Standalone {
@@ -146,7 +150,7 @@ func RegisterStandaloneVerifiersWithJD(ctx context.Context, verifiers []*Input, 
 			mu.Lock()
 			ver.Out.JDNodeID = reg.NodeID
 			mu.Unlock()
-			if err := jobs.WaitForBootstrapConnection(gCtx, jdClient, reg.NodeID, jobs.NodeConnectTimeout()); err != nil {
+			if err := jobs.WaitForBootstrapConnection(gCtx, jdClient, reg.NodeID, connectTimeout); err != nil {
 				return fmt.Errorf("bootstrap %s failed to connect to JD: %w", ver.ContainerName, err)
 			}
 			return nil
