@@ -106,14 +106,18 @@ type CCTPCodec interface {
 	DecodeAddress(address string) (protocol.UnknownAddress, error)
 }
 
-// FeeQuoter provides chain-agnostic access to a chain's Fee Quoter contract.
-// It isolates all chain-specific logic behind this interface so that consumers
-// can interact with any chain family uniformly.
+// FeeQuoterReader reads a chain's Fee Quoter contract.
 //
 // Thread-safety: All methods must be safe for concurrent calls.
-type FeeQuoter interface {
+type FeeQuoterReader interface {
 	// GetFQState reads the Fee Quoter's current on-chain state.
 	GetFQState(ctx context.Context) (protocol.FQState, error)
+}
+
+// FeeQuoterWriter updates the prices stored in a chain's Fee Quoter contract.
+//
+// Thread-safety: All methods must be safe for concurrent calls.
+type FeeQuoterWriter interface {
 	// UpdatePrices generates and broadcasts a transaction for the given fee token
 	// and gas token price updates to the chain.
 	UpdatePrices(ctx context.Context, tokenPrices []protocol.FeeTokenPriceUpdate, gasPrices []protocol.GasTokenPriceUpdate) error
@@ -133,7 +137,7 @@ type GasPriceReader interface {
 //
 // A committee/verifier accessor typically provides only SourceReader.
 // An executor accessor typically provides only DestinationReader and ContractTransmitter.
-// A price reporting accessor typically provides only FeeQuoter and GasPriceReader.
+// A price reporting accessor typically provides FeeQuoterReader, FeeQuoterWriter, and GasPriceReader.
 type Accessor interface {
 	// SourceReader returns the SourceReader for this chain, or an error if not available.
 	SourceReader() (SourceReader, error)
@@ -143,8 +147,10 @@ type Accessor interface {
 	ContractTransmitter() (ContractTransmitter, error)
 	// CCTPCodec returns the CCTPCodec for this chain, or an error if not available.
 	CCTPCodec() (CCTPCodec, error)
-	// FeeQuoter returns the FeeQuoter for this chain, or an error if not available.
-	FeeQuoter() (FeeQuoter, error)
+	// FeeQuoterReader returns the FeeQuoterReader for this chain, or an error if not available.
+	FeeQuoterReader() (FeeQuoterReader, error)
+	// FeeQuoterWriter returns the FeeQuoterWriter for this chain, or an error if not available.
+	FeeQuoterWriter() (FeeQuoterWriter, error)
 	// GasPriceReader returns the GasPriceReader for this chain, or an error if not available.
 	GasPriceReader() (GasPriceReader, error)
 	// Close releases any background services the accessor started. Stateless accessors return nil.
