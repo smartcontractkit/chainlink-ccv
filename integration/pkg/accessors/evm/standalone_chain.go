@@ -10,6 +10,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 
+	"github.com/smartcontractkit/chainlink-ccv/common/lazy"
 	commonmonitoring "github.com/smartcontractkit/chainlink-ccv/common/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
@@ -23,6 +24,7 @@ import (
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 	clevmconfig "github.com/smartcontractkit/chainlink-evm/pkg/config"
 	"github.com/smartcontractkit/chainlink-evm/pkg/gas"
+	"github.com/smartcontractkit/chainlink-evm/pkg/gas/rollups"
 	"github.com/smartcontractkit/chainlink-evm/pkg/heads"
 	evmkeys "github.com/smartcontractkit/chainlink-evm/pkg/keys"
 	evmkeysv2 "github.com/smartcontractkit/chainlink-evm/pkg/keys/v2"
@@ -76,6 +78,9 @@ func rawNodeURLs(nodes []Node) []map[string]string {
 type chainRuntime interface {
 	ChainClient() (client.Client, error)
 	HeadTracker() (heads.Tracker, error)
+	// DAGasPriceOracle returns nil when the chain type has no data availability fee.
+	DAGasPriceOracle(ctx context.Context) (rollups.L1Oracle, error)
+	TransmitterAddresses(ctx context.Context, ks keystore.Keystore, keyName string) ([]common.Address, error)
 	SourceReaderHeaderFetchBatchSize() int
 	NewContractTransmitter(
 		ctx context.Context,
@@ -108,6 +113,7 @@ type standaloneChain struct {
 
 	mu                  sync.Mutex
 	txm                 txmgr.TxManager
+	daOracle            *lazy.Lazy[rollups.L1Oracle]
 	unsubscribeTXM      func()
 	contractTransmitter chainaccess.ContractTransmitter
 	closed              bool
@@ -167,7 +173,7 @@ func newStandaloneChain(ctx context.Context, info Info, lggr logger.Logger) (*st
 		"nodeCount", len(chainConfig.Nodes()),
 	)
 	txmBlockTime, txmBlockTimeSource := evmconfig.ResolveTXMBlockTime(info)
-	return &standaloneChain{
+	chain := &standaloneChain{
 		lggr:                             lggr,
 		chainClient:                      chainClient,
 		chainConfig:                      chainConfig,
@@ -179,7 +185,9 @@ func newStandaloneChain(ctx context.Context, info Info, lggr logger.Logger) (*st
 		txmBlockTimeSource:               txmBlockTimeSource,
 		sourceReaderHeaderFetchBatchSize: sourceReaderHeaderFetchBatchSize(info.SourceReaderHeaderFetchBatchSize),
 		recoveryStop:                     make(services.StopChan),
-	}, nil
+	}
+	chain.daOracle = lazy.New(chain.buildDAGasPriceOracle)
+	return chain, nil
 }
 
 // SourceReaderHeaderFetchBatchSize returns the configured source-reader header
@@ -209,6 +217,63 @@ func (c *standaloneChain) HeadTracker() (heads.Tracker, error) {
 		return nil, errors.New("EVM head tracker is not available")
 	}
 	return c.headTracker, nil
+}
+
+// DAGasPriceOracle builds and starts the data availability gas price oracle on the first call.
+// It returns nil for chain types that have no data availability fee.
+func (c *standaloneChain) DAGasPriceOracle(ctx context.Context) (rollups.L1Oracle, error) {
+	if c == nil || c.daOracle == nil {
+		return nil, errors.New("EVM DA gas price oracle is not available")
+	}
+	return c.daOracle.Value(ctx)
+}
+
+// buildDAGasPriceOracle starts the oracle. The start waits for the first RPC read, so it holds no lock.
+func (c *standaloneChain) buildDAGasPriceOracle(ctx context.Context) (rollups.L1Oracle, error) {
+	c.mu.Lock()
+	closed := c.closed
+	c.mu.Unlock()
+	if closed {
+		return nil, errors.New("EVM chain runtime is closed")
+	}
+	oracle, err := rollups.NewL1GasOracle(
+		logger.Named(c.lggr, "DAGasPriceOracle"),
+		c.chainClient,
+		c.chainConfig.EVM().ChainType(),
+		c.chainConfig.EVM().GasEstimator().DAOracle(),
+		nil,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create EVM DA gas price oracle: %w", err)
+	}
+	if oracle == nil {
+		return nil, nil
+	}
+	if err := oracle.Start(ctx); err != nil {
+		return nil, fmt.Errorf("failed to start EVM DA gas price oracle: %w", err)
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return nil, errors.Join(errors.New("EVM chain runtime is closed"), oracle.Close())
+	}
+	return oracle, nil
+}
+
+// TransmitterAddresses returns the addresses of the enabled keys that have the given key name.
+func (c *standaloneChain) TransmitterAddresses(ctx context.Context, ks keystore.Keystore, keyName string) ([]common.Address, error) {
+	if ks == nil {
+		return nil, errors.New("EVM transmitter addresses require a keystore")
+	}
+	coreKeystore := evmkeysv2.NewTxKeyCoreKeystore(ks, evmkeysv2.WithAllowedKeyNames([]string{keyName}))
+	addresses, err := evmkeys.NewChainStore(coreKeystore, c.chainConfig.EVM().ChainID()).EnabledAddresses(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load EVM transmitter key %q: %w", keyName, err)
+	}
+	if len(addresses) == 0 {
+		return nil, fmt.Errorf("EVM transmitter key %q was not found", keyName)
+	}
+	return addresses, nil
 }
 
 // NewContractTransmitter starts chainlink-evm's production TXM v2 and returns
@@ -452,6 +517,12 @@ func (c *standaloneChain) Close() error {
 	}
 	if txm != nil {
 		err = errors.Join(err, txm.Close())
+	}
+	if c.daOracle != nil && c.daOracle.Derived() {
+		// The oracle is derived, so Value returns the cached oracle without any call.
+		if daOracle, _ := c.daOracle.Value(context.Background()); daOracle != nil {
+			err = errors.Join(err, daOracle.Close())
+		}
 	}
 	if mailMonitor != nil {
 		err = errors.Join(err, mailMonitor.Close())
