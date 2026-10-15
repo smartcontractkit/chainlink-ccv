@@ -156,6 +156,11 @@ type Accessor interface {
 	// Close releases any background services the accessor started. Stateless accessors return nil.
 	Close() error
 
+	// Optional hook: health.DegradedReporter
+	//
+	// Accessors that keep working with a missing part (for example, a missing signing key)
+	// should implement Degraded() error. The service that owns the accessor reports it on /health.
+
 	// Optional hook: bootstrap.KeystoreSetter
 	//
 	// Accessors that require a keystore for signing (e.g. to build a keystore-backed

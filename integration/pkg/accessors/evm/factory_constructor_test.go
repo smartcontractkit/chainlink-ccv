@@ -40,3 +40,47 @@ func TestCreateAccessorFactoryDoesNotDialRPCDuringConstruction(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, factory)
 }
+
+func TestCreateAccessorFactoryPassesFeeQuoterAddressesToTheFactory(t *testing.T) {
+	t.Parallel()
+
+	const selector = "5009297550715157269"
+	newFactory := func(t *testing.T, address string) chainaccess.AccessorFactory {
+		t.Helper()
+		generic := chainaccess.GenericConfig{
+			PricerConfig: chainaccess.PricerConfig{FeeQuoterAddresses: map[string]string{selector: address}},
+		}
+		factory, err := CreateAccessorFactory(logger.Test(t), generic, chainaccess.Infos[Info]{})
+		require.NoError(t, err)
+		return factory
+	}
+
+	t.Run("invalid address fails", func(t *testing.T) {
+		t.Parallel()
+		_, err := newFactory(t, "not-an-address").GetAccessor(t.Context(), 5009297550715157269)
+		require.ErrorContains(t, err, "invalid fee quoter address")
+	})
+
+	t.Run("valid address is enough to start the runtime", func(t *testing.T) {
+		t.Parallel()
+		// No chain info exists, so the runtime builder fails. It is called only if the fee quoter address passes.
+		_, err := newFactory(t, validTestFeeQuoterAddress).GetAccessor(t.Context(), 5009297550715157269)
+		require.ErrorContains(t, err, "failed to get EVM config for chain")
+	})
+}
+
+func TestCreateAccessorFactoryPassesNativeTokenDecimalsToTheFactory(t *testing.T) {
+	t.Parallel()
+
+	generic := chainaccess.GenericConfig{
+		PricerConfig: chainaccess.PricerConfig{
+			FeeQuoterAddresses:  map[string]string{"5009297550715157269": validTestFeeQuoterAddress},
+			NativeTokenDecimals: map[string]uint8{"5009297550715157269": 37},
+		},
+	}
+	factory, err := CreateAccessorFactory(logger.Test(t), generic, chainaccess.Infos[Info]{})
+	require.NoError(t, err)
+
+	_, err = factory.GetAccessor(t.Context(), 5009297550715157269)
+	require.ErrorContains(t, err, "invalid native token decimals 37")
+}
