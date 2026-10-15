@@ -22,6 +22,10 @@ const (
 	GetKeyAddressesEndpoint  = "/keystore/reader/getaddresses"
 	HealthEndpoint           = "/health"
 	ApplicationReadyEndpoint = "/ready"
+	// LivenessEndpoint and ReadinessEndpoint are the standard probe paths from
+	// common/health, so JD-mode pods can use the same probes as the app server.
+	LivenessEndpoint  = "/health/live"
+	ReadinessEndpoint = "/health/ready"
 )
 
 type infoServer struct {
@@ -55,6 +59,8 @@ func (s *infoServer) Start(ctx context.Context) error {
 		mux.HandleFunc(GetKeyAddressesEndpoint, s.handleGetKeyAddresses)
 		mux.HandleFunc(HealthEndpoint, s.handleHealth)
 		mux.HandleFunc(ApplicationReadyEndpoint, s.handleApplicationReady)
+		mux.HandleFunc(LivenessEndpoint, s.handleLiveness)
+		mux.HandleFunc(ReadinessEndpoint, s.handleApplicationReady)
 
 		s.srv = &http.Server{
 			Addr:              fmt.Sprintf(":%d", s.listenPort),
@@ -78,6 +84,17 @@ func (s *infoServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(map[string]string{"status": "ok"}); err != nil {
 		s.lggr.Errorw("failed to encode health response", "error", err)
+	}
+}
+
+// handleLiveness is the shallow startup/liveness probe target: 200 once the HTTP
+// server answers, matching the common/health liveness contract.
+func (s *infoServer) handleLiveness(w http.ResponseWriter, r *http.Request) {
+	s.lggr.Debugw("liveness request received")
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(map[string]string{"status": "alive"}); err != nil {
+		s.lggr.Errorw("failed to encode liveness response", "error", err)
 	}
 }
 

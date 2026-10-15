@@ -14,6 +14,7 @@ import (
 	oteltrace "go.opentelemetry.io/otel/trace"
 
 	"github.com/smartcontractkit/chainlink-ccv/common"
+	"github.com/smartcontractkit/chainlink-ccv/common/health"
 	"github.com/smartcontractkit/chainlink-ccv/common/monitoring/tracing"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/message_heap"
 	execmonitoring "github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
@@ -591,11 +592,22 @@ func (ec *Coordinator) validate() error {
 }
 
 // Ready returns nil if the coordinator is ready, or an error otherwise.
+// It includes the executor's readiness, so a coordinator with no usable
+// destination chain reports not-ready instead of serving an empty pipeline.
 func (ec *Coordinator) Ready() error {
 	if !ec.running.Load() {
 		return errors.New("coordinator not running")
 	}
 
+	return ec.executor.Ready()
+}
+
+// Degraded delegates to the executor's per-chain destination reader state when
+// it implements health.DegradedReporter; nil means nothing is degraded.
+func (ec *Coordinator) Degraded() error {
+	if dr, ok := ec.executor.(health.DegradedReporter); ok {
+		return dr.Degraded()
+	}
 	return nil
 }
 

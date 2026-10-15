@@ -2,6 +2,7 @@ package executor_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -192,6 +193,7 @@ func TestLifecycle(t *testing.T) {
 	executorMock := mocks.NewMockExecutor(t)
 	executorMock.EXPECT().Start(mock.Anything).Return(nil)
 	executorMock.EXPECT().Close().Return(nil)
+	executorMock.EXPECT().Ready().Return(nil).Maybe()
 
 	ec, err := executor.NewCoordinator(
 		lggr,
@@ -212,6 +214,81 @@ func TestLifecycle(t *testing.T) {
 	require.NoError(t, ec.Ready())
 	require.NoError(t, ec.Close())
 	require.Eventuallyf(t, func() bool { return ec.Ready() != nil }, 2*time.Second, 100*time.Millisecond, "executor coordinator did not stop in time")
+}
+
+// degradedExecutor adds a Degraded method to the mock so the coordinator's
+// DegradedReporter delegation can be exercised.
+type degradedExecutor struct {
+	*mocks.MockExecutor
+	degradedErr error
+}
+
+func (e degradedExecutor) Degraded() error { return e.degradedErr }
+
+// The coordinator's Ready includes the executor's: a running coordinator with no
+// usable destination chain (executor not ready) must report not-ready.
+func TestCoordinator_ReadyIncludesExecutorReadiness(t *testing.T) {
+	lggr := logger.Test(t)
+
+	ccvDataReader := mocks.NewMockMessageSubscriber(t)
+	ccvDataReader.EXPECT().Start(mock.Anything).Return(nil, nil, nil)
+
+	executorMock := mocks.NewMockExecutor(t)
+	executorMock.EXPECT().Start(mock.Anything).Return(nil)
+	executorMock.EXPECT().Close().Return(nil)
+	executorMock.EXPECT().Ready().Return(errors.New("no destination reader is ready across 2 chain(s)")).Maybe()
+
+	ec, err := executor.NewCoordinator(
+		lggr,
+		"",
+		executorMock,
+		ccvDataReader,
+		mocks.NewMockLeaderElector(t),
+		monitoring.NewNoopExecutorMonitoring(),
+		8*time.Hour,
+		mocks.NewMockTimeProvider(t),
+		100,
+		time.Second,
+	)
+	require.NoError(t, err)
+
+	require.NoError(t, ec.Start(t.Context()))
+	defer func() { require.NoError(t, ec.Close()) }()
+
+	require.EqualError(t, ec.Ready(), "no destination reader is ready across 2 chain(s)")
+}
+
+// Degraded is delegated to the executor when it implements health.DegradedReporter.
+func TestCoordinator_DegradedDelegatesToExecutor(t *testing.T) {
+	lggr := logger.Test(t)
+
+	ccvDataReader := mocks.NewMockMessageSubscriber(t)
+	ccvDataReader.EXPECT().Start(mock.Anything).Return(nil, nil, nil)
+
+	mockExec := mocks.NewMockExecutor(t)
+	mockExec.EXPECT().Start(mock.Anything).Return(nil)
+	mockExec.EXPECT().Close().Return(nil)
+	degradedErr := errors.New("DestinationReader[2]: not ready")
+	exec := degradedExecutor{MockExecutor: mockExec, degradedErr: degradedErr}
+
+	ec, err := executor.NewCoordinator(
+		lggr,
+		"",
+		exec,
+		ccvDataReader,
+		mocks.NewMockLeaderElector(t),
+		monitoring.NewNoopExecutorMonitoring(),
+		8*time.Hour,
+		mocks.NewMockTimeProvider(t),
+		100,
+		time.Second,
+	)
+	require.NoError(t, err)
+
+	require.NoError(t, ec.Start(t.Context()))
+	defer func() { require.NoError(t, ec.Close()) }()
+
+	require.EqualError(t, ec.Degraded(), degradedErr.Error())
 }
 
 func TestSubscribeMessagesError(t *testing.T) {
@@ -578,6 +655,7 @@ func TestClose_StopsReportingTickerOnContextDone(t *testing.T) {
 	mockExecutor := mocks.NewMockExecutor(t)
 	mockExecutor.EXPECT().Start(mock.Anything).Return(nil)
 	mockExecutor.EXPECT().Close().Return(nil)
+	mockExecutor.EXPECT().Ready().Return(nil).Maybe()
 
 	ec, err := executor.NewCoordinator(
 		lggr,

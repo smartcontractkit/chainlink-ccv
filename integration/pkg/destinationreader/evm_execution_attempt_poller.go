@@ -73,6 +73,10 @@ type EvmExecutionAttemptPoller struct {
 	lookbackWindow   time.Duration
 	backfillComplete atomic.Bool
 	fatalErr         atomic.Pointer[error]
+	// pollingMode is true in HTTP polling mode; lastSuccessfulPoll (unix ts) drives
+	// Ready() staleness there. WS mode has no poll loop, so silence is not anomalous.
+	pollingMode        atomic.Bool
+	lastSuccessfulPoll atomic.Int64
 }
 
 func (p *EvmExecutionAttemptPoller) HealthReport() map[string]error {
@@ -84,6 +88,8 @@ func (p *EvmExecutionAttemptPoller) HealthReport() map[string]error {
 // Ready returns nil when the poller has completed its initial backfill and is
 // fully operational. Returns ErrBackfillInProgress while the backfill is still
 // running, or an errNotStarted error if the service hasn't been started.
+// In HTTP polling mode it also fails when no poll has succeeded for 50 poll
+// intervals, so a dead RPC turns the reader not-ready instead of silently stale.
 func (p *EvmExecutionAttemptPoller) Ready() error {
 	if err := p.StateMachine.Ready(); err != nil {
 		return err
@@ -93,6 +99,11 @@ func (p *EvmExecutionAttemptPoller) Ready() error {
 	}
 	if !p.backfillComplete.Load() {
 		return ErrBackfillInProgress
+	}
+	if last := p.lastSuccessfulPoll.Load(); p.pollingMode.Load() && last > 0 {
+		if since := time.Since(time.Unix(last, 0)); since > 50*p.pollInterval {
+			return fmt.Errorf("no successful execution-attempt poll for %s", since.Round(time.Second))
+		}
 	}
 	return nil
 }
@@ -388,6 +399,9 @@ func (p *EvmExecutionAttemptPoller) startHTTPMode(ctx context.Context) {
 	// so HTTP polling continues from where history coverage ended.
 	p.lggr.Infow("WebSocket subscription not available, continuing with HTTP polling", "lastPolledBlock", p.lastPolledBlock)
 
+	p.pollingMode.Store(true)
+	p.lastSuccessfulPoll.Store(time.Now().Unix())
+
 	p.runWg.Go(func() {
 		p.runPolling(ctx)
 	})
@@ -604,6 +618,8 @@ func (p *EvmExecutionAttemptPoller) runPolling(ctx context.Context) {
 		case <-ticker.C:
 			if err := p.pollForEvents(ctx); err != nil {
 				p.lggr.Warnw("Failed to poll for execution state changed events", "error", err)
+			} else {
+				p.lastSuccessfulPoll.Store(time.Now().Unix())
 			}
 		}
 	}

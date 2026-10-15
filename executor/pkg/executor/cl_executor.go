@@ -132,7 +132,36 @@ func (cle *ChainlinkExecutor) Name() string {
 }
 
 func (cle *ChainlinkExecutor) Ready() error {
-	return cle.StateMachine.Ready()
+	if err := cle.StateMachine.Ready(); err != nil {
+		return err
+	}
+	if n := len(cle.destinationReaders); n > 0 && cle.readyDestinationReaders() == 0 {
+		return fmt.Errorf("no destination reader is ready across %d chain(s)", n)
+	}
+	return nil
+}
+
+// Degraded names each destination chain whose reader is not ready (for example its
+// RPC is unreachable); nil when all are. Consulted only when Ready passes, so at
+// least one reader is usable.
+func (cle *ChainlinkExecutor) Degraded() error {
+	var errs []error
+	for _, sel := range slices.Sorted(maps.Keys(cle.destinationReaders)) {
+		if !cle.destinationReaders[sel].IsReady(sel) {
+			errs = append(errs, fmt.Errorf("DestinationReader[%d]: not ready", sel))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func (cle *ChainlinkExecutor) readyDestinationReaders() int {
+	ready := 0
+	for sel, reader := range cle.destinationReaders {
+		if reader.IsReady(sel) {
+			ready++
+		}
+	}
+	return ready
 }
 
 func (cle *ChainlinkExecutor) CheckValidMessage(ctx context.Context, message protocol.Message) error {
