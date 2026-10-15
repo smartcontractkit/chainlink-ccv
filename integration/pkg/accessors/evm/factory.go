@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -114,8 +115,9 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 	if feeQuoterAddress != "" && !hasPricerConfig {
 		return nil, fmt.Errorf("cannot get accessor for chain %d: invalid fee quoter address %q", chainSelector, feeQuoterAddress)
 	}
+	// Only the gas price reader uses the decimals, so other services ignore this setting.
 	nativeDecimals := uint8(defaultNativeDecimals)
-	if configured, ok := f.nativeDecimals[chainSelector]; ok {
+	if configured, ok := f.nativeDecimals[chainSelector]; ok && hasPricerConfig {
 		if configured > pricereader.MaxNativeTokenDecimals {
 			return nil, fmt.Errorf(
 				"cannot get accessor for chain %d: invalid native token decimals %d, the maximum is %d",
@@ -259,6 +261,10 @@ type accessor struct {
 	feeQuoterWriter     chainaccess.FeeQuoterWriter
 	gasPriceReader      chainaccess.GasPriceReader
 
+	// serviceAddressesErr is the last failure to load the transmitter addresses for the fee quoter reader.
+	mu                  sync.Mutex
+	serviceAddressesErr error
+
 	lggr          logger.Logger
 	chainSelector protocol.ChainSelector
 	runtime       chainRuntime
@@ -339,17 +345,35 @@ func (a *accessor) ContractTransmitter() (chainaccess.ContractTransmitter, error
 	return a.contractTransmitter, nil
 }
 
-// setFeeQuoterServiceAddresses gives the fee quoter reader the transmitter addresses. A missing key is not fatal.
+// setFeeQuoterServiceAddresses gives the fee quoter reader the transmitter addresses.
+// A missing key is not fatal, but Degraded reports it until a later call succeeds.
 func (a *accessor) setFeeQuoterServiceAddresses(ctx context.Context, ks keystore.Keystore) {
 	if a.feeQuoterReader == nil || a.runtime == nil {
 		return
 	}
 	addresses, err := a.runtime.TransmitterAddresses(ctx, ks, a.keyName)
 	if err != nil {
-		a.lggr.Warnw("Could not load the transmitter addresses, the fee quoter reports the service as not authorized", "error", err)
-		return
+		err = fmt.Errorf("fee quoter reader for chain %d has no transmitter addresses, so the service is reported as not authorized: %w", a.chainSelector, err)
+		a.lggr.Warnw("Could not load the transmitter addresses", "error", err)
+	} else {
+		a.feeQuoterReader.SetServiceAddresses(addresses)
 	}
-	a.feeQuoterReader.SetServiceAddresses(addresses)
+	a.mu.Lock()
+	a.serviceAddressesErr = err
+	a.mu.Unlock()
+}
+
+// The accessor is a health.DegradedReporter. The interface is not imported to keep the health package out.
+var _ interface{ Degraded() error } = (*accessor)(nil)
+
+// Degraded returns an error when a configured service works only in part. The accessor stays usable.
+func (a *accessor) Degraded() error {
+	if a == nil {
+		return nil
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.serviceAddressesErr
 }
 
 func (a *accessor) FeeQuoterReader() (chainaccess.FeeQuoterReader, error) {

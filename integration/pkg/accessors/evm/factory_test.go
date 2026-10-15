@@ -474,6 +474,7 @@ func TestFactoryResolvesFeeQuoterAndGasPriceReaderFromValidConfig(t *testing.T) 
 
 	require.NoError(t, got.(*accessor).SetKeystore(ctx, nil))
 	require.Equal(t, contracttransmitter.DefaultKeyName, runtime.gotAddrKey)
+	require.NoError(t, got.(*accessor).Degraded())
 	state, err = feeQuoter.GetFQState(ctx)
 	require.NoError(t, err)
 	require.True(t, state.ServiceIsAuthorized)
@@ -588,6 +589,16 @@ func TestSetKeystoreKeepsServiceUnauthorizedWhenTransmitterKeyIsMissing(t *testi
 	state, err := feeQuoter.GetFQState(context.Background())
 	require.NoError(t, err)
 	require.False(t, state.ServiceIsAuthorized)
+
+	degraded := got.(*accessor).Degraded()
+	require.ErrorContains(t, degraded, "no transmitter addresses")
+	require.ErrorContains(t, degraded, "key not found")
+
+	// A later SetKeystore that finds the key clears the degraded state.
+	runtime.addressesErr = nil
+	runtime.addresses = []common.Address{env.Owner}
+	require.NoError(t, got.(*accessor).SetKeystore(context.Background(), nil))
+	require.NoError(t, got.(*accessor).Degraded())
 }
 
 func TestFactoryUsesConfiguredNativeTokenDecimals(t *testing.T) {
@@ -633,4 +644,18 @@ func TestFactoryRejectsTooManyNativeTokenDecimalsBeforeStartingRuntime(t *testin
 	require.Nil(t, got)
 	require.ErrorContains(t, err, "invalid native token decimals 37")
 	require.Zero(t, runtimeCalls)
+}
+
+func TestFactoryIgnoresNativeTokenDecimalsWithoutFeeQuoterAddress(t *testing.T) {
+	t.Parallel()
+
+	runtimeCalls := 0
+	decimals := map[protocol.ChainSelector]uint8{pricerTestSelector: 37}
+	factory := newPricerFactoryWithDecimals(t, "", decimals, &stubChainRuntime{}, &runtimeCalls)
+
+	got, err := factory.GetAccessor(context.Background(), pricerTestSelector)
+	require.Nil(t, got)
+	// The setting is not checked: the error is about the missing services, not the decimals.
+	require.ErrorContains(t, err, "no source, destination or pricer services are configured")
+	require.NotContains(t, err.Error(), "native token decimals")
 }
