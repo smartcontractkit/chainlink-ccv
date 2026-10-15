@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 )
 
 // addressesFilePath returns the path for the deployed-contract address table.
@@ -40,6 +42,18 @@ func printUpSummary(in *Cfg, addrPath string) {
 	}
 	for i, url := range in.IndexerEndpoints {
 		fmt.Fprintf(os.Stdout, "  indexer %-17s %s\n", fmt.Sprintf("#%d:", i+1), url)
+	}
+	for _, ver := range in.Verifier {
+		if ver != nil && ver.Out != nil && ver.Out.AdminUIURL != "" {
+			fmt.Fprintf(os.Stdout, "  admin ui %-16s %s (basic auth: %s/%s)\n",
+				ver.ContainerName+":", ver.Out.AdminUIURL, services.DefaultAdminUIUsername, services.DefaultAdminUIPassword)
+		}
+	}
+	for _, ver := range in.TokenVerifier {
+		if ver != nil && ver.Out != nil && ver.Out.AdminUIURL != "" {
+			fmt.Fprintf(os.Stdout, "  admin ui %-16s %s (basic auth: %s/%s)\n",
+				ver.ContainerName+":", ver.Out.AdminUIURL, services.DefaultAdminUIUsername, services.DefaultAdminUIPassword)
+		}
 	}
 	if addrPath != "" {
 		fmt.Fprintf(os.Stdout, "  %-24s %s\n", "addresses:", addrPath)

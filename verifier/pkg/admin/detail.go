@@ -102,7 +102,8 @@ func (h *handlers) renderDetail(c *gin.Context, src detailSources, msgID []byte)
 	} else if len(vm.Failed) > 0 {
 		owner = vm.Failed[0].Job.OwnerID
 	}
-	if views.AnyChainDisabled(vm.Chains) {
+	vm.Owner = owner
+	if views.OwnerChainDisabled(vm.Chains, owner) {
 		mode = "reset-reader"
 	}
 	if owner != "" || chain != "" || block != "" {

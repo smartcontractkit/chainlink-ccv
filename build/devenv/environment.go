@@ -1236,10 +1236,12 @@ func launchStandaloneTokenVerifiers(in *Cfg, blockchainOutputs []*blockchain.Out
 			}
 			m := monitoring
 			v.Bootstrap.Monitoring = &m
-			out, err := services.NewTokenVerifier(&v, blockchainOutputs, modifiers)
+			*ver = v
+			out, err := services.NewTokenVerifier(ver, blockchainOutputs, modifiers)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create token verifier service: %w", err)
 			}
+			ver.Out = out
 			outs = append(outs, out)
 		}
 	}

@@ -58,6 +58,24 @@ function updateRescheduleSelectionCount(name) {
 	}
 }
 
+function invalidateRecoveryPreview(target) {
+	if (!target || !target.closest) {
+		return;
+	}
+	const form = target.closest("#recovery-form");
+	if (!form) {
+		return;
+	}
+	const name = target.getAttribute("name");
+	if (name !== "owner" && name !== "chain" && name !== "from_block" && name !== "to_block" && name !== "mode") {
+		return;
+	}
+	const preview = document.getElementById("recovery-preview");
+	if (preview && preview.innerHTML !== "") {
+		preview.innerHTML = "<p><em>Inputs changed — re-run Preview capability before submitting.</em></p>";
+	}
+}
+
 document.addEventListener("click", function(e) {
 	const btn = e.target.closest(".copy-btn[data-copy]");
 	if (btn) {
@@ -65,7 +83,12 @@ document.addEventListener("click", function(e) {
 	}
 });
 
+document.addEventListener("input", function(e) {
+	invalidateRecoveryPreview(e.target);
+});
+
 document.addEventListener("change", function(e) {
+	invalidateRecoveryPreview(e.target);
 	const master = e.target.closest("input[type=\"checkbox\"][data-select-all]");
 	if (master) {
 		toggleSelectAll(master, master.getAttribute("data-select-all"));
