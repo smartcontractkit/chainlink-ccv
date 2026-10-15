@@ -13,8 +13,12 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	verifiermonitoring "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
+	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 // Start must return promptly without waiting on the DB/chain reads that derive
@@ -224,4 +228,36 @@ func TestSRS_ReadyIgnoresStalenessWhenDisabled(t *testing.T) {
 	require.Never(t, func() bool {
 		return srs.Ready() != nil
 	}, 2*time.Second, 20*time.Millisecond, "disabled chain must stay ready (idle by design), not stale")
+}
+
+// The staleness threshold defaults to 50 poll intervals and honors an explicit override.
+func TestNewService_StalenessThreshold(t *testing.T) {
+	newSvc := func(t *testing.T, cfg verifier.SourceConfig) *Service {
+		t.Helper()
+		srs, err := NewService(
+			"test-verifier",
+			mocks.NewMockSourceReader(t),
+			protocol.ChainSelector(1337),
+			mocks.NewMockChainStatusManager(t),
+			logger.Test(t),
+			cfg,
+			mocks.NewMockCurseCheckerService(t),
+			&noopFilter{},
+			verifiermonitoring.NewFakeVerifierMonitoring(),
+			&fakeTaskQueue{},
+			common.AllowAllMessagesChecker{},
+		)
+		require.NoError(t, err)
+		return srs
+	}
+
+	t.Run("default is 50 poll intervals", func(t *testing.T) {
+		srs := newSvc(t, verifier.SourceConfig{PollInterval: 20 * time.Millisecond})
+		require.Equal(t, 50*20*time.Millisecond, srs.stalenessThreshold)
+	})
+
+	t.Run("explicit override wins", func(t *testing.T) {
+		srs := newSvc(t, verifier.SourceConfig{PollInterval: 20 * time.Millisecond, StalenessThreshold: 42 * time.Second})
+		require.Equal(t, 42*time.Second, srs.stalenessThreshold)
+	})
 }

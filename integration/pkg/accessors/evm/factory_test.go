@@ -177,6 +177,7 @@ func TestFactoryRejectsAccessorWithoutCapabilitiesBeforeStartingRuntime(t *testi
 		nil,
 		nil,
 		0,
+		0,
 		func(context.Context, protocol.ChainSelector, logger.Logger) (chainRuntime, error) {
 			runtimeCalls++
 			return &stubChainRuntime{}, nil
@@ -247,6 +248,7 @@ func TestFactoryRejectsIncompleteDestinationConfigBeforeStartingRuntime(t *testi
 				nil,
 				map[protocol.ChainSelector]chainaccess.DestinationChainConfig{selector: tt.config},
 				0,
+				0,
 				func(context.Context, protocol.ChainSelector, logger.Logger) (chainRuntime, error) {
 					runtimeCalls++
 					return &stubChainRuntime{}, nil
@@ -278,6 +280,7 @@ func TestFactoryClosesRuntimeWhenChainClientIsUnavailable(t *testing.T) {
 			},
 		},
 		0,
+		0,
 		func(context.Context, protocol.ChainSelector, logger.Logger) (chainRuntime, error) {
 			return runtime, nil
 		},
@@ -304,6 +307,7 @@ func TestFactoryRejectsNilRuntime(t *testing.T) {
 				RmnAddress:     validTestRMNRemoteAddress,
 			},
 		},
+		0,
 		0,
 		func(context.Context, protocol.ChainSelector, logger.Logger) (chainRuntime, error) {
 			return nil, nil
@@ -332,6 +336,7 @@ func TestFactoryIncludesRuntimeCloseFailureInComponentError(t *testing.T) {
 				RmnAddress:     validTestRMNRemoteAddress,
 			},
 		},
+		0,
 		0,
 		func(context.Context, protocol.ChainSelector, logger.Logger) (chainRuntime, error) {
 			return runtime, nil

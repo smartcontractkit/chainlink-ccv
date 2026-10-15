@@ -108,6 +108,7 @@ func setupTestPoller(t *testing.T, mockCli *mockClient, lookbackWindow time.Dura
 		mockCli,
 		lggr,
 		lookbackWindow,
+		0, // default staleness threshold
 	)
 	require.NoError(t, err)
 	require.NotNil(t, poller)
@@ -1077,7 +1078,8 @@ func TestReady_ReportsStaleWhenPollsStopSucceeding(t *testing.T) {
 	}
 
 	poller := setupTestPoller(t, mockCli, lookbackWindow)
-	poller.pollInterval = 20 * time.Millisecond // staleness threshold = 50 * 20ms = 1s
+	poller.pollInterval = 20 * time.Millisecond
+	poller.stalenessThreshold = 1 * time.Second // 50 × 20ms; set explicitly since the constructor derives it from the default poll interval
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -1173,4 +1175,17 @@ func TestHealthy_ReturnsFatalError_WhenGetStartBlockFails(t *testing.T) {
 
 	cancel()
 	require.NoError(t, poller.Close())
+}
+
+// The staleness threshold defaults to 50 poll intervals and honors an explicit override.
+func TestNewEVMExecutionAttemptPoller_StalenessThreshold(t *testing.T) {
+	offRampAddr := common.HexToAddress("0x1234567890123456789012345678901234567890")
+
+	poller, err := NewEVMExecutionAttemptPoller(offRampAddr, new(mockClient), logger.Test(t), time.Hour, 0)
+	require.NoError(t, err)
+	assert.Equal(t, stalenessPollIntervals*defaultPollInterval, poller.stalenessThreshold)
+
+	poller, err = NewEVMExecutionAttemptPoller(offRampAddr, new(mockClient), logger.Test(t), time.Hour, 42*time.Second)
+	require.NoError(t, err)
+	assert.Equal(t, 42*time.Second, poller.stalenessThreshold)
 }

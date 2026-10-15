@@ -85,6 +85,7 @@ func CreateAccessorFactory(
 		rmnRemoteInfos,
 		destChainConfigs,
 		generic.MaxRetryDuration,
+		generic.ReaderStalenessThreshold,
 		func(ctx context.Context, chainSelector protocol.ChainSelector, chainLggr logger.Logger) (chainRuntime, error) {
 			info, err := infos.GetBlockchainByChainSelector(chainSelector)
 			if err != nil {

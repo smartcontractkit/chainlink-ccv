@@ -224,6 +224,15 @@ func TestConfiguration_Validate(t *testing.T) {
 			wantErrContains: "max_retry_duration must not be negative",
 		},
 		{
+			name: "negative_reader_staleness_threshold_fails",
+			config: func() Configuration {
+				c := validConfig()
+				c.ReaderStalenessThreshold = -1 * time.Second
+				return c
+			}(),
+			wantErrContains: "reader_staleness_threshold must not be negative",
+		},
+		{
 			name: "missing_default_executor_address_fails",
 			config: func() Configuration {
 				c := validConfig()

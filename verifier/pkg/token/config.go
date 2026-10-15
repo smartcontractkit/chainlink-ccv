@@ -2,6 +2,7 @@ package token
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/cctp"
@@ -29,6 +30,11 @@ type Config struct {
 	// is disabled. Solana needs it: a skipped slot has no block, which the checker reports as a
 	// missing block header. Mirrors commit.Config.DisableFinalityCheckers.
 	DisableFinalityCheckers []string `json:"disable_finality_checkers" toml:"disable_finality_checkers"`
+
+	// SourceReaderStalenessThreshold is how long a source chain may go without a successful query
+	// (head/event fetch) before that chain's source reader reports not-ready, degrading /health.
+	// Zero uses the default of 50 poll intervals.
+	SourceReaderStalenessThreshold time.Duration `json:"source_reader_staleness_threshold" toml:"source_reader_staleness_threshold"`
 
 	// CommitteeConfig is the generic config needed for SourceReader.
 	chainaccess.CommitteeConfig

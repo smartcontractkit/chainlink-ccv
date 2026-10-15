@@ -36,6 +36,9 @@ const (
 	DefaultPollInterval  = 2100 * time.Millisecond
 	DefaultPollTimeout   = 10 * time.Second
 	DefaultMaxBlockRange = 100
+	// DefaultStalenessPollIntervals is how many poll intervals a chain may go without a
+	// successful query before Ready fails; used when SourceConfig.StalenessThreshold is unset.
+	DefaultStalenessPollIntervals = 50
 )
 
 // toBlock of 0 means the range is open-ended (queries up to the latest block).
@@ -166,6 +169,11 @@ func NewService(
 		pollTimeout = DefaultPollTimeout
 	}
 
+	stalenessThreshold := sourceCfg.StalenessThreshold
+	if stalenessThreshold <= 0 {
+		stalenessThreshold = DefaultStalenessPollIntervals * interval
+	}
+
 	return &Service{
 		logger:             logger.With(lggr, "component", "Service", "chain", chainSelector),
 		verifierID:         verifierID,
@@ -178,7 +186,7 @@ func NewService(
 		finalityChecker:    finalityChecker,
 		pollInterval:       interval,
 		pollTimeout:        pollTimeout,
-		stalenessThreshold: 50 * interval,
+		stalenessThreshold: stalenessThreshold,
 		sourceCfg:          sourceCfg,
 		maxBlockRange:      maxBlockRange,
 		taskQueue:          taskQueue,

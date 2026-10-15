@@ -31,4 +31,15 @@ and standard probe paths on the bootstrap server (CCIP-14099/CCIP-14101 infra):
   startupProbe/readinessProbe paths instead of the bespoke `/health` + `/ready`.
   The old paths are unchanged.
 
-No config changes; the staleness thresholds are constants (50 poll intervals).
+## Configuration
+
+Both staleness thresholds default to 50 poll intervals and are overridable:
+
+* Committee verifier TOML: `source_reader_staleness_threshold` (duration string,
+  e.g. `"105s"`), validated like the other duration strings.
+* Token verifier TOML: `source_reader_staleness_threshold` (duration).
+* Executor TOML: `reader_staleness_threshold` (duration), validated non-negative
+  and read by the chainaccess overlay that builds the destination readers.
+* Programmatic: `vtypes.SourceConfig.StalenessThreshold` and
+  `destinationreader.Params.ReaderStalenessThreshold` / the
+  `NewEVMExecutionAttemptPoller` argument; zero selects the default.
