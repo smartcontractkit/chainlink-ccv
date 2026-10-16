@@ -69,6 +69,13 @@ const (
 	AppConfigModeLocal AppConfigMode = "local_app_config"
 )
 
+// Features are the operator-selected opt-in switches from the bootstrap config's [Feature] section.
+type Features struct {
+	// LogPoller selects the LogPoller source reader for EVM chains of the committee verifier instead
+	// of the RPC source reader. It requires a verifier database. Defaults to false.
+	LogPoller bool `toml:"LogPoller"`
+}
+
 // ServiceDeps are the dependencies passed to the services started by the bootstrapper.
 type ServiceDeps struct {
 	// Logger is a logger that can be used by the service.
@@ -79,6 +86,9 @@ type ServiceDeps struct {
 
 	// Registry for chainaccess.Accessor objects.
 	Registry chainaccess.Registry
+
+	// Features is a read-only copy of the operator's [Feature] switches, refreshed on every start.
+	Features Features
 }
 
 // ServiceFactory is an interface implemented by the application that seeks to be bootstrapped.
@@ -96,6 +106,13 @@ type ServiceFactory interface {
 type ServiceFactoryValidator interface {
 	// Validate checks the parsed job spec without side effects.
 	Validate(spec JobSpec) error
+}
+
+// FeatureValidator is an optional extension for factories that must reject an unsupported or
+// incomplete [Feature] combination at boot, before any lifecycle starts.
+type FeatureValidator interface {
+	// ValidateFeatures returns an error that stops the process when the switches cannot be honored.
+	ValidateFeatures(features Features) error
 }
 
 // A runner adapts a [ServiceFactory] to the [lifecycle.JobRunner] interface.
@@ -463,6 +480,7 @@ func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 	deps := ServiceDeps{
 		Logger:   b.lggr,
 		Keystore: keyStore,
+		Features: b.config.Feature,
 	}
 
 	jobRunner := &runner{lggr: b.lggr, fac: b.fac, deps: deps, applicationReady: &b.applicationReady}
@@ -653,7 +671,7 @@ func (b *Bootstrapper) startLocalService(ctx context.Context, keyStore keystore.
 	}()
 
 	js := JobSpec{Name: "local", AppConfig: string(appCfg)}
-	if err := b.fac.Start(ctx, js, ServiceDeps{Logger: b.lggr, Keystore: keyStore, Registry: b.accCloser}); err != nil {
+	if err := b.fac.Start(ctx, js, ServiceDeps{Logger: b.lggr, Keystore: keyStore, Registry: b.accCloser, Features: b.config.Feature}); err != nil {
 		return err
 	}
 	b.applicationReady.Store(true)
@@ -708,6 +726,12 @@ func localConfigFileReady(path string) bool {
 func (b *Bootstrapper) Start(ctx context.Context) error {
 	if b.lggr == nil {
 		return fmt.Errorf("bootstrapper has no logger")
+	}
+	// One call above both modes: a misconfigured feature must stop the process, not reject a job.
+	if v, ok := b.fac.(FeatureValidator); ok {
+		if err := v.ValidateFeatures(b.config.Feature); err != nil {
+			return fmt.Errorf("invalid [Feature] configuration: %w", err)
+		}
 	}
 	if b.mode == AppConfigModeJD {
 		//nolint:noeagerio // fail-fast by design: the DB connection, migrations, and keystore are hard dependencies of any job, verified up front and bounded by the startup timeout

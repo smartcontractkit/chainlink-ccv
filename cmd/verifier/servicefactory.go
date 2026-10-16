@@ -62,7 +62,10 @@ type factory struct {
 	adminStop        func()
 }
 
-var _ bootstrap.ServiceFactoryValidator = (*factory)(nil)
+var (
+	_ bootstrap.ServiceFactoryValidator = (*factory)(nil)
+	_ bootstrap.FeatureValidator        = (*factory)(nil)
+)
 
 // NewCommitteeVerifierServiceFactory creates a new ServiceFactory for the committee verifier service.
 // The factory loads the verifier secrets file itself in Start, so each chain-family binary's main.go
@@ -113,6 +116,23 @@ func instrumentSourceReader(
 func (f *factory) Validate(spec bootstrap.JobSpec) error {
 	_, err := validateJobSpec(spec)
 	return err
+}
+
+// ValidateFeatures implements [bootstrap.FeatureValidator]. The LogPoller needs the verifier database,
+// and ConnectToPostgresDB treats an empty URL as "no database", so the check must be explicit.
+func (f *factory) ValidateFeatures(features bootstrap.Features) error {
+	if !features.LogPoller {
+		return nil
+	}
+	//nolint:noeagerio // fail-fast by design: misconfiguration must stop the process at boot
+	secrets, err := vsecrets.LoadFromEnv(vsecrets.CommitteeVerifierSecretsPathEnv, vsecrets.DefaultCommitteeVerifierSecretsPath)
+	if err != nil {
+		return fmt.Errorf("failed to load verifier secrets: %w", err)
+	}
+	if secrets.DatabaseURL() == "" {
+		return fmt.Errorf("LogPoller requires a database: set [db].url in the committee verifier secrets file or %s", vsecrets.DatabaseURLEnvVar)
+	}
+	return nil
 }
 
 // Start implements [bootstrap.ServiceFactory].

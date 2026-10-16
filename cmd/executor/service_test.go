@@ -356,3 +356,11 @@ func TestStartPyroscope_EmptyAddress(t *testing.T) {
 	f.profiler = p
 	require.NoError(t, f.Stop(context.Background()))
 }
+
+// The executor decodes the shared [Feature] section but has no switch to honor, so it must not
+// register a validator that could stop the process over it.
+func TestFactory_IgnoresFeatures(t *testing.T) {
+	var fac bootstrap.ServiceFactory = NewFactory()
+	_, ok := fac.(bootstrap.FeatureValidator)
+	require.False(t, ok)
+}
