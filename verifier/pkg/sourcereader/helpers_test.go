@@ -49,7 +49,8 @@ var _ chainaccess.FinalityViolationReporter = (*fakeFinalityReporter)(nil)
 type loadingReader struct {
 	*mocks.MockSourceReader
 	loadFromCalls []uint64
-	loadedErr     error // returned by Loaded
+	mu            sync.Mutex // guards loadedErr, which the service's load wait reads concurrently
+	loadedErr     error      // returned by Loaded
 	closed        atomic.Bool
 }
 
@@ -57,7 +58,17 @@ func (r *loadingReader) LoadFrom(startBlock uint64) {
 	r.loadFromCalls = append(r.loadFromCalls, startBlock)
 }
 
-func (r *loadingReader) Loaded() error { return r.loadedErr }
+func (r *loadingReader) Loaded() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.loadedErr
+}
+
+func (r *loadingReader) setLoadedErr(err error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.loadedErr = err
+}
 
 func (r *loadingReader) Close() error { r.closed.Store(true); return nil }
 

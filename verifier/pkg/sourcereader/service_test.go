@@ -897,7 +897,7 @@ func TestSRS_Start_LoadsSourceFromStartBlockAndReportsItsLoadState(t *testing.T)
 			require.Equal(t, []bool{false}, health.recorded())
 
 			// Loaded: ready, and recorded healthy once, so a later unhealthy record is not overridden.
-			reader.loadedErr = nil
+			reader.setLoadedErr(nil)
 			require.NoError(t, srs.Ready())
 			srs.recordLoadedHealth(t.Context())
 			srs.recordLoadedHealth(t.Context())

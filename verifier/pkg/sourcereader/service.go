@@ -240,14 +240,23 @@ func (r *Service) initializeAndMonitor() {
 			// A source still loading cannot serve reads yet, so the chain is healthy only once it loads.
 			loaded := r.sourceLoaded() == nil
 			r.awaitingLoad = !loaded
-			r.startBlockInitialized.Store(true)
 			r.metrics().SetSourceReaderLastProcessedFinalizedBlock(ctx, int64(startBlock)) // #nosec G115 -- chain block heights are within int64 range
 			r.logger.Infow("Initialized start block", "block", startBlock)
 			r.monitoring.RecordChainHealthy(ctx, r.chainSelector, loaded)
+			r.startBlockInitialized.Store(true) // last, so initialized implies the start-up metrics are recorded
 			break
 		}
 		r.logger.Errorw("Failed to initialize start block, will retry", "error", err, "retryIn", r.pollInterval)
 		r.monitoring.RecordChainHealthy(ctx, r.chainSelector, false)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(r.pollInterval):
+		}
+	}
+
+	// A loading source must not be read, so the monitoring loop starts only once it has loaded.
+	for r.sourceLoaded() != nil {
 		select {
 		case <-ctx.Done():
 			return
