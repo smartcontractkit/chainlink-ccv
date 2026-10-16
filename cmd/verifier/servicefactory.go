@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/grafana/pyroscope-go"
+	"github.com/jmoiron/sqlx"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
@@ -58,13 +59,18 @@ type factory struct {
 	profiler         *pyroscope.Profiler
 	aggregatorWriter *storageaccess.FanOutWriter
 	heartbeatClient  heartbeatclient.HeartbeatSender
-	chainStatusDB    sqlutil.DataSource
 	adminStop        func()
+
+	// db is the shared verifier database. It is closed only by AfterAccessorsClosed, never by
+	// Stop, because accessors and source readers still use it until bootstrap has closed them.
+	dbMu sync.Mutex
+	db   *sqlx.DB
 }
 
 var (
 	_ bootstrap.ServiceFactoryValidator = (*factory)(nil)
 	_ bootstrap.FeatureValidator        = (*factory)(nil)
+	_ bootstrap.AccessorsClosedHook     = (*factory)(nil)
 )
 
 // NewCommitteeVerifierServiceFactory creates a new ServiceFactory for the committee verifier service.
@@ -237,6 +243,14 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		}
 	}
 
+	// The database must be connected and migrated before any accessor exists, because accessors
+	// and their source readers may use it. An absent URL leaves it nil (storage is optional).
+	chainStatusDB, err := f.connectDB(ctx, lggr, secrets)
+	if err != nil {
+		lggr.Errorw("Failed to connect to Postgres DB", "error", err)
+		return fmt.Errorf("failed to connect to Postgres DB: %w", err)
+	}
+
 	// A failure to stand up one chain's reader (e.g. an unreachable RPC) must not stop the
 	// remaining chains from starting. Log and skip, then only reject the whole coordinator if no
 	// chain is usable. Chains are built concurrently with a per-chain timeout: accessor
@@ -327,13 +341,7 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	lggr.Infow("Using signer address", "address", signerAddress)
 
 	// Create chain status manager (PostgreSQL storage) with monitoring decorator
-	//nolint:noeagerio // the service's own DB is a hard dependency: connect + migrate fail fast (bounded by the startup ctx) and JD/local restarts retry
-	chainStatusManager, chainStatusDB, err := createChainStatusManager(ctx, lggr, config.VerifierID, verifierMonitoring, secrets)
-	if err != nil {
-		lggr.Errorw("Failed to create chain status manager", "error", err)
-		return fmt.Errorf("failed to create chain status manager: %w", err)
-	}
-	f.chainStatusDB = chainStatusDB
+	chainStatusManager := createChainStatusManager(lggr, config.VerifierID, verifierMonitoring, chainStatusDB)
 
 	// Create commit verifier
 	commitVerifier, err := commit.NewCommitVerifier(coordinatorConfig, signerAddress, signer, lggr, verifierMonitoring)
@@ -607,20 +615,58 @@ func (f *factory) Stop(ctx context.Context) error {
 	f.heartbeatClient = nil
 	f.adminStop = nil
 	f.lggr = nil
-	f.chainStatusDB = nil
 
 	return allErrors
 }
 
-func createChainStatusManager(ctx context.Context, lggr logger.Logger, verifierID string, monitoring verifier.Monitoring, secrets *vsecrets.VerifierSecrets) (protocol.ChainStatusManager, sqlutil.DataSource, error) {
-	sqlDB, err := ConnectToPostgresDB(ctx, lggr, secrets)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to connect to Postgres DB: %w", err)
+// connectDB opens and migrates the shared database and keeps it for AfterAccessorsClosed. It
+// returns a nil DataSource when no database URL is configured.
+func (f *factory) connectDB(ctx context.Context, lggr logger.Logger, secrets *vsecrets.VerifierSecrets) (sqlutil.DataSource, error) {
+	f.dbMu.Lock()
+	defer f.dbMu.Unlock()
+
+	// A handle left by a previous Start would leak its pool, so release it first.
+	if f.db != nil {
+		lggr.Warnw("Closing verifier database left open by a previous start")
+		if err := f.db.Close(); err != nil {
+			lggr.Warnw("Failed to close leftover verifier database", "error", err)
+		}
+		f.db = nil
 	}
+
+	//nolint:noeagerio // the service's own DB is a hard dependency that source readers may use, so it is connected + migrated before any accessor; fails fast (bounded by the startup ctx) and JD/local restarts retry
+	db, err := connectVerifierDB(ctx, lggr, secrets)
+	if err != nil {
+		return nil, err
+	}
+	if db == nil {
+		return nil, nil
+	}
+	f.db = db
+	return db, nil
+}
+
+// AfterAccessorsClosed implements [bootstrap.AccessorsClosedHook]. It closes the shared database
+// exactly once; later calls, or calls with no database configured, do nothing.
+func (f *factory) AfterAccessorsClosed(context.Context) error {
+	f.dbMu.Lock()
+	db := f.db
+	f.db = nil
+	f.dbMu.Unlock()
+
+	if db == nil {
+		return nil
+	}
+	if err := db.Close(); err != nil {
+		return fmt.Errorf("failed to close verifier database: %w", err)
+	}
+	return nil
+}
+
+func createChainStatusManager(lggr logger.Logger, verifierID string, monitoring verifier.Monitoring, sqlDB sqlutil.DataSource) protocol.ChainStatusManager {
 	chainStatusStore := chainstatus.NewPostgresChainStatusStore(sqlDB, lggr)
 	chainStatusManager := chainstatus.NewPostgresChainStatusManager(chainStatusStore, verifierID)
 	// Wrap with monitoring decorator to track query durations. The Coordinator
 	// adds the batcher on top of this, so the metrics measure real database calls.
-	monitoredManager := chainstatus.NewMonitoredChainStatusManager(chainStatusManager, monitoring.Metrics())
-	return monitoredManager, sqlDB, nil
+	return chainstatus.NewMonitoredChainStatusManager(chainStatusManager, monitoring.Metrics())
 }

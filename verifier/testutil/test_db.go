@@ -21,6 +21,14 @@ import (
 // It runs migrations to set up the necessary schema and returns a *sqlx.DB.
 // Accepts testing.TB so it works for both *testing.T and *testing.B.
 func NewTestDB(tb testing.TB) *sqlx.DB {
+	tb.Helper()
+	sqlxDB, _ := NewTestDBWithURL(tb)
+	return sqlxDB
+}
+
+// NewTestDBWithURL is NewTestDB that also returns the connection URL, for code under test that
+// opens its own connection from configuration.
+func NewTestDBWithURL(tb testing.TB) (*sqlx.DB, string) {
 	if testing.Short() {
 		tb.Skip("skipping docker test in short mode")
 	}
@@ -55,7 +63,7 @@ func NewTestDB(tb testing.TB) *sqlx.DB {
 		}
 	})
 
-	return sqlxDB
+	return sqlxDB, connectionString
 }
 
 // CleanupTestDB closes the database connection.
