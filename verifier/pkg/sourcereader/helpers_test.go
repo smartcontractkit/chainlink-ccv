@@ -1,7 +1,13 @@
 package sourcereader
 
 import (
+	"context"
+	"slices"
+	"sync"
+	"sync/atomic"
 	"testing"
+
+	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -29,3 +35,69 @@ func (n *noopFilter) Filter(_ protocol.MessageSentEvent) bool { return true }
 
 // Ensure noopFilter satisfies the interface at compile time.
 var _ chainaccess.MessageFilter = (*noopFilter)(nil)
+
+// fakeFinalityReporter is a chain's own finality signal, like the EVM log poller's.
+type fakeFinalityReporter struct {
+	violated atomic.Bool
+}
+
+func (f *fakeFinalityReporter) FinalityViolated() bool { return f.violated.Load() }
+
+var _ chainaccess.FinalityViolationReporter = (*fakeFinalityReporter)(nil)
+
+// loadingReader is a source reader that must load a local index from the start block before serving reads.
+type loadingReader struct {
+	*mocks.MockSourceReader
+	loadFromCalls []uint64
+	mu            sync.Mutex // guards loadedErr, which the service's load wait reads concurrently
+	loadedErr     error      // returned by Loaded
+	closed        atomic.Bool
+}
+
+func (r *loadingReader) LoadFrom(startBlock uint64) {
+	r.loadFromCalls = append(r.loadFromCalls, startBlock)
+}
+
+func (r *loadingReader) Loaded() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.loadedErr
+}
+
+func (r *loadingReader) setLoadedErr(err error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.loadedErr = err
+}
+
+func (r *loadingReader) Close() error { r.closed.Store(true); return nil }
+
+var _ chainaccess.SourceLoader = (*loadingReader)(nil)
+
+// chainHealthRecorder records the values passed to RecordChainHealthy.
+type chainHealthRecorder struct {
+	mu      sync.Mutex
+	healthy []bool
+}
+
+func (c *chainHealthRecorder) RecordServiceStarted(context.Context) {}
+
+func (c *chainHealthRecorder) RecordChainHealthy(_ context.Context, _ protocol.ChainSelector, healthy bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.healthy = append(c.healthy, healthy)
+}
+
+func (c *chainHealthRecorder) recorded() []bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return slices.Clone(c.healthy)
+}
+
+// closingReader is a source reader with a Close but no local index, so the verifier must not close it.
+type closingReader struct {
+	*mocks.MockSourceReader
+	closed atomic.Bool
+}
+
+func (c *closingReader) Close() error { c.closed.Store(true); return nil }
