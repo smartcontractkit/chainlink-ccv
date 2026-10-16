@@ -12,11 +12,27 @@ type WholeNativeTokenPerGasUnit big.Int
 // ToInt returns the price as a *big.Int.
 func (p *WholeNativeTokenPerGasUnit) ToInt() *big.Int { return (*big.Int)(p) }
 
+// Clone returns an independent copy of the price, preserving nil.
+func (p *WholeNativeTokenPerGasUnit) Clone() *WholeNativeTokenPerGasUnit {
+	if p == nil {
+		return nil
+	}
+	return (*WholeNativeTokenPerGasUnit)(new(big.Int).Set(p.ToInt()))
+}
+
 // USDPerGasUnit is a gas price in USD per gas unit, with 1e18 precision.
 type USDPerGasUnit big.Int
 
 // ToInt returns the price as a *big.Int.
 func (p *USDPerGasUnit) ToInt() *big.Int { return (*big.Int)(p) }
+
+// Clone returns an independent copy of the price, preserving nil.
+func (p *USDPerGasUnit) Clone() *USDPerGasUnit {
+	if p == nil {
+		return nil
+	}
+	return (*USDPerGasUnit)(new(big.Int).Set(p.ToInt()))
+}
 
 // USDPerWholeToken is a token price in USD per whole token, with 1e18 precision.
 // Each chain family converts to and from its on-chain format using the token's decimals.
@@ -24,6 +40,14 @@ type USDPerWholeToken big.Int
 
 // ToInt returns the price as a *big.Int.
 func (p *USDPerWholeToken) ToInt() *big.Int { return (*big.Int)(p) }
+
+// Clone returns an independent copy of the price, preserving nil.
+func (p *USDPerWholeToken) Clone() *USDPerWholeToken {
+	if p == nil {
+		return nil
+	}
+	return (*USDPerWholeToken)(new(big.Int).Set(p.ToInt()))
+}
 
 // NativeGasPrice is a chain's gas price in its native token, split into
 // execution and data availability (DA) fees.
