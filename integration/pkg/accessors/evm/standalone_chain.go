@@ -2,6 +2,7 @@ package evm
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -26,6 +27,7 @@ import (
 	"github.com/smartcontractkit/chainlink-evm/pkg/heads"
 	evmkeys "github.com/smartcontractkit/chainlink-evm/pkg/keys"
 	evmkeysv2 "github.com/smartcontractkit/chainlink-evm/pkg/keys/v2"
+	"github.com/smartcontractkit/chainlink-evm/pkg/logpoller"
 	"github.com/smartcontractkit/chainlink-evm/pkg/txmgr"
 )
 
@@ -89,6 +91,7 @@ type chainRuntime interface {
 
 type standaloneChain struct {
 	lggr            logger.Logger
+	selector        protocol.ChainSelector
 	chainClient     client.Client
 	chainConfig     *clevmconfig.ChainScoped
 	headBroadcaster heads.Broadcaster
@@ -112,6 +115,10 @@ type standaloneChain struct {
 	contractTransmitter chainaccess.ContractTransmitter
 	closed              bool
 
+	// logPoller is built by the first LogPoller call, through newLogPoller.
+	newLogPoller logPollerBuilder
+	logPoller    logpoller.LogPoller
+
 	// recoveryStop cancels the orphan recovery goroutine, which spends most of its life in a grace
 	// period sleep and must not outlive the accessor. recoveryWG lets Close wait for it, so the
 	// chain client is not torn down while recovery is still reading nonces through it.
@@ -119,7 +126,7 @@ type standaloneChain struct {
 	recoveryWG   sync.WaitGroup
 }
 
-func newStandaloneChain(ctx context.Context, info Info, lggr logger.Logger) (*standaloneChain, error) {
+func newStandaloneChain(ctx context.Context, selector protocol.ChainSelector, info Info, lggr logger.Logger) (*standaloneChain, error) {
 	chainClient, chainConfig, err := newMultiNodeClientFromInfo(info, lggr)
 	if err != nil {
 		return nil, err
@@ -169,6 +176,7 @@ func newStandaloneChain(ctx context.Context, info Info, lggr logger.Logger) (*st
 	txmBlockTime, txmBlockTimeSource := evmconfig.ResolveTXMBlockTime(info)
 	return &standaloneChain{
 		lggr:                             lggr,
+		selector:                         selector,
 		chainClient:                      chainClient,
 		chainConfig:                      chainConfig,
 		headBroadcaster:                  headBroadcaster,
@@ -178,6 +186,7 @@ func newStandaloneChain(ctx context.Context, info Info, lggr logger.Logger) (*st
 		txmBlockTime:                     txmBlockTime,
 		txmBlockTimeSource:               txmBlockTimeSource,
 		sourceReaderHeaderFetchBatchSize: sourceReaderHeaderFetchBatchSize(info.SourceReaderHeaderFetchBatchSize),
+		newLogPoller:                     buildLogPoller,
 		recoveryStop:                     make(services.StopChan),
 	}, nil
 }
@@ -329,6 +338,53 @@ func (c *standaloneChain) NewContractTransmitter(
 	return transmitter, nil
 }
 
+var _ logPollerRuntime = (*standaloneChain)(nil)
+
+// LogPoller builds and starts this chain's LogPoller on the first call and returns the same one
+// afterwards. The process-wide guard is taken before anything is built, so a second runtime for
+// the same evm_chain_id fails instead of writing to the same rows.
+func (c *standaloneChain) LogPoller(ctx context.Context, db *sql.DB) (logpoller.LogPoller, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.closed {
+		return nil, errors.New("EVM chain runtime is closed")
+	}
+	if c.logPoller != nil {
+		return c.logPoller, nil
+	}
+	chainID := c.chainConfig.EVM().ChainID()
+	if db == nil {
+		return nil, fmt.Errorf("log poller for chain selector %d (evm_chain_id %s) requires the verifier database", c.selector, chainID)
+	}
+
+	if err := logPollerGuard.acquire(chainID.String(), c.selector); err != nil {
+		return nil, err
+	}
+
+	// Building fails the same way on every attempt (metric registration), so the caller skips the chain.
+	lp, err := c.newLogPoller(logPollerInputs{
+		chainID:     chainID,
+		logger:      logger.Named(c.lggr, "LogPoller"),
+		client:      c.chainClient,
+		headTracker: c.headTracker,
+		config:      c.chainConfig.EVM(),
+		db:          db,
+	})
+	if err != nil {
+		logPollerGuard.release(chainID.String(), c.selector)
+		return nil, fmt.Errorf("failed to build log poller for chain selector %d (evm_chain_id %s): %w", c.selector, chainID, err)
+	}
+	if err := lp.Start(ctx); err != nil {
+		// Never started, so nothing can be writing and the chain may be released.
+		logPollerGuard.release(chainID.String(), c.selector)
+		return nil, fmt.Errorf("failed to start log poller for chain selector %d (evm_chain_id %s): %w", c.selector, chainID, err)
+	}
+
+	c.logPoller = lp
+	return lp, nil
+}
+
 // startOrphanRecovery drives transactions left in the mempool by a previous run of this process to
 // completion, so an address is never blocked indefinitely by work this process cannot see.
 //
@@ -419,6 +475,7 @@ func (c *standaloneChain) Close() error {
 	unsubscribeTXM := c.unsubscribeTXM
 	chainClient := c.chainClient
 	configEmitter := c.configEmitter
+	lp := c.logPoller
 	c.mu.Unlock()
 
 	// Stop the config emitter first: it is independent of the chain services and this stops
@@ -440,6 +497,20 @@ func (c *standaloneChain) Close() error {
 		close(c.recoveryStop)
 	}
 	c.recoveryWG.Wait()
+
+	// The LogPoller reads heads from the head tracker, so it stops first. A poller something else
+	// already stopped is not writing, so its chain is released. Any other failed close keeps the
+	// chain held: the poller may still be writing, and a second poller must not start beside it.
+	if lp != nil {
+		chainID := c.chainConfig.EVM().ChainID().String()
+		if closeErr := lp.Close(); closeErr != nil && !errors.Is(closeErr, services.ErrAlreadyStopped) {
+			c.lggr.Errorw("Failed to close log poller, keeping its chain held",
+				"chainSelector", c.selector, "evmChainID", chainID, "error", closeErr)
+			err = errors.Join(err, fmt.Errorf("failed to close log poller for chain selector %d (evm_chain_id %s): %w", c.selector, chainID, closeErr))
+		} else {
+			logPollerGuard.release(chainID, c.selector)
+		}
+	}
 
 	if headTracker != nil {
 		err = errors.Join(err, headTracker.Close())

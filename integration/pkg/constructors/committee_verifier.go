@@ -28,6 +28,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 	"github.com/smartcontractkit/chainlink-evm/pkg/chains/legacyevm"
+	"github.com/smartcontractkit/chainlink-evm/pkg/logpoller"
 )
 
 // NewVerificationCoordinator builds a verifier coordinator. aggregatorSecrets maps each
@@ -145,7 +146,7 @@ func NewVerificationCoordinator(
 		var sourceReader chainaccess.SourceReader
 		var finalityReporter chainaccess.FinalityViolationReporter
 		if lp := chain.LogPoller(); evm.LogPollerEnabled(lp) {
-			sourceReader, err = evm.NewLogPollerSourceReader(context.Background(), params, newLogPollerConfig(chain, cfg.VerifierID))
+			sourceReader, err = evm.NewLogPollerSourceReader(context.Background(), params, evm.NewLogPollerConfig(lp, logpoller.NewORM(chain.ID(), ds, lggr), cfg.VerifierID))
 			finalityReporter = evm.NewLogPollerFinality(lp)
 		} else {
 			sourceReader, err = evm.NewEVMSourceReader(context.Background(), params)

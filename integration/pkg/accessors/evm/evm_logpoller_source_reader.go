@@ -49,6 +49,19 @@ type LogPollerConfig struct {
 	LogPoller  logpoller.LogPoller
 	VerifierID string
 	Retention  time.Duration
+	// ORM is kept for the stale-filter cleanup that lands later; the reader does not use it yet.
+	ORM logpoller.ORM
+}
+
+// NewLogPollerConfig is the one place both deployment paths build a reader config, so the
+// in-node and standalone verifiers cannot drift on retention.
+func NewLogPollerConfig(lp logpoller.LogPoller, orm logpoller.ORM, verifierID string) *LogPollerConfig {
+	return &LogPollerConfig{
+		LogPoller:  lp,
+		ORM:        orm,
+		VerifierID: verifierID,
+		Retention:  DefaultMessageSentLogRetention,
+	}
 }
 
 // LogPollerEnabled reports whether the node's LogPoller feature is on for a chain. It decides both
