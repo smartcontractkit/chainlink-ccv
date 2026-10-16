@@ -255,6 +255,15 @@ func (r *Service) initializeAndMonitor() {
 		}
 	}
 
+	// A loading source must not be read, so the monitoring loop starts only once it has loaded.
+	for r.sourceLoaded() != nil {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(r.pollInterval):
+		}
+	}
+
 	r.eventMonitoringLoop()
 }
 
