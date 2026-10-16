@@ -27,6 +27,9 @@ import (
 const (
 	// defaultPollInterval is the default interval for polling when WebSocket is not available.
 	defaultPollInterval = 5 * time.Second
+	// stalenessPollIntervals is how many poll intervals without a successful poll Ready
+	// tolerates before reporting not-ready; the default staleness threshold.
+	stalenessPollIntervals = 50
 	// functionSelectorLength is the length of an Ethereum function selector in bytes.
 	functionSelectorLength = 4
 	// expectedParamCount is the expected number of parameters for the execute function.
@@ -57,22 +60,29 @@ var (
 // EvmExecutionAttemptPoller polls for execution state changed events and caches execution attempts.
 type EvmExecutionAttemptPoller struct {
 	services.StateMachine
-	lggr             logger.Logger
-	chainSelector    protocol.ChainSelector
-	client           client.Client
-	offRampAddress   common.Address
-	startBlock       uint64
-	offRampFilterer  offramp.OffRampFilterer
-	eventCh          chan *offramp.OffRampExecutionStateChanged
-	subscription     event.Subscription
-	attemptCache     *expirable.LRU[protocol.Bytes32, []protocol.ExecutionAttempt]
-	cancelFunc       context.CancelFunc
-	runWg            sync.WaitGroup
-	pollInterval     time.Duration
-	lastPolledBlock  uint64
-	lookbackWindow   time.Duration
-	backfillComplete atomic.Bool
-	fatalErr         atomic.Pointer[error]
+	lggr            logger.Logger
+	chainSelector   protocol.ChainSelector
+	client          client.Client
+	offRampAddress  common.Address
+	startBlock      uint64
+	offRampFilterer offramp.OffRampFilterer
+	eventCh         chan *offramp.OffRampExecutionStateChanged
+	subscription    event.Subscription
+	attemptCache    *expirable.LRU[protocol.Bytes32, []protocol.ExecutionAttempt]
+	cancelFunc      context.CancelFunc
+	runWg           sync.WaitGroup
+	pollInterval    time.Duration
+	lastPolledBlock uint64
+	lookbackWindow  time.Duration
+	// stalenessThreshold is how long HTTP polling may go without a successful poll before
+	// Ready fails; defaults to stalenessPollIntervals × pollInterval.
+	stalenessThreshold time.Duration
+	backfillComplete   atomic.Bool
+	fatalErr           atomic.Pointer[error]
+	// pollingMode is true in HTTP polling mode; lastSuccessfulPoll (unix ts) drives
+	// Ready() staleness there. WS mode has no poll loop, so silence is not anomalous.
+	pollingMode        atomic.Bool
+	lastSuccessfulPoll atomic.Int64
 }
 
 func (p *EvmExecutionAttemptPoller) HealthReport() map[string]error {
@@ -84,6 +94,8 @@ func (p *EvmExecutionAttemptPoller) HealthReport() map[string]error {
 // Ready returns nil when the poller has completed its initial backfill and is
 // fully operational. Returns ErrBackfillInProgress while the backfill is still
 // running, or an errNotStarted error if the service hasn't been started.
+// In HTTP polling mode it also fails once no poll has succeeded for the
+// staleness threshold, so a dead RPC turns the reader not-ready instead of silently stale.
 func (p *EvmExecutionAttemptPoller) Ready() error {
 	if err := p.StateMachine.Ready(); err != nil {
 		return err
@@ -93,6 +105,11 @@ func (p *EvmExecutionAttemptPoller) Ready() error {
 	}
 	if !p.backfillComplete.Load() {
 		return ErrBackfillInProgress
+	}
+	if last := p.lastSuccessfulPoll.Load(); p.pollingMode.Load() && last > 0 {
+		if since := time.Since(time.Unix(last, 0)); since > p.stalenessThreshold {
+			return fmt.Errorf("no successful execution-attempt poll for %s", since.Round(time.Second))
+		}
 	}
 	return nil
 }
@@ -121,12 +138,16 @@ func NewEVMExecutionAttemptPoller(
 	client client.Client,
 	lggr logger.Logger,
 	attemptCacheExpiration time.Duration,
+	stalenessThreshold time.Duration,
 ) (*EvmExecutionAttemptPoller, error) {
 	if client == nil {
 		return nil, errNilClient
 	}
 	if lggr == nil {
 		return nil, errNilLogger
+	}
+	if stalenessThreshold <= 0 {
+		stalenessThreshold = stalenessPollIntervals * defaultPollInterval
 	}
 
 	offRampFilterer, err := offramp.NewOffRampFilterer(offRampAddress, client)
@@ -136,15 +157,16 @@ func NewEVMExecutionAttemptPoller(
 
 	attemptCache := expirable.NewLRU[protocol.Bytes32, []protocol.ExecutionAttempt](0, nil, attemptCacheExpiration)
 	return &EvmExecutionAttemptPoller{
-		lggr:            lggr,
-		client:          client,
-		offRampAddress:  offRampAddress,
-		offRampFilterer: *offRampFilterer,
-		eventCh:         make(chan *offramp.OffRampExecutionStateChanged),
-		attemptCache:    attemptCache,
-		lastPolledBlock: 0,
-		pollInterval:    defaultPollInterval,
-		lookbackWindow:  attemptCacheExpiration, // Use cache expiration as lookback window
+		lggr:               lggr,
+		client:             client,
+		offRampAddress:     offRampAddress,
+		offRampFilterer:    *offRampFilterer,
+		eventCh:            make(chan *offramp.OffRampExecutionStateChanged),
+		attemptCache:       attemptCache,
+		lastPolledBlock:    0,
+		pollInterval:       defaultPollInterval,
+		stalenessThreshold: stalenessThreshold,
+		lookbackWindow:     attemptCacheExpiration, // Use cache expiration as lookback window
 	}, nil
 }
 
@@ -388,6 +410,9 @@ func (p *EvmExecutionAttemptPoller) startHTTPMode(ctx context.Context) {
 	// so HTTP polling continues from where history coverage ended.
 	p.lggr.Infow("WebSocket subscription not available, continuing with HTTP polling", "lastPolledBlock", p.lastPolledBlock)
 
+	p.pollingMode.Store(true)
+	p.lastSuccessfulPoll.Store(time.Now().Unix())
+
 	p.runWg.Go(func() {
 		p.runPolling(ctx)
 	})
@@ -604,6 +629,8 @@ func (p *EvmExecutionAttemptPoller) runPolling(ctx context.Context) {
 		case <-ticker.C:
 			if err := p.pollForEvents(ctx); err != nil {
 				p.lggr.Warnw("Failed to poll for execution state changed events", "error", err)
+			} else {
+				p.lastSuccessfulPoll.Store(time.Now().Unix())
 			}
 		}
 	}

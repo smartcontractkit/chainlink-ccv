@@ -36,6 +36,9 @@ const (
 	DefaultPollInterval  = 2100 * time.Millisecond
 	DefaultPollTimeout   = 10 * time.Second
 	DefaultMaxBlockRange = 100
+	// DefaultStalenessPollIntervals is how many poll intervals a chain may go without a
+	// successful query before Ready fails; used when SourceConfig.StalenessThreshold is unset.
+	DefaultStalenessPollIntervals = 50
 )
 
 // toBlock of 0 means the range is open-ended (queries up to the latest block).
@@ -65,6 +68,9 @@ type Service struct {
 	pollTimeout     time.Duration
 	maxBlockRange   uint64
 	sourceCfg       verifier.SourceConfig
+	// stalenessThreshold is how long the chain may go without a successful query
+	// before Ready() fails; 50 poll intervals per the health guidelines.
+	stalenessThreshold time.Duration
 
 	// DB-backed task queue
 	taskQueue jobqueue.JobQueue[verifier.VerificationTask]
@@ -75,7 +81,8 @@ type Service struct {
 	// mutable per-chain state
 	mu                          sync.RWMutex
 	lastProcessedFinalizedBlock atomic.Uint64
-	startBlockInitialized       atomic.Bool // guards lastProcessedFinalizedBlock; set by the background init in Start
+	startBlockInitialized       atomic.Bool  // guards lastProcessedFinalizedBlock; set by the background init in Start
+	lastSuccessfulQuery         atomic.Int64 // unix ts of the last successful chain query; drives Ready() staleness
 	pendingTasks                map[string]verifier.VerificationTask
 	pendingSince                map[string]time.Time
 	pendingMetricDestinations   map[protocol.ChainSelector]struct{}
@@ -162,6 +169,11 @@ func NewService(
 		pollTimeout = DefaultPollTimeout
 	}
 
+	stalenessThreshold := sourceCfg.StalenessThreshold
+	if stalenessThreshold <= 0 {
+		stalenessThreshold = DefaultStalenessPollIntervals * interval
+	}
+
 	return &Service{
 		logger:             logger.With(lggr, "component", "Service", "chain", chainSelector),
 		verifierID:         verifierID,
@@ -174,6 +186,7 @@ func NewService(
 		finalityChecker:    finalityChecker,
 		pollInterval:       interval,
 		pollTimeout:        pollTimeout,
+		stalenessThreshold: stalenessThreshold,
 		sourceCfg:          sourceCfg,
 		maxBlockRange:      maxBlockRange,
 		taskQueue:          taskQueue,
@@ -217,6 +230,7 @@ func (r *Service) initializeAndMonitor() {
 		if err == nil {
 			r.lastProcessedFinalizedBlock.Store(startBlock)
 			r.startBlockInitialized.Store(true)
+			r.lastSuccessfulQuery.Store(time.Now().Unix())
 			r.metrics().SetSourceReaderLastProcessedFinalizedBlock(ctx, int64(startBlock)) // #nosec G115 -- chain block heights are within int64 range
 			r.logger.Infow("Initialized start block", "block", startBlock)
 			r.monitoring.RecordChainHealthy(ctx, r.chainSelector, true)
@@ -264,6 +278,12 @@ func (r *Service) Ready() error {
 	if r.finalityBlocked.Load() {
 		return errors.New("finality blocked")
 	}
+	// A disabled chain is intentionally idle, so staleness does not apply to it.
+	if last := r.lastSuccessfulQuery.Load(); !r.disabled.Load() && last > 0 {
+		if since := time.Since(time.Unix(last, 0)); since > r.stalenessThreshold {
+			return fmt.Errorf("no successful chain query for %s", since.Round(time.Second))
+		}
+	}
 	return nil
 }
 
@@ -299,8 +319,11 @@ func (r *Service) eventMonitoringLoop() {
 				}
 				ready, latest, safe, finalized := r.readyToQuery(ctx)
 				if !ready {
+					r.monitoring.RecordChainHealthy(ctx, r.chainSelector, false)
 					return
 				}
+				r.lastSuccessfulQuery.Store(time.Now().Unix())
+				r.monitoring.RecordChainHealthy(ctx, r.chainSelector, true)
 				r.recoveryHeartbeat(ctx, &latest.Number)
 				if r.recovery != nil && r.recovery.rebuildingID != "" {
 					if r.checkFinality(ctx, finalized) {

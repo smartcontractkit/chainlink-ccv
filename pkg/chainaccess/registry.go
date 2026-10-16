@@ -127,8 +127,12 @@ type ExecutorConfig struct {
 	// MaxRetryDuration is the maximum duration the executor cluster will retry a message before
 	// giving up. It doubles as the ExecutionVisibilityWindow for the EvmDestinationReader, which
 	// must look back at least this far to detect all honest execution attempts.
-	MaxRetryDuration   time.Duration                     `toml:"max_retry_duration"`
-	ChainConfiguration map[string]DestinationChainConfig `toml:"chain_configuration"`
+	MaxRetryDuration time.Duration `toml:"max_retry_duration"`
+	// ReaderStalenessThreshold is how long a destination chain's poller may go without a
+	// successful RPC call before the reader reports not-ready. Zero uses the reader default
+	// (50 poll intervals). Mirrors executor.Configuration.ReaderStalenessThreshold.
+	ReaderStalenessThreshold time.Duration                     `toml:"reader_staleness_threshold"`
+	ChainConfiguration       map[string]DestinationChainConfig `toml:"chain_configuration"`
 }
 
 // accessorConstructorMapCopy returns a copy of the accessorConstructorMap to avoid holding the lock during

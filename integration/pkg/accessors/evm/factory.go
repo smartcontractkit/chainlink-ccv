@@ -47,7 +47,10 @@ type factory struct {
 	nativeDecimals map[protocol.ChainSelector]uint8
 
 	executionVisibilityWindow time.Duration
-	newRuntime                runtimeBuilder
+	// readerStalenessThreshold overrides the destination reader's staleness default
+	// (50 poll intervals) when set; zero keeps the default.
+	readerStalenessThreshold time.Duration
+	newRuntime               runtimeBuilder
 }
 
 func newFactory(
@@ -57,6 +60,7 @@ func newFactory(
 	feeQuoterAddresses map[protocol.ChainSelector]string,
 	nativeDecimals map[protocol.ChainSelector]uint8,
 	executionVisibilityWindow time.Duration,
+	readerStalenessThreshold time.Duration,
 	newRuntime runtimeBuilder,
 ) chainaccess.AccessorFactory {
 	if executionVisibilityWindow == 0 {
@@ -70,6 +74,7 @@ func newFactory(
 		feeQuoterAddresses:        feeQuoterAddresses,
 		nativeDecimals:            nativeDecimals,
 		executionVisibilityWindow: executionVisibilityWindow,
+		readerStalenessThreshold:  readerStalenessThreshold,
 		newRuntime:                newRuntime,
 	}
 }
@@ -195,6 +200,7 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 			OfframpAddress:            destCfg.OffRampAddress,
 			RmnRemoteAddress:          destCfg.RmnAddress,
 			ExecutionVisabilityWindow: f.executionVisibilityWindow,
+			ReaderStalenessThreshold:  f.readerStalenessThreshold,
 			Monitoring:                monitoring.NewNoopExecutorMonitoring(),
 		})
 		if err != nil {

@@ -63,6 +63,11 @@ type Configuration struct {
 	// ReaderCacheExpiry is the duration for the curse checker cache (RMN cursed state per chain).
 	// Defaults to 5 minutes.
 	ReaderCacheExpiry time.Duration `toml:"reader_cache_expiry"`
+	// ReaderStalenessThreshold is how long a destination chain's execution-attempt poller may go
+	// without a successful RPC poll before that chain's reader reports not-ready (one such chain
+	// degrades /health; when no chain is usable the executor reports not_ready).
+	// Defaults to 50 poll intervals (250s at the 5s default poll interval).
+	ReaderStalenessThreshold time.Duration `toml:"reader_staleness_threshold"`
 	// MaxRetryDuration is the maximum duration the executor cluster will retry a message before giving up.
 	// Defaults to 8 hours.
 	MaxRetryDuration time.Duration `toml:"max_retry_duration"`
@@ -145,6 +150,9 @@ func (c *Configuration) Validate() error {
 	}
 	if c.ReaderCacheExpiry < 0 {
 		return fmt.Errorf("reader_cache_expiry must not be negative")
+	}
+	if c.ReaderStalenessThreshold < 0 {
+		return fmt.Errorf("reader_staleness_threshold must not be negative")
 	}
 	if c.MaxRetryDuration < 0 {
 		return fmt.Errorf("max_retry_duration must not be negative")

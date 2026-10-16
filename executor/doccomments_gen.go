@@ -28,6 +28,7 @@ func (Configuration) DocComments() map[string]commentparsing.FieldDoc {
 		"NtpServer":                 {Comment: "NtpServer is the NTP server to use for time synchronization.\nDefaults to time.google.com\nNTP retries are independent of source_backoff_duration."},
 		"PyroscopeURL":              {Comment: "PyroscopeURL is the URL of the Pyroscope server to send metrics to."},
 		"ReaderCacheExpiry":         {Comment: "ReaderCacheExpiry is the duration for the curse checker cache (RMN cursed state per chain).\nDefaults to 5 minutes."},
+		"ReaderStalenessThreshold":  {Comment: "ReaderStalenessThreshold is how long a destination chain's execution-attempt poller may go\nwithout a successful RPC poll before that chain's reader reports not-ready (one such chain\ndegrades /health; when no chain is usable the executor reports not_ready).\nDefaults to 50 poll intervals (250s at the 5s default poll interval)."},
 		"WorkerCount":               {Comment: "WorkerCount is the number of concurrent workers processing messages.\nDefaults to 100."},
 	}
 }
