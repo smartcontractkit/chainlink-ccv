@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.15.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.14.0...v0.15.0) (2026-10-16)
+
+
+### Features
+
+* add admin detail-to-recovery deep links and post-reschedule continuity ([#1515](https://github.com/smartcontractkit/chainlink-ccv/issues/1515)) ([e94fc14](https://github.com/smartcontractkit/chainlink-ccv/commit/e94fc14d98a76f782fe53a1f22ac969a56ed6d0a))
+* add degraded health status and per-chain health metrics ([#1507](https://github.com/smartcontractkit/chainlink-ccv/issues/1507)) ([a1e5999](https://github.com/smartcontractkit/chainlink-ccv/commit/a1e5999fe8447a60c3581bb3d804a2de7c72bfcb))
+* enable verifier admin console in devenv and refine recovery UX ([#1517](https://github.com/smartcontractkit/chainlink-ccv/issues/1517)) ([985e291](https://github.com/smartcontractkit/chainlink-ccv/commit/985e29116c11261cb00d9331da16504c1c0ebfed))
+* Implement aggregator status API ([#1484](https://github.com/smartcontractkit/chainlink-ccv/issues/1484)) ([cb0b4a4](https://github.com/smartcontractkit/chainlink-ccv/commit/cb0b4a406b64d97edfec71bdc79bb454d2f3d537))
+* **pricer-service:** add chain agnostic family interface ([#1472](https://github.com/smartcontractkit/chainlink-ccv/issues/1472)) ([37d689a](https://github.com/smartcontractkit/chainlink-ccv/commit/37d689aaca9a35f039d7f0842772bfe78cfb77f0))
+* **pricer:** add the FeeQuoter reader, a stub FeeQuoter writer and the gas price reader to the EVM accessor ([#1519](https://github.com/smartcontractkit/chainlink-ccv/issues/1519)) ([84c3957](https://github.com/smartcontractkit/chainlink-ccv/commit/84c395720624e4b5ab3be2b76e97c2db81fabe98))
+* **tools:** noeagerio analyzer forbidding I/O in constructors and Start ([#1499](https://github.com/smartcontractkit/chainlink-ccv/issues/1499)) ([1e21946](https://github.com/smartcontractkit/chainlink-ccv/commit/1e21946a7cbdea848a1cbf519236f987a3518800))
+* unify admin message search and add recent failure browsing ([#1514](https://github.com/smartcontractkit/chainlink-ccv/issues/1514)) ([7ba0426](https://github.com/smartcontractkit/chainlink-ccv/commit/7ba04261fdb56a6e2b18060c73431bd13e875fdf))
+* **verifier:** add admin console copy buttons, status pills, and batch reschedule controls ([#1508](https://github.com/smartcontractkit/chainlink-ccv/issues/1508)) ([91fed38](https://github.com/smartcontractkit/chainlink-ccv/commit/91fed387f51433be964017036f320bf5bb1eb19c))
+* **verifier:** admin console package (search, reschedule, recovery, action log) ([#1500](https://github.com/smartcontractkit/chainlink-ccv/issues/1500)) ([bb0c396](https://github.com/smartcontractkit/chainlink-ccv/commit/bb0c396a45a34c35a5c30febab3f76e1af680e58))
+* **verifier:** confirm the source block before publishing tasks ([#1494](https://github.com/smartcontractkit/chainlink-ccv/issues/1494)) ([d0bfacb](https://github.com/smartcontractkit/chainlink-ccv/commit/d0bfacbbb9ce15f2eb6f507ceac7075c0e88b052))
+* **verifier:** serve the admin console from the verifier factories ([#1501](https://github.com/smartcontractkit/chainlink-ccv/issues/1501)) ([65b1c81](https://github.com/smartcontractkit/chainlink-ccv/commit/65b1c812afdb8853c3435cbb31290b3e5f6ff886))
+
+
+### Bug Fixes
+
+* bound startup DB I/O by caller ctx; build chain accessors concurrently ([#1498](https://github.com/smartcontractkit/chainlink-ccv/issues/1498)) ([0b639df](https://github.com/smartcontractkit/chainlink-ccv/commit/0b639df194f903285a78b0f762585cc2c988f409))
+* **deps:** bump chain-selectors ([#1505](https://github.com/smartcontractkit/chainlink-ccv/issues/1505)) ([6d8cc8f](https://github.com/smartcontractkit/chainlink-ccv/commit/6d8cc8f90dd55599d714cc56c1588893898cbf19))
+* **tokenverifier:** handle empty batches and attestation results ([#1506](https://github.com/smartcontractkit/chainlink-ccv/issues/1506)) ([8b3c66b](https://github.com/smartcontractkit/chainlink-ccv/commit/8b3c66bc8ef6f849df676de4ea2c478a9d31a405))
+* tolerate per-chain/per-source startup failures ([#1497](https://github.com/smartcontractkit/chainlink-ccv/issues/1497)) ([55ef592](https://github.com/smartcontractkit/chainlink-ccv/commit/55ef5929e5f02bd02acca459b0b0a0644f28c785))
+* update Fee Quoter accessor interface ([#1511](https://github.com/smartcontractkit/chainlink-ccv/issues/1511)) ([648ac45](https://github.com/smartcontractkit/chainlink-ccv/commit/648ac4538cdc4cfac866d4b3f8bb05dc59a03540))
+* **verifier:** defer source reader init and tolerate per-chain start failures ([#1496](https://github.com/smartcontractkit/chainlink-ccv/issues/1496)) ([e05353b](https://github.com/smartcontractkit/chainlink-ccv/commit/e05353bf93b6d3fbdfd2c0fba593963cd047b449))
+
 ## [0.14.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.13.0...v0.14.0) (2026-10-05)
 
 
