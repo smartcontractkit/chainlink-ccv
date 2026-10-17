@@ -9,6 +9,8 @@ on:
 
 jobs:
   test-coverage:
+    # Fork PRs skip this billable runs-on job; free GitHub-hosted jobs still run for feedback.
+    if: github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork
     runs-on: runs-on=${{ github.run_id }}/family=c6i/cpu=32+48/ram=64+96/spot=false/image=ubuntu24-full-x64/extras=s3-cache+tmpfs
     env:
       COVERAGE_THRESHOLD: 37
