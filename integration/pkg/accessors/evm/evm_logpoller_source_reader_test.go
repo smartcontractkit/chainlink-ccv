@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"math/big"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -180,14 +181,9 @@ func TestFinalityViolated(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			lp := lpmocks.NewLogPoller(t)
 			lp.EXPECT().Healthy().Return(tc.healthy).Once()
-			require.Equal(t, tc.want, NewLogPollerFinality(lp).FinalityViolated())
+			require.Equal(t, tc.want, readyLogPollerReader(sourceReaderCore{}, lp).FinalityViolated())
 		})
 	}
-}
-
-func TestNewLogPollerFinality_NilWithoutLogPoller(t *testing.T) {
-	require.Nil(t, NewLogPollerFinality(nil))
-	require.Nil(t, NewLogPollerFinality(logpoller.LogPollerDisabled))
 }
 
 // readyLogPollerReader is a reader whose log poller already finished loading.
@@ -395,6 +391,27 @@ func TestLogPollerStartup(t *testing.T) {
 		r := start(t, lp)
 		r.LoadFrom(501)
 		waitReady(t, r)
+	})
+
+	// A chain whose load keeps failing stays in the process, reports not ready and keeps retrying.
+	t.Run("a replay that keeps failing leaves the reader not ready and retrying", func(t *testing.T) {
+		prevInitial, prevMax := logPollerInitBackoff, maxLogPollerInitBackoff
+		logPollerInitBackoff, maxLogPollerInitBackoff = 5*time.Millisecond, 20*time.Millisecond
+		t.Cleanup(func() { logPollerInitBackoff, maxLogPollerInitBackoff = prevInitial, prevMax })
+
+		lp := lpmocks.NewLogPoller(t)
+		lp.EXPECT().RegisterFilter(mock.Anything, mock.Anything).Return(nil).Maybe()
+		expectStoredBlocks(lp)
+		lp.EXPECT().DeleteLogsAndBlocksAfter(mock.Anything, int64(501)).Return(nil).Maybe()
+		var replays atomic.Int32
+		lp.EXPECT().Replay(mock.Anything, int64(501)).
+			RunAndReturn(func(context.Context, int64) error { replays.Add(1); return errors.New("replay failed") }).Maybe()
+		r := start(t, lp)
+		r.LoadFrom(501)
+
+		require.Eventually(t, func() bool { return replays.Load() >= 3 }, 5*time.Second, 5*time.Millisecond)
+		require.ErrorIs(t, r.Loaded(), chainaccess.ErrSourceNotReady)
+		require.False(t, r.ready.Load())
 	})
 
 	t.Run("close stops a startup that keeps failing", func(t *testing.T) {

@@ -2,8 +2,10 @@ package evm
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -17,6 +19,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/keystore"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-evm/pkg/logpoller"
 )
 
 // defaultExecutionVisibilityWindow mirrors executor.maxRetryDurationDefault.
@@ -125,8 +128,9 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 
 	// SourceReader is optional: if the on-ramp address is absent (for example,
 	// executor-only config), the runtime can still provide the destination
-	// reader and transmitter.
-	var evmSourceReader chainaccess.SourceReader
+	// reader and transmitter. The reader itself is built on the first SourceReader call, so
+	// a caller that selects the LogPoller reader never builds the RPC one.
+	var sourceParams *SourceReaderParams
 	if hasSourceReaderConfig {
 		headTracker, err := runtime.HeadTracker()
 		if err != nil {
@@ -137,7 +141,7 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 			closeErr := runtime.Close()
 			return nil, errors.Join(fmt.Errorf("failed to get EVM head tracker for chain %d: tracker is nil", chainSelector), closeErr)
 		}
-		sr, err := NewEVMSourceReader(ctx, SourceReaderParams{
+		sourceParams = &SourceReaderParams{
 			ChainClient:                chainClient,
 			HeadTracker:                headTracker,
 			OnRampAddress:              common.HexToAddress(onRampAddress),
@@ -146,12 +150,7 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 			ChainSelector:              chainSelector,
 			Logger:                     chainLggr,
 			HeaderFetchBatchSize:       runtime.SourceReaderHeaderFetchBatchSize(),
-		})
-		if err != nil {
-			closeErr := runtime.Close()
-			return nil, errors.Join(fmt.Errorf("failed to create EVM source reader: %w", err), closeErr)
 		}
-		evmSourceReader = sr
 	}
 
 	var evmDestReader chainaccess.DestinationReader
@@ -168,7 +167,7 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 			Monitoring:                monitoring.NewNoopExecutorMonitoring(),
 		})
 		if err != nil {
-			if evmSourceReader == nil {
+			if sourceParams == nil {
 				closeErr := runtime.Close()
 				return nil, errors.Join(fmt.Errorf("failed to create EVM destination reader: %w", err), closeErr)
 			}
@@ -183,22 +182,29 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 		keyName = destCfg.TransmitterKeyName
 	}
 
-	return newAccessor(
-		chainLggr,
-		chainSelector,
-		runtime,
-		offRampAddr,
-		keyName,
-		evmSourceReader,
-		evmDestReader,
-		nil,
-	), nil
+	acc := buildAccessor(chainLggr, chainSelector, runtime, offRampAddr, keyName, nil, evmDestReader, nil)
+	acc.sourceParams = sourceParams
+	return acc, nil
 }
 
+var _ chainaccess.SourceReaderDepsSetter = (*accessor)(nil)
+
 type accessor struct {
-	sourceReader        chainaccess.SourceReader
 	destinationReader   chainaccess.DestinationReader
 	contractTransmitter chainaccess.ContractTransmitter
+
+	// sourceMu guards the lazily built source reader and the dependencies that select it.
+	// sourceParams is nil for an accessor with no source config, such as the executor's.
+	sourceMu     sync.Mutex
+	sourceParams *SourceReaderParams
+	sourceReader chainaccess.SourceReader
+	sourceErr    error
+	sourceBuilt  bool
+	// logPoller is set only by a successful SetSourceReaderDeps and selects the LogPoller reader.
+	logPoller      logpoller.LogPoller
+	lpDB           *sql.DB
+	lpVerifierID   string
+	cancelLifetime context.CancelFunc
 
 	lggr          logger.Logger
 	chainSelector protocol.ChainSelector
@@ -217,6 +223,19 @@ func newAccessor(
 	destinationReader chainaccess.DestinationReader,
 	contractTransmitter chainaccess.ContractTransmitter,
 ) chainaccess.Accessor {
+	return buildAccessor(lggr, chainSelector, runtime, offRampAddr, keyName, sourceReader, destinationReader, contractTransmitter)
+}
+
+func buildAccessor(
+	lggr logger.Logger,
+	chainSelector protocol.ChainSelector,
+	runtime chainRuntime,
+	offRampAddr common.Address,
+	keyName string,
+	sourceReader chainaccess.SourceReader,
+	destinationReader chainaccess.DestinationReader,
+	contractTransmitter chainaccess.ContractTransmitter,
+) *accessor {
 	return &accessor{
 		lggr:                lggr,
 		chainSelector:       chainSelector,
@@ -224,6 +243,7 @@ func newAccessor(
 		offRampAddr:         offRampAddr,
 		keyName:             keyName,
 		sourceReader:        sourceReader,
+		sourceBuilt:         sourceReader != nil,
 		destinationReader:   destinationReader,
 		contractTransmitter: contractTransmitter,
 	}
@@ -252,11 +272,81 @@ func (a *accessor) SetKeystore(ctx context.Context, ks keystore.Keystore) error 
 	return nil
 }
 
+// SetSourceReaderDeps builds and starts the chain's LogPoller on the verifier database, which makes
+// the first SourceReader call return the LogPoller reader. It does no network I/O and must come
+// before SourceReader: a reader that is already built is never swapped.
+func (a *accessor) SetSourceReaderDeps(db *sql.DB, verifierID string) error {
+	if a == nil {
+		return errors.New("EVM accessor is nil")
+	}
+	a.sourceMu.Lock()
+	defer a.sourceMu.Unlock()
+
+	if a.sourceParams == nil {
+		return fmt.Errorf("chain %d has no source reader configured", a.chainSelector)
+	}
+	if db == nil {
+		return fmt.Errorf("source reader dependencies for chain %d need the verifier database", a.chainSelector)
+	}
+	if verifierID == "" {
+		return fmt.Errorf("source reader dependencies for chain %d need a verifier ID", a.chainSelector)
+	}
+	if a.logPoller != nil {
+		if db == a.lpDB && verifierID == a.lpVerifierID {
+			return nil
+		}
+		return fmt.Errorf("source reader dependencies for chain %d are already set to different values", a.chainSelector)
+	}
+	if a.sourceBuilt {
+		return fmt.Errorf("source reader for chain %d is already built, set its dependencies before reading it", a.chainSelector)
+	}
+	lpRuntime, ok := a.runtime.(logPollerRuntime)
+	if !ok {
+		return fmt.Errorf("EVM chain runtime for chain %d cannot host a LogPoller", a.chainSelector)
+	}
+
+	// The LogPoller must not outlive the accessor, so its start context ends in Close.
+	ctx, cancel := context.WithCancel(context.Background())
+	lp, err := lpRuntime.LogPoller(ctx, db)
+	if err != nil {
+		cancel()
+		return err
+	}
+	a.cancelLifetime = cancel
+	a.logPoller = lp
+	a.lpDB = db
+	a.lpVerifierID = verifierID
+	return nil
+}
+
+// SourceReader builds the reader on the first call and returns the same result afterwards: the
+// LogPoller reader if SetSourceReaderDeps succeeded, the RPC reader otherwise.
 func (a *accessor) SourceReader() (chainaccess.SourceReader, error) {
-	if a == nil || a.sourceReader == nil {
+	if a == nil {
 		return nil, errors.New("source reader not available")
 	}
-	return a.sourceReader, nil
+	a.sourceMu.Lock()
+	defer a.sourceMu.Unlock()
+
+	if a.sourceBuilt {
+		return a.sourceReader, a.sourceErr
+	}
+	if a.sourceParams == nil {
+		return nil, errors.New("source reader not available")
+	}
+	a.sourceBuilt = true
+	// The constructors take a ctx but do no I/O with it.
+	ctx := context.Background()
+	if a.logPoller != nil {
+		a.sourceReader, a.sourceErr = NewLogPollerSourceReader(ctx, *a.sourceParams, NewLogPollerConfig(a.logPoller, nil, a.lpVerifierID))
+	} else {
+		a.sourceReader, a.sourceErr = NewEVMSourceReader(ctx, *a.sourceParams)
+	}
+	if a.sourceErr != nil {
+		a.sourceReader = nil
+		a.sourceErr = fmt.Errorf("failed to create EVM source reader: %w", a.sourceErr)
+	}
+	return a.sourceReader, a.sourceErr
 }
 
 func (a *accessor) DestinationReader() (chainaccess.DestinationReader, error) {
@@ -285,6 +375,12 @@ func (a *accessor) GasPriceReader() (chainaccess.GasPriceReader, error) {
 func (a *accessor) Close() error {
 	if a == nil || a.runtime == nil {
 		return nil
+	}
+	a.sourceMu.Lock()
+	cancel := a.cancelLifetime
+	a.sourceMu.Unlock()
+	if cancel != nil {
+		cancel()
 	}
 	return a.runtime.Close()
 }

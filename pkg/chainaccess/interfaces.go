@@ -2,6 +2,7 @@ package chainaccess
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
@@ -69,6 +70,20 @@ type CriticalSourceInvariantCallbackSetter interface {
 type FinalityViolationReporter interface {
 	// FinalityViolated reports whether the data source currently detects a finality violation.
 	FinalityViolated() bool
+}
+
+// SourceReaderDepsSetter is an optional Accessor capability for accessors whose source reader reads from
+// the verifier's database. The caller sets the dependencies before the first SourceReader call, which
+// then returns the database-backed reader; an accessor without this hook keeps its default reader.
+type SourceReaderDepsSetter interface {
+	// SetSourceReaderDeps hands the accessor the verifier's database and ID. It must fail rather than
+	// change the reader once SourceReader has been called. Repeating the call with the same values
+	// succeeds without effect; different values fail.
+	//
+	// The database is borrowed: the accessor must never close it. Anything the call starts, such as
+	// a log poller, belongs to the accessor and is released by its Close. The call takes no context,
+	// so it must not block on network I/O.
+	SetSourceReaderDeps(db *sql.DB, verifierID string) error
 }
 
 // ErrSourceNotReady is returned by SourceReader reads while the source is still loading; callers retry
@@ -187,6 +202,11 @@ type Accessor interface {
 	// bootstrap.KeystoreRegistry checks for this interface after every GetAccessor call
 	// and invokes SetKeystore automatically, so implementations do not need to arrange
 	// injection themselves.
+	//
+	// Optional hook: SourceReaderDepsSetter
+	//
+	// Accessors whose source reader can read from the verifier database implement it. The
+	// verifier calls it after GetAccessor and before SourceReader when that reader is selected.
 }
 
 // AccessorFactory creates Accessors for specific chain selectors.

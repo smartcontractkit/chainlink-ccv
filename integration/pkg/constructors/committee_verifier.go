@@ -147,7 +147,14 @@ func NewVerificationCoordinator(
 		var finalityReporter chainaccess.FinalityViolationReporter
 		if lp := chain.LogPoller(); evm.LogPollerEnabled(lp) {
 			sourceReader, err = evm.NewLogPollerSourceReader(context.Background(), params, evm.NewLogPollerConfig(lp, logpoller.NewORM(chain.ID(), ds, lggr), cfg.VerifierID))
-			finalityReporter = evm.NewLogPollerFinality(lp)
+			if err == nil {
+				// The reader is the finality signal: it is the log poller's own violation state.
+				reporter, ok := sourceReader.(chainaccess.FinalityViolationReporter)
+				if !ok {
+					err = errors.New("log poller source reader does not report finality violations")
+				}
+				finalityReporter = reporter
+			}
 		} else {
 			sourceReader, err = evm.NewEVMSourceReader(context.Background(), params)
 		}

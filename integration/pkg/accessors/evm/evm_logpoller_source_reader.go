@@ -25,6 +25,7 @@ var (
 	_ chainaccess.SourceReader                          = (*LogPollerSourceReader)(nil)
 	_ chainaccess.CriticalSourceInvariantCallbackSetter = (*LogPollerSourceReader)(nil)
 	_ chainaccess.SourceLoader                          = (*LogPollerSourceReader)(nil)
+	_ chainaccess.FinalityViolationReporter             = (*LogPollerSourceReader)(nil)
 )
 
 // DefaultMessageSentLogRetention is how long the log poller keeps CCIPMessageSent logs. It must
@@ -38,10 +39,12 @@ var ErrLogPollerBehind = errors.New("log poller has not reached the requested bl
 // ErrLogPollerNotReady is returned by reads until the log poller filter is registered and replayed.
 var ErrLogPollerNotReady = fmt.Errorf("%w: log poller filter not loaded", chainaccess.ErrSourceNotReady)
 
-const (
+const logPollerOpTimeout = 10 * time.Second
+
+// The load retry backoff is a variable so tests can shorten it instead of waiting real seconds.
+var (
 	logPollerInitBackoff    = time.Second
 	maxLogPollerInitBackoff = time.Minute
-	logPollerOpTimeout      = 10 * time.Second
 )
 
 // LogPollerConfig wires a LogPollerSourceReader to the Chainlink node's log poller.
@@ -68,23 +71,6 @@ func NewLogPollerConfig(lp logpoller.LogPoller, orm logpoller.ORM, verifierID st
 // which source reader the verifier builds and whether it uses the log poller's finality signal.
 func LogPollerEnabled(lp logpoller.LogPoller) bool {
 	return lp != nil && lp != logpoller.LogPollerDisabled
-}
-
-// logPollerFinality reports the finality violations the node's log poller detects.
-type logPollerFinality struct {
-	lp logpoller.LogPoller
-}
-
-// NewLogPollerFinality returns the log poller's finality signal, or nil when the log poller is disabled.
-func NewLogPollerFinality(lp logpoller.LogPoller) chainaccess.FinalityViolationReporter {
-	if !LogPollerEnabled(lp) {
-		return nil
-	}
-	return logPollerFinality{lp: lp}
-}
-
-func (f logPollerFinality) FinalityViolated() bool {
-	return errors.Is(f.lp.Healthy(), commontypes.ErrFinalityViolated)
 }
 
 // LogPollerSourceReader reads CCIPMessageSent logs from the node's log poller instead of eth_getLogs.
@@ -133,6 +119,11 @@ func NewLogPollerSourceReader(ctx context.Context, p SourceReaderParams, cfg *Lo
 		stopCh:           make(services.StopChan),
 	}
 	return r, nil
+}
+
+// FinalityViolated reports whether the reader's log poller has detected a finality violation.
+func (r *LogPollerSourceReader) FinalityViolated() bool {
+	return errors.Is(r.lp.Healthy(), commontypes.ErrFinalityViolated)
 }
 
 // LoadFrom starts loading the log poller from startBlock, the first block the verifier reads. Only the

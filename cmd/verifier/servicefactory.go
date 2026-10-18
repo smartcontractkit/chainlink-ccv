@@ -2,6 +2,7 @@ package verifier
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"net/http"
@@ -260,28 +261,26 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	// Skipped chains are reported on /health as degraded. The factory fails below when none is usable.
 	startupSkips := health.NewStartupSkips("verifier.StartupSkips")
 	sourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
+	finalityReporters := make(map[protocol.ChainSelector]chainaccess.FinalityViolationReporter)
+	sqlDB := f.sharedSQLDB()
 	var readersMu sync.Mutex
 	var wg sync.WaitGroup
 	for _, selector := range chainSelectors {
 		wg.Go(func() {
 			chainCtx, cancel := context.WithTimeout(ctx, accessorBuildTimeout)
 			defer cancel()
-			//nolint:noeagerio // accessor construction dials the chain; it runs concurrently per chain with a bounded ctx, and failures are skipped, not fatal
-			accessor, err := deps.Registry.GetAccessor(chainCtx, selector)
+			chain, err := selectChainReader(
+				chainCtx, lggr, deps.Registry, selector,
+				deps.Features.LogPoller, sqlDB, config.VerifierID,
+				slices.Contains(config.DisableFinalityCheckers, selector.String()),
+			)
 			if err != nil {
-				lggr.Errorw("Failed to get accessor, skipping chain", "error", err, "selector", selector)
 				startupSkips.SkipChain(selector, err)
 				verifierMonitoring.RecordChainHealthy(ctx, selector, false)
 				return
 			}
-			reader, err := accessor.SourceReader()
-			if err != nil {
-				lggr.Errorw("Failed to get source reader, skipping chain", "selector", selector, "error", err)
-				startupSkips.SkipChain(selector, err)
-				verifierMonitoring.RecordChainHealthy(ctx, selector, false)
-				return
-			}
-			observedReader, err := instrumentSourceReader(reader, config.VerifierID, selector, verifierMonitoring)
+			// Capabilities were resolved from the raw reader above, because wrapping hides them.
+			observedReader, err := instrumentSourceReader(chain.reader, config.VerifierID, selector, verifierMonitoring)
 			if err != nil {
 				lggr.Errorw("Failed to instrument source reader, skipping chain", "selector", selector, "error", err)
 				startupSkips.SkipChain(selector, err)
@@ -291,6 +290,9 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 			verifierMonitoring.RecordChainHealthy(ctx, selector, true)
 			readersMu.Lock()
 			sourceReaders[selector] = observedReader
+			if chain.finalityReporter != nil {
+				finalityReporters[selector] = chain.finalityReporter
+			}
 			readersMu.Unlock()
 		})
 	}
@@ -471,6 +473,7 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		messageRulesPoller,
 		chainStatusDB,
 		verifier.WithSourceRecovery(),
+		verifier.WithFinalityReporters(finalityReporters),
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create verification coordinator", "error", err)
@@ -644,6 +647,16 @@ func (f *factory) connectDB(ctx context.Context, lggr logger.Logger, secrets *vs
 	}
 	f.db = db
 	return db, nil
+}
+
+// sharedSQLDB returns the pool behind the shared verifier database, or nil when none is configured.
+func (f *factory) sharedSQLDB() *sql.DB {
+	f.dbMu.Lock()
+	defer f.dbMu.Unlock()
+	if f.db == nil {
+		return nil
+	}
+	return f.db.DB
 }
 
 // AfterAccessorsClosed implements [bootstrap.AccessorsClosedHook]. It closes the shared database
