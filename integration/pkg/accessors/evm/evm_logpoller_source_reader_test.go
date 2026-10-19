@@ -281,10 +281,6 @@ func TestLogPollerStartup(t *testing.T) {
 	expectStoredBlocks := func(lp *lpmocks.LogPoller) {
 		lp.EXPECT().LatestBlock(mock.Anything).Return(logpoller.Block{BlockNumber: 400}, nil).Maybe()
 	}
-	expectDelete := func(lp *lpmocks.LogPoller, from int64, times int) {
-		lp.EXPECT().DeleteLogsAndBlocksAfter(mock.Anything, from).Return(nil).Times(times)
-		expectStoredBlocks(lp)
-	}
 	waitReady := func(t *testing.T, r *LogPollerSourceReader) {
 		require.Eventually(t, r.ready.Load, 5*time.Second, 10*time.Millisecond)
 	}
@@ -301,13 +297,11 @@ func TestLogPollerStartup(t *testing.T) {
 		require.Never(t, r.ready.Load, 100*time.Millisecond, 10*time.Millisecond)
 	})
 
-	t.Run("registers the filter and deletes data from the start block before the replay", func(t *testing.T) {
+	t.Run("registers the filter and replays from the start block without deleting", func(t *testing.T) {
 		lp := lpmocks.NewLogPoller(t)
 		var order []string
 		lp.EXPECT().RegisterFilter(mock.Anything, mock.Anything).
 			RunAndReturn(func(context.Context, logpoller.Filter) error { order = append(order, "register"); return nil }).Once()
-		lp.EXPECT().DeleteLogsAndBlocksAfter(mock.Anything, int64(501)).
-			RunAndReturn(func(context.Context, int64) error { order = append(order, "delete"); return nil }).Once()
 		expectStoredBlocks(lp)
 		lp.EXPECT().Replay(mock.Anything, int64(501)).
 			RunAndReturn(func(context.Context, int64) error { order = append(order, "replay"); return nil }).Once()
@@ -315,17 +309,15 @@ func TestLogPollerStartup(t *testing.T) {
 		r := start(t, lp)
 		r.LoadFrom(501)
 		waitReady(t, r)
-		require.Equal(t, []string{"register", "delete", "replay"}, order)
+		require.Equal(t, []string{"register", "replay"}, order)
 	})
 
-	// The delete can remove every stored block. An empty log poller would restart at the chain's
-	// finalized block and skip the range if the replay failed, so it is anchored at the checkpoint first.
-	t.Run("a log poller the delete emptied is anchored at the checkpoint before the replay", func(t *testing.T) {
+	// An empty log poller (fresh DB, or emptied by remove-blocks) would restart at the chain's finalized
+	// block and skip the range if the replay failed, so it is anchored at the checkpoint first.
+	t.Run("an empty log poller is anchored at the checkpoint before the replay", func(t *testing.T) {
 		lp := lpmocks.NewLogPoller(t)
 		var order []string
 		expectRegister(lp)
-		lp.EXPECT().DeleteLogsAndBlocksAfter(mock.Anything, int64(501)).
-			RunAndReturn(func(context.Context, int64) error { order = append(order, "delete"); return nil }).Once()
 		lp.EXPECT().LatestBlock(mock.Anything).Return(logpoller.Block{}, sql.ErrNoRows).Once()
 		lp.EXPECT().SkipToBlock(mock.Anything, int64(501)).
 			RunAndReturn(func(context.Context, int64) error { order = append(order, "anchor"); return nil }).Once()
@@ -335,13 +327,12 @@ func TestLogPollerStartup(t *testing.T) {
 		r := start(t, lp)
 		r.LoadFrom(501)
 		waitReady(t, r)
-		require.Equal(t, []string{"delete", "anchor", "replay"}, order)
+		require.Equal(t, []string{"anchor", "replay"}, order)
 	})
 
 	t.Run("an anchor failure is retried before any replay", func(t *testing.T) {
 		lp := lpmocks.NewLogPoller(t)
 		lp.EXPECT().RegisterFilter(mock.Anything, mock.Anything).Return(nil).Twice()
-		lp.EXPECT().DeleteLogsAndBlocksAfter(mock.Anything, int64(501)).Return(nil).Twice()
 		lp.EXPECT().LatestBlock(mock.Anything).Return(logpoller.Block{}, sql.ErrNoRows).Twice()
 		lp.EXPECT().SkipToBlock(mock.Anything, int64(501)).Return(errors.New("rpc down")).Once()
 		lp.EXPECT().SkipToBlock(mock.Anything, int64(501)).Return(nil).Once()
@@ -355,7 +346,6 @@ func TestLogPollerStartup(t *testing.T) {
 	t.Run("a failure to read the latest block is retried before any replay", func(t *testing.T) {
 		lp := lpmocks.NewLogPoller(t)
 		lp.EXPECT().RegisterFilter(mock.Anything, mock.Anything).Return(nil).Twice()
-		lp.EXPECT().DeleteLogsAndBlocksAfter(mock.Anything, int64(501)).Return(nil).Twice()
 		lp.EXPECT().LatestBlock(mock.Anything).Return(logpoller.Block{}, errors.New("db down")).Once()
 		lp.EXPECT().LatestBlock(mock.Anything).Return(logpoller.Block{BlockNumber: 400}, nil).Once()
 		lp.EXPECT().Replay(mock.Anything, int64(501)).Return(nil).Once()
@@ -368,7 +358,6 @@ func TestLogPollerStartup(t *testing.T) {
 	t.Run("a start block with no block before it is not anchored", func(t *testing.T) {
 		lp := lpmocks.NewLogPoller(t)
 		expectRegister(lp)
-		lp.EXPECT().DeleteLogsAndBlocksAfter(mock.Anything, int64(1)).Return(nil).Once()
 		lp.EXPECT().LatestBlock(mock.Anything).Return(logpoller.Block{}, sql.ErrNoRows).Once()
 		lp.EXPECT().Replay(mock.Anything, int64(1)).Return(nil).Once()
 		lp.EXPECT().Healthy().Return(nil).Once()
@@ -380,7 +369,7 @@ func TestLogPollerStartup(t *testing.T) {
 	t.Run("only the first start block counts", func(t *testing.T) {
 		lp := lpmocks.NewLogPoller(t)
 		expectRegister(lp)
-		expectDelete(lp, 501, 1)
+		expectStoredBlocks(lp)
 		lp.EXPECT().Replay(mock.Anything, int64(501)).Return(nil).Once()
 		lp.EXPECT().Healthy().Return(nil).Once()
 		r := start(t, lp)
@@ -392,7 +381,7 @@ func TestLogPollerStartup(t *testing.T) {
 	t.Run("a start block not mined yet needs no replay", func(t *testing.T) {
 		lp := lpmocks.NewLogPoller(t)
 		expectRegister(lp)
-		expectDelete(lp, 1001, 1)
+		expectStoredBlocks(lp)
 		r := start(t, lp)
 		r.LoadFrom(1001)
 		waitReady(t, r)
@@ -402,7 +391,7 @@ func TestLogPollerStartup(t *testing.T) {
 		lp := lpmocks.NewLogPoller(t)
 		lp.EXPECT().RegisterFilter(mock.Anything, mock.Anything).Return(errors.New("rpc down")).Once()
 		expectRegister(lp)
-		expectDelete(lp, 501, 1)
+		expectStoredBlocks(lp)
 		lp.EXPECT().Replay(mock.Anything, int64(501)).Return(nil).Once()
 		lp.EXPECT().Healthy().Return(nil).Once()
 		r := start(t, lp)
@@ -412,11 +401,10 @@ func TestLogPollerStartup(t *testing.T) {
 		require.NoError(t, r.Loaded())
 	})
 
-	t.Run("delete failure is retried before any replay", func(t *testing.T) {
+	t.Run("a log poller behind the checkpoint is replayed without an anchor", func(t *testing.T) {
 		lp := lpmocks.NewLogPoller(t)
-		lp.EXPECT().RegisterFilter(mock.Anything, mock.Anything).Return(nil).Twice()
-		lp.EXPECT().DeleteLogsAndBlocksAfter(mock.Anything, int64(501)).Return(errors.New("db down")).Once()
-		expectDelete(lp, 501, 1)
+		expectRegister(lp)
+		lp.EXPECT().LatestBlock(mock.Anything).Return(logpoller.Block{BlockNumber: 300}, nil).Once()
 		lp.EXPECT().Replay(mock.Anything, int64(501)).Return(nil).Once()
 		lp.EXPECT().Healthy().Return(nil).Once()
 		r := start(t, lp)
@@ -430,8 +418,7 @@ func TestLogPollerStartup(t *testing.T) {
 	t.Run("finality violation during the replay stops the load and leaves the reader loaded but blocked", func(t *testing.T) {
 		lp := lpmocks.NewLogPoller(t)
 		lp.EXPECT().RegisterFilter(mock.Anything, mock.Anything).Return(nil).Once()
-		expectDelete(lp, 501, 1)
-		// Once makes a second replay fail the strict mock.
+		expectStoredBlocks(lp)
 		lp.EXPECT().Replay(mock.Anything, int64(501)).Return(commontypes.ErrFinalityViolated).Once()
 		lggr, logs := logger.TestObserved(t, zapcore.ErrorLevel)
 		r := start(t, lp)
@@ -469,7 +456,7 @@ func TestLogPollerStartup(t *testing.T) {
 	t.Run("a violation the replay leaves only in Healthy blocks the reader", func(t *testing.T) {
 		lp := lpmocks.NewLogPoller(t)
 		lp.EXPECT().RegisterFilter(mock.Anything, mock.Anything).Return(nil).Once()
-		expectDelete(lp, 501, 1)
+		expectStoredBlocks(lp)
 		lp.EXPECT().Replay(mock.Anything, int64(501)).Return(nil).Once()
 		lp.EXPECT().Healthy().Return(commontypes.ErrFinalityViolated).Once()
 		lggr, logs := logger.TestObserved(t, zapcore.ErrorLevel)
@@ -490,7 +477,7 @@ func TestLogPollerStartup(t *testing.T) {
 	t.Run("other log poller health errors after the replay do not block", func(t *testing.T) {
 		lp := lpmocks.NewLogPoller(t)
 		lp.EXPECT().RegisterFilter(mock.Anything, mock.Anything).Return(nil).Once()
-		expectDelete(lp, 501, 1)
+		expectStoredBlocks(lp)
 		lp.EXPECT().Replay(mock.Anything, int64(501)).Return(nil).Once()
 		lp.EXPECT().Healthy().Return(errors.New("rpc servers reported missing blocks")).Once()
 		r := start(t, lp)
@@ -502,7 +489,7 @@ func TestLogPollerStartup(t *testing.T) {
 	t.Run("a wrapped finality violation from the replay is detected", func(t *testing.T) {
 		lp := lpmocks.NewLogPoller(t)
 		lp.EXPECT().RegisterFilter(mock.Anything, mock.Anything).Return(nil).Once()
-		expectDelete(lp, 501, 1)
+		expectStoredBlocks(lp)
 		lp.EXPECT().Replay(mock.Anything, int64(501)).
 			Return(fmt.Errorf("replay: %w", commontypes.ErrFinalityViolated)).Once()
 		r := start(t, lp)
@@ -514,7 +501,7 @@ func TestLogPollerStartup(t *testing.T) {
 	t.Run("a non-violation failure still retries and never blocks", func(t *testing.T) {
 		lp := lpmocks.NewLogPoller(t)
 		lp.EXPECT().RegisterFilter(mock.Anything, mock.Anything).Return(nil).Twice()
-		expectDelete(lp, 501, 2)
+		expectStoredBlocks(lp)
 		lp.EXPECT().Replay(mock.Anything, int64(501)).Return(errors.New("replay failed")).Once()
 		lp.EXPECT().Replay(mock.Anything, int64(501)).Return(nil).Once()
 		lp.EXPECT().Healthy().Return(nil).Once()
@@ -528,7 +515,7 @@ func TestLogPollerStartup(t *testing.T) {
 	t.Run("the load never clears the block", func(t *testing.T) {
 		lp := lpmocks.NewLogPoller(t)
 		lp.EXPECT().RegisterFilter(mock.Anything, mock.Anything).Return(nil).Once()
-		expectDelete(lp, 501, 1)
+		expectStoredBlocks(lp)
 		lp.EXPECT().Replay(mock.Anything, int64(501)).Return(commontypes.ErrFinalityViolated).Once()
 		r := start(t, lp)
 		r.LoadFrom(501)
@@ -544,7 +531,7 @@ func TestLogPollerStartup(t *testing.T) {
 		for range 2 {
 			lp := lpmocks.NewLogPoller(t)
 			lp.EXPECT().RegisterFilter(mock.Anything, mock.Anything).Return(nil).Once()
-			expectDelete(lp, 501, 1)
+			expectStoredBlocks(lp)
 			lp.EXPECT().Replay(mock.Anything, int64(501)).Return(nil).Once()
 			lp.EXPECT().Healthy().Return(commontypes.ErrFinalityViolated).Once()
 			r := start(t, lp)

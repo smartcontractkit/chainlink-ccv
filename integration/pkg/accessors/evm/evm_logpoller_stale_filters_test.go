@@ -85,8 +85,6 @@ func TestLogPollerStaleFilterCleanup(t *testing.T) {
 				}
 				return unregisterErr
 			}).Maybe()
-		lp.EXPECT().DeleteLogsAndBlocksAfter(mock.Anything, mock.Anything).
-			RunAndReturn(func(context.Context, int64) error { rec.add("delete-data"); return nil }).Maybe()
 		lp.EXPECT().LatestBlock(mock.Anything).Return(logpoller.Block{BlockNumber: 400}, nil).Maybe()
 		lp.EXPECT().Replay(mock.Anything, mock.Anything).Return(nil).Maybe()
 		lp.EXPECT().Healthy().Return(nil).Maybe()
@@ -102,7 +100,7 @@ func TestLogPollerStaleFilterCleanup(t *testing.T) {
 		require.Eventually(t, r.ready.Load, 5*time.Second, 10*time.Millisecond)
 	}
 
-	t.Run("a stale filter is removed from the database, then from the log poller, before the data delete", func(t *testing.T) {
+	t.Run("a stale filter is removed from the database, then from the log poller", func(t *testing.T) {
 		f := start(t, map[string]logpoller.Filter{
 			own:   {Name: own},
 			stale: {Name: stale},
@@ -114,7 +112,7 @@ func TestLogPollerStaleFilterCleanup(t *testing.T) {
 		}, nil)
 		f.r.LoadFrom(501)
 		waitReady(t, f.r)
-		assert.Equal(t, []string{"register", "load", "orm-delete " + stale, "unregister " + stale, "delete-data"}, f.rec.snapshot())
+		assert.Equal(t, []string{"register", "load", "orm-delete " + stale, "unregister " + stale}, f.rec.snapshot())
 	})
 
 	t.Run("errors are warnings and the load still completes", func(t *testing.T) {
@@ -122,7 +120,7 @@ func TestLogPollerStaleFilterCleanup(t *testing.T) {
 		f.orm.deleteErr = errors.New("delete failed")
 		f.r.LoadFrom(501)
 		waitReady(t, f.r)
-		assert.Equal(t, []string{"register", "load", "orm-delete " + stale, "unregister " + stale, "delete-data"}, f.rec.snapshot())
+		assert.Equal(t, []string{"register", "load", "orm-delete " + stale, "unregister " + stale}, f.rec.snapshot())
 	})
 
 	t.Run("a failure to load the stored filters is a warning and does not retry the load", func(t *testing.T) {
@@ -130,7 +128,7 @@ func TestLogPollerStaleFilterCleanup(t *testing.T) {
 		f.orm.loadErr = errors.New("db down")
 		f.r.LoadFrom(501)
 		waitReady(t, f.r)
-		assert.Equal(t, []string{"register", "load", "delete-data"}, f.rec.snapshot())
+		assert.Equal(t, []string{"register", "load"}, f.rec.snapshot())
 	})
 
 	t.Run("the cleanup runs when the replay is skipped because the checkpoint is at the head", func(t *testing.T) {
@@ -145,7 +143,6 @@ func TestLogPollerStaleFilterCleanup(t *testing.T) {
 		lp := lpmocks.NewLogPoller(t)
 		lp.EXPECT().RegisterFilter(mock.Anything, mock.Anything).Return(nil).Once()
 		lp.EXPECT().UnregisterFilter(mock.Anything, own).Return(nil).Maybe()
-		lp.EXPECT().DeleteLogsAndBlocksAfter(mock.Anything, mock.Anything).Return(nil).Once()
 		lp.EXPECT().LatestBlock(mock.Anything).Return(logpoller.Block{BlockNumber: 400}, nil).Maybe()
 		lp.EXPECT().Replay(mock.Anything, mock.Anything).Return(nil).Once()
 		lp.EXPECT().Healthy().Return(nil).Once()
@@ -189,7 +186,6 @@ func TestLogPollerStaleFilterCleanup_RealORM(t *testing.T) {
 		RunAndReturn(func(ctx context.Context, f logpoller.Filter) error { return orm.InsertFilter(ctx, f) }).Once()
 	lp.EXPECT().UnregisterFilter(mock.Anything, mock.Anything).
 		RunAndReturn(func(ctx context.Context, name string) error { return orm.DeleteFilter(ctx, name) }).Maybe()
-	lp.EXPECT().DeleteLogsAndBlocksAfter(mock.Anything, mock.Anything).Return(nil).Once()
 	lp.EXPECT().LatestBlock(mock.Anything).Return(logpoller.Block{BlockNumber: 400}, nil).Maybe()
 	lp.EXPECT().Replay(mock.Anything, mock.Anything).Return(nil).Once()
 	lp.EXPECT().Healthy().Return(nil).Once()

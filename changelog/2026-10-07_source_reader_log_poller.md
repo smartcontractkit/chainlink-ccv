@@ -5,7 +5,7 @@
 - In CL mode, each EVM chain with the node's LogPoller enabled gets a new `evm.LogPollerSourceReader`. It reads `CCIPMessageSent` logs from the LogPoller instead of `eth_getLogs`. Chains with the LogPoller disabled, and the standalone verifier, keep the RPC `evm.SourceReader`.
 - The LogPoller reader takes latest, safe, and finalized blocks from the LogPoller's last processed block, not the head tracker, so the verifier never checkpoints a range the LogPoller has not indexed.
 - On those chains, the LogPoller's own finality-violation signal replaces the header-based finality checker, so finality checks make no RPC calls. The signal is passed to the verifier with `verifier.WithFinalityReporters`.
-- The reader loads the LogPoller in the background after the source reader service gives it the start block (`chainaccess.SourceLoader.LoadFrom`). On every start, loading registers the filter, deletes the LogPoller's logs and blocks from the start block, anchors an emptied LogPoller at the checkpoint, and replays. Reads fail with `chainaccess.ErrSourceNotReady` until the load finishes, and the chain reports not ready and unhealthy until then.
+- The reader loads the LogPoller in the background after the source reader service gives it the start block (`chainaccess.SourceLoader.LoadFrom`). On every start, loading registers the filter, anchors an empty LogPoller at the checkpoint, and replays from it. It never deletes LogPoller data. Reads fail with `chainaccess.ErrSourceNotReady` until the load finishes, and the chain reports not ready and unhealthy until then.
 - On close, the reader unregisters its own filter, named `ccv-verifier - <verifierID>:<onramp>`.
 - `evm.NewEVMSourceReader` now takes an `evm.SourceReaderParams` struct. Its only callers are in this repo and are updated. The Chainlink node calls `constructors.NewVerificationCoordinator`, whose signature does not change, so consumers have no breaking changes.
 
@@ -128,12 +128,11 @@ The LogPoller resumes after its own newest stored block, not the verifier's chec
 - `sourcereader.Service` calls `LoadFrom(startBlock)` on a reader that implements `chainaccess.SourceLoader`, after it initializes the start block (checkpoint + 1). Only the first call before `Close` counts. On `Close`, the service calls the reader's `Close`, logging a failure as a warning.
 - `LoadFrom` starts a goroutine. Each attempt runs these steps:
   1. Registers the filter (10s timeout).
-  2. Deletes the LogPoller's logs and blocks from the start block with `DeleteLogsAndBlocksAfter`, on every start, so everything after the checkpoint is fetched again.
-  3. If that left the LogPoller with no blocks, anchors it with `SkipToBlock(startBlock)`, which saves `startBlock - 1` (the finalized checkpoint) as its last processed block. Skipped when the start block is below 2. Without the anchor, an empty LogPoller would start its next poll at the chain's finalized block. If the replay then failed, the blocks from the start block up to that point would never be indexed, and the reader would still read them.
-  4. Calls `Replay` from the start block. A start block above the head tracker's latest block needs no replay.
+  2. If the LogPoller has no blocks (a fresh database, or emptied by `remove-blocks`), anchors it with `SkipToBlock(startBlock)`, which saves `startBlock - 1` (the finalized checkpoint) as its last processed block. Skipped when the start block is below 2. Without the anchor, an empty LogPoller would start its next poll at the chain's finalized block. If the replay then failed, the blocks from the start block up to that point would never be indexed, and the reader would still read them.
+  3. Calls `Replay` from the start block. A start block above the head tracker's latest block needs no replay.
 - Failures are retried with backoff from 1s up to 1m, until the load succeeds or the reader closes.
 - Until the load finishes, reads return `evm.ErrLogPollerNotReady`, which wraps `chainaccess.ErrSourceNotReady`. The service logs `Source not ready yet, waiting` at info instead of the `Error when querying logs` warning, and does not advance the checkpoint. `source_reader_state` still reports `poll_error`.
-- `DeleteLogsAndBlocksAfter` is chain-wide: other LogPoller consumers on the chain lose logs after the start block until the replay refills them. This now happens on every start.
+- Nothing is deleted on start, so stale blocks from a finality violation stay until an operator removes them. Resolve it with `find-lca`, `remove-blocks --start <LCA+1>`, and `chain-statuses set-finalized-height <LCA>`; see `docs/runbooks/resolving-finality-violation.md`.
 - Every restart replays from the checkpoint, normally about one finality depth of blocks.
 - `observedSourceReader` implements `SourceLoader` and forwards `LoadFrom`, `Loaded`, and `Close`. Other `SourceReader` wrappers must do the same, or the load never starts and health never sees it.
 
@@ -168,5 +167,5 @@ Known limits: if a node crashes and the job is then removed while the node is do
 
 ## References
 
-- Commits: `cba838c7` source reader log poller, `a112a7cf` finality violation from the LogPoller, `641f6887` startup replay, `7251722c` LogPoller finality checker, `0a9d92dd` behind-block error, `cdeee041` filter naming, `c22ba7d7` background startup load, `d3b8dbfc`/`5332a027` filter lifecycle, `ace9425f`/`c3e6abd6` injected finality reporters, `7b95ea4f` dedicated LogPoller reader, `9b604497` unconditional delete and anchor, `45f05ad1` blocks from the LogPoller, `3a90c49a` load health. `4c52b8ab` (CLI rewind) is superseded by the startup load.
+- Commits: `cba838c7` source reader log poller, `a112a7cf` finality violation from the LogPoller, `641f6887` startup replay, `7251722c` LogPoller finality checker, `0a9d92dd` behind-block error, `cdeee041` filter naming, `c22ba7d7` background startup load, `d3b8dbfc`/`5332a027` filter lifecycle, `ace9425f`/`c3e6abd6` injected finality reporters, `7b95ea4f` dedicated LogPoller reader, `9b604497` unconditional delete and anchor (the delete was later removed), `45f05ad1` blocks from the LogPoller, `3a90c49a` load health. `4c52b8ab` (CLI rewind) is superseded by the startup load.
 - Prior changelog entries this builds on: `2026-09-29_source_reader_block_confirmation.md`, `2026-09-11_source_recovery.md`.
