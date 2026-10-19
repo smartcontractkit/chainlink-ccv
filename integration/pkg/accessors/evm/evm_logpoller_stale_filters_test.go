@@ -71,7 +71,7 @@ func TestLogPollerStaleFilterCleanup(t *testing.T) {
 		rec *staleFilterRecorder
 		orm *storedFiltersORM
 	}
-	// start builds a reader over a head tracker at latest 1000; the fake ORM holds the stored filters.
+	// start builds a reader over a head tracker at latest and finalized 1000; the fake ORM holds the stored filters.
 	start := func(t *testing.T, stored map[string]logpoller.Filter, unregisterErr error) fixture {
 		rec := &staleFilterRecorder{}
 		orm := &storedFiltersORM{rec: rec, filters: stored}
@@ -90,7 +90,8 @@ func TestLogPollerStaleFilterCleanup(t *testing.T) {
 		lp.EXPECT().Healthy().Return(nil).Maybe()
 
 		cfg := &LogPollerConfig{LogPoller: lp, ORM: orm, VerifierID: "verifier-1", Retention: time.Hour}
-		reader, err := NewLogPollerSourceReader(t.Context(), testSourceReaderParams(t, stubHeadTracker{latest: 1000, finalized: 900}), cfg)
+		// Finalized at the head, so start block 1001 is the caught-up case rather than a checkpoint above finality.
+		reader, err := NewLogPollerSourceReader(t.Context(), testSourceReaderParams(t, stubHeadTracker{latest: 1000, finalized: 1000}), cfg)
 		require.NoError(t, err)
 		r := reader.(*LogPollerSourceReader)
 		t.Cleanup(func() { require.NoError(t, r.Close()) })
