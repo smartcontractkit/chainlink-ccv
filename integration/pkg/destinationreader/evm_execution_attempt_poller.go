@@ -13,10 +13,12 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/event"
 	"github.com/hashicorp/golang-lru/v2/expirable"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/offramp"
+	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
@@ -727,7 +729,7 @@ func (p *EvmExecutionAttemptPoller) processExecutionStateChanged(ctx context.Con
 			txHash.Hex(), txTo, p.offRampAddress.Hex())
 	}
 
-	executionAttempt, err := p.decodeCallDataToExecutionAttempt(transaction.Data(), transaction.Gas())
+	executionAttempt, err := p.decodeCallDataToExecutionAttempt(transaction)
 	if err != nil {
 		return fmt.Errorf("failed to decode call data for transaction %s: %w", txHash.Hex(), err)
 	}
@@ -738,6 +740,9 @@ func (p *EvmExecutionAttemptPoller) processExecutionStateChanged(ctx context.Con
 		p.lggr.Errorw("MessageID from event does not match the computed messageID. This should never happen.", protocol.LogKeyMessageID, protocol.Bytes32(msgID).String(), "computedMessageID", attemptMsgID.String())
 		return fmt.Errorf("computed message id does not match event message id")
 	}
+
+	executionAttempt.Failed = executor.MessageExecutionState(event.State) == executor.FAILURE
+	executionAttempt.FailureData = event.ReturnData
 
 	// store the execution attempt in cache
 	attempts, _ := p.attemptCache.Get(msgID)
@@ -754,7 +759,9 @@ func (p *EvmExecutionAttemptPoller) processExecutionStateChanged(ctx context.Con
 
 // decodeCallDataToExecutionAttempt decodes the transaction call data into an ExecutionAttempt.
 // It validates the function selector, unpacks ABI-encoded parameters, and constructs the attempt.
-func (p *EvmExecutionAttemptPoller) decodeCallDataToExecutionAttempt(callData []byte, gasLimit uint64) (*protocol.ExecutionAttempt, error) {
+func (p *EvmExecutionAttemptPoller) decodeCallDataToExecutionAttempt(tx *types.Transaction) (*protocol.ExecutionAttempt, error) {
+	callData := tx.Data()
+
 	method, ok := offrampABI.Methods[executeMethodName]
 	if !ok {
 		return nil, fmt.Errorf("execute method not found in offramp ABI")
@@ -799,6 +806,11 @@ func (p *EvmExecutionAttemptPoller) decodeCallDataToExecutionAttempt(callData []
 		return nil, fmt.Errorf("invalid type for ccvData: expected [][]byte, got %T", values[2])
 	}
 
+	gasLimitOverride, ok := values[3].(uint32)
+	if !ok {
+		return nil, fmt.Errorf("invalid type for gasLimitOverride: expected uint32, got %T", values[3])
+	}
+
 	// Convert the message bytes into a struct
 	message, err := protocol.DecodeMessage(encodedMsg)
 	if err != nil {
@@ -817,8 +829,21 @@ func (p *EvmExecutionAttemptPoller) decodeCallDataToExecutionAttempt(callData []
 		Message: *message,
 	}
 
+	// Intrinsic gas depends on the destination chain fork, so accept only the envelope the executor produces:
+	// no access list, no EIP-7702 authorizations, and the canonical ABI encoding of the arguments.
+	canonicalArgs, err := method.Inputs.Pack(encodedMsg, contractCcvs, ccvData, gasLimitOverride)
+	if err != nil {
+		return nil, fmt.Errorf("failed to re-encode execute call data for canonical-encoding check: %w", err)
+	}
+	canonicalCallData := append(append([]byte{}, method.ID...), canonicalArgs...)
+	hasNonCanonicalGasEnvelope := len(tx.AccessList()) > 0 ||
+		len(tx.SetCodeAuthorizations()) > 0 ||
+		!bytes.Equal(callData, canonicalCallData)
+
 	return &protocol.ExecutionAttempt{
-		Report:              report,
-		TransactionGasLimit: new(big.Int).SetUint64(gasLimit),
+		Report:                     report,
+		TransactionGasLimit:        new(big.Int).SetUint64(tx.Gas()),
+		GasLimitOverride:           new(big.Int).SetUint64(uint64(gasLimitOverride)),
+		HasNonCanonicalGasEnvelope: hasNonCanonicalGasEnvelope,
 	}, nil
 }
