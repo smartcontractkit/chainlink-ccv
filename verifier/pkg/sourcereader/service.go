@@ -61,10 +61,12 @@ type Service struct {
 	curseDetector   common.CurseCheckerService
 	messageRules    common.MessageRulesChecker
 	finalityChecker protocol.FinalityViolationChecker
-	pollInterval    time.Duration
-	pollTimeout     time.Duration
-	maxBlockRange   uint64
-	sourceCfg       verifier.SourceConfig
+	// finalityReporter is the chain's own finality signal, nil when headers are compared instead.
+	finalityReporter chainaccess.FinalityViolationReporter
+	pollInterval     time.Duration
+	pollTimeout      time.Duration
+	maxBlockRange    uint64
+	sourceCfg        verifier.SourceConfig
 
 	// DB-backed task queue
 	taskQueue jobqueue.JobQueue[verifier.VerificationTask]
@@ -83,12 +85,28 @@ type Service struct {
 	reorgTracker                *ReorgTracker
 	disabled                    atomic.Bool
 	finalityBlocked             atomic.Bool
+	// awaitingLoad is set when the source was still loading at start, so the chain is recorded healthy
+	// once it loads. Only the monitoring goroutine writes it.
+	awaitingLoad bool
 
 	// ChainStatus management
 	chainStatusManager protocol.ChainStatusManager
 
 	recovery *recoveryRuntime
 	filter   chainaccess.MessageFilter
+}
+
+// ServiceOption customizes NewService.
+type ServiceOption func(*serviceOptions)
+
+type serviceOptions struct {
+	finalityReporter chainaccess.FinalityViolationReporter
+}
+
+// WithFinalityReporter makes the service use the chain's own finality signal instead of comparing
+// headers; a nil reporter keeps the header-based checker.
+func WithFinalityReporter(reporter chainaccess.FinalityViolationReporter) ServiceOption {
+	return func(o *serviceOptions) { o.finalityReporter = reporter }
 }
 
 // NewService creates a DB-backed Service that publishes
@@ -105,7 +123,12 @@ func NewService(
 	monitoring verifier.Monitoring,
 	taskQueue jobqueue.JobQueue[verifier.VerificationTask],
 	messageRules common.MessageRulesChecker,
+	opts ...ServiceOption,
 ) (*Service, error) {
+	var options serviceOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
 	if sourceReader == nil {
 		return nil, fmt.Errorf("sourceReader cannot be nil")
 	}
@@ -129,22 +152,16 @@ func NewService(
 	}
 	metrics := monitoring.Metrics()
 
-	var finalityChecker protocol.FinalityViolationChecker
-	var err error
-
-	if sourceCfg.DisableFinalityChecker {
-		lggr.Infow("FinalityViolationChecker is disabled by config", "chainSelector", chainSelector)
-		finalityChecker = &NoOpFinalityViolationChecker{}
-	} else {
-		finalityChecker, err = NewFinalityViolationCheckerService(
-			sourceReader,
-			chainSelector,
-			logger.With(lggr, "component", "FinalityChecker", "chainID", chainSelector),
-			metrics,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create finality checker: %w", err)
-		}
+	finalityChecker, err := newFinalityChecker(
+		sourceCfg,
+		sourceReader,
+		options.finalityReporter,
+		chainSelector,
+		logger.With(lggr, "component", "FinalityChecker", "chainID", chainSelector),
+		metrics,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create finality checker: %w", err)
 	}
 
 	interval := sourceCfg.PollInterval
@@ -172,6 +189,7 @@ func NewService(
 		curseDetector:      curseDetector,
 		messageRules:       messageRules,
 		finalityChecker:    finalityChecker,
+		finalityReporter:   options.finalityReporter,
 		pollInterval:       interval,
 		pollTimeout:        pollTimeout,
 		sourceCfg:          sourceCfg,
@@ -216,14 +234,29 @@ func (r *Service) initializeAndMonitor() {
 		attemptCancel()
 		if err == nil {
 			r.lastProcessedFinalizedBlock.Store(startBlock)
-			r.startBlockInitialized.Store(true)
+			if loader, ok := r.sourceReader.(chainaccess.SourceLoader); ok {
+				loader.LoadFrom(startBlock)
+			}
+			// A source still loading cannot serve reads yet, so the chain is healthy only once it loads.
+			loaded := r.sourceLoaded() == nil
+			r.awaitingLoad = !loaded
 			r.metrics().SetSourceReaderLastProcessedFinalizedBlock(ctx, int64(startBlock)) // #nosec G115 -- chain block heights are within int64 range
 			r.logger.Infow("Initialized start block", "block", startBlock)
-			r.monitoring.RecordChainHealthy(ctx, r.chainSelector, true)
+			r.monitoring.RecordChainHealthy(ctx, r.chainSelector, loaded)
+			r.startBlockInitialized.Store(true) // last, so initialized implies the start-up metrics are recorded
 			break
 		}
 		r.logger.Errorw("Failed to initialize start block, will retry", "error", err, "retryIn", r.pollInterval)
 		r.monitoring.RecordChainHealthy(ctx, r.chainSelector, false)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(r.pollInterval):
+		}
+	}
+
+	// A loading source must not be read, so the monitoring loop starts only once it has loaded.
+	for r.sourceLoaded() != nil {
 		select {
 		case <-ctx.Done():
 			return
@@ -239,6 +272,11 @@ func (r *Service) Close() error {
 		r.logger.Infow("Stopping Service")
 		close(r.stopCh)
 		r.wg.Wait()
+		if loader, ok := r.sourceReader.(chainaccess.SourceLoader); ok {
+			if err := loader.Close(); err != nil {
+				r.logger.Warnw("Failed to close source reader", "error", err)
+			}
+		}
 		r.logger.Infow("Service stopped")
 		return nil
 	})
@@ -260,6 +298,9 @@ func (r *Service) Ready() error {
 	}
 	if !r.startBlockInitialized.Load() {
 		return errors.New("start block not yet initialized")
+	}
+	if err := r.sourceLoaded(); err != nil {
+		return err
 	}
 	if r.finalityBlocked.Load() {
 		return errors.New("finality blocked")
@@ -312,6 +353,7 @@ func (r *Service) eventMonitoringLoop() {
 				if pollSucceeded {
 					r.metrics().SetSourceReaderLastSuccessfulPollTimestamp(ctx, time.Now().Unix())
 					r.metrics().SetSourceReaderState(ctx, monitoring.SourceReaderStateRunning)
+					r.recordLoadedHealth(ctx)
 				} else {
 					r.metrics().SetSourceReaderState(ctx, monitoring.SourceReaderStatePollError)
 				}
@@ -405,9 +447,12 @@ func (r *Service) processEventCycle(ctx context.Context, latest, finalized *prot
 	r.logger.Debugw("Querying from block", "fromBlock", fromBlock)
 	events, lastQueriedBlock, err := r.loadEvents(logsCtx, fromBlock, latest)
 	if err != nil {
-		r.logger.Warnw("Error when querying logs", "error", err,
-			"fromBlock", fromBlock,
-			"toBlock", "latest")
+		// A source still loading is expected on startup, so it is logged at info; the loop still records poll_error.
+		if errors.Is(err, chainaccess.ErrSourceNotReady) {
+			r.logger.Infow("Source not ready yet, waiting", "fromBlock", fromBlock, "error", err)
+		} else {
+			r.logger.Warnw("Error when querying logs", "error", err, "fromBlock", fromBlock, "toBlock", "latest")
+		}
 
 		// Only return early when no progress was made
 		if lastQueriedBlock == fromBlock {
@@ -1192,6 +1237,24 @@ func (r *Service) metrics() verifier.MetricLabeler {
 		"source_chain", r.chainSelector.String(),
 		"source_chain_name", r.chainSelector.ChainName(),
 	)
+}
+
+// sourceLoaded returns the source reader's load state: nil for a reader with nothing to load.
+func (r *Service) sourceLoaded() error {
+	if loader, ok := r.sourceReader.(chainaccess.SourceLoader); ok {
+		return loader.Loaded()
+	}
+	return nil
+}
+
+// recordLoadedHealth records the chain healthy once a source that was loading at start has loaded. It
+// records only that transition, so it never overrides a later unhealthy state such as a disabled chain.
+func (r *Service) recordLoadedHealth(ctx context.Context) {
+	if !r.awaitingLoad || r.sourceLoaded() != nil {
+		return
+	}
+	r.awaitingLoad = false
+	r.monitoring.RecordChainHealthy(ctx, r.chainSelector, true)
 }
 
 func (r *Service) recordDisabledState(ctx context.Context) {

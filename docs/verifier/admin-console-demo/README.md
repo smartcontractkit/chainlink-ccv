@@ -101,7 +101,7 @@ queues. Three message IDs carry it — easy to read out loud:
 
 - **`port … is busy`** — something else owns 8105/5433; stop it or edit the port
   variables at the top of `demo.sh` (and `demo-config.toml` for the console port).
-- **`go.mod requires go >= 1.26.6`** — the script pins `GOTOOLCHAIN=go1.26.6`
+- **`go.mod requires go >= 1.26.9`** — the script pins `GOTOOLCHAIN=go1.26.9`
   (matching `tool-versions.env`); with `GOTOOLCHAIN=local` and an older Go this fails.
 - **Console log** — `.runtime/console.log` (path is printed at startup).
 - **`docker exec` errors** — the container is `ccv-admin-demo`; `docker rm -f
