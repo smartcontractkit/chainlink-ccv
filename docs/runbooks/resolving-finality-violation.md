@@ -7,10 +7,6 @@ already saved as finalized no longer matches the chain. The verifier disables th
 (`disabled = true` and `finalized_block_height = 0` in `ccv_chain_statuses`), logs `FINALITY VIOLATION DETECTED`, and stops
 verifying that source until an operator resolves it.
 
-The verifier no longer deletes log poller data on startup. It only replays from its checkpoint
-(`finalized_block_height + 1`), so a violation persists across restarts until the stale blocks are
-removed and the checkpoint is moved back.
-
 This runbook applies to committee verifiers running inside a Chainlink node with the log poller
 enabled (`Feature.LogPoller = true`). Standalone verifiers can use the live
 [recovery workflow](../../cli/recovery/README.md) instead.
@@ -91,7 +87,5 @@ The chain reports not ready until the replay finishes.
 
 ## Caveats
 
-- Messages the verifier signed from the orphaned fork above `L` are not undone by this procedure.
-  Review them separately.
 - If a violation is reported again right after the restart, the log poller still holds blocks
   that disagree with the chain. Repeat from step 2.
