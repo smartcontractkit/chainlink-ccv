@@ -81,9 +81,12 @@ type LogPollerSourceReader struct {
 	cfg        *LogPollerConfig
 	filterName string
 	// ready is set once the filter is registered and the log poller replayed.
-	ready  atomic.Bool
-	stopCh services.StopChan
-	wg     sync.WaitGroup
+	ready atomic.Bool
+	// finalityBlocked is set when the startup replay hit a finality violation. The reader then counts as
+	// loaded so recovery can run on it, and only a reset-reader prepare clears it.
+	finalityBlocked atomic.Bool
+	stopCh          services.StopChan
+	wg              sync.WaitGroup
 	// mu orders LoadFrom against Close so the startup goroutine never starts after Close.
 	mu      sync.Mutex
 	started bool
@@ -121,9 +124,10 @@ func NewLogPollerSourceReader(ctx context.Context, p SourceReaderParams, cfg *Lo
 	return r, nil
 }
 
-// FinalityViolated reports whether the reader's log poller has detected a finality violation.
+// FinalityViolated reports whether the reader's log poller has detected a finality violation. The reader's
+// own block keeps the signal after the log poller clears its flag, which a later successful poll does.
 func (r *LogPollerSourceReader) FinalityViolated() bool {
-	return errors.Is(r.lp.Healthy(), commontypes.ErrFinalityViolated)
+	return r.finalityBlocked.Load() || errors.Is(r.lp.Healthy(), commontypes.ErrFinalityViolated)
 }
 
 // LoadFrom starts loading the log poller from startBlock, the first block the verifier reads. Only the
@@ -147,6 +151,11 @@ func (r *LogPollerSourceReader) Loaded() error {
 	return ErrLogPollerNotReady
 }
 
+// clearFinalityBlock lifts the block for a reset-reader prepare. Nothing else may call it.
+func (r *LogPollerSourceReader) clearFinalityBlock() {
+	r.finalityBlocked.Store(false)
+}
+
 // initLogPoller retries loading the log poller from the start block with backoff until it succeeds or
 // the reader closes.
 func (r *LogPollerSourceReader) initLogPoller(from uint64) {
@@ -158,6 +167,13 @@ func (r *LogPollerSourceReader) initLogPoller(from uint64) {
 		if err == nil {
 			r.ready.Store(true)
 			r.lggr.Infow("Log poller ready, reading CCIPMessageSent logs from it", "filter", r.filterName)
+			return
+		}
+		if errors.Is(err, commontypes.ErrFinalityViolated) {
+			// Retrying would delete and replay again over data the log poller declared unsafe.
+			r.finalityBlocked.Store(true)
+			r.ready.Store(true)
+			r.lggr.Errorw("Log poller startup hit a finality violation, not retrying", "chainSelector", r.chainSelector, "filter", r.filterName, "error", err)
 			return
 		}
 		r.lggr.Warnw("Log poller startup failed, retrying", "filter", r.filterName, "retryIn", backoff, "error", err)
@@ -270,9 +286,13 @@ func (r *LogPollerSourceReader) replayLogPoller(ctx context.Context, fromBlock u
 	if fromBlock > latest.Number {
 		return nil // Not mined yet: the log poller indexes it as it arrives.
 	}
-	// A finality violation here is declared on the log poller itself, so Healthy() reports it.
 	if err := r.lp.Replay(ctx, int64(max(fromBlock, 1))); err != nil { // #nosec G115 -- range checked by loadLogPoller
 		return fmt.Errorf("log poller replay from block %d failed: %w", fromBlock, err)
+	}
+	// Replay hands the blocks past its stored finalized block to the poll loop and drops that part's
+	// errors, so a violation found there only shows in Healthy().
+	if err := r.lp.Healthy(); errors.Is(err, commontypes.ErrFinalityViolated) {
+		return fmt.Errorf("log poller replay from block %d: %w", fromBlock, err)
 	}
 	return nil
 }
@@ -303,6 +323,10 @@ func (r *LogPollerSourceReader) Close() error {
 func (r *LogPollerSourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, toBlock uint64) ([]protocol.MessageSentEvent, error) {
 	if !r.ready.Load() {
 		return nil, ErrLogPollerNotReady
+	}
+	// The startup range was deleted and never replayed, so nothing read from it is safe.
+	if r.finalityBlocked.Load() {
+		return nil, fmt.Errorf("chain %d: %w", r.chainSelector, commontypes.ErrFinalityViolated)
 	}
 	logs, err := r.logPollerLogs(ctx, fromBlock, toBlock)
 	if err != nil {

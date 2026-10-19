@@ -89,6 +89,7 @@ func TestLogPollerStaleFilterCleanup(t *testing.T) {
 			RunAndReturn(func(context.Context, int64) error { rec.add("delete-data"); return nil }).Maybe()
 		lp.EXPECT().LatestBlock(mock.Anything).Return(logpoller.Block{BlockNumber: 400}, nil).Maybe()
 		lp.EXPECT().Replay(mock.Anything, mock.Anything).Return(nil).Maybe()
+		lp.EXPECT().Healthy().Return(nil).Maybe()
 
 		cfg := &LogPollerConfig{LogPoller: lp, ORM: orm, VerifierID: "verifier-1", Retention: time.Hour}
 		reader, err := NewLogPollerSourceReader(t.Context(), testSourceReaderParams(t, stubHeadTracker{latest: 1000, finalized: 900}), cfg)
@@ -147,6 +148,7 @@ func TestLogPollerStaleFilterCleanup(t *testing.T) {
 		lp.EXPECT().DeleteLogsAndBlocksAfter(mock.Anything, mock.Anything).Return(nil).Once()
 		lp.EXPECT().LatestBlock(mock.Anything).Return(logpoller.Block{BlockNumber: 400}, nil).Maybe()
 		lp.EXPECT().Replay(mock.Anything, mock.Anything).Return(nil).Once()
+		lp.EXPECT().Healthy().Return(nil).Once()
 		cfg := &LogPollerConfig{LogPoller: lp, VerifierID: "verifier-1", Retention: time.Hour}
 		reader, err := NewLogPollerSourceReader(t.Context(), testSourceReaderParams(t, stubHeadTracker{latest: 1000, finalized: 900}), cfg)
 		require.NoError(t, err)
@@ -190,6 +192,7 @@ func TestLogPollerStaleFilterCleanup_RealORM(t *testing.T) {
 	lp.EXPECT().DeleteLogsAndBlocksAfter(mock.Anything, mock.Anything).Return(nil).Once()
 	lp.EXPECT().LatestBlock(mock.Anything).Return(logpoller.Block{BlockNumber: 400}, nil).Maybe()
 	lp.EXPECT().Replay(mock.Anything, mock.Anything).Return(nil).Once()
+	lp.EXPECT().Healthy().Return(nil).Once()
 
 	cfg := NewLogPollerConfig(lp, orm, "verifier-1")
 	reader, err := NewLogPollerSourceReader(ctx, testSourceReaderParams(t, stubHeadTracker{latest: 1000, finalized: 900}), cfg)

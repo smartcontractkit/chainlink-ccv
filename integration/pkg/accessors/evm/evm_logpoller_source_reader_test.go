@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"math/big"
 	"sync/atomic"
 	"testing"
@@ -13,6 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap/zapcore"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
@@ -170,6 +172,14 @@ func TestLogPollerEnabled(t *testing.T) {
 	}
 }
 
+func TestFinalityBlocked(t *testing.T) {
+	r := readyLogPollerReader(sourceReaderCore{}, lpmocks.NewLogPoller(t))
+	r.finalityBlocked.Store(true)
+	require.True(t, r.FinalityViolated(), "the block alone reports the violation")
+	r.clearFinalityBlock()
+	require.False(t, r.finalityBlocked.Load())
+}
+
 func TestFinalityViolated(t *testing.T) {
 	for name, tc := range map[string]struct {
 		healthy error
@@ -277,6 +287,7 @@ func TestLogPollerStartup(t *testing.T) {
 		expectStoredBlocks(lp)
 		lp.EXPECT().Replay(mock.Anything, int64(501)).
 			RunAndReturn(func(context.Context, int64) error { order = append(order, "replay"); return nil }).Once()
+		lp.EXPECT().Healthy().Return(nil).Once()
 		r := start(t, lp)
 		r.LoadFrom(501)
 		waitReady(t, r)
@@ -296,6 +307,7 @@ func TestLogPollerStartup(t *testing.T) {
 			RunAndReturn(func(context.Context, int64) error { order = append(order, "anchor"); return nil }).Once()
 		lp.EXPECT().Replay(mock.Anything, int64(501)).
 			RunAndReturn(func(context.Context, int64) error { order = append(order, "replay"); return nil }).Once()
+		lp.EXPECT().Healthy().Return(nil).Once()
 		r := start(t, lp)
 		r.LoadFrom(501)
 		waitReady(t, r)
@@ -310,6 +322,7 @@ func TestLogPollerStartup(t *testing.T) {
 		lp.EXPECT().SkipToBlock(mock.Anything, int64(501)).Return(errors.New("rpc down")).Once()
 		lp.EXPECT().SkipToBlock(mock.Anything, int64(501)).Return(nil).Once()
 		lp.EXPECT().Replay(mock.Anything, int64(501)).Return(nil).Once()
+		lp.EXPECT().Healthy().Return(nil).Once()
 		r := start(t, lp)
 		r.LoadFrom(501)
 		waitReady(t, r)
@@ -322,6 +335,7 @@ func TestLogPollerStartup(t *testing.T) {
 		lp.EXPECT().LatestBlock(mock.Anything).Return(logpoller.Block{}, errors.New("db down")).Once()
 		lp.EXPECT().LatestBlock(mock.Anything).Return(logpoller.Block{BlockNumber: 400}, nil).Once()
 		lp.EXPECT().Replay(mock.Anything, int64(501)).Return(nil).Once()
+		lp.EXPECT().Healthy().Return(nil).Once()
 		r := start(t, lp)
 		r.LoadFrom(501)
 		waitReady(t, r)
@@ -333,6 +347,7 @@ func TestLogPollerStartup(t *testing.T) {
 		lp.EXPECT().DeleteLogsAndBlocksAfter(mock.Anything, int64(1)).Return(nil).Once()
 		lp.EXPECT().LatestBlock(mock.Anything).Return(logpoller.Block{}, sql.ErrNoRows).Once()
 		lp.EXPECT().Replay(mock.Anything, int64(1)).Return(nil).Once()
+		lp.EXPECT().Healthy().Return(nil).Once()
 		r := start(t, lp)
 		r.LoadFrom(1)
 		waitReady(t, r)
@@ -343,6 +358,7 @@ func TestLogPollerStartup(t *testing.T) {
 		expectRegister(lp)
 		expectDelete(lp, 501, 1)
 		lp.EXPECT().Replay(mock.Anything, int64(501)).Return(nil).Once()
+		lp.EXPECT().Healthy().Return(nil).Once()
 		r := start(t, lp)
 		r.LoadFrom(501)
 		r.LoadFrom(700)
@@ -364,6 +380,7 @@ func TestLogPollerStartup(t *testing.T) {
 		expectRegister(lp)
 		expectDelete(lp, 501, 1)
 		lp.EXPECT().Replay(mock.Anything, int64(501)).Return(nil).Once()
+		lp.EXPECT().Healthy().Return(nil).Once()
 		r := start(t, lp)
 		require.ErrorIs(t, r.Loaded(), chainaccess.ErrSourceNotReady)
 		r.LoadFrom(501)
@@ -377,20 +394,141 @@ func TestLogPollerStartup(t *testing.T) {
 		lp.EXPECT().DeleteLogsAndBlocksAfter(mock.Anything, int64(501)).Return(errors.New("db down")).Once()
 		expectDelete(lp, 501, 1)
 		lp.EXPECT().Replay(mock.Anything, int64(501)).Return(nil).Once()
+		lp.EXPECT().Healthy().Return(nil).Once()
 		r := start(t, lp)
 		r.LoadFrom(501)
 		waitReady(t, r)
 	})
 
-	t.Run("finality violation during the replay is retried", func(t *testing.T) {
+	// A violation is not transient: retrying would delete and replay again over unsafe data, so the reader
+	// loads blocked and recovery can still run on it. Replay returns the violation only from its own
+	// backfill, which the startup skips today; this guards the reader if that changes.
+	t.Run("finality violation during the replay stops the load and leaves the reader loaded but blocked", func(t *testing.T) {
 		lp := lpmocks.NewLogPoller(t)
-		lp.EXPECT().RegisterFilter(mock.Anything, mock.Anything).Return(nil).Twice()
-		expectDelete(lp, 501, 2)
+		lp.EXPECT().RegisterFilter(mock.Anything, mock.Anything).Return(nil).Once()
+		expectDelete(lp, 501, 1)
+		// Once makes a second replay fail the strict mock.
 		lp.EXPECT().Replay(mock.Anything, int64(501)).Return(commontypes.ErrFinalityViolated).Once()
+		lggr, logs := logger.TestObserved(t, zapcore.ErrorLevel)
+		r := start(t, lp)
+		r.lggr = lggr
+		r.LoadFrom(501)
+		waitReady(t, r)
+
+		require.NoError(t, r.Loaded())
+		require.True(t, r.finalityBlocked.Load())
+		// Healthy is not mocked: a blocked reader reports the violation without asking the log poller.
+		require.True(t, r.FinalityViolated())
+		violationLogs := logs.FilterMessageSnippet("finality violation")
+		require.Equal(t, 1, violationLogs.Len())
+		ctxMap := violationLogs.All()[0].ContextMap()
+		require.Equal(t, r.filterName, ctxMap["filter"])
+		require.Contains(t, ctxMap, "chainSelector")
+		// No log poller read is mocked: a blocked reader refuses reads without touching the log poller.
+		_, err := r.FetchMessageSentEvents(t.Context(), 501, 0)
+		require.ErrorIs(t, err, commontypes.ErrFinalityViolated)
+		// The goroutine returned instead of looping, so Close does not wait on a retry.
+		done := make(chan struct{})
+		go func() { _ = r.Close(); close(done) }()
+		require.Eventually(t, func() bool {
+			select {
+			case <-done:
+				return true
+			default:
+				return false
+			}
+		}, 5*time.Second, 10*time.Millisecond)
+	})
+
+	// This is how a startup violation really arrives: the delete and anchor leave nothing for Replay's own
+	// backfill, so the poll loop finds the violation, Replay returns nil and only Healthy() reports it.
+	t.Run("a violation the replay leaves only in Healthy blocks the reader", func(t *testing.T) {
+		lp := lpmocks.NewLogPoller(t)
+		lp.EXPECT().RegisterFilter(mock.Anything, mock.Anything).Return(nil).Once()
+		expectDelete(lp, 501, 1)
 		lp.EXPECT().Replay(mock.Anything, int64(501)).Return(nil).Once()
+		lp.EXPECT().Healthy().Return(commontypes.ErrFinalityViolated).Once()
+		lggr, logs := logger.TestObserved(t, zapcore.ErrorLevel)
+		r := start(t, lp)
+		r.lggr = lggr
+		r.LoadFrom(501)
+		waitReady(t, r)
+
+		require.NoError(t, r.Loaded())
+		require.True(t, r.finalityBlocked.Load())
+		require.Equal(t, 1, logs.FilterMessageSnippet("finality violation").Len())
+		// Once on Healthy: the block, not a second log poller check, keeps reporting the violation.
+		require.True(t, r.FinalityViolated())
+		_, err := r.FetchMessageSentEvents(t.Context(), 501, 0)
+		require.ErrorIs(t, err, commontypes.ErrFinalityViolated)
+	})
+
+	t.Run("other log poller health errors after the replay do not block", func(t *testing.T) {
+		lp := lpmocks.NewLogPoller(t)
+		lp.EXPECT().RegisterFilter(mock.Anything, mock.Anything).Return(nil).Once()
+		expectDelete(lp, 501, 1)
+		lp.EXPECT().Replay(mock.Anything, int64(501)).Return(nil).Once()
+		lp.EXPECT().Healthy().Return(errors.New("rpc servers reported missing blocks")).Once()
 		r := start(t, lp)
 		r.LoadFrom(501)
 		waitReady(t, r)
+		require.False(t, r.finalityBlocked.Load())
+	})
+
+	t.Run("a wrapped finality violation from the replay is detected", func(t *testing.T) {
+		lp := lpmocks.NewLogPoller(t)
+		lp.EXPECT().RegisterFilter(mock.Anything, mock.Anything).Return(nil).Once()
+		expectDelete(lp, 501, 1)
+		lp.EXPECT().Replay(mock.Anything, int64(501)).
+			Return(fmt.Errorf("replay: %w", commontypes.ErrFinalityViolated)).Once()
+		r := start(t, lp)
+		r.LoadFrom(501)
+		waitReady(t, r)
+		require.True(t, r.finalityBlocked.Load())
+	})
+
+	t.Run("a non-violation failure still retries and never blocks", func(t *testing.T) {
+		lp := lpmocks.NewLogPoller(t)
+		lp.EXPECT().RegisterFilter(mock.Anything, mock.Anything).Return(nil).Twice()
+		expectDelete(lp, 501, 2)
+		lp.EXPECT().Replay(mock.Anything, int64(501)).Return(errors.New("replay failed")).Once()
+		lp.EXPECT().Replay(mock.Anything, int64(501)).Return(nil).Once()
+		lp.EXPECT().Healthy().Return(nil).Once()
+		r := start(t, lp)
+		r.LoadFrom(501)
+		waitReady(t, r)
+		require.False(t, r.finalityBlocked.Load())
+	})
+
+	// Only a reset-reader prepare clears the block, so the load never does.
+	t.Run("the load never clears the block", func(t *testing.T) {
+		lp := lpmocks.NewLogPoller(t)
+		lp.EXPECT().RegisterFilter(mock.Anything, mock.Anything).Return(nil).Once()
+		expectDelete(lp, 501, 1)
+		lp.EXPECT().Replay(mock.Anything, int64(501)).Return(commontypes.ErrFinalityViolated).Once()
+		r := start(t, lp)
+		r.LoadFrom(501)
+		waitReady(t, r)
+		// Close waits for the load goroutine, so the block seen afterwards is its final state.
+		require.NoError(t, r.Close())
+		require.True(t, r.finalityBlocked.Load())
+	})
+
+	// Nothing carries the block across a restart: each start reads the violation fresh from its own replay.
+	// The chain stays disabled regardless, because the verifier persists that.
+	t.Run("a restarted reader whose replay finds the violation again is blocked again", func(t *testing.T) {
+		for range 2 {
+			lp := lpmocks.NewLogPoller(t)
+			lp.EXPECT().RegisterFilter(mock.Anything, mock.Anything).Return(nil).Once()
+			expectDelete(lp, 501, 1)
+			lp.EXPECT().Replay(mock.Anything, int64(501)).Return(nil).Once()
+			lp.EXPECT().Healthy().Return(commontypes.ErrFinalityViolated).Once()
+			r := start(t, lp)
+			r.LoadFrom(501)
+			waitReady(t, r)
+			require.True(t, r.finalityBlocked.Load())
+			require.NoError(t, r.Close())
+		}
 	})
 
 	// A chain whose load keeps failing stays in the process, reports not ready and keeps retrying.
