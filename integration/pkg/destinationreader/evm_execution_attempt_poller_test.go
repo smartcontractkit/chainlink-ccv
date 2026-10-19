@@ -1231,7 +1231,7 @@ func TestDecodeCallDataToExecutionAttempt_RejectsAccessList(t *testing.T) {
 
 	callData := buildExecuteCallData(t, 0)
 
-	accessList := types.AccessList{}
+	accessList := make(types.AccessList, 0, 4)
 	for i := range 4 {
 		accessList = append(accessList, types.AccessTuple{
 			Address:     common.BigToAddress(big.NewInt(int64(i) + 1)),
