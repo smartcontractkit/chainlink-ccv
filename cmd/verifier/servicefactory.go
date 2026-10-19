@@ -262,6 +262,7 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	startupSkips := health.NewStartupSkips("verifier.StartupSkips")
 	sourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
 	finalityReporters := make(map[protocol.ChainSelector]chainaccess.FinalityViolationReporter)
+	healthReporters := make(map[protocol.ChainSelector]chainaccess.SourceHealthReporter)
 	sqlDB := f.sharedSQLDB()
 	var readersMu sync.Mutex
 	var wg sync.WaitGroup
@@ -287,11 +288,16 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 				verifierMonitoring.RecordChainHealthy(ctx, selector, false)
 				return
 			}
-			verifierMonitoring.RecordChainHealthy(ctx, selector, true)
+			// Unhealthy until its service says otherwise, so the series exists even if no service ever
+			// starts. Once the service exists it is the only writer of the chain's health.
+			verifierMonitoring.RecordChainHealthy(ctx, selector, false)
 			readersMu.Lock()
 			sourceReaders[selector] = observedReader
 			if chain.finalityReporter != nil {
 				finalityReporters[selector] = chain.finalityReporter
+			}
+			if chain.healthReporter != nil {
+				healthReporters[selector] = chain.healthReporter
 			}
 			readersMu.Unlock()
 		})
@@ -474,6 +480,7 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		chainStatusDB,
 		verifier.WithSourceRecovery(),
 		verifier.WithFinalityReporters(finalityReporters),
+		verifier.WithSourceHealthReporters(healthReporters),
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create verification coordinator", "error", err)

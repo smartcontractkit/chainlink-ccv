@@ -22,6 +22,14 @@ type finalityReader struct {
 }
 
 func (finalityReader) FinalityViolated() bool { return false }
+func (finalityReader) Healthy() error         { return nil }
+
+// finalityOnlyReader reports finality violations but not health.
+type finalityOnlyReader struct {
+	chainaccess.SourceReader
+}
+
+func (finalityOnlyReader) FinalityViolated() bool { return false }
 
 // spyAccessor records the order of the calls selectChainReader makes on it.
 type spyAccessor struct {
@@ -95,30 +103,33 @@ func TestSelectChainReaderFlagOnSetsDepsBetweenAccessorAndReader(t *testing.T) {
 	require.Equal(t, "verifier-1", accessor.gotVerifID)
 	require.Equal(t, h.spy.reader, got.reader)
 	require.NotNil(t, got.finalityReporter)
+	require.NotNil(t, got.healthReporter)
 }
 
 func TestSelectChainReaderFlagOffNeverCallsTheSetter(t *testing.T) {
 	t.Parallel()
 
-	h := newSelectionHarness(t, mocks.NewMockSourceReader(t))
+	h := newSelectionHarness(t, finalityReader{SourceReader: mocks.NewMockSourceReader(t)})
 	accessor := &setterAccessor{spyAccessor: h.spy, setErr: errors.New("must not be called")}
 
 	got, err := h.selectReader(accessor, false, false, &sql.DB{})
 	require.NoError(t, err)
 	require.Equal(t, []string{"GetAccessor", "SourceReader"}, h.calls)
 	require.Nil(t, got.finalityReporter)
+	require.Nil(t, got.healthReporter)
 }
 
 func TestSelectChainReaderAccessorWithoutSetterKeepsTheRPCReader(t *testing.T) {
 	t.Parallel()
 
-	h := newSelectionHarness(t, mocks.NewMockSourceReader(t))
+	h := newSelectionHarness(t, finalityReader{SourceReader: mocks.NewMockSourceReader(t)})
 
 	got, err := h.selectReader(h.spy, true, false, &sql.DB{})
 	require.NoError(t, err)
 	require.Equal(t, []string{"GetAccessor", "SourceReader"}, h.calls)
-	require.Same(t, h.spy.reader, got.reader)
+	require.Equal(t, h.spy.reader, got.reader)
 	require.Nil(t, got.finalityReporter)
+	require.Nil(t, got.healthReporter)
 }
 
 func TestSelectChainReaderSetterFailureSkipsTheChainWithoutFallback(t *testing.T) {
@@ -143,6 +154,7 @@ func TestSelectChainReaderDisabledFinalityCheckGetsNoReporter(t *testing.T) {
 	got, err := h.selectReader(accessor, true, true, &sql.DB{})
 	require.NoError(t, err)
 	require.Nil(t, got.finalityReporter)
+	require.NotNil(t, got.healthReporter, "health is still resolved when the finality check is off")
 }
 
 func TestSelectChainReaderLogPollerReaderWithoutReporterIsAnError(t *testing.T) {
@@ -154,6 +166,18 @@ func TestSelectChainReaderLogPollerReaderWithoutReporterIsAnError(t *testing.T) 
 	_, err := h.selectReader(accessor, true, false, &sql.DB{})
 	require.ErrorContains(t, err, selectionSelector.String())
 	require.ErrorContains(t, err, "finality")
+}
+
+// Health is required even when the finality check is disabled: a LogPoller can go unhealthy after loading.
+func TestSelectChainReaderLogPollerReaderWithoutHealthReporterIsAnError(t *testing.T) {
+	t.Parallel()
+
+	h := newSelectionHarness(t, finalityOnlyReader{SourceReader: mocks.NewMockSourceReader(t)})
+	accessor := &setterAccessor{spyAccessor: h.spy}
+
+	_, err := h.selectReader(accessor, true, true, &sql.DB{})
+	require.ErrorContains(t, err, selectionSelector.String())
+	require.ErrorContains(t, err, "health")
 }
 
 func TestSelectChainReaderAccessorFailure(t *testing.T) {

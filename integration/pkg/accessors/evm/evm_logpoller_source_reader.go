@@ -26,6 +26,7 @@ var (
 	_ chainaccess.CriticalSourceInvariantCallbackSetter = (*LogPollerSourceReader)(nil)
 	_ chainaccess.SourceLoader                          = (*LogPollerSourceReader)(nil)
 	_ chainaccess.FinalityViolationReporter             = (*LogPollerSourceReader)(nil)
+	_ chainaccess.SourceHealthReporter                  = (*LogPollerSourceReader)(nil)
 )
 
 // DefaultMessageSentLogRetention is how long the log poller keeps CCIPMessageSent logs. It must
@@ -128,6 +129,16 @@ func NewLogPollerSourceReader(ctx context.Context, p SourceReaderParams, cfg *Lo
 // own block keeps the signal after the log poller clears its flag, which a later successful poll does.
 func (r *LogPollerSourceReader) FinalityViolated() bool {
 	return r.finalityBlocked.Load() || errors.Is(r.lp.Healthy(), commontypes.ErrFinalityViolated)
+}
+
+// Healthy returns the log poller's health without finality violations, which are reported only through
+// FinalityViolated so a violation is not counted twice.
+func (r *LogPollerSourceReader) Healthy() error {
+	err := r.lp.Healthy()
+	if errors.Is(err, commontypes.ErrFinalityViolated) {
+		return nil
+	}
+	return err
 }
 
 // LoadFrom starts loading the log poller from startBlock, the first block the verifier reads. Only the

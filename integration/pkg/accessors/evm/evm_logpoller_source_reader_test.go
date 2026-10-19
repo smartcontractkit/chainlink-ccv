@@ -180,6 +180,30 @@ func TestFinalityBlocked(t *testing.T) {
 	require.False(t, r.finalityBlocked.Load())
 }
 
+func TestHealthy(t *testing.T) {
+	missing := errors.New("rpc servers reported missing blocks 3 times in a row")
+	for name, tc := range map[string]struct {
+		healthy error
+		want    error
+	}{
+		"healthy":           {},
+		"violation":         {healthy: commontypes.ErrFinalityViolated},
+		"wrapped violation": {healthy: fmt.Errorf("poll: %w", commontypes.ErrFinalityViolated)},
+		"missing blocks":    {healthy: missing, want: missing},
+	} {
+		t.Run(name, func(t *testing.T) {
+			lp := lpmocks.NewLogPoller(t)
+			lp.EXPECT().Healthy().Return(tc.healthy).Once()
+			err := readyLogPollerReader(sourceReaderCore{}, lp).Healthy()
+			if tc.want == nil {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, tc.want)
+		})
+	}
+}
+
 func TestFinalityViolated(t *testing.T) {
 	for name, tc := range map[string]struct {
 		healthy error
@@ -550,6 +574,41 @@ func TestLogPollerStartup(t *testing.T) {
 		require.Eventually(t, func() bool { return replays.Load() >= 3 }, 5*time.Second, 5*time.Millisecond)
 		require.ErrorIs(t, r.Loaded(), chainaccess.ErrSourceNotReady)
 		require.False(t, r.ready.Load())
+	})
+
+	// Operators tell a progressing replay from a stuck one by these two shapes: dashboards and queries
+	// depend on the message text and the field names.
+	t.Run("a failed load warns with the filter, error and retry delay, and readiness logs at info", func(t *testing.T) {
+		prevInitial, prevMax := logPollerInitBackoff, maxLogPollerInitBackoff
+		logPollerInitBackoff, maxLogPollerInitBackoff = 5*time.Millisecond, 20*time.Millisecond
+		t.Cleanup(func() { logPollerInitBackoff, maxLogPollerInitBackoff = prevInitial, prevMax })
+
+		lp := lpmocks.NewLogPoller(t)
+		lp.EXPECT().RegisterFilter(mock.Anything, mock.Anything).Return(nil).Maybe()
+		expectStoredBlocks(lp)
+		lp.EXPECT().DeleteLogsAndBlocksAfter(mock.Anything, int64(501)).Return(nil).Maybe()
+		replayErr := errors.New("replay failed")
+		lp.EXPECT().Replay(mock.Anything, int64(501)).Return(replayErr).Once()
+		lp.EXPECT().Replay(mock.Anything, int64(501)).Return(nil).Once()
+		lp.EXPECT().Healthy().Return(nil).Once()
+		lggr, logs := logger.TestObserved(t, zapcore.InfoLevel)
+		r := start(t, lp)
+		r.lggr = lggr
+		r.LoadFrom(501)
+		waitReady(t, r)
+
+		warnings := logs.FilterMessage("Log poller startup failed, retrying")
+		require.Equal(t, 1, warnings.Len())
+		require.Equal(t, zapcore.WarnLevel, warnings.All()[0].Level)
+		ctxMap := warnings.All()[0].ContextMap()
+		require.Equal(t, r.filterName, ctxMap["filter"])
+		require.Equal(t, logPollerInitBackoff, ctxMap["retryIn"])
+		require.ErrorContains(t, errors.New(ctxMap["error"].(string)), replayErr.Error())
+
+		ready := logs.FilterMessage("Log poller ready, reading CCIPMessageSent logs from it")
+		require.Equal(t, 1, ready.Len())
+		require.Equal(t, zapcore.InfoLevel, ready.All()[0].Level)
+		require.Equal(t, r.filterName, ready.All()[0].ContextMap()["filter"])
 	})
 
 	t.Run("close stops a startup that keeps failing", func(t *testing.T) {

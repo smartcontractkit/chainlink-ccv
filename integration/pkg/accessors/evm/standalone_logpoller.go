@@ -38,15 +38,25 @@ type logPollerBuilder func(input logPollerInputs) (logpoller.LogPoller, error)
 // buildLogPoller mirrors chainlink-evm's legacyevm chain: Beholder metrics, observed ORM, LogPoller.
 // The ORM wraps the verifier's shared pool, which this code must never close.
 func buildLogPoller(input logPollerInputs) (logpoller.LogPoller, error) {
-	metrics, err := logpoller.NewPromBeholderMetrics(input.chainID.String(), chainselectors.FamilyEVM)
+	opts, err := standaloneLogPollerOpts(input)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create log poller metrics: %w", err)
+		return nil, err
 	}
 	orm, err := logpoller.NewObservedORM(input.chainID, logpollerdb.NewDB(input.db), input.logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create logpoller observed ORM: %w", err)
 	}
-	return logpoller.NewLogPoller(orm, input.client, input.logger, input.headTracker, logPollerOpts(input.config, metrics)), nil
+	return logpoller.NewLogPoller(orm, input.client, input.logger, input.headTracker, opts), nil
+}
+
+// standaloneLogPollerOpts are buildLogPoller's options with Beholder metrics: the standalone process
+// serves no Prometheus endpoint, so these metrics are its only stall signal.
+func standaloneLogPollerOpts(input logPollerInputs) (logpoller.Opts, error) {
+	metrics, err := logpoller.NewPromBeholderMetrics(input.chainID.String(), chainselectors.FamilyEVM)
+	if err != nil {
+		return logpoller.Opts{}, fmt.Errorf("failed to create log poller metrics: %w", err)
+	}
+	return logPollerOpts(input.config, metrics), nil
 }
 
 // logPollerOpts copies legacyevm.NewChain's LogPoller options so the standalone poller behaves as the node's.

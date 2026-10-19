@@ -894,14 +894,19 @@ func TestSRS_Start_LoadsSourceFromStartBlockAndReportsItsLoadState(t *testing.T)
 
 			// Still loading: the chain is not ready and is recorded unhealthy.
 			require.ErrorIs(t, srs.Ready(), notLoaded)
+			require.Eventually(t, func() bool { return len(health.recorded()) == 1 }, tests.WaitTimeout(t), 10*time.Millisecond)
 			require.Equal(t, []bool{false}, health.recorded())
 
-			// Loaded: ready, and recorded healthy once, so a later unhealthy record is not overridden.
-			reader.loadedErr = nil
+			// Loaded: ready, and an enabled chain is recorded healthy once. A disabled chain stays unhealthy.
+			reader.setLoadedErr(nil)
 			require.NoError(t, srs.Ready())
-			srs.recordLoadedHealth(t.Context())
-			srs.recordLoadedHealth(t.Context())
-			require.Equal(t, []bool{false, true}, health.recorded())
+			srs.recordChainHealth(t.Context())
+			srs.recordChainHealth(t.Context())
+			if disabled {
+				require.Equal(t, []bool{false}, health.recorded())
+			} else {
+				require.Equal(t, []bool{false, true}, health.recorded())
+			}
 		})
 	}
 }

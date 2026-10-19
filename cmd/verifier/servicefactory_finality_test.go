@@ -23,6 +23,7 @@ type reporterRegistry struct {
 	depsDB    *sql.DB
 	depsID    string
 	reported  atomic.Int32
+	healthy   atomic.Int32
 	accessors []*reporterAccessor
 }
 
@@ -47,12 +48,20 @@ func (a *reporterAccessor) SetSourceReaderDeps(db *sql.DB, verifierID string) er
 }
 
 func (a *reporterAccessor) SourceReader() (chainaccess.SourceReader, error) {
-	return reportingSourceReader{reported: &a.registry.reported}, nil
+	return reportingSourceReader{reported: &a.registry.reported, healthy: &a.registry.healthy}, nil
 }
 
 type reportingSourceReader struct {
 	idleSourceReader
 	reported *atomic.Int32
+	healthy  *atomic.Int32
+}
+
+func (r reportingSourceReader) Healthy() error {
+	if r.healthy != nil {
+		r.healthy.Add(1)
+	}
+	return nil
 }
 
 func (r reportingSourceReader) FinalityViolated() bool {
@@ -80,4 +89,6 @@ func TestFactoryStart_FlagOn_PassesFinalityReporterToCoordinator(t *testing.T) {
 
 	require.Eventually(t, func() bool { return reg.reported.Load() > 0 },
 		10*time.Second, 50*time.Millisecond, "coordinator must poll the chain's finality reporter")
+	require.Eventually(t, func() bool { return reg.healthy.Load() > 0 },
+		10*time.Second, 50*time.Millisecond, "the service must evaluate the chain's health reporter")
 }

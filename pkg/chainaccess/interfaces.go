@@ -72,6 +72,13 @@ type FinalityViolationReporter interface {
 	FinalityViolated() bool
 }
 
+// SourceHealthReporter is a chain's own health signal, such as the EVM log poller's. Finality
+// violations are not part of it: they are reported only through FinalityViolationReporter.
+type SourceHealthReporter interface {
+	// Healthy returns nil when the data source is healthy, otherwise the reason it is not.
+	Healthy() error
+}
+
 // SourceReaderDepsSetter is an optional Accessor capability for accessors whose source reader reads from
 // the verifier's database. The caller sets the dependencies before the first SourceReader call, which
 // then returns the database-backed reader; an accessor without this hook keeps its default reader.

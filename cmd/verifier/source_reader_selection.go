@@ -21,6 +21,8 @@ type chainReader struct {
 	reader chainaccess.SourceReader
 	// finalityReporter is nil for the RPC reader and for chains whose finality check is disabled.
 	finalityReporter chainaccess.FinalityViolationReporter
+	// healthReporter is nil for the RPC reader, which has no health signal of its own.
+	healthReporter chainaccess.SourceHealthReporter
 }
 
 // selectChainReader gets the chain's accessor and its source reader. With the LogPoller on it sets the
@@ -85,6 +87,14 @@ func selectChainReader(
 			}
 			result.finalityReporter = reporter
 		}
+		// Health is needed even when the finality check is disabled: a LogPoller can go unhealthy after loading.
+		healthReporter, ok := reader.(chainaccess.SourceHealthReporter)
+		if !ok {
+			err := fmt.Errorf("LogPoller source reader for chain %d does not report health", selector)
+			lggr.Errorw("Missing health reporter, skipping chain", "selector", selector, "error", err)
+			return nil, err
+		}
+		result.healthReporter = healthReporter
 	}
 	lggr.Infow("Source reader selected", "reader", readerKind, "chainSelector", selector)
 	return result, nil
