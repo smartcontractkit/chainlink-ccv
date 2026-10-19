@@ -31,6 +31,9 @@ const (
 
 	TokenVerifierSecretsPathEnv     = "TOKEN_VERIFIER_SECRETS_PATH"      //nolint:gosec // G101: env var name, not a credential
 	DefaultTokenVerifierSecretsPath = "/etc/token-verifier/secrets.toml" //nolint:gosec // G101: file path, not a credential
+
+	VerifierSecretsPathEnv     = "VERIFIER_SECRETS_PATH"      //nolint:gosec // G101: env var name, not a credential
+	DefaultVerifierSecretsPath = "/etc/verifier/secrets.toml" //nolint:gosec // G101: file path, not a credential
 )
 
 // SecretsFile is the on-disk schema of the verifier secrets file. It carries only credential-bearing
