@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"math/big"
 	"sync"
 	"testing"
 
@@ -18,6 +19,9 @@ import (
 	lpmocks "github.com/smartcontractkit/chainlink-evm/pkg/logpoller/mocks"
 )
 
+// stubChainID is the EVM chain ID tests give a stub runtime that does not care which chain it is.
+var stubChainID = big.NewInt(910_000)
+
 const testSourceSelector = protocol.ChainSelector(5009297550715157269)
 
 // lpStubRuntime is a chain runtime that can also host a LogPoller.
@@ -28,7 +32,10 @@ type lpStubRuntime struct {
 	lpCalls  int
 	gotDB    *sql.DB
 	startCtx context.Context
+	chainID  *big.Int
 }
+
+func (r *lpStubRuntime) EVMChainID() *big.Int { return r.chainID }
 
 func (r *lpStubRuntime) LogPoller(ctx context.Context, db *sql.DB) (logpoller.LogPoller, error) {
 	r.lpCalls++
@@ -100,7 +107,7 @@ func TestSetSourceReaderDepsSelectsLogPollerReader(t *testing.T) {
 	t.Parallel()
 
 	lp := lpmocks.NewLogPoller(t)
-	runtime := &lpStubRuntime{stubChainRuntime: newStubRuntime(t), lp: lp}
+	runtime := &lpStubRuntime{stubChainRuntime: newStubRuntime(t), lp: lp, chainID: stubChainID}
 	acc := newSourceAccessor(t, runtime)
 	db := &sql.DB{}
 
@@ -124,7 +131,7 @@ func TestSetSourceReaderDepsSelectsLogPollerReader(t *testing.T) {
 func TestSetSourceReaderDepsIsRefusedOnceTheReaderIsBuilt(t *testing.T) {
 	t.Parallel()
 
-	runtime := &lpStubRuntime{stubChainRuntime: newStubRuntime(t), lp: lpmocks.NewLogPoller(t)}
+	runtime := &lpStubRuntime{stubChainRuntime: newStubRuntime(t), lp: lpmocks.NewLogPoller(t), chainID: stubChainID}
 	acc := newSourceAccessor(t, runtime)
 	reader, err := acc.SourceReader()
 	require.NoError(t, err)
@@ -140,7 +147,7 @@ func TestSetSourceReaderDepsFailureKeepsTheRPCReader(t *testing.T) {
 	t.Parallel()
 
 	wantErr := errors.New("another runtime owns this chain")
-	runtime := &lpStubRuntime{stubChainRuntime: newStubRuntime(t), lpErr: wantErr}
+	runtime := &lpStubRuntime{stubChainRuntime: newStubRuntime(t), lpErr: wantErr, chainID: stubChainID}
 	acc := newSourceAccessor(t, runtime)
 
 	require.ErrorIs(t, acc.SetSourceReaderDeps(&sql.DB{}, "verifier-1"), wantErr)
@@ -159,7 +166,7 @@ func TestSetSourceReaderDepsNeedsARuntimeThatHostsALogPoller(t *testing.T) {
 func TestExecutorStyleAccessorNeverBuildsALogPoller(t *testing.T) {
 	t.Parallel()
 
-	runtime := &lpStubRuntime{stubChainRuntime: newStubRuntime(t), lp: lpmocks.NewLogPoller(t)}
+	runtime := &lpStubRuntime{stubChainRuntime: newStubRuntime(t), lp: lpmocks.NewLogPoller(t), chainID: stubChainID}
 	acc := newAccessor(logger.Test(t), testSourceSelector, runtime, [20]byte{1}, "key", nil, nil, nil).(*accessor)
 
 	_, err := acc.SourceReader()
@@ -171,7 +178,7 @@ func TestExecutorStyleAccessorNeverBuildsALogPoller(t *testing.T) {
 func TestAccessorCloseEndsTheLogPollerStartContext(t *testing.T) {
 	t.Parallel()
 
-	runtime := &lpStubRuntime{stubChainRuntime: newStubRuntime(t), lp: lpmocks.NewLogPoller(t)}
+	runtime := &lpStubRuntime{stubChainRuntime: newStubRuntime(t), lp: lpmocks.NewLogPoller(t), chainID: stubChainID}
 	acc := newSourceAccessor(t, runtime)
 	require.NoError(t, acc.SetSourceReaderDeps(&sql.DB{}, "verifier-1"))
 	require.NoError(t, runtime.startCtx.Err())

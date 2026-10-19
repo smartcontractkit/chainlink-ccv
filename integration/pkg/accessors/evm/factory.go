@@ -187,8 +187,6 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 	return acc, nil
 }
 
-var _ chainaccess.SourceReaderDepsSetter = (*accessor)(nil)
-
 type accessor struct {
 	destinationReader   chainaccess.DestinationReader
 	contractTransmitter chainaccess.ContractTransmitter
@@ -272,53 +270,6 @@ func (a *accessor) SetKeystore(ctx context.Context, ks keystore.Keystore) error 
 	return nil
 }
 
-// SetSourceReaderDeps builds and starts the chain's LogPoller on the verifier database, which makes
-// the first SourceReader call return the LogPoller reader. It does no network I/O and must come
-// before SourceReader: a reader that is already built is never swapped.
-func (a *accessor) SetSourceReaderDeps(db *sql.DB, verifierID string) error {
-	if a == nil {
-		return errors.New("EVM accessor is nil")
-	}
-	a.sourceMu.Lock()
-	defer a.sourceMu.Unlock()
-
-	if a.sourceParams == nil {
-		return fmt.Errorf("chain %d has no source reader configured", a.chainSelector)
-	}
-	if db == nil {
-		return fmt.Errorf("source reader dependencies for chain %d need the verifier database", a.chainSelector)
-	}
-	if verifierID == "" {
-		return fmt.Errorf("source reader dependencies for chain %d need a verifier ID", a.chainSelector)
-	}
-	if a.logPoller != nil {
-		if db == a.lpDB && verifierID == a.lpVerifierID {
-			return nil
-		}
-		return fmt.Errorf("source reader dependencies for chain %d are already set to different values", a.chainSelector)
-	}
-	if a.sourceBuilt {
-		return fmt.Errorf("source reader for chain %d is already built, set its dependencies before reading it", a.chainSelector)
-	}
-	lpRuntime, ok := a.runtime.(logPollerRuntime)
-	if !ok {
-		return fmt.Errorf("EVM chain runtime for chain %d cannot host a LogPoller", a.chainSelector)
-	}
-
-	// The LogPoller must not outlive the accessor, so its start context ends in Close.
-	ctx, cancel := context.WithCancel(context.Background())
-	lp, err := lpRuntime.LogPoller(ctx, db)
-	if err != nil {
-		cancel()
-		return err
-	}
-	a.cancelLifetime = cancel
-	a.logPoller = lp
-	a.lpDB = db
-	a.lpVerifierID = verifierID
-	return nil
-}
-
 // SourceReader builds the reader on the first call and returns the same result afterwards: the
 // LogPoller reader if SetSourceReaderDeps succeeded, the RPC reader otherwise.
 func (a *accessor) SourceReader() (chainaccess.SourceReader, error) {
@@ -338,7 +289,13 @@ func (a *accessor) SourceReader() (chainaccess.SourceReader, error) {
 	// The constructors take a ctx but do no I/O with it.
 	ctx := context.Background()
 	if a.logPoller != nil {
-		a.sourceReader, a.sourceErr = NewLogPollerSourceReader(ctx, *a.sourceParams, NewLogPollerConfig(a.logPoller, nil, a.lpVerifierID))
+		// logPoller is only set by SetSourceReaderDeps, which required a logPollerRuntime.
+		if lpRuntime, ok := a.runtime.(logPollerRuntime); ok {
+			cfg := NewLogPollerConfig(a.logPoller, a.newORM(lpRuntime, a.lpDB), a.lpVerifierID)
+			a.sourceReader, a.sourceErr = NewLogPollerSourceReader(ctx, *a.sourceParams, cfg)
+		} else {
+			a.sourceErr = errors.New("EVM chain runtime cannot host a LogPoller")
+		}
 	} else {
 		a.sourceReader, a.sourceErr = NewEVMSourceReader(ctx, *a.sourceParams)
 	}

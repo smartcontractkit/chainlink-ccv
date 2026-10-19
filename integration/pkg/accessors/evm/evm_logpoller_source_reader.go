@@ -52,7 +52,7 @@ type LogPollerConfig struct {
 	LogPoller  logpoller.LogPoller
 	VerifierID string
 	Retention  time.Duration
-	// ORM is kept for the stale-filter cleanup that lands later; the reader does not use it yet.
+	// ORM removes this verifier's stale filters at startup. Without it the cleanup is skipped.
 	ORM logpoller.ORM
 }
 
@@ -115,7 +115,7 @@ func NewLogPollerSourceReader(ctx context.Context, p SourceReaderParams, cfg *Lo
 		sourceReaderCore: core,
 		lp:               cfg.LogPoller,
 		cfg:              cfg,
-		filterName:       logpoller.FilterName("ccv-verifier", cfg.VerifierID, core.onRampAddress.Hex()),
+		filterName:       verifierFilterName(cfg.VerifierID, core.onRampAddress),
 		stopCh:           make(services.StopChan),
 	}
 	return r, nil
@@ -179,6 +179,7 @@ func (r *LogPollerSourceReader) loadLogPoller(ctx context.Context, fromBlock uin
 	if err := r.registerLogPollerFilter(ctx); err != nil {
 		return err
 	}
+	r.removeStaleFilters(ctx)
 	if err := r.lp.DeleteLogsAndBlocksAfter(ctx, int64(fromBlock)); err != nil { // #nosec G115 -- range checked above
 		return fmt.Errorf("failed to delete log poller data from block %d: %w", fromBlock, err)
 	}
@@ -186,6 +187,39 @@ func (r *LogPollerSourceReader) loadLogPoller(ctx context.Context, fromBlock uin
 		return err
 	}
 	return r.replayLogPoller(ctx, fromBlock)
+}
+
+// removeStaleFilters deletes this verifier's other filters stored for the chain, such as the one a crash or
+// an on-ramp change left behind. The ORM delete comes first because UnregisterFilter only knows the filters
+// the log poller has loaded into memory. Failures are warnings: a leftover filter only costs indexing, so the
+// cleanup is bounded and gives up once the reader closes or its time runs out.
+func (r *LogPollerSourceReader) removeStaleFilters(ctx context.Context) {
+	if r.cfg.ORM == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, logPollerOpTimeout)
+	defer cancel()
+	names, err := staleVerifierFilters(ctx, r.cfg.ORM, r.cfg.VerifierID, r.filterName)
+	if err != nil {
+		r.lggr.Warnw("Skipping stale log poller filter cleanup", "error", err)
+		return
+	}
+	for i, name := range names {
+		if err := ctx.Err(); err != nil {
+			r.lggr.Warnw("Stopping stale log poller filter cleanup", "remaining", names[i:], "error", err)
+			return
+		}
+		// Each step is tried even if the other failed, so one error leaves as little behind as possible.
+		deleteErr := r.cfg.ORM.DeleteFilter(ctx, name)
+		if deleteErr != nil {
+			r.lggr.Warnw("Failed to delete stale log poller filter", "filter", name, "error", deleteErr)
+		}
+		if err := r.lp.UnregisterFilter(ctx, name); err != nil {
+			r.lggr.Warnw("Failed to unregister stale log poller filter", "filter", name, "error", err)
+		} else if deleteErr == nil {
+			r.lggr.Infow("Removed stale log poller filter", "filter", name)
+		}
+	}
 }
 
 // anchorLogPoller saves the block before fromBlock as the log poller's last processed block when the

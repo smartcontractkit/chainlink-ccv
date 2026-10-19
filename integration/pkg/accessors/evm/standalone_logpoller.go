@@ -19,6 +19,8 @@ import (
 type logPollerRuntime interface {
 	// LogPoller returns the chain's LogPoller, building and starting it on the first call.
 	LogPoller(ctx context.Context, db *sql.DB) (logpoller.LogPoller, error)
+	// EVMChainID is the chain's EVM chain ID, which scopes its rows in the LogPoller tables.
+	EVMChainID() *big.Int
 }
 
 // logPollerInputs is everything a LogPoller is built from. Building it does no network or database I/O.

@@ -86,6 +86,17 @@ type SourceReaderDepsSetter interface {
 	SetSourceReaderDeps(db *sql.DB, verifierID string) error
 }
 
+// StaleFilterCleaner is an optional Accessor capability for accessors whose source reader leaves
+// state in the verifier's database. The verifier calls it at startup when it does not use that
+// reader, so a crashed run's leftovers are not kept where nothing reads them.
+type StaleFilterCleaner interface {
+	// CleanStaleFilters removes this verifier's leftover filters for the accessor's own chain.
+	// It must not touch other verifiers' or other chains' state. The database is borrowed and
+	// must not be closed. A nil database is skipped. Errors are for the caller to log: a
+	// failed cleanup must never stop the verifier from starting.
+	CleanStaleFilters(ctx context.Context, db *sql.DB, verifierID string) error
+}
+
 // ErrSourceNotReady is returned by SourceReader reads while the source is still loading; callers retry
 // later and must not treat the range as scanned.
 var ErrSourceNotReady = errors.New("source not ready")

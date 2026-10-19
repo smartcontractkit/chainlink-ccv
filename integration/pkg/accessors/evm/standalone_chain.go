@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math/big"
 	"strings"
 	"sync"
 	"time"
@@ -339,6 +340,11 @@ func (c *standaloneChain) NewContractTransmitter(
 }
 
 var _ logPollerRuntime = (*standaloneChain)(nil)
+
+// EVMChainID returns the chain's configured EVM chain ID.
+func (c *standaloneChain) EVMChainID() *big.Int {
+	return c.chainConfig.EVM().ChainID()
+}
 
 // LogPoller builds and starts this chain's LogPoller on the first call and returns the same one
 // afterwards. The process-wide guard is taken before anything is built, so a second runtime for

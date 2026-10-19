@@ -168,3 +168,76 @@ func TestSelectChainReaderAccessorFailure(t *testing.T) {
 	require.ErrorIs(t, err, wantErr)
 	require.Equal(t, []string{"GetAccessor"}, calls)
 }
+
+// cleanerAccessor is a spyAccessor that also cleans stale filters.
+type cleanerAccessor struct {
+	*spyAccessor
+	cleanErr   error
+	gotDB      *sql.DB
+	gotVerifID string
+}
+
+func (a *cleanerAccessor) CleanStaleFilters(_ context.Context, db *sql.DB, verifierID string) error {
+	*a.calls = append(*a.calls, "CleanStaleFilters")
+	a.gotDB, a.gotVerifID = db, verifierID
+	return a.cleanErr
+}
+
+func TestSelectChainReaderFlagOffCleansStaleFiltersBetweenAccessorAndReader(t *testing.T) {
+	t.Parallel()
+
+	h := newSelectionHarness(t, mocks.NewMockSourceReader(t))
+	accessor := &cleanerAccessor{spyAccessor: h.spy}
+	db := &sql.DB{}
+
+	_, err := h.selectReader(accessor, false, false, db)
+	require.NoError(t, err)
+	require.Equal(t, []string{"GetAccessor", "CleanStaleFilters", "SourceReader"}, h.calls)
+	require.Same(t, db, accessor.gotDB)
+	require.Equal(t, "verifier-1", accessor.gotVerifID)
+}
+
+// setterCleanerAccessor has both capabilities, like the EVM accessor.
+type setterCleanerAccessor struct {
+	*setterAccessor
+	cleanCalls int
+}
+
+func (a *setterCleanerAccessor) CleanStaleFilters(context.Context, *sql.DB, string) error {
+	a.cleanCalls++
+	return nil
+}
+
+func TestSelectChainReaderFlagOnDoesNotCleanStaleFilters(t *testing.T) {
+	t.Parallel()
+
+	h := newSelectionHarness(t, finalityReader{SourceReader: mocks.NewMockSourceReader(t)})
+	accessor := &setterCleanerAccessor{setterAccessor: &setterAccessor{spyAccessor: h.spy}}
+	_, err := h.selectReader(accessor, true, false, &sql.DB{})
+	require.NoError(t, err)
+	require.Zero(t, accessor.cleanCalls)
+	require.Equal(t, []string{"GetAccessor", "SetSourceReaderDeps", "SourceReader"}, h.calls)
+}
+
+func TestSelectChainReaderCleanupFailureIsAWarningAndTheChainStarts(t *testing.T) {
+	t.Parallel()
+
+	h := newSelectionHarness(t, mocks.NewMockSourceReader(t))
+	accessor := &cleanerAccessor{spyAccessor: h.spy, cleanErr: errors.New(`schema "evm" does not exist`)}
+
+	got, err := h.selectReader(accessor, false, false, &sql.DB{})
+	require.NoError(t, err)
+	require.Same(t, h.spy.reader, got.reader)
+	require.Equal(t, []string{"GetAccessor", "CleanStaleFilters", "SourceReader"}, h.calls)
+}
+
+func TestSelectChainReaderWithoutADatabaseSkipsTheCleanup(t *testing.T) {
+	t.Parallel()
+
+	h := newSelectionHarness(t, mocks.NewMockSourceReader(t))
+	accessor := &cleanerAccessor{spyAccessor: h.spy, cleanErr: errors.New("must not be called")}
+
+	_, err := h.selectReader(accessor, false, false, nil)
+	require.NoError(t, err)
+	require.Equal(t, []string{"GetAccessor", "SourceReader"}, h.calls)
+}
