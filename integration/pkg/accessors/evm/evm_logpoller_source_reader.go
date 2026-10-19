@@ -166,8 +166,8 @@ func (r *LogPollerSourceReader) initLogPoller(from uint64) {
 	}
 }
 
-// loadLogPoller registers the filter, deletes the log poller's logs and blocks from the start block,
-// and replays from it, so everything after the checkpoint is re-fetched.
+// loadLogPoller registers the filter, anchors an empty log poller, and replays from fromBlock.
+// It never deletes log poller data; stale blocks are removed explicitly with remove-blocks.
 func (r *LogPollerSourceReader) loadLogPoller(ctx context.Context, fromBlock uint64) error {
 	if fromBlock > math.MaxInt64 {
 		return fmt.Errorf("replay block %d is out of range for the log poller", fromBlock)
@@ -175,18 +175,14 @@ func (r *LogPollerSourceReader) loadLogPoller(ctx context.Context, fromBlock uin
 	if err := r.registerLogPollerFilter(ctx); err != nil {
 		return err
 	}
-	if err := r.lp.DeleteLogsAndBlocksAfter(ctx, int64(fromBlock)); err != nil { // #nosec G115 -- range checked above
-		return fmt.Errorf("failed to delete log poller data from block %d: %w", fromBlock, err)
-	}
 	if err := r.anchorLogPoller(ctx, fromBlock); err != nil {
 		return err
 	}
 	return r.replayLogPoller(ctx, fromBlock)
 }
 
-// anchorLogPoller saves the block before fromBlock as the log poller's last processed block when the
-// delete left it with none. An empty log poller starts its next poll at the chain's finalized block,
-// and Replay does not return the errors of the part it hands to the poll loop, so without an anchor a
+// anchorLogPoller saves the block before fromBlock as the log poller's last processed block when it has
+// none. An empty log poller starts its next poll at the chain's finalized block, so without an anchor a
 // failed replay would leave the blocks from fromBlock up to there unindexed while the reader reads them.
 func (r *LogPollerSourceReader) anchorLogPoller(ctx context.Context, fromBlock uint64) error {
 	_, err := r.lp.LatestBlock(ctx)
