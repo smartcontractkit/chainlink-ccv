@@ -58,4 +58,7 @@ type LeaderElector interface {
 	GetReadyTimestamp(messageID protocol.Bytes32, chainSel protocol.ChainSelector, baseTime time.Time) (time.Time, error)
 	// GetRetryDelay returns the delay in seconds to retry a message. It uses destination chain because some executors may not support all chains
 	GetRetryDelay(destinationChain protocol.ChainSelector) (time.Duration, error)
+	// IsFirstRanked reports whether this executor is the first in the turn order of the message.
+	// Only this executor may send the message after an attempt that is not honest.
+	IsFirstRanked(messageID protocol.Bytes32, chainSel protocol.ChainSelector) (bool, error)
 }

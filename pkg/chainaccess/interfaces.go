@@ -239,6 +239,15 @@ type AttemptChecker interface {
 	// for an unhealthy chain should be rejected, not retried.
 	CheckHealth(chain protocol.ChainSelector) error
 	// HasHonestAttempt reports whether an honest execution attempt has been
-	// made for the given message.
-	HasHonestAttempt(ctx context.Context, message protocol.Message, verifierResults []protocol.VerifierResult, ccvAddressInfo protocol.CCVAddressInfo) (bool, error)
+	// made for the given message. If it has not, the result tells if an attempt
+	// that is not honest exists.
+	HasHonestAttempt(ctx context.Context, message protocol.Message, verifierResults []protocol.VerifierResult, ccvAddressInfo protocol.CCVAddressInfo) (HonestAttemptCheck, error)
+}
+
+// HonestAttemptCheck is the result of DestinationReader.HasHonestAttempt.
+type HonestAttemptCheck struct {
+	// Honest is true if an honest execution attempt exists.
+	Honest bool
+	// NotHonestAttemptExists is true if an attempt exists and none of the attempts is honest.
+	NotHonestAttemptExists bool
 }
