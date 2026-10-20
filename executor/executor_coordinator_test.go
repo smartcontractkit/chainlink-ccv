@@ -820,7 +820,7 @@ func TestCoordinator_MessageSkippedWhenNotExecutorForChain_DoesNotCallGetReadyTi
 
 // TestGracefulShutdown tests that when Close() is called while a message is being processed, the processing loop will
 // shut down gracefully. This state is simulated by blocking the HandleMessage() call until Close() is called, and then
-// asserting that we logged the message about dropping a payload to exit.
+// asserting that we logged the message about requeueing undispatched payloads on exit.
 func TestGracefulShutdown(t *testing.T) {
 	lggr, hook := logger.TestObserved(t, zapcore.InfoLevel)
 	currentTime := time.Now().UTC()
@@ -845,7 +845,7 @@ func TestGracefulShutdown(t *testing.T) {
 	results := make(chan common.MessageWithMetadata, 1)
 	go func() {
 		results <- messageGenerator() // will be blocked in HandleMessage.
-		results <- messageGenerator() // will be stuck in the executor heap and trigger the "dropping payload" log.
+		results <- messageGenerator() // will be mid-dispatch when Close() is called and trigger the "requeued" log.
 	}()
 	messageSubscriber := mocks.NewMockMessageSubscriber(t)
 	messageSubscriber.EXPECT().Start(mock.Anything).Return(results, nil, nil)
@@ -897,17 +897,17 @@ func TestGracefulShutdown(t *testing.T) {
 
 	require.NoError(t, ec.Close())
 
-	// Assert that we logged the message about dropping a payload.
+	// Assert that we logged the message about requeueing undispatched payloads.
 	found := func() bool {
 		for _, entry := range hook.All() {
 			entryStr := fmt.Sprintf("%+v", entry)
-			if strings.Contains(entryStr, "Processing loop dropping payload to exit") {
+			if strings.Contains(entryStr, "Processing loop requeued undispatched payloads to exit") {
 				return true
 			}
 		}
 		return false
 	}
-	require.Eventuallyf(t, found, tests.WaitTimeout(t), 100*time.Millisecond, "dropped payload log never seen")
+	require.Eventuallyf(t, found, tests.WaitTimeout(t), 100*time.Millisecond, "requeued payloads log never seen")
 }
 
 func TestRetry_DataNotReadyReattemptsBeforeStaggerInterval(t *testing.T) {
@@ -1013,4 +1013,167 @@ func TestRetry_DataNotReadyReattemptsBeforeStaggerInterval(t *testing.T) {
 	}, 3*time.Second, 50*time.Millisecond, "timed out waiting for data-not-ready retry before stagger interval")
 
 	require.NoError(t, ec.Close())
+}
+
+// A closed component errors channel must be logged once and must not keep the
+// stream loop busy; the stream continues to process messages.
+func TestComponentErrorsChannelClosed_LogsOnceAndKeepsProcessing(t *testing.T) {
+	lggr, hook := logger.TestObserved(t, zapcore.DebugLevel)
+	currentTime := time.Now().UTC()
+	mockTimeProvider := mocks.NewMockTimeProvider(t)
+	mockTimeProvider.EXPECT().GetTime().Return(currentTime).Maybe()
+
+	testMessage := common.MessageWithMetadata{
+		Message: protocol.Message{
+			DestChainSelector:   1,
+			SourceChainSelector: 2,
+			SequenceNumber:      1,
+		},
+		Metadata: common.MessageMetadata{
+			IngestionTimestamp: currentTime,
+		},
+	}
+
+	results := make(chan common.MessageWithMetadata, 1)
+	componentErrors := make(chan error)
+	messageSubscriber := mocks.NewMockMessageSubscriber(t)
+	messageSubscriber.EXPECT().Start(mock.Anything).Return(results, componentErrors, nil)
+
+	handled := make(chan struct{}, 1)
+	mockExecutor := mocks.NewMockExecutor(t)
+	mockExecutor.EXPECT().Start(mock.Anything).Return(nil)
+	mockExecutor.EXPECT().Close().Return(nil)
+	mockExecutor.EXPECT().CheckValidMessage(mock.Anything, mock.Anything).Return(nil).Maybe()
+	mockExecutor.EXPECT().HandleMessage(mock.Anything, mock.Anything).Run(func(context.Context, protocol.Message) {
+		handled <- struct{}{}
+	}).Return(false, nil).Once()
+
+	leaderElector := mocks.NewMockLeaderElector(t)
+	leaderElector.EXPECT().IsExecutorForChain(mock.Anything).Return(true).Maybe()
+	leaderElector.EXPECT().GetReadyTimestamp(mock.Anything, mock.Anything, mock.Anything).Return(currentTime, nil).Maybe()
+	leaderElector.EXPECT().GetRetryDelay(mock.Anything).Return(time.Second, nil).Maybe()
+
+	ec, err := executor.NewCoordinator(
+		lggr,
+		"",
+		mockExecutor,
+		messageSubscriber,
+		leaderElector,
+		monitoring.NewNoopExecutorMonitoring(),
+		8*time.Hour,
+		mockTimeProvider,
+		1,
+		time.Second,
+	)
+	require.NoError(t, err)
+
+	require.NoError(t, ec.Start(t.Context()))
+	defer func() { require.NoError(t, ec.Close()) }()
+
+	close(componentErrors)
+
+	// The stream loop still processes messages after the errors channel closes.
+	results <- testMessage
+	require.Eventuallyf(t, func() bool {
+		select {
+		case <-handled:
+			return true
+		default:
+			return false
+		}
+	}, 3*time.Second, 50*time.Millisecond, "timed out waiting for message processing after errors channel closed")
+
+	countClosedLogs := func() int {
+		count := 0
+		for _, entry := range hook.All() {
+			if strings.Contains(fmt.Sprintf("%+v", entry), "coordinator component errors channel closed") {
+				count++
+			}
+		}
+		return count
+	}
+	require.Eventuallyf(t, func() bool {
+		return countClosedLogs() == 1
+	}, 3*time.Second, 50*time.Millisecond, "closed errors channel log never seen")
+	// The log must not repeat: the closed channel is disabled after the first read.
+	time.Sleep(300 * time.Millisecond)
+	require.Equal(t, 1, countClosedLogs(), "closed errors channel was logged more than once")
+}
+
+// A transient destination reader health failure keeps the message in the
+// scheduling pipeline instead of dropping it.
+func TestDestinationReaderUnhealthy_MessageScheduledNotDropped(t *testing.T) {
+	lggr, hook := logger.TestObserved(t, zapcore.DebugLevel)
+	currentTime := time.Now().UTC()
+	mockTimeProvider := mocks.NewMockTimeProvider(t)
+	mockTimeProvider.EXPECT().GetTime().Return(currentTime).Maybe()
+
+	testMessage := common.MessageWithMetadata{
+		Message: protocol.Message{
+			DestChainSelector:   1,
+			SourceChainSelector: 2,
+			SequenceNumber:      1,
+		},
+		Metadata: common.MessageMetadata{
+			IngestionTimestamp: currentTime,
+		},
+	}
+
+	results := make(chan common.MessageWithMetadata, 1)
+	results <- testMessage
+	messageSubscriber := mocks.NewMockMessageSubscriber(t)
+	messageSubscriber.EXPECT().Start(mock.Anything).Return(results, nil, nil)
+
+	handled := make(chan struct{}, 1)
+	mockExecutor := mocks.NewMockExecutor(t)
+	mockExecutor.EXPECT().Start(mock.Anything).Return(nil)
+	mockExecutor.EXPECT().Close().Return(nil)
+	mockExecutor.EXPECT().CheckValidMessage(mock.Anything, mock.Anything).
+		Return(fmt.Errorf("destination reader critically failed for chain 1: %w", executor.ErrDestinationReaderUnhealthy)).Maybe()
+	mockExecutor.EXPECT().HandleMessage(mock.Anything, mock.Anything).Run(func(context.Context, protocol.Message) {
+		handled <- struct{}{}
+	}).Return(false, nil).Maybe()
+
+	leaderElector := mocks.NewMockLeaderElector(t)
+	leaderElector.EXPECT().IsExecutorForChain(mock.Anything).Return(true).Maybe()
+	leaderElector.EXPECT().GetReadyTimestamp(mock.Anything, mock.Anything, mock.Anything).Return(currentTime, nil).Maybe()
+	leaderElector.EXPECT().GetRetryDelay(mock.Anything).Return(time.Second, nil).Maybe()
+
+	ec, err := executor.NewCoordinator(
+		lggr,
+		"",
+		mockExecutor,
+		messageSubscriber,
+		leaderElector,
+		monitoring.NewNoopExecutorMonitoring(),
+		8*time.Hour,
+		mockTimeProvider,
+		1,
+		time.Second,
+	)
+	require.NoError(t, err)
+
+	require.NoError(t, ec.Start(t.Context()))
+	defer func() { require.NoError(t, ec.Close()) }()
+
+	found := func(s string) bool {
+		for _, entry := range hook.All() {
+			if strings.Contains(fmt.Sprintf("%+v", entry), s) {
+				return true
+			}
+		}
+		return false
+	}
+
+	// The message is scheduled and dispatched despite the unhealthy reader.
+	require.Eventuallyf(t, func() bool {
+		select {
+		case <-handled:
+			return true
+		default:
+			return false
+		}
+	}, 3*time.Second, 50*time.Millisecond, "timed out waiting for HandleMessage")
+	require.True(t, found("destination reader unhealthy, scheduling message for retry"), "expected reader-unhealthy log")
+	require.False(t, found("invalid message, skipping"), "message must not be dropped as invalid")
 }
