@@ -51,6 +51,9 @@ func newSourceFactory(t *testing.T, runtime chainRuntime) chainaccess.AccessorFa
 		map[protocol.ChainSelector]string{testSourceSelector: validTestOffRampAddress},
 		nil,
 		nil,
+		nil,
+		nil,
+		0,
 		0,
 		func(context.Context, protocol.ChainSelector, logger.Logger) (chainRuntime, error) {
 			return runtime, nil
@@ -167,7 +170,7 @@ func TestExecutorStyleAccessorNeverBuildsALogPoller(t *testing.T) {
 	t.Parallel()
 
 	runtime := &lpStubRuntime{stubChainRuntime: newStubRuntime(t), lp: lpmocks.NewLogPoller(t), chainID: stubChainID}
-	acc := newAccessor(logger.Test(t), testSourceSelector, runtime, [20]byte{1}, "key", nil, nil, nil).(*accessor)
+	acc := newAccessor(logger.Test(t), testSourceSelector, runtime, [20]byte{1}, "key", nil, nil, nil, nil, nil, nil).(*accessor)
 
 	_, err := acc.SourceReader()
 	require.ErrorContains(t, err, "source reader not available")
