@@ -257,7 +257,6 @@ func (r *Service) initializeAndMonitor() {
 				loader.LoadFrom(startBlock)
 			}
 			r.startBlockInitialized.Store(true)
-			r.lastSuccessfulQuery.Store(time.Now().Unix())
 			r.metrics().SetSourceReaderLastProcessedFinalizedBlock(ctx, int64(startBlock)) // #nosec G115 -- chain block heights are within int64 range
 			r.logger.Infow("Initialized start block", "block", startBlock)
 			break
@@ -284,6 +283,8 @@ func (r *Service) initializeAndMonitor() {
 		case <-time.After(r.pollInterval):
 		}
 	}
+	// Staleness starts once the source can serve reads, so a long load does not count against it.
+	r.lastSuccessfulQuery.Store(time.Now().Unix())
 
 	r.eventMonitoringLoop()
 }
@@ -390,8 +391,6 @@ func (r *Service) eventMonitoringLoop() {
 				}()
 
 				r.recoveryControl(ctx)
-				// Every tick, so a source that goes unhealthy or recovers is seen within one poll interval.
-				r.recordChainHealth(ctx)
 				if r.disabled.Load() {
 					r.recordDisabledState(ctx)
 					return
@@ -402,7 +401,8 @@ func (r *Service) eventMonitoringLoop() {
 					return
 				}
 				r.lastSuccessfulQuery.Store(time.Now().Unix())
-				r.monitoring.RecordChainHealthy(ctx, r.chainSelector, true)
+				// A successful query is healthy only if the source and the chain's other inputs are too.
+				r.recordChainHealth(ctx)
 				r.recoveryHeartbeat(ctx, &latest.Number)
 				if r.recovery != nil && r.recovery.rebuildingID != "" {
 					if r.checkFinality(ctx, finalized) {

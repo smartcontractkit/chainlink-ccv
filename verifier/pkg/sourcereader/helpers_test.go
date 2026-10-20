@@ -96,6 +96,13 @@ func (c *chainHealthRecorder) recorded() []bool {
 	return slices.Compact(slices.Clone(c.healthy))
 }
 
+// writes returns how many times the gauge was written, repeats included.
+func (c *chainHealthRecorder) writes() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.healthy)
+}
+
 // closingReader is a source reader with a Close but no local index, so the verifier must not close it.
 type closingReader struct {
 	*mocks.MockSourceReader

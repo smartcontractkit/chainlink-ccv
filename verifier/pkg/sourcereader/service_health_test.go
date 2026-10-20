@@ -1,12 +1,15 @@
 package sourcereader
 
 import (
+	"context"
 	"errors"
+	"math/big"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
@@ -169,4 +172,76 @@ func errOnOdd(i int) error {
 		return errors.New("unhealthy")
 	}
 	return nil
+}
+
+// newLoopHealthSRS starts a service whose chain queries fail while failQueries is set, recording its gauge.
+func newLoopHealthSRS(t *testing.T, failQueries *atomic.Bool, reporter chainaccess.SourceHealthReporter) (*Service, *chainHealthRecorder) {
+	t.Helper()
+	chain := protocol.ChainSelector(1337)
+	reader := mocks.NewMockSourceReader(t)
+	chainStatusMgr := mocks.NewMockChainStatusManager(t)
+	curseDetector := mocks.NewMockCurseCheckerService(t)
+	chainStatusMgr.EXPECT().ReadChainStatuses(mock.Anything, mock.Anything).
+		Return(map[protocol.ChainSelector]*protocol.ChainStatusInfo{
+			chain: {ChainSelector: chain, FinalizedBlockHeight: big.NewInt(100)},
+		}, nil).Maybe()
+	reader.EXPECT().LatestAndFinalizedBlock(mock.Anything).
+		RunAndReturn(func(context.Context) (*protocol.BlockHeader, *protocol.BlockHeader, error) {
+			if failQueries.Load() {
+				return nil, nil, errors.New("RPC unreachable")
+			}
+			return &protocol.BlockHeader{Number: 200}, &protocol.BlockHeader{Number: 150}, nil
+		}).Maybe()
+	reader.EXPECT().LatestSafeBlock(mock.Anything).Return(nil, nil).Maybe()
+	reader.EXPECT().FetchMessageSentEvents(mock.Anything, mock.Anything, mock.Anything).
+		Return([]protocol.MessageSentEvent{}, nil).Maybe()
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).
+		Return(false, nil).Maybe()
+
+	srs, _, _ := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 20*time.Millisecond, 100)
+	health := &chainHealthRecorder{}
+	fakeMonitoring := verifiermonitoring.NewFakeVerifierMonitoring()
+	fakeMonitoring.ServiceMetrics = health
+	srs.monitoring = fakeMonitoring
+	srs.healthReporter = reporter
+	require.NoError(t, srs.Start(t.Context()))
+	t.Cleanup(func() { require.NoError(t, srs.Close()) })
+	return srs, health
+}
+
+func lastRecorded(health *chainHealthRecorder) (healthy, ok bool) {
+	recorded := health.recorded()
+	if len(recorded) == 0 {
+		return false, false
+	}
+	return recorded[len(recorded)-1], true
+}
+
+// The gauge follows each chain query, as #1521 made it: down on a failed query, up on the next success.
+func TestChainHealth_FailedQueryDropsTheGaugeUntilTheNextSuccess(t *testing.T) {
+	var failQueries atomic.Bool
+	srs, health := newLoopHealthSRS(t, &failQueries, nil)
+	isHealthy := func(want bool) func() bool {
+		return func() bool { got, ok := lastRecorded(health); return ok && got == want }
+	}
+	require.Eventually(t, isHealthy(true), 2*time.Second, 5*time.Millisecond)
+
+	failQueries.Store(true)
+	require.Eventually(t, isHealthy(false), 2*time.Second, 5*time.Millisecond)
+	require.NoError(t, srs.Ready(), "/health uses the staleness window, not a single failed query")
+
+	failQueries.Store(false)
+	require.Eventually(t, isHealthy(true), 2*time.Second, 5*time.Millisecond)
+}
+
+// A successful query never marks the gauge healthy while the source reports itself unhealthy.
+func TestChainHealth_SuccessfulQueryDoesNotOverrideAnUnhealthySource(t *testing.T) {
+	reporter := &fakeHealthReporter{}
+	reporter.set(errors.New("log poller unhealthy"))
+	var failQueries atomic.Bool
+	_, health := newLoopHealthSRS(t, &failQueries, reporter)
+
+	require.Eventually(t, func() bool { return health.writes() > 5 }, 2*time.Second, 5*time.Millisecond,
+		"the loop keeps querying and recording")
+	require.NotContains(t, health.recorded(), true)
 }
