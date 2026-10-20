@@ -675,14 +675,16 @@ func (f *factory) sharedSQLDB() *sql.DB {
 // exactly once; later calls, or calls with no database configured, do nothing.
 func (f *factory) AfterAccessorsClosed(context.Context) error {
 	f.dbMu.Lock()
-	db := f.db
-	f.db = nil
-	f.dbMu.Unlock()
+	defer f.dbMu.Unlock()
 
-	if db == nil {
+	if f.db == nil {
 		return nil
 	}
-	if err := db.Close(); err != nil {
+
+	err := f.db.Close()
+	f.db = nil
+
+	if err != nil {
 		return fmt.Errorf("failed to close verifier database: %w", err)
 	}
 	return nil
