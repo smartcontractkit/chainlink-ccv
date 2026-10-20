@@ -592,6 +592,86 @@ func TestProcessExecutionStateChanged_RejectsWhenTransactionByHashFails(t *testi
 	mockCli.AssertExpectations(t)
 }
 
+// A processed event advances lastPolledBlock; an older event never moves it backward.
+func TestProcessExecutionStateChanged_AdvancesLastPolledBlockForwardOnly(t *testing.T) {
+	mockCli := new(mockClient)
+	poller := setupTestPoller(t, mockCli, 24*time.Hour)
+
+	offRampAddr := poller.offRampAddress
+	tx := types.NewTx(&types.LegacyTx{To: &offRampAddr, Gas: 500_000, Data: buildExecuteCallData(t, 0)})
+	message := buildPollerTestMessage(t)
+
+	newEvent := func(txHash common.Hash, blockNumber uint64) *offramp.OffRampExecutionStateChanged {
+		event := &offramp.OffRampExecutionStateChanged{
+			MessageId: message.MustMessageID(),
+			State:     uint8(executor.SUCCESS),
+		}
+		event.Raw.TxHash = txHash
+		event.Raw.BlockNumber = blockNumber
+		return event
+	}
+
+	const newerBlock = uint64(2000)
+	newerEvent := newEvent(common.HexToHash("0x1"), newerBlock)
+	mockCli.On("TransactionByHash", mock.Anything, newerEvent.Raw.TxHash).Return(tx, nil).Once()
+
+	require.NoError(t, poller.processExecutionStateChanged(context.Background(), newerEvent))
+	assert.Equal(t, newerBlock, poller.getLastPolledBlock())
+
+	const olderBlock = uint64(1500)
+	olderEvent := newEvent(common.HexToHash("0x2"), olderBlock)
+	mockCli.On("TransactionByHash", mock.Anything, olderEvent.Raw.TxHash).Return(tx, nil).Once()
+
+	require.NoError(t, poller.processExecutionStateChanged(context.Background(), olderEvent))
+	assert.Equal(t, newerBlock, poller.getLastPolledBlock(), "an older event must not move the cursor backward")
+	mockCli.AssertExpectations(t)
+}
+
+// A replayed event (same tx hash and log index) is skipped, not appended to the cache again.
+func TestProcessExecutionStateChanged_SkipsReplayedEvent(t *testing.T) {
+	mockCli := new(mockClient)
+	poller := setupTestPoller(t, mockCli, 24*time.Hour)
+
+	offRampAddr := poller.offRampAddress
+	tx := types.NewTx(&types.LegacyTx{To: &offRampAddr, Gas: 500_000, Data: buildExecuteCallData(t, 0)})
+	message := buildPollerTestMessage(t)
+
+	event := &offramp.OffRampExecutionStateChanged{
+		MessageId: message.MustMessageID(),
+		State:     uint8(executor.SUCCESS),
+	}
+	event.Raw.TxHash = common.HexToHash("0xabc")
+	event.Raw.Index = 3
+	event.Raw.BlockNumber = 100
+
+	// The replay never reaches the RPC: TransactionByHash is expected exactly once.
+	mockCli.On("TransactionByHash", mock.Anything, event.Raw.TxHash).Return(tx, nil).Once()
+
+	require.NoError(t, poller.processExecutionStateChanged(context.Background(), event))
+	require.NoError(t, poller.processExecutionStateChanged(context.Background(), event))
+
+	attempts, ok := poller.attemptCache.Get(event.MessageId)
+	require.True(t, ok)
+	assert.Len(t, attempts, 1, "a replayed event must not append a duplicate attempt")
+
+	// A different log index in the same transaction is a distinct event and is processed.
+	sameTxDifferentLog := &offramp.OffRampExecutionStateChanged{
+		MessageId: message.MustMessageID(),
+		State:     uint8(executor.SUCCESS),
+	}
+	sameTxDifferentLog.Raw.TxHash = event.Raw.TxHash
+	sameTxDifferentLog.Raw.Index = 4
+	sameTxDifferentLog.Raw.BlockNumber = 100
+	mockCli.On("TransactionByHash", mock.Anything, event.Raw.TxHash).Return(tx, nil).Once()
+
+	require.NoError(t, poller.processExecutionStateChanged(context.Background(), sameTxDifferentLog))
+
+	attempts, ok = poller.attemptCache.Get(event.MessageId)
+	require.True(t, ok)
+	assert.Len(t, attempts, 2, "a distinct log index must not be deduplicated")
+	mockCli.AssertExpectations(t)
+}
+
 // TestRunBackfill covers the behavior of runBackfill under various conditions.
 func TestRunBackfill(t *testing.T) {
 	tests := []struct {
@@ -651,7 +731,7 @@ func TestRunBackfill(t *testing.T) {
 				assert.Contains(t, err.Error(), tc.wantErrContains)
 			} else {
 				require.NoError(t, err)
-				assert.Equal(t, tc.wantLastPolledBlock, poller.lastPolledBlock)
+				assert.Equal(t, tc.wantLastPolledBlock, poller.getLastPolledBlock())
 			}
 			mockCli.AssertExpectations(t)
 		})
@@ -688,7 +768,7 @@ func TestRunBackfill_InitialBlockPositioning(t *testing.T) {
 			mockCli.dynamicFunc = func(ctx context.Context, number *big.Int) (*types.Header, error) {
 				if number == nil {
 					// Capture lastPolledBlock at the moment pollForEvents calls HeaderByNumber
-					capturedLastPolled = poller.lastPolledBlock
+					capturedLastPolled = poller.getLastPolledBlock()
 					return &types.Header{
 						Number: big.NewInt(int64(tc.startBlock + 100)),
 						Time:   uint64(time.Now().Unix()),
@@ -742,9 +822,9 @@ func TestStartupSequence_BackfillFailureFallback(t *testing.T) {
 			require.Error(t, err)
 
 			// Simulate what Start() does on backfill failure.
-			poller.lastPolledBlock = poller.startBlock
+			poller.setLastPolledBlock(poller.startBlock)
 
-			assert.Equal(t, tc.wantLastPolledBlock, poller.lastPolledBlock)
+			assert.Equal(t, tc.wantLastPolledBlock, poller.getLastPolledBlock())
 		})
 	}
 }
@@ -784,7 +864,7 @@ func TestStartHTTPMode_PreservesLastPolledBlock(t *testing.T) {
 			mockCli := new(mockClient)
 			poller := setupTestPoller(t, mockCli, 24*time.Hour)
 			poller.startBlock = tc.startBlock
-			poller.lastPolledBlock = tc.lastPolledBlock
+			poller.setLastPolledBlock(tc.lastPolledBlock)
 
 			ctx, cancel := context.WithCancel(context.Background())
 			cancel() // cancel immediately so the polling goroutine exits promptly
@@ -792,7 +872,7 @@ func TestStartHTTPMode_PreservesLastPolledBlock(t *testing.T) {
 			poller.startHTTPMode(ctx)
 			poller.runWg.Wait()
 
-			assert.Equal(t, tc.wantLastPolledBlock, poller.lastPolledBlock,
+			assert.Equal(t, tc.wantLastPolledBlock, poller.getLastPolledBlock(),
 				"startHTTPMode must not reset lastPolledBlock")
 		})
 	}
@@ -962,7 +1042,7 @@ func TestStartWSMode_UsesLastPolledBlock(t *testing.T) {
 			mockCli := new(mockClient)
 			poller := setupTestPoller(t, mockCli, 24*time.Hour)
 			poller.startBlock = tc.startBlock
-			poller.lastPolledBlock = tc.lastPolledBlock
+			poller.setLastPolledBlock(tc.lastPolledBlock)
 
 			// WatchExecutionStateChanged will fail (no WebSocket), confirming startWSMode
 			// returns an error; the important invariant is which value it reads.
@@ -970,7 +1050,7 @@ func TestStartWSMode_UsesLastPolledBlock(t *testing.T) {
 
 			// In a non-WS environment the call fails; the key assertion is that
 			// lastPolledBlock was not altered by startWSMode.
-			assert.Equal(t, tc.lastPolledBlock, poller.lastPolledBlock,
+			assert.Equal(t, tc.lastPolledBlock, poller.getLastPolledBlock(),
 				"startWSMode must not modify lastPolledBlock")
 			// err may or may not be nil depending on WS availability in the test env.
 			_ = err
@@ -987,7 +1067,7 @@ func TestHTTPPolling_ContinuousRPCFailures(t *testing.T) {
 	mockCli := new(mockClient)
 	poller := setupTestPoller(t, mockCli, lookbackWindow)
 	poller.startBlock = startBlock
-	poller.lastPolledBlock = startBlock
+	poller.setLastPolledBlock(startBlock)
 	poller.pollInterval = 10 * time.Millisecond
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
@@ -1009,7 +1089,7 @@ func TestHTTPPolling_ContinuousRPCFailures(t *testing.T) {
 
 	// Verify poller fields are set correctly
 	assert.Equal(t, uint64(startBlock), poller.startBlock, "Poller should maintain start block")
-	assert.Equal(t, uint64(startBlock), poller.lastPolledBlock, "Poller should maintain last polled block")
+	assert.Equal(t, uint64(startBlock), poller.getLastPolledBlock(), "Poller should maintain last polled block")
 }
 
 func TestStart_NonBlocking(t *testing.T) {

@@ -3,6 +3,7 @@ package destinationreader
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"math/big"
@@ -48,6 +49,10 @@ const (
 	maxSubscriptionReconnectAttempts = 5
 	// baseReconnectBackoffDuration is the base duration for exponential backoff when reconnecting subscriptions.
 	baseReconnectBackoffDuration = 1 * time.Second
+	// eventKeyLength is the length of a replay-detection key: 32-byte tx hash plus 4-byte log index.
+	eventKeyLength = common.HashLength + 4
+	// seenEventsMaxEntries bounds the replay-detection set; its TTL matches the attempt cache.
+	seenEventsMaxEntries = 10_000
 )
 
 var (
@@ -69,12 +74,15 @@ type EvmExecutionAttemptPoller struct {
 	startBlock      uint64
 	offRampFilterer offramp.OffRampFilterer
 	eventCh         chan *offramp.OffRampExecutionStateChanged
+	// subMu guards subscription, which is read and replaced by reconnect and Close.
+	subMu           sync.Mutex
 	subscription    event.Subscription
 	attemptCache    *expirable.LRU[protocol.Bytes32, []protocol.ExecutionAttempt]
+	seenEvents      *expirable.LRU[[eventKeyLength]byte, struct{}]
 	cancelFunc      context.CancelFunc
 	runWg           sync.WaitGroup
 	pollInterval    time.Duration
-	lastPolledBlock uint64
+	lastPolledBlock atomic.Uint64
 	lookbackWindow  time.Duration
 	// stalenessThreshold is how long HTTP polling may go without a successful poll before
 	// Ready fails; defaults to stalenessPollIntervals × pollInterval.
@@ -165,7 +173,7 @@ func NewEVMExecutionAttemptPoller(
 		offRampFilterer:    *offRampFilterer,
 		eventCh:            make(chan *offramp.OffRampExecutionStateChanged),
 		attemptCache:       attemptCache,
-		lastPolledBlock:    0,
+		seenEvents:         expirable.NewLRU[[eventKeyLength]byte, struct{}](seenEventsMaxEntries, nil, attemptCacheExpiration),
 		pollInterval:       defaultPollInterval,
 		stalenessThreshold: stalenessThreshold,
 		lookbackWindow:     attemptCacheExpiration, // Use cache expiration as lookback window
@@ -208,7 +216,7 @@ func (p *EvmExecutionAttemptPoller) runStartupSequence(ctx context.Context) {
 
 	if err := p.runBackfill(ctx); err != nil {
 		p.lggr.Errorw("Initial HTTP backfill failed, continuing without complete history", "error", err)
-		p.lastPolledBlock = p.startBlock
+		p.setLastPolledBlock(p.startBlock)
 	}
 
 	p.backfillComplete.Store(true)
@@ -225,7 +233,7 @@ func (p *EvmExecutionAttemptPoller) runBackfill(ctx context.Context) error {
 	p.lggr.Infow("Starting HTTP backfill", "startBlock", p.startBlock, "lookbackWindow", p.lookbackWindow)
 
 	if p.startBlock > 0 {
-		p.lastPolledBlock = p.startBlock - 1
+		p.setLastPolledBlock(p.startBlock - 1)
 	}
 	// When startBlock == 0, lastPolledBlock stays at 0 so pollForEvents begins from block 1.
 
@@ -233,7 +241,7 @@ func (p *EvmExecutionAttemptPoller) runBackfill(ctx context.Context) error {
 		return fmt.Errorf("backfill failed: %w", err)
 	}
 
-	p.lggr.Infow("HTTP backfill complete", "lastPolledBlock", p.lastPolledBlock)
+	p.lggr.Infow("HTTP backfill complete", "lastPolledBlock", p.getLastPolledBlock())
 	return nil
 }
 
@@ -410,7 +418,7 @@ func (p *EvmExecutionAttemptPoller) verifyAndSetStartBlock(ctx context.Context, 
 func (p *EvmExecutionAttemptPoller) startHTTPMode(ctx context.Context) {
 	// lastPolledBlock is already positioned correctly by runBackfill (or its fallback),
 	// so HTTP polling continues from where history coverage ended.
-	p.lggr.Infow("WebSocket subscription not available, continuing with HTTP polling", "lastPolledBlock", p.lastPolledBlock)
+	p.lggr.Infow("WebSocket subscription not available, continuing with HTTP polling", "lastPolledBlock", p.getLastPolledBlock())
 
 	p.pollingMode.Store(true)
 	p.lastSuccessfulPoll.Store(time.Now().Unix())
@@ -425,7 +433,7 @@ func (p *EvmExecutionAttemptPoller) startHTTPMode(ctx context.Context) {
 func (p *EvmExecutionAttemptPoller) startWSMode(ctx context.Context) error {
 	// Use lastPolledBlock as the subscription start so the WS stream begins exactly
 	// where the backfill left off, preventing duplicate or missed events.
-	startBlock := p.lastPolledBlock
+	startBlock := p.getLastPolledBlock()
 	subscription, err := p.offRampFilterer.WatchExecutionStateChanged(
 		&bind.WatchOpts{Start: &startBlock, Context: ctx},
 		p.eventCh, nil, nil, nil,
@@ -434,7 +442,12 @@ func (p *EvmExecutionAttemptPoller) startWSMode(ctx context.Context) error {
 		return err
 	}
 
+	p.subMu.Lock()
 	p.subscription = subscription
+	p.subMu.Unlock()
+
+	// run is started exactly once here and consumes eventCh for the service lifetime;
+	// reconnects restart only monitorSubscription.
 	p.runWg.Go(func() {
 		p.run(ctx)
 	})
@@ -452,15 +465,17 @@ func (p *EvmExecutionAttemptPoller) Close() error {
 	return p.StopOnce("evm.executionattemptpoller.Service", func() error {
 		p.lggr.Infow("Stopping execution attempt poller")
 
-		// Unsubscribe from events first to stop new events from being sent to the channel
-		// (only relevant for WebSocket mode)
-		if p.subscription != nil {
-			p.subscription.Unsubscribe()
-		}
-
+		// Cancel first so reconnect backoff exits on ctx before the subscription is closed.
 		if p.cancelFunc != nil {
 			p.cancelFunc()
 		}
+
+		p.subMu.Lock()
+		if p.subscription != nil {
+			p.subscription.Unsubscribe()
+			p.subscription = nil
+		}
+		p.subMu.Unlock()
 
 		p.runWg.Wait()
 
@@ -515,7 +530,14 @@ func (p *EvmExecutionAttemptPoller) run(ctx context.Context) {
 // to reconnect. If max reconnect attempts are reached, it falls back to HTTP polling mode.
 // Only used in WebSocket mode.
 func (p *EvmExecutionAttemptPoller) monitorSubscription(ctx context.Context) {
+	p.subMu.Lock()
 	subscription := p.subscription
+	p.subMu.Unlock()
+
+	if subscription == nil {
+		p.lggr.Debug("No active subscription to monitor")
+		return
+	}
 
 	select {
 	case err := <-subscription.Err():
@@ -562,10 +584,7 @@ func (p *EvmExecutionAttemptPoller) handleReconnection(ctx context.Context) erro
 
 			p.lggr.Infow("Successfully reconnected subscription", "reconnectAttempt", reconnectAttempts+1)
 
-			// Restart the processing and subscription monitoring
-			p.runWg.Go(func() {
-				p.run(ctx)
-			})
+			// run already consumes eventCh for the service lifetime; restart only the monitor.
 			p.runWg.Go(func() {
 				p.monitorSubscription(ctx)
 			})
@@ -594,15 +613,16 @@ func (p *EvmExecutionAttemptPoller) calculateReconnectBackoff(attempt int) time.
 // reconnectSubscription attempts to reconnect the WebSocket subscription.
 // It safely replaces the old subscription with a new one.
 func (p *EvmExecutionAttemptPoller) reconnectSubscription(ctx context.Context) error {
-	// Unsubscribe the old subscription if it exists
+	p.subMu.Lock()
 	if p.subscription != nil {
 		p.subscription.Unsubscribe()
 		p.subscription = nil
 	}
+	p.subMu.Unlock()
 
 	// Resume from lastPolledBlock; fall back to startBlock only as a safety guard if
 	// lastPolledBlock is somehow behind (e.g. WS mode started before backfill completed).
-	startBlock := max(p.lastPolledBlock, p.startBlock)
+	startBlock := max(p.getLastPolledBlock(), p.startBlock)
 
 	// Create a new subscription
 	subscription, err := p.offRampFilterer.WatchExecutionStateChanged(
@@ -613,7 +633,9 @@ func (p *EvmExecutionAttemptPoller) reconnectSubscription(ctx context.Context) e
 		return fmt.Errorf("failed to reconnect subscription: %w", err)
 	}
 
+	p.subMu.Lock()
 	p.subscription = subscription
+	p.subMu.Unlock()
 	return nil
 }
 
@@ -733,17 +755,45 @@ func (p *EvmExecutionAttemptPoller) pollForEvents(ctx context.Context) error {
 }
 
 func (p *EvmExecutionAttemptPoller) getLastPolledBlock() uint64 {
-	return p.lastPolledBlock
+	return p.lastPolledBlock.Load()
 }
 
 func (p *EvmExecutionAttemptPoller) setLastPolledBlock(block uint64) {
-	p.lastPolledBlock = block
+	p.lastPolledBlock.Store(block)
+}
+
+// advanceLastPolledBlock moves the cursor forward to block; it never moves backward.
+func (p *EvmExecutionAttemptPoller) advanceLastPolledBlock(block uint64) {
+	for {
+		current := p.lastPolledBlock.Load()
+		if block <= current {
+			return
+		}
+		if p.lastPolledBlock.CompareAndSwap(current, block) {
+			return
+		}
+	}
+}
+
+// eventKey identifies an event by transaction hash and log index for replay detection.
+func eventKey(event *offramp.OffRampExecutionStateChanged) [eventKeyLength]byte {
+	var key [eventKeyLength]byte
+	copy(key[:common.HashLength], event.Raw.TxHash.Bytes())
+	binary.BigEndian.PutUint32(key[common.HashLength:], uint32(event.Raw.Index)) //nolint:gosec // G115: log index is bounded by logs per block
+	return key
 }
 
 // processExecutionStateChanged processes a single execution state changed event.
+// Events already seen (e.g. replayed by a resubscription) are skipped, and each
+// successfully processed event advances lastPolledBlock to its block number.
 func (p *EvmExecutionAttemptPoller) processExecutionStateChanged(ctx context.Context, event *offramp.OffRampExecutionStateChanged) error {
 	msgID := event.MessageId
 	txHash := event.Raw.TxHash
+
+	key := eventKey(event)
+	if p.seenEvents.Contains(key) {
+		return nil
+	}
 
 	transaction, err := p.client.TransactionByHash(ctx, txHash)
 	if err != nil {
@@ -775,6 +825,9 @@ func (p *EvmExecutionAttemptPoller) processExecutionStateChanged(ctx context.Con
 	attempts, _ := p.attemptCache.Get(msgID)
 	attempts = append(attempts, *executionAttempt)
 	p.attemptCache.Add(msgID, attempts)
+
+	p.seenEvents.Add(key, struct{}{})
+	p.advanceLastPolledBlock(event.Raw.BlockNumber)
 
 	p.lggr.Debugw("Cached execution attempt",
 		"messageID", msgID,
