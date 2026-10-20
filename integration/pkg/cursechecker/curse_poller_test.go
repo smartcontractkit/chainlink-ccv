@@ -271,6 +271,59 @@ func TestCurseDetectorService_ReaderErrorHandling(t *testing.T) {
 	}, 2*time.Second, 5*time.Millisecond, "chainB should report chainA as cursed")
 }
 
+// TestCurseDetectorService_StaleStateUnknown tests that a chain's cached curse
+// state is reported as unknown once it ages past stalenessMultiplier poll intervals.
+func TestCurseDetectorService_StaleStateUnknown(t *testing.T) {
+	ctx := t.Context()
+	lggr := logger.Test(t)
+
+	const (
+		chainA protocol.ChainSelector = 1
+		chainB protocol.ChainSelector = 2
+	)
+
+	// Chain A's reader first reports chainB cursed, then starts failing.
+	mockReaderA := mocks.NewMockRMNCurseReader(t)
+	mockReaderA.EXPECT().GetRMNCursedSubjects(mock.Anything).
+		Return([]protocol.Bytes16{ChainSelectorToBytes16(chainB)}, nil).
+		Maybe()
+
+	rmnReaders := map[protocol.ChainSelector]chainaccess.RMNCurseReader{
+		chainA: mockReaderA,
+	}
+
+	metrics := mocks.NewMockCurseCheckerMetrics(t)
+	metrics.EXPECT().
+		SetLocalChainGlobalCursed(mock.Anything, chainA, false).Maybe()
+	metrics.EXPECT().
+		SetRemoteChainCursed(mock.Anything, chainA, chainB, true).Maybe()
+
+	// 20ms poll interval -> 200ms staleness threshold.
+	svc, err := NewCurseDetectorService(rmnReaders, 20*time.Millisecond, 0, lggr, metrics)
+	require.NoError(t, err)
+
+	err = svc.Start(ctx)
+	require.NoError(t, err)
+	defer svc.Close()
+
+	// Fresh state answers from the last successful poll.
+	require.Eventually(t, func() bool {
+		cursed, err := svc.IsRemoteChainCursed(ctx, chainA, chainB)
+		return err == nil && cursed
+	}, 2*time.Second, 5*time.Millisecond, "fresh state should report chainB as cursed")
+
+	// Reader starts failing; the cached state ages out.
+	mockReaderA.EXPECT().GetRMNCursedSubjects(mock.Anything).Unset()
+	mockReaderA.EXPECT().GetRMNCursedSubjects(mock.Anything).
+		Return(nil, errors.New("RPC error")).
+		Maybe()
+
+	require.Eventually(t, func() bool {
+		cursed, err := svc.IsRemoteChainCursed(ctx, chainA, chainB)
+		return cursed && errors.Is(err, common.ErrCurseStateUnknown)
+	}, 5*time.Second, 10*time.Millisecond, "stale state should be reported as unknown")
+}
+
 func TestCurseDetectorService_NilCursedSubjects(t *testing.T) {
 	ctx := t.Context()
 	lggr := logger.Test(t)

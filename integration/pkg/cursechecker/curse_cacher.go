@@ -15,6 +15,10 @@ import (
 // We use 100 entries for the curse cache because we're bounded by number of source chains.
 const curseCacheMaxEntries = 100
 
+// defaultCurseCacheExpiry applies when Params.CacheExpiry <= 0; it matches the
+// executor's standalone reader cache default (readerCacheExpiryDefault).
+const defaultCurseCacheExpiry = 5 * time.Minute
+
 // CachedCurseChecker is a wrapper around the RMNCurseReader that caches the curse state for each destination chain.
 // It uses an LRU cache to store the curse state for each destination chain.
 type CachedCurseChecker struct {
@@ -39,7 +43,11 @@ type Params struct {
 
 // NewCachedCurseChecker creates a new CachedCurseChecker.
 func NewCachedCurseChecker(params Params) CachedCurseChecker {
-	curseCache := expirable.NewLRU[protocol.ChainSelector, cacheValue](curseCacheMaxEntries, nil, params.CacheExpiry)
+	expiry := params.CacheExpiry
+	if expiry <= 0 {
+		expiry = defaultCurseCacheExpiry
+	}
+	curseCache := expirable.NewLRU[protocol.ChainSelector, cacheValue](curseCacheMaxEntries, nil, expiry)
 	return CachedCurseChecker{
 		lggr:       params.Lggr,
 		metrics:    params.Metrics,
@@ -49,7 +57,8 @@ func NewCachedCurseChecker(params Params) CachedCurseChecker {
 }
 
 // IsRemoteChainCursed checks if the remote chain is cursed for the local chain.
-// Returns (true, ErrCurseStateUnknown) on RPC failure (fail closed).
+// Returns (true, ErrCurseStateUnknown) on RPC failure or when no RMN reader is
+// configured for the local chain (fail closed).
 func (c CachedCurseChecker) IsRemoteChainCursed(ctx context.Context, localChain, remoteChain protocol.ChainSelector) (bool, error) {
 	cursedSubjects := make(map[protocol.Bytes16]struct{})
 	curseInfo, found := c.curseCache.Peek(localChain)
@@ -62,8 +71,8 @@ func (c CachedCurseChecker) IsRemoteChainCursed(ctx context.Context, localChain,
 
 	reader, ok := c.rmnReaders[localChain]
 	if !ok {
-		c.lggr.Errorw("no RMN reader configured for chain, assuming not cursed", "localChain", localChain)
-		return false, nil
+		c.lggr.Errorw("no RMN reader configured for chain, blocking lane", "localChain", localChain)
+		return true, common.ErrCurseStateUnknown
 	}
 	curseResults, err := reader.GetRMNCursedSubjects(ctx)
 	if err != nil {
