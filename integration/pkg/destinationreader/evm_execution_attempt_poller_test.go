@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"math/big"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -110,6 +112,7 @@ func setupTestPoller(t *testing.T, mockCli *mockClient, lookbackWindow time.Dura
 		mockCli,
 		lggr,
 		lookbackWindow,
+		0, // default staleness threshold
 	)
 	require.NoError(t, err)
 	require.NotNil(t, poller)
@@ -1080,6 +1083,59 @@ func TestReady_ReturnsNilAfterBackfillCompletes(t *testing.T) {
 	require.NoError(t, poller.Close())
 }
 
+// TestReady_ReportsStaleWhenPollsStopSucceeding verifies that in HTTP polling
+// mode a dead RPC turns the poller not-ready after 50 poll intervals, and that
+// it recovers when the RPC answers again.
+func TestReady_ReportsStaleWhenPollsStopSucceeding(t *testing.T) {
+	const (
+		totalBlocks    = 100
+		blockInterval  = 12 * time.Second
+		lookbackWindow = 10 * time.Minute
+	)
+
+	now := time.Now()
+	genesisTime := now.Add(-time.Duration(totalBlocks) * blockInterval)
+	calc := newBlockTimeCalculator(genesisTime, blockInterval)
+
+	var failRPC atomic.Bool
+	mockCli := new(mockClient)
+	mockCli.dynamicFunc = func(ctx context.Context, number *big.Int) (*types.Header, error) {
+		if failRPC.Load() {
+			return nil, errors.New("RPC unreachable")
+		}
+		if number == nil {
+			return calc.createHead(totalBlocks), nil
+		}
+		return calc.createHead(number.Uint64()), nil
+	}
+
+	poller := setupTestPoller(t, mockCli, lookbackWindow)
+	poller.pollInterval = 20 * time.Millisecond
+	poller.stalenessThreshold = 1 * time.Second // 50 × 20ms; set explicitly since the constructor derives it from the default poll interval
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	require.NoError(t, poller.Start(ctx))
+	defer func() { require.NoError(t, poller.Close()) }()
+
+	require.Eventually(t, func() bool {
+		return poller.Ready() == nil
+	}, 5*time.Second, 10*time.Millisecond)
+	assert.True(t, poller.pollingMode.Load(), "test env has no WS, poller should be in HTTP mode")
+
+	failRPC.Store(true)
+	require.Eventually(t, func() bool {
+		err := poller.Ready()
+		return err != nil && strings.Contains(err.Error(), "no successful execution-attempt poll")
+	}, 5*time.Second, 20*time.Millisecond, "poller should report staleness once polls stop succeeding")
+
+	failRPC.Store(false)
+	require.Eventually(t, func() bool {
+		return poller.Ready() == nil
+	}, 5*time.Second, 20*time.Millisecond, "poller should recover once the RPC answers again")
+}
+
 func TestStart_ContextCancelDuringStartup_NotFatal(t *testing.T) {
 	const lookbackWindow = 1 * time.Hour
 
@@ -1151,6 +1207,19 @@ func TestHealthy_ReturnsFatalError_WhenGetStartBlockFails(t *testing.T) {
 
 	cancel()
 	require.NoError(t, poller.Close())
+}
+
+// The staleness threshold defaults to 50 poll intervals and honors an explicit override.
+func TestNewEVMExecutionAttemptPoller_StalenessThreshold(t *testing.T) {
+	offRampAddr := common.HexToAddress("0x1234567890123456789012345678901234567890")
+
+	poller, err := NewEVMExecutionAttemptPoller(offRampAddr, new(mockClient), logger.Test(t), time.Hour, 0)
+	require.NoError(t, err)
+	assert.Equal(t, stalenessPollIntervals*defaultPollInterval, poller.stalenessThreshold)
+
+	poller, err = NewEVMExecutionAttemptPoller(offRampAddr, new(mockClient), logger.Test(t), time.Hour, 42*time.Second)
+	require.NoError(t, err)
+	assert.Equal(t, 42*time.Second, poller.stalenessThreshold)
 }
 
 const (

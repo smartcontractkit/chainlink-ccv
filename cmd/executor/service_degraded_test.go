@@ -33,7 +33,9 @@ func TestFactory_Start_DegradedWhenOneChainFails(t *testing.T) {
 
 	good := mocks.NewMockAccessor(t)
 	good.EXPECT().ContractTransmitter().Return(mocks.NewMockContractTransmitter(t), nil)
-	good.EXPECT().DestinationReader().Return(mocks.NewMockDestinationReader(t), nil)
+	goodReader := mocks.NewMockDestinationReader(t)
+	goodReader.EXPECT().IsReady(mock.Anything).Return(true).Maybe()
+	good.EXPECT().DestinationReader().Return(goodReader, nil)
 	fac := mocks.NewMockAccessorFactory(t)
 	fac.EXPECT().GetAccessor(mock.Anything, goodSelector).Return(good, nil)
 	fac.EXPECT().GetAccessor(mock.Anything, badSelector).Return(nil, errors.New("RPC down"))
@@ -110,7 +112,9 @@ func TestFactory_Start_DegradedWhenSelectorIsMalformed(t *testing.T) {
 
 	good := mocks.NewMockAccessor(t)
 	good.EXPECT().ContractTransmitter().Return(mocks.NewMockContractTransmitter(t), nil)
-	good.EXPECT().DestinationReader().Return(mocks.NewMockDestinationReader(t), nil)
+	goodReader := mocks.NewMockDestinationReader(t)
+	goodReader.EXPECT().IsReady(mock.Anything).Return(true).Maybe()
+	good.EXPECT().DestinationReader().Return(goodReader, nil)
 	fac := mocks.NewMockAccessorFactory(t)
 	fac.EXPECT().GetAccessor(mock.Anything, goodSelector).Return(good, nil)
 	evmFactory = fac

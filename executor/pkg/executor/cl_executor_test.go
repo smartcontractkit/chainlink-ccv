@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	coordinator "github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
@@ -98,6 +99,61 @@ func Test_ChainlinkExecutor_Start_ClosesStartedReadersOnFailure(t *testing.T) {
 	err = executor.Start(context.Background())
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "start failed")
+}
+
+func Test_ChainlinkExecutor_Ready_Degraded(t *testing.T) {
+	address1, err := protocol.RandomAddress()
+	assert.NoError(t, err)
+	address2, err := protocol.RandomAddress()
+	assert.NoError(t, err)
+
+	newExecutor := func(t *testing.T, readerReady map[protocol.ChainSelector]bool) *ChainlinkExecutor {
+		ct := map[protocol.ChainSelector]*mocks.MockContractTransmitter{
+			1: mocks.NewMockContractTransmitter(t),
+			2: mocks.NewMockContractTransmitter(t),
+		}
+		dr := map[protocol.ChainSelector]*mocks.MockDestinationReader{}
+		for sel, ready := range readerReady {
+			mockDR := mocks.NewMockDestinationReader(t)
+			mockDR.EXPECT().IsReady(mock.Anything).Return(ready).Maybe()
+			dr[sel] = mockDR
+		}
+		vr := mocks.NewMockVerifierResultReader(t)
+		return setupTestExecutor(t, ct, dr, vr, address1, address2, 2)
+	}
+
+	t.Run("not started", func(t *testing.T) {
+		e := newExecutor(t, map[protocol.ChainSelector]bool{1: true, 2: true})
+		assert.Error(t, e.Ready())
+	})
+
+	t.Run("all readers ready", func(t *testing.T) {
+		e := newExecutor(t, map[protocol.ChainSelector]bool{1: true, 2: true})
+		require.NoError(t, e.Start(t.Context()))
+		defer func() { assert.NoError(t, e.Close()) }()
+		assert.NoError(t, e.Ready())
+		assert.NoError(t, e.Degraded())
+	})
+
+	t.Run("one reader unready is degraded, not unready", func(t *testing.T) {
+		e := newExecutor(t, map[protocol.ChainSelector]bool{1: true, 2: false})
+		require.NoError(t, e.Start(t.Context()))
+		defer func() { assert.NoError(t, e.Close()) }()
+		assert.NoError(t, e.Ready())
+		err := e.Degraded()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "DestinationReader[2]")
+		assert.NotContains(t, err.Error(), "DestinationReader[1]")
+	})
+
+	t.Run("no reader ready is not ready", func(t *testing.T) {
+		e := newExecutor(t, map[protocol.ChainSelector]bool{1: false, 2: false})
+		require.NoError(t, e.Start(t.Context()))
+		defer func() { assert.NoError(t, e.Close()) }()
+		err := e.Ready()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no destination reader is ready across 2 chain(s)")
+	})
 }
 
 func Test_ChainlinkExecutor_Validate(t *testing.T) {

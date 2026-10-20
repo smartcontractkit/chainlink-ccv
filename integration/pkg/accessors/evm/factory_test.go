@@ -214,6 +214,7 @@ func TestFactoryRejectsAccessorWithoutCapabilitiesBeforeStartingRuntime(t *testi
 		nil,
 		nil,
 		0,
+		0,
 		func(context.Context, protocol.ChainSelector, logger.Logger) (chainRuntime, error) {
 			runtimeCalls++
 			return &stubChainRuntime{}, nil
@@ -286,6 +287,7 @@ func TestFactoryRejectsIncompleteDestinationConfigBeforeStartingRuntime(t *testi
 				nil,
 				nil,
 				0,
+				0,
 				func(context.Context, protocol.ChainSelector, logger.Logger) (chainRuntime, error) {
 					runtimeCalls++
 					return &stubChainRuntime{}, nil
@@ -319,6 +321,7 @@ func TestFactoryClosesRuntimeWhenChainClientIsUnavailable(t *testing.T) {
 		nil,
 		nil,
 		0,
+		0,
 		func(context.Context, protocol.ChainSelector, logger.Logger) (chainRuntime, error) {
 			return runtime, nil
 		},
@@ -347,6 +350,7 @@ func TestFactoryRejectsNilRuntime(t *testing.T) {
 		},
 		nil,
 		nil,
+		0,
 		0,
 		func(context.Context, protocol.ChainSelector, logger.Logger) (chainRuntime, error) {
 			return nil, nil
@@ -377,6 +381,7 @@ func TestFactoryIncludesRuntimeCloseFailureInComponentError(t *testing.T) {
 		},
 		nil,
 		nil,
+		0,
 		0,
 		func(context.Context, protocol.ChainSelector, logger.Logger) (chainRuntime, error) {
 			return runtime, nil
@@ -438,6 +443,7 @@ func newPricerFactoryWithDecimals(
 		nil,
 		map[protocol.ChainSelector]string{pricerTestSelector: feeQuoterAddress},
 		nativeDecimals,
+		0,
 		0,
 		func(context.Context, protocol.ChainSelector, logger.Logger) (chainRuntime, error) {
 			*runtimeCalls++

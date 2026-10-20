@@ -267,6 +267,10 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 
 	// Create coordinator configuration. Only chains that produced a source reader are configured;
 	// the coordinator uses sourceReaders as authoritative, so configs must be aligned with it.
+	stalenessThreshold, err := config.SourceReaderStalenessThresholdDuration()
+	if err != nil {
+		return err
+	}
 	sourceConfigs := make(map[protocol.ChainSelector]verifier.SourceConfig)
 	for selector := range sourceReaders {
 		strSelector := strconv.FormatUint(uint64(selector), 10)
@@ -275,6 +279,7 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 			VerifierAddress:        verifierAddresses[strSelector],
 			DefaultExecutorAddress: defaultExecutorAddresses[strSelector],
 			PollInterval:           verifier.SourceReaderPollInterval,
+			StalenessThreshold:     stalenessThreshold,
 			ChainSelector:          selector,
 			DisableFinalityChecker: slices.Contains(config.DisableFinalityCheckers, strSelector),
 		}

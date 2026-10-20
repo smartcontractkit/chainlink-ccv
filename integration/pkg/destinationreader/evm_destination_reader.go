@@ -75,7 +75,10 @@ type Params struct {
 	// the derived address, a warning is logged and the derived address is used.
 	RmnRemoteAddress          string
 	ExecutionVisabilityWindow time.Duration
-	Monitoring                monitoring.Monitoring
+	// ReaderStalenessThreshold overrides the execution-attempt poller's staleness default
+	// (50 poll intervals) when set; zero keeps the default.
+	ReaderStalenessThreshold time.Duration
+	Monitoring               monitoring.Monitoring
 }
 
 func NewEvmDestinationReader(ctx context.Context, params Params) (*EvmDestinationReader, error) {
@@ -146,6 +149,7 @@ func NewEvmDestinationReader(ctx context.Context, params Params) (*EvmDestinatio
 		params.ChainClient,
 		logger.With(params.Lggr, "component", "ExecutionAttemptPoller"),
 		params.ExecutionVisabilityWindow,
+		params.ReaderStalenessThreshold,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create execution attempt poller for chain %d: %w", params.ChainSelector, err)
