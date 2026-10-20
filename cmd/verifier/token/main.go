@@ -14,7 +14,8 @@ func main() {
 	if len(os.Args) >= 2 && os.Args[1] == "ccv" {
 		// The CLI loads the verifier secrets itself from the token verifier's path (it runs before
 		// bootstrap.Run, so the service factory has not loaded them yet).
-		cmd.RunCCVCLI(os.Args[1:], vsecrets.TokenVerifierSecretsPathEnv, vsecrets.DefaultTokenVerifierSecretsPath)
+		cmd.RunCCVCLI(os.Args[1:], vsecrets.TokenVerifierSecretsPathEnv, vsecrets.DefaultTokenVerifierSecretsPath,
+			cmd.WithoutBlocks("the token verifier has no LogPoller"))
 		return
 	}
 

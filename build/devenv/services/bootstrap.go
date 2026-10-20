@@ -58,6 +58,7 @@ type BootstrapInput struct {
 	KeyImport *bootstrap.KeyImport `toml:"-"`
 	// KeyImportFiles are the exported key file and password file backing KeyImport.
 	KeyImportFiles []testcontainers.ContainerFile `toml:"-"`
+	Features       bootstrap.Features             `toml:"features"`
 }
 
 func ApplyBootstrapDefaults(in BootstrapInput) BootstrapInput {
@@ -116,6 +117,7 @@ func GenerateBootstrapConfig(in BootstrapInput) ([]byte, error) {
 		Chains:             in.Chains,
 		KeyImport:          in.KeyImport,
 		Monitoring:         in.Monitoring,
+		Feature:            in.Features,
 	})
 }
 

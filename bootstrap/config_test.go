@@ -1007,3 +1007,44 @@ password = "s3cret"
 		require.True(t, cfg.Feature.LogPoller)
 	})
 }
+
+func writeBootstrapConfig(t *testing.T, content string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config.toml")
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+	t.Setenv(ConfigPathEnv, path)
+	return path
+}
+
+func TestLoadFeaturesReadsOnlyTheFeatureSection(t *testing.T) {
+	// The rest of the file is not valid for any mode: the CLI must not need it to be.
+	writeBootstrapConfig(t, "app_config_mode = \"nonsense\"\n\n[Feature]\nLogPoller = true\n\n[db]\nunknown_key = 1\n")
+
+	features, err := LoadFeatures()
+	require.NoError(t, err)
+	require.True(t, features.LogPoller)
+}
+
+func TestLoadFeaturesDefaultsToOff(t *testing.T) {
+	writeBootstrapConfig(t, "app_config_mode = \"local_app_config\"\n")
+
+	features, err := LoadFeatures()
+	require.NoError(t, err)
+	require.False(t, features.LogPoller)
+}
+
+func TestLoadFeaturesNamesThePathAndEnvVarWhenTheFileIsMissing(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "absent.toml")
+	t.Setenv(ConfigPathEnv, missing)
+
+	_, err := LoadFeatures()
+	require.ErrorContains(t, err, missing)
+	require.ErrorContains(t, err, ConfigPathEnv)
+}
+
+func TestLoadFeaturesRejectsAnUnknownFeatureKey(t *testing.T) {
+	writeBootstrapConfig(t, "[Feature]\nLogPollr = true\n")
+
+	_, err := LoadFeatures()
+	require.ErrorContains(t, err, "LogPollr")
+}

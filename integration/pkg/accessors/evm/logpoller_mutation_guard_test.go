@@ -7,19 +7,74 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
-// Deleting, anchoring or replaying the log poller rewrites what every reader on the chain sees, so the
-// reader is the only code allowed to do it. Any reference counts, including a method value.
-func TestOnlyTheReaderMutatesTheLogPoller(t *testing.T) {
-	mutating := map[string]bool{"DeleteLogsAndBlocksAfter": true, "SkipToBlock": true, "Replay": true}
-	root := repoRoot(t)
-	reader := filepath.Join(root, "integration", "pkg", "accessors", "evm", "evm_logpoller_source_reader.go")
+const (
+	logPollerImport = "github.com/smartcontractkit/chainlink-evm/pkg/logpoller"
+	adapterImport   = "github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
+)
 
+// guard names the files allowed to reference a name. A scope narrows the guard to the files it
+// accepts, for a name that other code legitimately uses for something else.
+type guard struct {
+	allowed []string
+	scope   func(path string, file *ast.File) bool
+}
+
+func importsPackage(file *ast.File, path string) bool {
+	return slices.ContainsFunc(file.Imports, func(spec *ast.ImportSpec) bool { return spec.Path.Value == `"`+path+`"` })
+}
+
+// Deleting, anchoring or replaying the log poller rewrites what every reader on the chain sees, so
+// each of those has one owner: the reader anchors and replays, and the operator file deletes and
+// searches for the common ancestor. Any reference counts, including a method value.
+func TestOnlyTheReaderMutatesTheLogPoller(t *testing.T) {
+	root := repoRoot(t)
+	adapter := filepath.Join(root, "integration", "pkg", "accessors", "evm")
+	reader := filepath.Join(adapter, "evm_logpoller_source_reader.go")
+	operator := filepath.Join(adapter, "evm_logpoller_operator.go")
+
+	offenders := referencesOutside(t, root, false, map[string]guard{
+		"DeleteLogsAndBlocksAfter": {allowed: []string{operator}},
+		// The CLI's Operator interface has a method of the same name, so only code that can reach the
+		// LogPoller is held to it.
+		"FindLCA":     {allowed: []string{operator}, scope: func(_ string, file *ast.File) bool { return importsPackage(file, logPollerImport) }},
+		"SkipToBlock": {allowed: []string{reader}},
+		"Replay":      {allowed: []string{reader}},
+	})
+	require.Empty(t, offenders, "only %s may delete or search, and only %s may anchor or replay the log poller", operator, reader)
+}
+
+// The operator functions are for the CLI: the running verifier service never deletes, so nothing
+// under verifier/** or the in-node constructors may reach them.
+func TestOnlyTheCLIWiringCallsTheOperatorFunctions(t *testing.T) {
+	root := repoRoot(t)
+	adapter := filepath.Join(root, "integration", "pkg", "accessors", "evm")
+	operator := filepath.Join(adapter, "evm_logpoller_operator.go")
+	wiring := filepath.Join(root, "cmd", "verifier", "blocks_operator.go")
+	allowed := []string{operator, wiring}
+
+	offenders := referencesOutside(t, root, true, map[string]guard{
+		"RemoveBlocksFrom": {allowed: allowed},
+		// The CLI's Operator interface has a method of the same name, so only code in or importing the
+		// adapter is held to it.
+		"FindLCA": {allowed: allowed, scope: func(path string, file *ast.File) bool {
+			return filepath.Dir(path) == adapter || importsPackage(file, adapterImport)
+		}},
+	})
+	require.Empty(t, offenders, "only %s may call the operator functions", wiring)
+}
+
+// referencesOutside lists every non-test reference to a guarded name from a file its guard does not
+// allow. A reference is a selector, such as a method value, and with identifiers set also a bare name,
+// which is how code inside the declaring package calls a function. Declarations do not count.
+func referencesOutside(t *testing.T, root string, identifiers bool, guards map[string]guard) []string {
+	t.Helper()
 	var offenders []string
 	fset := token.NewFileSet()
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -32,23 +87,39 @@ func TestOnlyTheReaderMutatesTheLogPoller(t *testing.T) {
 			}
 			return nil
 		}
-		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") || path == reader {
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
 			return nil
 		}
 		file, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
 		if err != nil {
 			return err
 		}
+		report := func(id *ast.Ident) {
+			g, guarded := guards[id.Name]
+			if !guarded || slices.Contains(g.allowed, path) || (g.scope != nil && !g.scope(path, file)) {
+				return
+			}
+			offenders = append(offenders, fset.Position(id.Pos()).String()+" "+id.Name)
+		}
+		skip := make(map[*ast.Ident]bool)
 		ast.Inspect(file, func(n ast.Node) bool {
-			if sel, ok := n.(*ast.SelectorExpr); ok && mutating[sel.Sel.Name] {
-				offenders = append(offenders, fset.Position(sel.Sel.Pos()).String()+" "+sel.Sel.Name)
+			switch n := n.(type) {
+			case *ast.FuncDecl:
+				skip[n.Name] = true
+			case *ast.SelectorExpr:
+				skip[n.Sel] = true
+				report(n.Sel)
+			case *ast.Ident:
+				if identifiers && !skip[n] {
+					report(n)
+				}
 			}
 			return true
 		})
 		return nil
 	})
 	require.NoError(t, err)
-	require.Empty(t, offenders, "only %s may delete, anchor or replay the log poller", reader)
+	return offenders
 }
 
 // repoRoot returns the directory of the root go.mod, the module this package belongs to.
