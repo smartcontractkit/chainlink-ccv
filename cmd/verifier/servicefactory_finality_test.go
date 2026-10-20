@@ -40,10 +40,10 @@ type reporterAccessor struct {
 	registry *reporterRegistry
 }
 
-func (a *reporterAccessor) SetSourceReaderDeps(db *sql.DB, verifierID string) error {
+func (a *reporterAccessor) SetSourceReaderDeps(deps chainaccess.SourceReaderDeps) error {
 	a.registry.mu.Lock()
 	defer a.registry.mu.Unlock()
-	a.registry.depsDB, a.registry.depsID = db, verifierID
+	a.registry.depsDB, a.registry.depsID = deps.DB, deps.VerifierID
 	return nil
 }
 

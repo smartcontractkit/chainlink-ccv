@@ -2,7 +2,6 @@ package verifier
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"runtime"
 	"sync"
@@ -82,7 +81,7 @@ type countingAccessor struct {
 	registry *countingRegistry
 }
 
-func (a *countingAccessor) SetSourceReaderDeps(*sql.DB, string) error {
+func (a *countingAccessor) SetSourceReaderDeps(chainaccess.SourceReaderDeps) error {
 	a.registry.mu.Lock()
 	defer a.registry.mu.Unlock()
 	a.registry.depsCalls++

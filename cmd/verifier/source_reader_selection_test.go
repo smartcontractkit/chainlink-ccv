@@ -51,9 +51,9 @@ type setterAccessor struct {
 	gotVerifID string
 }
 
-func (a *setterAccessor) SetSourceReaderDeps(db *sql.DB, verifierID string) error {
+func (a *setterAccessor) SetSourceReaderDeps(deps chainaccess.SourceReaderDeps) error {
 	*a.calls = append(*a.calls, "SetSourceReaderDeps")
-	a.gotDB, a.gotVerifID = db, verifierID
+	a.gotDB, a.gotVerifID = deps.DB, deps.VerifierID
 	return a.setErr
 }
 
@@ -201,13 +201,13 @@ type cleanerAccessor struct {
 	gotVerifID string
 }
 
-func (a *cleanerAccessor) CleanStaleFilters(_ context.Context, db *sql.DB, verifierID string) error {
-	*a.calls = append(*a.calls, "CleanStaleFilters")
-	a.gotDB, a.gotVerifID = db, verifierID
+func (a *cleanerAccessor) CleanUnusedSourceState(_ context.Context, deps chainaccess.SourceReaderDeps) error {
+	*a.calls = append(*a.calls, "CleanUnusedSourceState")
+	a.gotDB, a.gotVerifID = deps.DB, deps.VerifierID
 	return a.cleanErr
 }
 
-func TestSelectChainReaderFlagOffCleansStaleFiltersBetweenAccessorAndReader(t *testing.T) {
+func TestSelectChainReaderFlagOffCleansUnusedSourceStateBetweenAccessorAndReader(t *testing.T) {
 	t.Parallel()
 
 	h := newSelectionHarness(t, mocks.NewMockSourceReader(t))
@@ -216,7 +216,7 @@ func TestSelectChainReaderFlagOffCleansStaleFiltersBetweenAccessorAndReader(t *t
 
 	_, err := h.selectReader(accessor, false, false, db)
 	require.NoError(t, err)
-	require.Equal(t, []string{"GetAccessor", "CleanStaleFilters", "SourceReader"}, h.calls)
+	require.Equal(t, []string{"GetAccessor", "CleanUnusedSourceState", "SourceReader"}, h.calls)
 	require.Same(t, db, accessor.gotDB)
 	require.Equal(t, "verifier-1", accessor.gotVerifID)
 }
@@ -227,12 +227,12 @@ type setterCleanerAccessor struct {
 	cleanCalls int
 }
 
-func (a *setterCleanerAccessor) CleanStaleFilters(context.Context, *sql.DB, string) error {
+func (a *setterCleanerAccessor) CleanUnusedSourceState(context.Context, chainaccess.SourceReaderDeps) error {
 	a.cleanCalls++
 	return nil
 }
 
-func TestSelectChainReaderFlagOnDoesNotCleanStaleFilters(t *testing.T) {
+func TestSelectChainReaderFlagOnDoesNotCleanUnusedSourceState(t *testing.T) {
 	t.Parallel()
 
 	h := newSelectionHarness(t, finalityReader{SourceReader: mocks.NewMockSourceReader(t)})
@@ -252,7 +252,7 @@ func TestSelectChainReaderCleanupFailureIsAWarningAndTheChainStarts(t *testing.T
 	got, err := h.selectReader(accessor, false, false, &sql.DB{})
 	require.NoError(t, err)
 	require.Same(t, h.spy.reader, got.reader)
-	require.Equal(t, []string{"GetAccessor", "CleanStaleFilters", "SourceReader"}, h.calls)
+	require.Equal(t, []string{"GetAccessor", "CleanUnusedSourceState", "SourceReader"}, h.calls)
 }
 
 func TestSelectChainReaderWithoutADatabaseSkipsTheCleanup(t *testing.T) {

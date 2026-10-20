@@ -15,14 +15,15 @@ import (
 // The accessor's LogPoller-only behavior: the reader dependencies that select the LogPoller reader and
 // the cleanup of the verifier's filters when the LogPoller is off.
 var (
-	_ chainaccess.SourceReaderDepsSetter = (*accessor)(nil)
-	_ chainaccess.StaleFilterCleaner     = (*accessor)(nil)
+	_ chainaccess.SourceReaderDepsSetter   = (*accessor)(nil)
+	_ chainaccess.UnusedSourceStateCleaner = (*accessor)(nil)
 )
 
 // SetSourceReaderDeps builds and starts the chain's LogPoller on the verifier database, which makes
 // the first SourceReader call return the LogPoller reader. It does no network I/O and must come
 // before SourceReader: a reader that is already built is never swapped.
-func (a *accessor) SetSourceReaderDeps(db *sql.DB, verifierID string) error {
+func (a *accessor) SetSourceReaderDeps(deps chainaccess.SourceReaderDeps) error {
+	db, verifierID := deps.DB, deps.VerifierID
 	if a == nil {
 		return errors.New("EVM accessor is nil")
 	}
@@ -71,16 +72,16 @@ func (a *accessor) newORM(rt logPollerRuntime, db *sql.DB) logpoller.ORM {
 	return logpoller.NewORM(rt.EVMChainID(), logpollerdb.NewDB(db), a.lggr)
 }
 
-// CleanStaleFilters deletes this verifier's stored filters for the accessor's chain. The verifier calls
-// it when it starts without the LogPoller. Filters of chains no longer configured are not reached: a
-// graceful stop already unregisters them, so only a crash can leave one behind.
-func (a *accessor) CleanStaleFilters(ctx context.Context, db *sql.DB, verifierID string) error {
-	if a == nil || db == nil || a.sourceParams == nil {
+// CleanUnusedSourceState deletes this verifier's stored log poller filters for the accessor's chain. The
+// verifier calls it when it starts without the LogPoller. Filters of chains no longer configured are not
+// reached: a graceful stop already unregisters them, so only a crash can leave one behind.
+func (a *accessor) CleanUnusedSourceState(ctx context.Context, deps chainaccess.SourceReaderDeps) error {
+	if a == nil || deps.DB == nil || a.sourceParams == nil {
 		return nil
 	}
 	lpRuntime, ok := a.runtime.(logPollerRuntime)
 	if !ok {
 		return nil
 	}
-	return cleanVerifierFilters(ctx, a.newORM(lpRuntime, db), verifierID)
+	return cleanVerifierFilters(ctx, a.newORM(lpRuntime, deps.DB), deps.VerifierID)
 }

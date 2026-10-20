@@ -16,6 +16,7 @@ import (
 	evmtypes "github.com/smartcontractkit/chainlink-evm/pkg/types"
 
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm/logpollerdb"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
 )
 
@@ -145,10 +146,10 @@ func TestCleanVerifierFilters(t *testing.T) {
 	})
 }
 
-func TestAccessorCleanStaleFilters(t *testing.T) {
+func TestAccessorCleanUnusedSourceState(t *testing.T) {
 	t.Run("a nil database is skipped", func(t *testing.T) {
 		acc := newSourceAccessor(t, &lpStubRuntime{stubChainRuntime: newStubRuntime(t), chainID: stubChainID})
-		require.NoError(t, acc.CleanStaleFilters(t.Context(), nil, "v"))
+		require.NoError(t, acc.CleanUnusedSourceState(t.Context(), chainaccess.SourceReaderDeps{DB: nil, VerifierID: "v"}))
 	})
 
 	t.Run("it removes the verifier's filters on its own chain only", func(t *testing.T) {
@@ -170,7 +171,7 @@ func TestAccessorCleanStaleFilters(t *testing.T) {
 		insert(chainID)
 		insert(otherChainID)
 
-		require.NoError(t, acc.CleanStaleFilters(ctx, db, "v"))
+		require.NoError(t, acc.CleanUnusedSourceState(ctx, chainaccess.SourceReaderDeps{DB: db, VerifierID: "v"}))
 
 		var own, other int
 		require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM evm.log_poller_filters WHERE evm_chain_id = $1`, chainID).Scan(&own))
@@ -181,7 +182,7 @@ func TestAccessorCleanStaleFilters(t *testing.T) {
 
 	t.Run("a runtime that cannot host a LogPoller has nothing to clean", func(t *testing.T) {
 		acc := newSourceAccessor(t, newStubRuntime(t))
-		require.NoError(t, acc.CleanStaleFilters(t.Context(), testutil.NewTestDB(t).DB, "v"))
+		require.NoError(t, acc.CleanUnusedSourceState(t.Context(), chainaccess.SourceReaderDeps{DB: testutil.NewTestDB(t).DB, VerifierID: "v"}))
 	})
 }
 
@@ -190,7 +191,7 @@ func TestAccessorCleanStaleFilters(t *testing.T) {
 func TestAccessorLogPollerReaderGetsAnORM(t *testing.T) {
 	runtime := &lpStubRuntime{stubChainRuntime: newStubRuntime(t), lp: lpmocks.NewLogPoller(t), chainID: big.NewInt(910_501)}
 	acc := newSourceAccessor(t, runtime)
-	require.NoError(t, acc.SetSourceReaderDeps(testutil.NewTestDB(t).DB, "verifier-1"))
+	require.NoError(t, acc.SetSourceReaderDeps(chainaccess.SourceReaderDeps{DB: testutil.NewTestDB(t).DB, VerifierID: "verifier-1"}))
 
 	reader, err := acc.SourceReader()
 	require.NoError(t, err)

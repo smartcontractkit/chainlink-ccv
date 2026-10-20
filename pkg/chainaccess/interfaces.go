@@ -79,6 +79,13 @@ type SourceHealthReporter interface {
 	Healthy() error
 }
 
+// SourceReaderDeps is what a database-backed source reader needs from the verifier. DB is borrowed:
+// the accessor must never close it. Both fields are set whenever the verifier passes it.
+type SourceReaderDeps struct {
+	DB         *sql.DB
+	VerifierID string
+}
+
 // SourceReaderDepsSetter is an optional Accessor capability for accessors whose source reader reads from
 // the verifier's database. The caller sets the dependencies before the first SourceReader call, which
 // then returns the database-backed reader; an accessor without this hook keeps its default reader.
@@ -87,21 +94,19 @@ type SourceReaderDepsSetter interface {
 	// change the reader once SourceReader has been called. Repeating the call with the same values
 	// succeeds without effect; different values fail.
 	//
-	// The database is borrowed: the accessor must never close it. Anything the call starts, such as
-	// a log poller, belongs to the accessor and is released by its Close. The call takes no context,
-	// so it must not block on network I/O.
-	SetSourceReaderDeps(db *sql.DB, verifierID string) error
+	// Anything the call starts, such as a log poller, belongs to the accessor and is released by its
+	// Close. The call takes no context, so it must not block on network I/O.
+	SetSourceReaderDeps(deps SourceReaderDeps) error
 }
 
-// StaleFilterCleaner is an optional Accessor capability for accessors whose source reader leaves
-// state in the verifier's database. The verifier calls it at startup when it does not use that
-// reader, so a crashed run's leftovers are not kept where nothing reads them.
-type StaleFilterCleaner interface {
-	// CleanStaleFilters removes this verifier's leftover filters for the accessor's own chain.
-	// It must not touch other verifiers' or other chains' state. The database is borrowed and
-	// must not be closed. A nil database is skipped. Errors are for the caller to log: a
-	// failed cleanup must never stop the verifier from starting.
-	CleanStaleFilters(ctx context.Context, db *sql.DB, verifierID string) error
+// UnusedSourceStateCleaner is an optional Accessor capability for accessors whose database-backed source
+// reader leaves state in the verifier's database. The verifier calls it at startup when it does not use
+// that reader, so a crashed run's leftovers are not kept where nothing reads them.
+type UnusedSourceStateCleaner interface {
+	// CleanUnusedSourceState removes the state this verifier's database-backed reader left for the
+	// accessor's own chain, such as EVM log poller filters. It must not touch other verifiers' or other
+	// chains' state. Errors are for the caller to log: a failed cleanup must never stop the verifier.
+	CleanUnusedSourceState(ctx context.Context, deps SourceReaderDeps) error
 }
 
 // ErrSourceNotReady is returned by SourceReader reads while the source is still loading; callers retry

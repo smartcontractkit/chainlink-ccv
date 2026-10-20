@@ -12,9 +12,9 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
-// filterCleanupTimeout caps one chain's flag-off filter cleanup, which is best effort and must not use
-// up the chain's startup budget when the database is slow.
-const filterCleanupTimeout = 10 * time.Second
+// sourceStateCleanupTimeout caps one chain's flag-off source state cleanup, which is best effort and must
+// not use up the chain's startup budget when the database is slow.
+const sourceStateCleanupTimeout = 10 * time.Second
 
 // chainReader is one chain's source reader, before instrumentation, with what was resolved from it.
 type chainReader struct {
@@ -48,7 +48,7 @@ func selectChainReader(
 	}
 
 	if !logPollerOn {
-		cleanLeftoverFilters(ctx, lggr, accessor, selector, db, verifierID)
+		cleanUnusedSourceState(ctx, lggr, accessor, selector, chainaccess.SourceReaderDeps{DB: db, VerifierID: verifierID})
 	}
 
 	logPollerReader := false
@@ -58,7 +58,7 @@ func selectChainReader(
 		case !ok:
 			lggr.Warnw("Accessor cannot read through a LogPoller, using the RPC source reader", "selector", selector)
 		default:
-			if err := setter.SetSourceReaderDeps(db, verifierID); err != nil {
+			if err := setter.SetSourceReaderDeps(chainaccess.SourceReaderDeps{DB: db, VerifierID: verifierID}); err != nil {
 				lggr.Errorw("Failed to set source reader deps, skipping chain", "selector", selector, "error", err)
 				return nil, fmt.Errorf("failed to set source reader deps for chain %d: %w", selector, err)
 			}
@@ -100,25 +100,24 @@ func selectChainReader(
 	return result, nil
 }
 
-// cleanLeftoverFilters has the accessor remove this verifier's log poller filters left in the database by
-// an earlier run with the LogPoller on, since nothing reads them now. It skips an accessor without the
-// capability and a missing database, and only warns on failure: a leftover filter must never stop the
+// cleanUnusedSourceState has the accessor remove what this verifier's database-backed source reader left
+// in the database on an earlier run, since nothing reads it now. It skips an accessor without the
+// capability and a missing database, and only warns on failure: leftover state must never stop the
 // chain from starting.
-func cleanLeftoverFilters(
+func cleanUnusedSourceState(
 	ctx context.Context,
 	lggr logger.Logger,
 	accessor chainaccess.Accessor,
 	selector protocol.ChainSelector,
-	db *sql.DB,
-	verifierID string,
+	deps chainaccess.SourceReaderDeps,
 ) {
-	cleaner, ok := accessor.(chainaccess.StaleFilterCleaner)
-	if !ok || db == nil {
+	cleaner, ok := accessor.(chainaccess.UnusedSourceStateCleaner)
+	if !ok || deps.DB == nil {
 		return
 	}
-	cleanCtx, cancel := context.WithTimeout(ctx, filterCleanupTimeout)
+	cleanCtx, cancel := context.WithTimeout(ctx, sourceStateCleanupTimeout)
 	defer cancel()
-	if err := cleaner.CleanStaleFilters(cleanCtx, db, verifierID); err != nil {
-		lggr.Warnw("Failed to clean up leftover log poller filters, continuing", "selector", selector, "verifierID", verifierID, "error", err)
+	if err := cleaner.CleanUnusedSourceState(cleanCtx, deps); err != nil {
+		lggr.Warnw("Failed to clean up the unused source reader's state, continuing", "selector", selector, "verifierID", deps.VerifierID, "error", err)
 	}
 }

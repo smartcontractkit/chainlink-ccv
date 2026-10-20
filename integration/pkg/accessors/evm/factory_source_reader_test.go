@@ -114,7 +114,7 @@ func TestSetSourceReaderDepsSelectsLogPollerReader(t *testing.T) {
 	acc := newSourceAccessor(t, runtime)
 	db := &sql.DB{}
 
-	require.NoError(t, acc.SetSourceReaderDeps(db, "verifier-1"))
+	require.NoError(t, acc.SetSourceReaderDeps(chainaccess.SourceReaderDeps{DB: db, VerifierID: "verifier-1"}))
 	require.Equal(t, 1, runtime.lpCalls)
 	require.Same(t, db, runtime.gotDB)
 
@@ -126,9 +126,9 @@ func TestSetSourceReaderDepsSelectsLogPollerReader(t *testing.T) {
 	require.Same(t, reader, again)
 
 	// The same call again is a no-op, a different one is refused.
-	require.NoError(t, acc.SetSourceReaderDeps(db, "verifier-1"))
+	require.NoError(t, acc.SetSourceReaderDeps(chainaccess.SourceReaderDeps{DB: db, VerifierID: "verifier-1"}))
 	require.Equal(t, 1, runtime.lpCalls)
-	require.Error(t, acc.SetSourceReaderDeps(db, "verifier-2"))
+	require.Error(t, acc.SetSourceReaderDeps(chainaccess.SourceReaderDeps{DB: db, VerifierID: "verifier-2"}))
 }
 
 func TestSetSourceReaderDepsIsRefusedOnceTheReaderIsBuilt(t *testing.T) {
@@ -139,7 +139,7 @@ func TestSetSourceReaderDepsIsRefusedOnceTheReaderIsBuilt(t *testing.T) {
 	reader, err := acc.SourceReader()
 	require.NoError(t, err)
 
-	require.ErrorContains(t, acc.SetSourceReaderDeps(&sql.DB{}, "verifier-1"), "already built")
+	require.ErrorContains(t, acc.SetSourceReaderDeps(chainaccess.SourceReaderDeps{DB: &sql.DB{}, VerifierID: "verifier-1"}), "already built")
 	require.Zero(t, runtime.lpCalls)
 	again, err := acc.SourceReader()
 	require.NoError(t, err)
@@ -153,7 +153,7 @@ func TestSetSourceReaderDepsFailureKeepsTheRPCReader(t *testing.T) {
 	runtime := &lpStubRuntime{stubChainRuntime: newStubRuntime(t), lpErr: wantErr, chainID: stubChainID}
 	acc := newSourceAccessor(t, runtime)
 
-	require.ErrorIs(t, acc.SetSourceReaderDeps(&sql.DB{}, "verifier-1"), wantErr)
+	require.ErrorIs(t, acc.SetSourceReaderDeps(chainaccess.SourceReaderDeps{DB: &sql.DB{}, VerifierID: "verifier-1"}), wantErr)
 	reader, err := acc.SourceReader()
 	require.NoError(t, err)
 	require.IsType(t, &SourceReader{}, reader)
@@ -163,7 +163,7 @@ func TestSetSourceReaderDepsNeedsARuntimeThatHostsALogPoller(t *testing.T) {
 	t.Parallel()
 
 	acc := newSourceAccessor(t, newStubRuntime(t))
-	require.ErrorContains(t, acc.SetSourceReaderDeps(&sql.DB{}, "verifier-1"), "cannot host a LogPoller")
+	require.ErrorContains(t, acc.SetSourceReaderDeps(chainaccess.SourceReaderDeps{DB: &sql.DB{}, VerifierID: "verifier-1"}), "cannot host a LogPoller")
 }
 
 func TestExecutorStyleAccessorNeverBuildsALogPoller(t *testing.T) {
@@ -174,7 +174,7 @@ func TestExecutorStyleAccessorNeverBuildsALogPoller(t *testing.T) {
 
 	_, err := acc.SourceReader()
 	require.ErrorContains(t, err, "source reader not available")
-	require.ErrorContains(t, acc.SetSourceReaderDeps(&sql.DB{}, "verifier-1"), "no source reader")
+	require.ErrorContains(t, acc.SetSourceReaderDeps(chainaccess.SourceReaderDeps{DB: &sql.DB{}, VerifierID: "verifier-1"}), "no source reader")
 	require.Zero(t, runtime.lpCalls)
 }
 
@@ -183,7 +183,7 @@ func TestAccessorCloseEndsTheLogPollerStartContext(t *testing.T) {
 
 	runtime := &lpStubRuntime{stubChainRuntime: newStubRuntime(t), lp: lpmocks.NewLogPoller(t), chainID: stubChainID}
 	acc := newSourceAccessor(t, runtime)
-	require.NoError(t, acc.SetSourceReaderDeps(&sql.DB{}, "verifier-1"))
+	require.NoError(t, acc.SetSourceReaderDeps(chainaccess.SourceReaderDeps{DB: &sql.DB{}, VerifierID: "verifier-1"}))
 	require.NoError(t, runtime.startCtx.Err())
 
 	require.NoError(t, acc.Close())
