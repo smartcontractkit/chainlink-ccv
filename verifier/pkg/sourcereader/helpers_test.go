@@ -89,10 +89,11 @@ func (c *chainHealthRecorder) RecordChainHealthy(_ context.Context, _ protocol.C
 	c.healthy = append(c.healthy, healthy)
 }
 
+// recorded returns the values the gauge took, collapsing back-to-back repeats of the same value.
 func (c *chainHealthRecorder) recorded() []bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return slices.Clone(c.healthy)
+	return slices.Compact(slices.Clone(c.healthy))
 }
 
 // closingReader is a source reader with a Close but no local index, so the verifier must not close it.

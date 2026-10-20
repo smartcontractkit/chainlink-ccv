@@ -94,8 +94,6 @@ type Service struct {
 	reorgTracker                *ReorgTracker
 	disabled                    atomic.Bool
 	finalityBlocked             atomic.Bool
-	// lastHealth is the value last written to the chain health gauge, so a steady state is not rewritten.
-	lastHealth atomic.Int32
 
 	// ChainStatus management
 	chainStatusManager protocol.ChainStatusManager
@@ -360,25 +358,10 @@ func (r *Service) chainHealth() error {
 	return nil
 }
 
-const (
-	healthUnrecorded int32 = iota
-	healthRecordedUp
-	healthRecordedDown
-)
-
-// recordChainHealth writes the chain health gauge when its value changed. The service is the only
-// writer after construction, so loading, finality and source health never overwrite each other. Only
-// the initializeAndMonitor goroutine calls it: a second caller could interleave the compare and the write.
+// recordChainHealth writes chainHealth to the chain health gauge. The gauge keeps the last value written,
+// so rewriting an unchanged value is harmless.
 func (r *Service) recordChainHealth(ctx context.Context) {
-	state := healthRecordedDown
-	if r.chainHealth() == nil {
-		state = healthRecordedUp
-	}
-	if r.lastHealth.Load() == state {
-		return
-	}
-	r.monitoring.RecordChainHealthy(ctx, r.chainSelector, state == healthRecordedUp)
-	r.lastHealth.Store(state)
+	r.monitoring.RecordChainHealthy(ctx, r.chainSelector, r.chainHealth() == nil)
 }
 
 func (r *Service) eventMonitoringLoop() {

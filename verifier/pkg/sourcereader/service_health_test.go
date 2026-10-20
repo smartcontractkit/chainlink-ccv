@@ -79,14 +79,6 @@ func TestChainHealth_LoadingThenHealthyThenDegradedThenRecovered(t *testing.T) {
 	require.Equal(t, []bool{false, true, false, true}, health.recorded())
 }
 
-func TestChainHealth_SteadyStateIsNotRewritten(t *testing.T) {
-	srs, health := newHealthSRS(t, &fakeHealthReporter{})
-	for range 5 {
-		srs.recordChainHealth(t.Context())
-	}
-	require.Equal(t, []bool{true}, health.recorded())
-}
-
 // A chain disabled without a violation is unhealthy on the gauge but stays ready on /health, as before.
 func TestChainHealth_DisabledIsUnhealthyOnTheGaugeButReadyOnHealth(t *testing.T) {
 	srs, health := newHealthSRS(t, nil)
