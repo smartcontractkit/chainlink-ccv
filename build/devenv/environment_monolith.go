@@ -284,10 +284,12 @@ func NewEnvironment() (in *Cfg, err error) {
 	// without the JD image.
 	var jdInfra *jobs.JDInfrastructure
 	if !local {
-		jdInfra, err = jobs.StartJDInfrastructure(ctx, jobs.JDInfrastructureConfig{
-			JDInput:  in.JD,
-			NodeSets: in.NodeSets,
-		})
+		jdCfg := jobs.JDInfrastructureConfig{NodeSets: in.NodeSets}
+		if in.JD != nil {
+			jdCfg.JDInput = &in.JD.Input
+			jdCfg.NodeConnectTimeout = in.JD.NodeConnectTimeout
+		}
+		jdInfra, err = jobs.StartJDInfrastructure(ctx, jdCfg)
 		if err != nil {
 			L.Error().Msg("Unable to start JD infrastructure." +
 				"Make sure the container has been built with 'just build-jd-docker'.")

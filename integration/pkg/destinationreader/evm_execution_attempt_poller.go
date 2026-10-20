@@ -13,10 +13,12 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/event"
 	"github.com/hashicorp/golang-lru/v2/expirable"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/offramp"
+	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
@@ -27,6 +29,9 @@ import (
 const (
 	// defaultPollInterval is the default interval for polling when WebSocket is not available.
 	defaultPollInterval = 5 * time.Second
+	// stalenessPollIntervals is how many poll intervals without a successful poll Ready
+	// tolerates before reporting not-ready; the default staleness threshold.
+	stalenessPollIntervals = 50
 	// functionSelectorLength is the length of an Ethereum function selector in bytes.
 	functionSelectorLength = 4
 	// expectedParamCount is the expected number of parameters for the execute function.
@@ -57,22 +62,29 @@ var (
 // EvmExecutionAttemptPoller polls for execution state changed events and caches execution attempts.
 type EvmExecutionAttemptPoller struct {
 	services.StateMachine
-	lggr             logger.Logger
-	chainSelector    protocol.ChainSelector
-	client           client.Client
-	offRampAddress   common.Address
-	startBlock       uint64
-	offRampFilterer  offramp.OffRampFilterer
-	eventCh          chan *offramp.OffRampExecutionStateChanged
-	subscription     event.Subscription
-	attemptCache     *expirable.LRU[protocol.Bytes32, []protocol.ExecutionAttempt]
-	cancelFunc       context.CancelFunc
-	runWg            sync.WaitGroup
-	pollInterval     time.Duration
-	lastPolledBlock  uint64
-	lookbackWindow   time.Duration
-	backfillComplete atomic.Bool
-	fatalErr         atomic.Pointer[error]
+	lggr            logger.Logger
+	chainSelector   protocol.ChainSelector
+	client          client.Client
+	offRampAddress  common.Address
+	startBlock      uint64
+	offRampFilterer offramp.OffRampFilterer
+	eventCh         chan *offramp.OffRampExecutionStateChanged
+	subscription    event.Subscription
+	attemptCache    *expirable.LRU[protocol.Bytes32, []protocol.ExecutionAttempt]
+	cancelFunc      context.CancelFunc
+	runWg           sync.WaitGroup
+	pollInterval    time.Duration
+	lastPolledBlock uint64
+	lookbackWindow  time.Duration
+	// stalenessThreshold is how long HTTP polling may go without a successful poll before
+	// Ready fails; defaults to stalenessPollIntervals × pollInterval.
+	stalenessThreshold time.Duration
+	backfillComplete   atomic.Bool
+	fatalErr           atomic.Pointer[error]
+	// pollingMode is true in HTTP polling mode; lastSuccessfulPoll (unix ts) drives
+	// Ready() staleness there. WS mode has no poll loop, so silence is not anomalous.
+	pollingMode        atomic.Bool
+	lastSuccessfulPoll atomic.Int64
 }
 
 func (p *EvmExecutionAttemptPoller) HealthReport() map[string]error {
@@ -84,6 +96,8 @@ func (p *EvmExecutionAttemptPoller) HealthReport() map[string]error {
 // Ready returns nil when the poller has completed its initial backfill and is
 // fully operational. Returns ErrBackfillInProgress while the backfill is still
 // running, or an errNotStarted error if the service hasn't been started.
+// In HTTP polling mode it also fails once no poll has succeeded for the
+// staleness threshold, so a dead RPC turns the reader not-ready instead of silently stale.
 func (p *EvmExecutionAttemptPoller) Ready() error {
 	if err := p.StateMachine.Ready(); err != nil {
 		return err
@@ -93,6 +107,11 @@ func (p *EvmExecutionAttemptPoller) Ready() error {
 	}
 	if !p.backfillComplete.Load() {
 		return ErrBackfillInProgress
+	}
+	if last := p.lastSuccessfulPoll.Load(); p.pollingMode.Load() && last > 0 {
+		if since := time.Since(time.Unix(last, 0)); since > p.stalenessThreshold {
+			return fmt.Errorf("no successful execution-attempt poll for %s", since.Round(time.Second))
+		}
 	}
 	return nil
 }
@@ -121,12 +140,16 @@ func NewEVMExecutionAttemptPoller(
 	client client.Client,
 	lggr logger.Logger,
 	attemptCacheExpiration time.Duration,
+	stalenessThreshold time.Duration,
 ) (*EvmExecutionAttemptPoller, error) {
 	if client == nil {
 		return nil, errNilClient
 	}
 	if lggr == nil {
 		return nil, errNilLogger
+	}
+	if stalenessThreshold <= 0 {
+		stalenessThreshold = stalenessPollIntervals * defaultPollInterval
 	}
 
 	offRampFilterer, err := offramp.NewOffRampFilterer(offRampAddress, client)
@@ -136,15 +159,16 @@ func NewEVMExecutionAttemptPoller(
 
 	attemptCache := expirable.NewLRU[protocol.Bytes32, []protocol.ExecutionAttempt](0, nil, attemptCacheExpiration)
 	return &EvmExecutionAttemptPoller{
-		lggr:            lggr,
-		client:          client,
-		offRampAddress:  offRampAddress,
-		offRampFilterer: *offRampFilterer,
-		eventCh:         make(chan *offramp.OffRampExecutionStateChanged),
-		attemptCache:    attemptCache,
-		lastPolledBlock: 0,
-		pollInterval:    defaultPollInterval,
-		lookbackWindow:  attemptCacheExpiration, // Use cache expiration as lookback window
+		lggr:               lggr,
+		client:             client,
+		offRampAddress:     offRampAddress,
+		offRampFilterer:    *offRampFilterer,
+		eventCh:            make(chan *offramp.OffRampExecutionStateChanged),
+		attemptCache:       attemptCache,
+		lastPolledBlock:    0,
+		pollInterval:       defaultPollInterval,
+		stalenessThreshold: stalenessThreshold,
+		lookbackWindow:     attemptCacheExpiration, // Use cache expiration as lookback window
 	}, nil
 }
 
@@ -388,6 +412,9 @@ func (p *EvmExecutionAttemptPoller) startHTTPMode(ctx context.Context) {
 	// so HTTP polling continues from where history coverage ended.
 	p.lggr.Infow("WebSocket subscription not available, continuing with HTTP polling", "lastPolledBlock", p.lastPolledBlock)
 
+	p.pollingMode.Store(true)
+	p.lastSuccessfulPoll.Store(time.Now().Unix())
+
 	p.runWg.Go(func() {
 		p.runPolling(ctx)
 	})
@@ -604,6 +631,8 @@ func (p *EvmExecutionAttemptPoller) runPolling(ctx context.Context) {
 		case <-ticker.C:
 			if err := p.pollForEvents(ctx); err != nil {
 				p.lggr.Warnw("Failed to poll for execution state changed events", "error", err)
+			} else {
+				p.lastSuccessfulPoll.Store(time.Now().Unix())
 			}
 		}
 	}
@@ -727,7 +756,7 @@ func (p *EvmExecutionAttemptPoller) processExecutionStateChanged(ctx context.Con
 			txHash.Hex(), txTo, p.offRampAddress.Hex())
 	}
 
-	executionAttempt, err := p.decodeCallDataToExecutionAttempt(transaction.Data(), transaction.Gas())
+	executionAttempt, err := p.decodeCallDataToExecutionAttempt(transaction)
 	if err != nil {
 		return fmt.Errorf("failed to decode call data for transaction %s: %w", txHash.Hex(), err)
 	}
@@ -738,6 +767,9 @@ func (p *EvmExecutionAttemptPoller) processExecutionStateChanged(ctx context.Con
 		p.lggr.Errorw("MessageID from event does not match the computed messageID. This should never happen.", protocol.LogKeyMessageID, protocol.Bytes32(msgID).String(), "computedMessageID", attemptMsgID.String())
 		return fmt.Errorf("computed message id does not match event message id")
 	}
+
+	executionAttempt.Failed = executor.MessageExecutionState(event.State) == executor.FAILURE
+	executionAttempt.FailureData = event.ReturnData
 
 	// store the execution attempt in cache
 	attempts, _ := p.attemptCache.Get(msgID)
@@ -754,7 +786,9 @@ func (p *EvmExecutionAttemptPoller) processExecutionStateChanged(ctx context.Con
 
 // decodeCallDataToExecutionAttempt decodes the transaction call data into an ExecutionAttempt.
 // It validates the function selector, unpacks ABI-encoded parameters, and constructs the attempt.
-func (p *EvmExecutionAttemptPoller) decodeCallDataToExecutionAttempt(callData []byte, gasLimit uint64) (*protocol.ExecutionAttempt, error) {
+func (p *EvmExecutionAttemptPoller) decodeCallDataToExecutionAttempt(tx *types.Transaction) (*protocol.ExecutionAttempt, error) {
+	callData := tx.Data()
+
 	method, ok := offrampABI.Methods[executeMethodName]
 	if !ok {
 		return nil, fmt.Errorf("execute method not found in offramp ABI")
@@ -799,6 +833,11 @@ func (p *EvmExecutionAttemptPoller) decodeCallDataToExecutionAttempt(callData []
 		return nil, fmt.Errorf("invalid type for ccvData: expected [][]byte, got %T", values[2])
 	}
 
+	gasLimitOverride, ok := values[3].(uint32)
+	if !ok {
+		return nil, fmt.Errorf("invalid type for gasLimitOverride: expected uint32, got %T", values[3])
+	}
+
 	// Convert the message bytes into a struct
 	message, err := protocol.DecodeMessage(encodedMsg)
 	if err != nil {
@@ -817,8 +856,21 @@ func (p *EvmExecutionAttemptPoller) decodeCallDataToExecutionAttempt(callData []
 		Message: *message,
 	}
 
+	// Intrinsic gas depends on the destination chain fork, so accept only the envelope the executor produces:
+	// no access list, no EIP-7702 authorizations, and the canonical ABI encoding of the arguments.
+	canonicalArgs, err := method.Inputs.Pack(encodedMsg, contractCcvs, ccvData, gasLimitOverride)
+	if err != nil {
+		return nil, fmt.Errorf("failed to re-encode execute call data for canonical-encoding check: %w", err)
+	}
+	canonicalCallData := append(append([]byte{}, method.ID...), canonicalArgs...)
+	hasNonCanonicalGasEnvelope := len(tx.AccessList()) > 0 ||
+		len(tx.SetCodeAuthorizations()) > 0 ||
+		!bytes.Equal(callData, canonicalCallData)
+
 	return &protocol.ExecutionAttempt{
-		Report:              report,
-		TransactionGasLimit: new(big.Int).SetUint64(gasLimit),
+		Report:                     report,
+		TransactionGasLimit:        new(big.Int).SetUint64(tx.Gas()),
+		GasLimitOverride:           new(big.Int).SetUint64(uint64(gasLimitOverride)),
+		HasNonCanonicalGasEnvelope: hasNonCanonicalGasEnvelope,
 	}, nil
 }

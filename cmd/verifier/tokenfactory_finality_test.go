@@ -22,14 +22,14 @@ func TestCreateSourceConfigs_DisableFinalityChecker(t *testing.T) {
 	}
 
 	t.Run("disabled only for the listed selector", func(t *testing.T) {
-		got := createSourceConfigs(verifiers, []string{"16423721717087811551"})
+		got := createSourceConfigs(verifiers, []string{"16423721717087811551"}, 0)
 		require.True(t, got[solanaDevnetSelector].DisableFinalityChecker)
 		require.False(t, got[sepoliaSelector].DisableFinalityChecker)
 	})
 
 	t.Run("enabled everywhere when the list is empty", func(t *testing.T) {
 		for _, list := range [][]string{nil, {}} {
-			got := createSourceConfigs(verifiers, list)
+			got := createSourceConfigs(verifiers, list, 0)
 			require.False(t, got[solanaDevnetSelector].DisableFinalityChecker)
 			require.False(t, got[sepoliaSelector].DisableFinalityChecker)
 		}

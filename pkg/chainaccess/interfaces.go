@@ -163,17 +163,18 @@ type CCTPCodec interface {
 	DecodeAddress(address string) (protocol.UnknownAddress, error)
 }
 
-// FeeQuoter provides chain-agnostic access to a chain's Fee Quoter contract.
-// It isolates all chain-specific logic behind this interface so that consumers
-// can interact with any chain family uniformly.
+// FeeQuoterReader reads a chain's Fee Quoter contract.
 //
 // Thread-safety: All methods must be safe for concurrent calls.
-type FeeQuoter interface {
-	// MonitorFQ returns the current Fee Quoter on-chain state and runs a goroutine
-	// that streams a fresh FQState snapshot on the returned channel whenever the
-	// state changes. Errors encountered while monitoring are sent on the error
-	// channel. Both channels are closed when the context is canceled.
-	MonitorFQ(ctx context.Context) (protocol.FQState, <-chan protocol.FQState, <-chan error, error)
+type FeeQuoterReader interface {
+	// GetFQState reads the Fee Quoter's current on-chain state.
+	GetFQState(ctx context.Context) (protocol.FQState, error)
+}
+
+// FeeQuoterWriter updates the prices stored in a chain's Fee Quoter contract.
+//
+// Thread-safety: All methods must be safe for concurrent calls.
+type FeeQuoterWriter interface {
 	// UpdatePrices generates and broadcasts a transaction for the given fee token
 	// and gas token price updates to the chain.
 	UpdatePrices(ctx context.Context, tokenPrices []protocol.FeeTokenPriceUpdate, gasPrices []protocol.GasTokenPriceUpdate) error
@@ -193,7 +194,7 @@ type GasPriceReader interface {
 //
 // A committee/verifier accessor typically provides only SourceReader.
 // An executor accessor typically provides only DestinationReader and ContractTransmitter.
-// A price reporting accessor typically provides only FeeQuoter and GasPriceReader.
+// A price reporting accessor typically provides FeeQuoterReader, FeeQuoterWriter, and GasPriceReader.
 type Accessor interface {
 	// SourceReader returns the SourceReader for this chain, or an error if not available.
 	SourceReader() (SourceReader, error)
@@ -203,12 +204,19 @@ type Accessor interface {
 	ContractTransmitter() (ContractTransmitter, error)
 	// CCTPCodec returns the CCTPCodec for this chain, or an error if not available.
 	CCTPCodec() (CCTPCodec, error)
-	// FeeQuoter returns the FeeQuoter for this chain, or an error if not available.
-	FeeQuoter() (FeeQuoter, error)
+	// FeeQuoterReader returns the FeeQuoterReader for this chain, or an error if not available.
+	FeeQuoterReader() (FeeQuoterReader, error)
+	// FeeQuoterWriter returns the FeeQuoterWriter for this chain, or an error if not available.
+	FeeQuoterWriter() (FeeQuoterWriter, error)
 	// GasPriceReader returns the GasPriceReader for this chain, or an error if not available.
 	GasPriceReader() (GasPriceReader, error)
 	// Close releases any background services the accessor started. Stateless accessors return nil.
 	Close() error
+
+	// Optional hook: health.DegradedReporter
+	//
+	// Accessors that keep working with a missing part (for example, a missing signing key)
+	// should implement Degraded() error. The service that owns the accessor reports it on /health.
 
 	// Optional hook: bootstrap.KeystoreSetter
 	//
@@ -269,6 +277,15 @@ type AttemptChecker interface {
 	// for an unhealthy chain should be rejected, not retried.
 	CheckHealth(chain protocol.ChainSelector) error
 	// HasHonestAttempt reports whether an honest execution attempt has been
-	// made for the given message.
-	HasHonestAttempt(ctx context.Context, message protocol.Message, verifierResults []protocol.VerifierResult, ccvAddressInfo protocol.CCVAddressInfo) (bool, error)
+	// made for the given message. If it has not, the result tells if an attempt
+	// that is not honest exists.
+	HasHonestAttempt(ctx context.Context, message protocol.Message, verifierResults []protocol.VerifierResult, ccvAddressInfo protocol.CCVAddressInfo) (HonestAttemptCheck, error)
+}
+
+// HonestAttemptCheck is the result of DestinationReader.HasHonestAttempt.
+type HonestAttemptCheck struct {
+	// Honest is true if an honest execution attempt exists.
+	Honest bool
+	// NotHonestAttemptExists is true if an attempt exists and none of the attempts is honest.
+	NotHonestAttemptExists bool
 }

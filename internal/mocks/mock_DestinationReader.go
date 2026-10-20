@@ -5,6 +5,7 @@ package mocks
 import (
 	context "context"
 
+	chainaccess "github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	protocol "github.com/smartcontractkit/chainlink-ccv/protocol"
 	mock "github.com/stretchr/testify/mock"
 )
@@ -300,22 +301,22 @@ func (_c *MockDestinationReader_GetRMNCursedSubjects_Call) RunAndReturn(run func
 }
 
 // HasHonestAttempt provides a mock function with given fields: ctx, message, verifierResults, ccvAddressInfo
-func (_m *MockDestinationReader) HasHonestAttempt(ctx context.Context, message protocol.Message, verifierResults []protocol.VerifierResult, ccvAddressInfo protocol.CCVAddressInfo) (bool, error) {
+func (_m *MockDestinationReader) HasHonestAttempt(ctx context.Context, message protocol.Message, verifierResults []protocol.VerifierResult, ccvAddressInfo protocol.CCVAddressInfo) (chainaccess.HonestAttemptCheck, error) {
 	ret := _m.Called(ctx, message, verifierResults, ccvAddressInfo)
 
 	if len(ret) == 0 {
 		panic("no return value specified for HasHonestAttempt")
 	}
 
-	var r0 bool
+	var r0 chainaccess.HonestAttemptCheck
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, protocol.Message, []protocol.VerifierResult, protocol.CCVAddressInfo) (bool, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, protocol.Message, []protocol.VerifierResult, protocol.CCVAddressInfo) (chainaccess.HonestAttemptCheck, error)); ok {
 		return rf(ctx, message, verifierResults, ccvAddressInfo)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, protocol.Message, []protocol.VerifierResult, protocol.CCVAddressInfo) bool); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, protocol.Message, []protocol.VerifierResult, protocol.CCVAddressInfo) chainaccess.HonestAttemptCheck); ok {
 		r0 = rf(ctx, message, verifierResults, ccvAddressInfo)
 	} else {
-		r0 = ret.Get(0).(bool)
+		r0 = ret.Get(0).(chainaccess.HonestAttemptCheck)
 	}
 
 	if rf, ok := ret.Get(1).(func(context.Context, protocol.Message, []protocol.VerifierResult, protocol.CCVAddressInfo) error); ok {
@@ -348,12 +349,12 @@ func (_c *MockDestinationReader_HasHonestAttempt_Call) Run(run func(ctx context.
 	return _c
 }
 
-func (_c *MockDestinationReader_HasHonestAttempt_Call) Return(_a0 bool, _a1 error) *MockDestinationReader_HasHonestAttempt_Call {
+func (_c *MockDestinationReader_HasHonestAttempt_Call) Return(_a0 chainaccess.HonestAttemptCheck, _a1 error) *MockDestinationReader_HasHonestAttempt_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockDestinationReader_HasHonestAttempt_Call) RunAndReturn(run func(context.Context, protocol.Message, []protocol.VerifierResult, protocol.CCVAddressInfo) (bool, error)) *MockDestinationReader_HasHonestAttempt_Call {
+func (_c *MockDestinationReader_HasHonestAttempt_Call) RunAndReturn(run func(context.Context, protocol.Message, []protocol.VerifierResult, protocol.CCVAddressInfo) (chainaccess.HonestAttemptCheck, error)) *MockDestinationReader_HasHonestAttempt_Call {
 	_c.Call.Return(run)
 	return _c
 }

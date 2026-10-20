@@ -146,6 +146,22 @@ func (h *HashBasedLeaderElector) GetReadyTimestamp(
 	return readyTime, nil
 }
 
+// IsFirstRanked implements the LeaderElector interface.
+// The first ranked executor is the one with the earliest ready timestamp for the message.
+func (h *HashBasedLeaderElector) IsFirstRanked(messageID protocol.Bytes32, chainSel protocol.ChainSelector) (bool, error) {
+	execIndex, ok := h.executorIndices[chainSel]
+	if !ok || execIndex == -1 {
+		return false, fmt.Errorf("executor %q has no index for chain %d", h.thisExecutorID, chainSel)
+	}
+	execPool := h.executorIDs[chainSel]
+	if len(execPool) == 0 {
+		return false, fmt.Errorf("chain %d not configured in elector", chainSel)
+	}
+
+	startIndex := int(binary.BigEndian.Uint64(messageID[:8]) % uint64(len(execPool))) //nolint:gosec // G115: modulo will result in positive
+	return startIndex == execIndex, nil
+}
+
 func getSliceIncreasingDistance(sliceLen, startIndex, selectedIndex int) int {
 	// invalid inputs, return 0
 	if sliceLen <= 0 ||

@@ -9,6 +9,11 @@ pyroscope_url = ""
 # missing block header. Mirrors commit.Config.DisableFinalityCheckers.
 disable_finality_checkers = []
 
+# source_reader_staleness_threshold is how long a source chain may go without a successful query
+# (head/event fetch) before that chain's source reader reports not-ready, degrading /health.
+# Zero uses the default of 50 poll intervals.
+source_reader_staleness_threshold = "0s"
+
 # token_verifiers is a list of token verifier configurations. Each entry defines a token verifier instance with its own type, version and configuration.
 [[token_verifiers]]
   # verifier_id is the unique identifier for this token verifier instance.

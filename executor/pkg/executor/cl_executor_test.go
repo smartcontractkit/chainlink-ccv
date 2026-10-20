@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	coordinator "github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
@@ -60,6 +61,7 @@ func setupTestExecutor(
 		allDestinationReaders,
 		curseChecker,
 		vr,
+		mocks.NewMockLeaderElector(t),
 		executorMonitoring,
 		defaultExecutorAddresses,
 	)
@@ -97,6 +99,61 @@ func Test_ChainlinkExecutor_Start_ClosesStartedReadersOnFailure(t *testing.T) {
 	err = executor.Start(context.Background())
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "start failed")
+}
+
+func Test_ChainlinkExecutor_Ready_Degraded(t *testing.T) {
+	address1, err := protocol.RandomAddress()
+	assert.NoError(t, err)
+	address2, err := protocol.RandomAddress()
+	assert.NoError(t, err)
+
+	newExecutor := func(t *testing.T, readerReady map[protocol.ChainSelector]bool) *ChainlinkExecutor {
+		ct := map[protocol.ChainSelector]*mocks.MockContractTransmitter{
+			1: mocks.NewMockContractTransmitter(t),
+			2: mocks.NewMockContractTransmitter(t),
+		}
+		dr := map[protocol.ChainSelector]*mocks.MockDestinationReader{}
+		for sel, ready := range readerReady {
+			mockDR := mocks.NewMockDestinationReader(t)
+			mockDR.EXPECT().IsReady(mock.Anything).Return(ready).Maybe()
+			dr[sel] = mockDR
+		}
+		vr := mocks.NewMockVerifierResultReader(t)
+		return setupTestExecutor(t, ct, dr, vr, address1, address2, 2)
+	}
+
+	t.Run("not started", func(t *testing.T) {
+		e := newExecutor(t, map[protocol.ChainSelector]bool{1: true, 2: true})
+		assert.Error(t, e.Ready())
+	})
+
+	t.Run("all readers ready", func(t *testing.T) {
+		e := newExecutor(t, map[protocol.ChainSelector]bool{1: true, 2: true})
+		require.NoError(t, e.Start(t.Context()))
+		defer func() { assert.NoError(t, e.Close()) }()
+		assert.NoError(t, e.Ready())
+		assert.NoError(t, e.Degraded())
+	})
+
+	t.Run("one reader unready is degraded, not unready", func(t *testing.T) {
+		e := newExecutor(t, map[protocol.ChainSelector]bool{1: true, 2: false})
+		require.NoError(t, e.Start(t.Context()))
+		defer func() { assert.NoError(t, e.Close()) }()
+		assert.NoError(t, e.Ready())
+		err := e.Degraded()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "DestinationReader[2]")
+		assert.NotContains(t, err.Error(), "DestinationReader[1]")
+	})
+
+	t.Run("no reader ready is not ready", func(t *testing.T) {
+		e := newExecutor(t, map[protocol.ChainSelector]bool{1: false, 2: false})
+		require.NoError(t, e.Start(t.Context()))
+		defer func() { assert.NoError(t, e.Close()) }()
+		err := e.Ready()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no destination reader is ready across 2 chain(s)")
+	})
 }
 
 func Test_ChainlinkExecutor_Validate(t *testing.T) {
@@ -299,7 +356,7 @@ func Test_ChainlinkExecutor_HandleMessage_VerifierResults(t *testing.T) {
 			dr[1].EXPECT().GetRMNCursedSubjects(mock.Anything).Return([]protocol.Bytes16{}, nil).Once()
 			dr[1].EXPECT().GetMessageSuccess(mock.Anything, mock.Anything).Return(false, nil).Once()
 			dr[1].EXPECT().IsReady(mock.Anything).Return(true).Maybe()
-			dr[1].EXPECT().HasHonestAttempt(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
+			dr[1].EXPECT().HasHonestAttempt(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(chainaccess.HonestAttemptCheck{}, nil).Maybe()
 			dr[1].EXPECT().GetCCVSForMessage(mock.Anything, mock.Anything).Return(tc.ccvInfo, tc.ccvInfoErr).Maybe()
 
 			vr := mocks.NewMockVerifierResultReader(t)
@@ -394,7 +451,7 @@ func Test_ChainlinkExecutor_HandleMessage_OrderCCVData(t *testing.T) {
 			dr[1].EXPECT().GetRMNCursedSubjects(mock.Anything).Return([]protocol.Bytes16{}, nil).Once()
 			dr[1].EXPECT().GetMessageSuccess(mock.Anything, mock.Anything).Return(false, nil).Once()
 			dr[1].EXPECT().IsReady(mock.Anything).Return(true).Maybe()
-			dr[1].EXPECT().HasHonestAttempt(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
+			dr[1].EXPECT().HasHonestAttempt(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(chainaccess.HonestAttemptCheck{}, nil).Maybe()
 			dr[1].EXPECT().GetCCVSForMessage(mock.Anything, mock.Anything).Return(tc.ccvInfo, nil).Maybe()
 
 			vr := mocks.NewMockVerifierResultReader(t)
@@ -491,7 +548,7 @@ func Test_ChainlinkExecutor_HandleMessage_ConvertAndWrite(t *testing.T) {
 			dr[1].EXPECT().GetRMNCursedSubjects(mock.Anything).Return([]protocol.Bytes16{}, nil).Once()
 			dr[1].EXPECT().GetMessageSuccess(mock.Anything, mock.Anything).Return(false, nil).Once()
 			dr[1].EXPECT().IsReady(mock.Anything).Return(true).Once()
-			dr[1].EXPECT().HasHonestAttempt(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Once()
+			dr[1].EXPECT().HasHonestAttempt(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(chainaccess.HonestAttemptCheck{}, nil).Once()
 			dr[1].EXPECT().GetCCVSForMessage(mock.Anything, mock.Anything).Return(protocol.CCVAddressInfo{
 				OptionalCCVs:      []protocol.UnknownAddress{address1},
 				OptionalThreshold: 1,
@@ -717,7 +774,7 @@ func Test_ChainlinkExecutor_HandleMessage_PollerNotReady(t *testing.T) {
 		dr[1].EXPECT().GetMessageSuccess(mock.Anything, mock.Anything).Return(false, nil).Once()
 		dr[1].EXPECT().GetCCVSForMessage(mock.Anything, mock.Anything).Return(protocol.CCVAddressInfo{}, nil).Maybe()
 		dr[1].EXPECT().IsReady(protocol.ChainSelector(1)).Return(true).Once()
-		dr[1].EXPECT().HasHonestAttempt(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Once()
+		dr[1].EXPECT().HasHonestAttempt(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(chainaccess.HonestAttemptCheck{}, nil).Once()
 
 		ct[1].EXPECT().ConvertAndWriteMessageToChain(mock.Anything, mock.Anything).Return(nil).Once()
 
@@ -823,5 +880,68 @@ func generateFakeMessage(destChainSelector, sourceChainSelector protocol.ChainSe
 		Version:              1,
 		OffRampAddressLength: 0,
 		OnRampAddressLength:  0,
+	}
+}
+
+func Test_ChainlinkExecutor_HandleMessage_AttemptThatIsNotHonest(t *testing.T) {
+	address1, err := protocol.RandomAddress()
+	assert.NoError(t, err)
+	address2, err := protocol.RandomAddress()
+	assert.NoError(t, err)
+
+	notHonest := chainaccess.HonestAttemptCheck{NotHonestAttemptExists: true}
+
+	tests := []struct {
+		name            string
+		check           chainaccess.HonestAttemptCheck
+		firstRanked     *bool
+		electorErr      error
+		wantTransmit    bool
+		wantShouldRetry bool
+		wantErr         bool
+	}{
+		{name: "no attempt: the executor sends without the elector", check: chainaccess.HonestAttemptCheck{}, wantTransmit: true},
+		{name: "honest attempt: the executor skips without the elector", check: chainaccess.HonestAttemptCheck{Honest: true}},
+		{name: "attempt not honest, executor is first ranked: sends", check: notHonest, firstRanked: new(true), wantTransmit: true},
+		{name: "attempt not honest, executor is not first ranked: skips", check: notHonest, firstRanked: new(false)},
+		{name: "attempt not honest, elector fails: retries later", check: notHonest, electorErr: errors.New("elector"), wantShouldRetry: true, wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ct := map[protocol.ChainSelector]*mocks.MockContractTransmitter{1: mocks.NewMockContractTransmitter(t)}
+			dr := map[protocol.ChainSelector]*mocks.MockDestinationReader{1: mocks.NewMockDestinationReader(t)}
+			dr[1].EXPECT().CheckHealth(mock.Anything).Return(nil).Maybe()
+			dr[1].EXPECT().GetRMNCursedSubjects(mock.Anything).Return([]protocol.Bytes16{}, nil).Once()
+			dr[1].EXPECT().GetMessageSuccess(mock.Anything, mock.Anything).Return(false, nil).Once()
+			dr[1].EXPECT().GetCCVSForMessage(mock.Anything, mock.Anything).Return(protocol.CCVAddressInfo{}, nil).Maybe()
+			dr[1].EXPECT().IsReady(protocol.ChainSelector(1)).Return(true).Once()
+			dr[1].EXPECT().HasHonestAttempt(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(tc.check, nil).Once()
+			if tc.wantTransmit {
+				ct[1].EXPECT().ConvertAndWriteMessageToChain(mock.Anything, mock.Anything).Return(nil).Once()
+			}
+
+			vr := mocks.NewMockVerifierResultReader(t)
+			msg := generateFakeMessage(1, 2, 1, nil, address2)
+			messageID, _ := msg.MessageID()
+			vr.EXPECT().GetVerifierResults(mock.Anything, mock.Anything).Return([]protocol.VerifierResult{
+				{MessageID: messageID, Message: msg, MessageCCVAddresses: []protocol.UnknownAddress{}, MessageExecutorAddress: address2},
+			}, nil).Maybe()
+
+			ex := setupTestExecutor(t, ct, dr, vr, address1, address2, 2)
+			if tc.firstRanked != nil || tc.electorErr != nil {
+				result := tc.firstRanked != nil && *tc.firstRanked
+				ex.leaderElector.(*mocks.MockLeaderElector).EXPECT().
+					IsFirstRanked(messageID, protocol.ChainSelector(1)).
+					Return(result, tc.electorErr).Once()
+			}
+
+			shouldRetry, err := ex.HandleMessage(context.Background(), msg)
+			assert.Equal(t, tc.wantShouldRetry, shouldRetry)
+			if tc.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
 	}
 }

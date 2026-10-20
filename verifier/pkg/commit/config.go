@@ -191,6 +191,12 @@ type Config struct {
 	// MessageDisablementRulesClientTimeout is the RPC timeout for message-disablement-rules requests, as a Go duration string; empty uses the integration default.
 	MessageDisablementRulesClientTimeout string `toml:"message_disablement_rules_client_timeout"`
 
+	// SourceReaderStalenessThreshold is a Go duration string (e.g. "105s"): how long a source
+	// chain may go without a successful query (head/event fetch) before that chain's source
+	// reader reports not-ready, degrading the verifier's /health. Empty uses the default of
+	// 50 poll intervals. Stored as a string for the same reason as MessageDisablementRulesPollInterval.
+	SourceReaderStalenessThreshold string `toml:"source_reader_staleness_threshold"`
+
 	// SignerAddress is the on-chain address of the verifier's result-signing key. When set to a hex
 	// address it is validated strictly on boot: the keystore's key must match, or the verifier fails
 	// loudly. Set it to the literal "auto" (the AutoSignerAddress constant) to explicitly opt out and
@@ -259,6 +265,11 @@ func (c *Config) MessageDisablementRulesPollIntervalDuration() (time.Duration, e
 // MessageDisablementRulesClientTimeoutDuration returns the configured RPC timeout, or zero to use the integration default.
 func (c *Config) MessageDisablementRulesClientTimeoutDuration() (time.Duration, error) {
 	return parseOptionalDurationString(c.MessageDisablementRulesClientTimeout, "message_disablement_rules_client_timeout")
+}
+
+// SourceReaderStalenessThresholdDuration returns the configured staleness threshold, or zero to use the default of 50 poll intervals.
+func (c *Config) SourceReaderStalenessThresholdDuration() (time.Duration, error) {
+	return parseOptionalDurationString(c.SourceReaderStalenessThreshold, "source_reader_staleness_threshold")
 }
 
 // ResolvedAggregators returns the effective list of aggregators for this config, applying
@@ -364,6 +375,9 @@ func (c *Config) Validate() error {
 		return err
 	}
 	if _, err := c.MessageDisablementRulesClientTimeoutDuration(); err != nil {
+		return err
+	}
+	if _, err := c.SourceReaderStalenessThresholdDuration(); err != nil {
 		return err
 	}
 

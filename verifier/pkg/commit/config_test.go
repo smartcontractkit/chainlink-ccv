@@ -480,3 +480,21 @@ func TestResolveHMACConfig_InvalidFileCredentialErrors(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "api_key") // file-source error names the file field
 }
+
+func TestConfig_SourceReaderStalenessThresholdDuration(t *testing.T) {
+	t.Run("empty uses the default", func(t *testing.T) {
+		d, err := (&Config{}).SourceReaderStalenessThresholdDuration()
+		require.NoError(t, err)
+		assert.Zero(t, d)
+	})
+	t.Run("valid duration string", func(t *testing.T) {
+		d, err := (&Config{SourceReaderStalenessThreshold: "90s"}).SourceReaderStalenessThresholdDuration()
+		require.NoError(t, err)
+		assert.Equal(t, 90*time.Second, d)
+	})
+	t.Run("invalid duration string fails validation", func(t *testing.T) {
+		c := Config{SourceReaderStalenessThreshold: "not-a-duration"}
+		_, err := c.SourceReaderStalenessThresholdDuration()
+		require.ErrorContains(t, err, "invalid source_reader_staleness_threshold")
+	})
+}
