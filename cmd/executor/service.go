@@ -238,11 +238,6 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		}
 	}
 
-	ex := x.NewChainlinkExecutor(f.lggr, contractTransmitters, destReaders, curseChecker, verifierResultReader, executorMonitoring, defaultExecutorAddresses)
-	if err := ex.Validate(); err != nil {
-		return fmt.Errorf("failed to validate chainlink executor: %w", err)
-	}
-
 	le, err := leaderelector.NewHashBasedLeaderElector(
 		f.lggr,
 		execPool,
@@ -251,6 +246,11 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create leader elector: %w", err)
+	}
+
+	ex := x.NewChainlinkExecutor(f.lggr, contractTransmitters, destReaders, curseChecker, verifierResultReader, le, executorMonitoring, defaultExecutorAddresses)
+	if err := ex.Validate(); err != nil {
+		return fmt.Errorf("failed to validate chainlink executor: %w", err)
 	}
 
 	timeProvider := backofftimeprovider.NewBackoffNTPProvider(f.lggr, executorsvc.NTPBackoffDuration, executorConfig.NtpServer)

@@ -158,19 +158,6 @@ func NewExecutorCoordinator(
 		return nil, fmt.Errorf("failed to create indexer adapter: %w", err)
 	}
 
-	ex := x.NewChainlinkExecutor(
-		logger.With(lggr, "component", "Executor"),
-		transmitters,
-		destReaders,
-		curseChecker,
-		indexerAdapter,
-		executorMonitoring,
-		defaultExecutorAddresses,
-	)
-	if err := ex.Validate(); err != nil {
-		return nil, fmt.Errorf("executor validation failed: %w", err)
-	}
-
 	// create hash-based leader elector
 	le, err := leaderelector.NewHashBasedLeaderElector(
 		lggr,
@@ -180,6 +167,20 @@ func NewExecutorCoordinator(
 	)
 	if err != nil {
 		return nil, fmt.Errorf("leader elector: %w", err)
+	}
+
+	ex := x.NewChainlinkExecutor(
+		logger.With(lggr, "component", "Executor"),
+		transmitters,
+		destReaders,
+		curseChecker,
+		indexerAdapter,
+		le,
+		executorMonitoring,
+		defaultExecutorAddresses,
+	)
+	if err := ex.Validate(); err != nil {
+		return nil, fmt.Errorf("executor validation failed: %w", err)
 	}
 	// ntp is an external service call with special rate limits, we use a different backoff duration for it.
 	backoffProvider := timeprovider.NewBackoffNTPProvider(lggr, executor.NTPBackoffDuration, cfg.NtpServer)

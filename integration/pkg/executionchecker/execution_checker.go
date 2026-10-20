@@ -4,78 +4,88 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"math/big"
 	"slices"
 
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/offramp"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	evmtypes "github.com/smartcontractkit/chainlink-evm/pkg/types"
 )
 
-// IsHonestCallData reports whether the execution attempt's call data matches
-// the verifier results for all required CCVs and meets the optional CCV threshold.
+// IsHonestCallData reports whether the attempt passes the OffRamp CCV quorum selection with known CCV data,
+// and contains no CCV entry that the selection does not use.
 func IsHonestCallData(message protocol.Message, attempt protocol.ExecutionAttempt, verifierResults []protocol.VerifierResult, ccvAddressInfo protocol.CCVAddressInfo) (bool, error) {
 	err := assertMessageIDsMatch(message, attempt)
 	if err != nil {
 		return false, err
 	}
 
-	ccvToKnownResults := mapResultsToCCVs(verifierResults)
-	attemptCCVs := unknownAddressArrayToStrings(attempt.Report.CCVS)
-	requiredCCVs := unknownAddressArrayToStrings(ccvAddressInfo.RequiredCCVs)
-	optionalCCVs := unknownAddressArrayToStrings(ccvAddressInfo.OptionalCCVs)
-
-	validRequiredCCVs := honestCCVs(attempt, attemptCCVs, requiredCCVs, len(requiredCCVs), ccvToKnownResults)
-	validOptionalCCVs := honestCCVs(attempt, attemptCCVs, optionalCCVs, int(ccvAddressInfo.OptionalThreshold), ccvToKnownResults)
-
-	return validRequiredCCVs && validOptionalCCVs, nil
-}
-
-// IsHonestGasLimit reports whether the execution attempt's gas limit is at least
-// the message's execution gas limit.
-func IsHonestGasLimit(message protocol.Message, attempt protocol.ExecutionAttempt) bool {
-	messageGasLimit := big.NewInt(int64(message.ExecutionGasLimit))
-	return messageGasLimit.Cmp(attempt.TransactionGasLimit) <= 0
-}
-
-// honestCCVs reports whether at least threshold CCVs in expectedCCVs have matching
-// call data in the execution attempt when compared against known verifier results.
-func honestCCVs(attempt protocol.ExecutionAttempt, attemptCCVs, expectedCCVs []string, threshold int, expectedCCVsToKnownResults map[string][]protocol.VerifierResult) bool {
-	validCCVs := 0
-
-	for _, ccv := range expectedCCVs {
-		ccvIndex := slices.Index(attemptCCVs, ccv)
-		if ccvIndex == -1 || ccvIndex >= len(attempt.Report.CCVData) {
-			continue
-		}
-
-		ccvData := attempt.Report.CCVData[ccvIndex]
-		ccvResults := expectedCCVsToKnownResults[ccv]
-
-		hasValidCCVData := slices.ContainsFunc(ccvResults, func(result protocol.VerifierResult) bool {
-			return bytes.Equal(result.CCVData, ccvData)
-		})
-
-		if hasValidCCVData {
-			validCCVs++
-
-			if validCCVs >= threshold {
-				return true
-			}
-		}
+	ccvs := attempt.Report.CCVS
+	if len(ccvs) != len(attempt.Report.CCVData) {
+		return false, nil
 	}
 
-	return validCCVs >= threshold
-}
-
-// mapResultsToCCVs groups verifier results by CCV destination address.
-func mapResultsToCCVs(verifierResults []protocol.VerifierResult) map[string][]protocol.VerifierResult {
-	resultsMap := make(map[string][]protocol.VerifierResult)
-
+	resultsByCCV := make(map[string][]protocol.VerifierResult, len(verifierResults))
 	for _, result := range verifierResults {
 		key := result.VerifierDestAddress.String()
-		resultsMap[key] = append(resultsMap[key], result)
+		resultsByCCV[key] = append(resultsByCCV[key], result)
 	}
 
-	return resultsMap
+	// selectEntry mirrors the OffRamp: it selects the first submitted entry for the CCV.
+	usedEntries := make(map[int]struct{}, len(ccvs))
+	selectEntry := func(ccv protocol.UnknownAddress) (found, known bool) {
+		index := slices.IndexFunc(ccvs, func(c protocol.UnknownAddress) bool { return c.String() == ccv.String() })
+		if index == -1 {
+			return false, false
+		}
+		usedEntries[index] = struct{}{}
+		return true, slices.ContainsFunc(resultsByCCV[ccv.String()], func(result protocol.VerifierResult) bool {
+			return bytes.Equal(result.CCVData, attempt.Report.CCVData[index])
+		})
+	}
+
+	for _, ccv := range ccvAddressInfo.RequiredCCVs {
+		if found, known := selectEntry(ccv); !found || !known {
+			return false, nil
+		}
+	}
+
+	remaining := int(ccvAddressInfo.OptionalThreshold)
+	for _, ccv := range ccvAddressInfo.OptionalCCVs {
+		if remaining == 0 {
+			break
+		}
+		found, known := selectEntry(ccv)
+		if !found {
+			continue
+		}
+		if !known {
+			return false, nil
+		}
+		remaining--
+	}
+
+	// The OffRamp reverts if it selects more entries than were submitted.
+	return remaining == 0 && len(usedEntries) == len(ccvs), nil
+}
+
+// receiverErrorSelector is the OffRamp error that wraps every receiver revert.
+var receiverErrorSelector = func() []byte {
+	id := evmtypes.MustGetABI(offramp.OffRampABI).Errors["ReceiverError"].ID
+	return id[:4]
+}()
+
+// IsHonestGasLimit reports whether the attempt could come from the executor, based on the gas it used.
+// The executor sends no gasLimitOverride (see contracttransmitter.DefaultGasLimitOverride), so a nonzero value is not honest.
+// A failed attempt is honest only if the receiver ran: the OffRamp calls token pools and CCVs with the gas that is left.
+func IsHonestGasLimit(_ protocol.Message, attempt protocol.ExecutionAttempt) bool {
+	if attempt.GasLimitOverride != nil && attempt.GasLimitOverride.Sign() != 0 {
+		return false
+	}
+	if attempt.HasNonCanonicalGasEnvelope {
+		return false
+	}
+
+	return !attempt.Failed || bytes.HasPrefix(attempt.FailureData, receiverErrorSelector)
 }
 
 // assertMessageIDsMatch verifies that the message and execution attempt refer
@@ -96,14 +106,4 @@ func assertMessageIDsMatch(message protocol.Message, attempt protocol.ExecutionA
 	}
 
 	return nil
-}
-
-// unknownAddressArrayToStrings converts an array of UnknownAddress values to
-// their string representations.
-func unknownAddressArrayToStrings(addressArray []protocol.UnknownAddress) []string {
-	result := make([]string, 0, len(addressArray))
-	for _, address := range addressArray {
-		result = append(result, address.String())
-	}
-	return result
 }

@@ -1,10 +1,12 @@
 package executionchecker
 
 import (
+	"bytes"
 	"math/big"
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -224,6 +226,84 @@ func TestIsHonestCallData(t *testing.T) {
 
 		requiredCCVData := []byte("required_data")
 		optionalCCV1Data := []byte("optional1_data")
+
+		verifierResults := []protocol.VerifierResult{
+			createTestVerifierResult(t, message, requiredCCV, requiredCCVData),
+			createTestVerifierResult(t, message, optionalCCV1, optionalCCV1Data),
+			createTestVerifierResult(t, message, optionalCCV2, []byte("optional2_data")),
+		}
+
+		ccvInfo := protocol.CCVAddressInfo{
+			RequiredCCVs:      []protocol.UnknownAddress{requiredCCV},
+			OptionalCCVs:      []protocol.UnknownAddress{optionalCCV1, optionalCCV2},
+			OptionalThreshold: 1,
+		}
+
+		// optionalCCV2 is not submitted, because optionalCCV1 already meets the threshold.
+		attempt := createTestExecutionAttempt(
+			message,
+			[]protocol.UnknownAddress{requiredCCV, optionalCCV1},
+			[][]byte{requiredCCVData, optionalCCV1Data},
+			big.NewInt(100000),
+		)
+
+		honest, err := IsHonestCallData(message, attempt, verifierResults, ccvInfo)
+
+		assert.NoError(t, err)
+		assert.True(t, honest)
+	})
+
+	// A submitted entry that the OffRamp selection does not use is not honest.
+	t.Run("unused optional CCV entry with unknown data is not honest", func(t *testing.T) {
+		message := createTestMessage(t, 1, testSourceChain, testDestChain, 100000)
+		requiredCCV, err := protocol.NewUnknownAddressFromHex("0x1111111111111111111111111111111111111111")
+		require.NoError(t, err)
+		optionalCCV1, err := protocol.NewUnknownAddressFromHex("0x2222222222222222222222222222222222222222")
+		require.NoError(t, err)
+		optionalCCV2, err := protocol.NewUnknownAddressFromHex("0x3333333333333333333333333333333333333333")
+		require.NoError(t, err)
+
+		requiredCCVData := []byte("required_data")
+		optionalCCV1Data := []byte("optional1_data")
+
+		verifierResults := []protocol.VerifierResult{
+			createTestVerifierResult(t, message, requiredCCV, requiredCCVData),
+			createTestVerifierResult(t, message, optionalCCV1, optionalCCV1Data),
+			// No known result for optionalCCV2.
+		}
+
+		ccvInfo := protocol.CCVAddressInfo{
+			RequiredCCVs:      []protocol.UnknownAddress{requiredCCV},
+			OptionalCCVs:      []protocol.UnknownAddress{optionalCCV1, optionalCCV2},
+			OptionalThreshold: 1,
+		}
+
+		// optionalCCV1 already meets the threshold, so the OffRamp does not use the optionalCCV2 entry.
+		attempt := createTestExecutionAttempt(
+			message,
+			[]protocol.UnknownAddress{requiredCCV, optionalCCV1, optionalCCV2},
+			[][]byte{requiredCCVData, optionalCCV1Data, bytes.Repeat([]byte{0xAB}, 4096)},
+			big.NewInt(100000),
+		)
+
+		honest, err := IsHonestCallData(message, attempt, verifierResults, ccvInfo)
+
+		assert.NoError(t, err)
+		assert.False(t, honest, "an entry that the OffRamp selection does not use is not part of an honest attempt")
+	})
+
+	// A valid optional CCV entry beyond the threshold is not used by the OffRamp selection.
+	t.Run("unused valid optional CCV entry beyond threshold is not honest", func(t *testing.T) {
+		message := createTestMessage(t, 1, testSourceChain, testDestChain, 100000)
+		requiredCCV, err := protocol.NewUnknownAddressFromHex("0x1111111111111111111111111111111111111111")
+		require.NoError(t, err)
+		optionalCCV1, err := protocol.NewUnknownAddressFromHex("0x2222222222222222222222222222222222222222")
+		require.NoError(t, err)
+		optionalCCV2, err := protocol.NewUnknownAddressFromHex("0x3333333333333333333333333333333333333333")
+		require.NoError(t, err)
+
+		requiredCCVData := []byte("required_data")
+		optionalCCV1Data := []byte("optional1_data")
 		optionalCCV2Data := []byte("optional2_data")
 
 		verifierResults := []protocol.VerifierResult{
@@ -238,10 +318,118 @@ func TestIsHonestCallData(t *testing.T) {
 			OptionalThreshold: 1,
 		}
 
+		// optionalCCV1 already meets the threshold, so the OffRamp does not use the optionalCCV2 entry.
 		attempt := createTestExecutionAttempt(
 			message,
 			[]protocol.UnknownAddress{requiredCCV, optionalCCV1, optionalCCV2},
-			[][]byte{requiredCCVData, optionalCCV1Data, []byte("wrong_optional2_data")},
+			[][]byte{requiredCCVData, optionalCCV1Data, optionalCCV2Data},
+			big.NewInt(100000),
+		)
+
+		honest, err := IsHonestCallData(message, attempt, verifierResults, ccvInfo)
+
+		assert.NoError(t, err)
+		assert.False(t, honest, "an entry that the OffRamp selection does not use is not part of an honest attempt")
+	})
+
+	// A node that knew only B's result submits B. The attempt stays honest after A's result is known.
+	t.Run("valid optional CCV that this node would not select is honest", func(t *testing.T) {
+		message := createTestMessage(t, 1, testSourceChain, testDestChain, 100000)
+		requiredCCV, err := protocol.NewUnknownAddressFromHex("0x1111111111111111111111111111111111111111")
+		require.NoError(t, err)
+		optionalA, err := protocol.NewUnknownAddressFromHex("0x2222222222222222222222222222222222222222")
+		require.NoError(t, err)
+		optionalB, err := protocol.NewUnknownAddressFromHex("0x3333333333333333333333333333333333333333")
+		require.NoError(t, err)
+
+		requiredCCVData := []byte("required_data")
+		optionalAData := []byte("optionalA_data")
+		optionalBData := []byte("optionalB_data")
+
+		verifierResults := []protocol.VerifierResult{
+			createTestVerifierResult(t, message, requiredCCV, requiredCCVData),
+			createTestVerifierResult(t, message, optionalA, optionalAData),
+			createTestVerifierResult(t, message, optionalB, optionalBData),
+		}
+
+		ccvInfo := protocol.CCVAddressInfo{
+			RequiredCCVs:      []protocol.UnknownAddress{requiredCCV},
+			OptionalCCVs:      []protocol.UnknownAddress{optionalA, optionalB}, // configured order: A before B
+			OptionalThreshold: 1,
+		}
+
+		attempt := createTestExecutionAttempt(
+			message,
+			[]protocol.UnknownAddress{requiredCCV, optionalB},
+			[][]byte{requiredCCVData, optionalBData},
+			big.NewInt(100000),
+		)
+
+		honest, err := IsHonestCallData(message, attempt, verifierResults, ccvInfo)
+
+		assert.NoError(t, err)
+		assert.True(t, honest, "the OffRamp selects optionalB from this submission, and its data is known")
+	})
+
+	// The OffRamp selects the first present optional CCVs in configured order, so it selects A here.
+	t.Run("optional CCV ordering: invalid CCV precedes valid one", func(t *testing.T) {
+		message := createTestMessage(t, 1, testSourceChain, testDestChain, 100000)
+		optionalA, err := protocol.NewUnknownAddressFromHex("0x2222222222222222222222222222222222222222")
+		require.NoError(t, err)
+		optionalB, err := protocol.NewUnknownAddressFromHex("0x3333333333333333333333333333333333333333")
+		require.NoError(t, err)
+
+		validBData := []byte("optionalB_valid_data")
+
+		verifierResults := []protocol.VerifierResult{
+			// No valid result registered for optionalA: any data submitted for it is invalid.
+			createTestVerifierResult(t, message, optionalB, validBData),
+		}
+
+		ccvInfo := protocol.CCVAddressInfo{
+			RequiredCCVs:      []protocol.UnknownAddress{},
+			OptionalCCVs:      []protocol.UnknownAddress{optionalA, optionalB}, // configured order: A before B
+			OptionalThreshold: 1,
+		}
+
+		attempt := createTestExecutionAttempt(
+			message,
+			[]protocol.UnknownAddress{optionalA, optionalB},
+			[][]byte{[]byte("unknown_data_for_A"), validBData},
+			big.NewInt(100000),
+		)
+
+		honest, err := IsHonestCallData(message, attempt, verifierResults, ccvInfo)
+
+		assert.NoError(t, err)
+		assert.False(t, honest, "the OffRamp selects optionalA, and its data is not known")
+	})
+
+	t.Run("submission order does not matter", func(t *testing.T) {
+		message := createTestMessage(t, 1, testSourceChain, testDestChain, 100000)
+		requiredCCV, err := protocol.NewUnknownAddressFromHex("0x1111111111111111111111111111111111111111")
+		require.NoError(t, err)
+		optionalCCV, err := protocol.NewUnknownAddressFromHex("0x2222222222222222222222222222222222222222")
+		require.NoError(t, err)
+
+		requiredCCVData := []byte("required_data")
+		optionalCCVData := []byte("optional_data")
+
+		verifierResults := []protocol.VerifierResult{
+			createTestVerifierResult(t, message, requiredCCV, requiredCCVData),
+			createTestVerifierResult(t, message, optionalCCV, optionalCCVData),
+		}
+
+		ccvInfo := protocol.CCVAddressInfo{
+			RequiredCCVs:      []protocol.UnknownAddress{requiredCCV},
+			OptionalCCVs:      []protocol.UnknownAddress{optionalCCV},
+			OptionalThreshold: 1,
+		}
+
+		attempt := createTestExecutionAttempt(
+			message,
+			[]protocol.UnknownAddress{optionalCCV, requiredCCV},
+			[][]byte{optionalCCVData, requiredCCVData},
 			big.NewInt(100000),
 		)
 
@@ -250,183 +438,107 @@ func TestIsHonestCallData(t *testing.T) {
 		assert.NoError(t, err)
 		assert.True(t, honest)
 	})
+
+	t.Run("duplicate CCV entry is not honest", func(t *testing.T) {
+		message := createTestMessage(t, 1, testSourceChain, testDestChain, 100000)
+		requiredCCV, err := protocol.NewUnknownAddressFromHex("0x1111111111111111111111111111111111111111")
+		require.NoError(t, err)
+
+		requiredCCVData := []byte("required_data")
+		verifierResults := []protocol.VerifierResult{
+			createTestVerifierResult(t, message, requiredCCV, requiredCCVData),
+		}
+
+		ccvInfo := protocol.CCVAddressInfo{
+			RequiredCCVs: []protocol.UnknownAddress{requiredCCV},
+		}
+
+		// The OffRamp uses only the first entry for a CCV, so the second entry is not used.
+		attempt := createTestExecutionAttempt(
+			message,
+			[]protocol.UnknownAddress{requiredCCV, requiredCCV},
+			[][]byte{requiredCCVData, requiredCCVData},
+			big.NewInt(100000),
+		)
+
+		honest, err := IsHonestCallData(message, attempt, verifierResults, ccvInfo)
+
+		assert.NoError(t, err)
+		assert.False(t, honest)
+	})
+
+	t.Run("CCV and CCV data counts differ", func(t *testing.T) {
+		message := createTestMessage(t, 1, testSourceChain, testDestChain, 100000)
+		requiredCCV, err := protocol.NewUnknownAddressFromHex("0x1111111111111111111111111111111111111111")
+		require.NoError(t, err)
+
+		requiredCCVData := []byte("required_data")
+		verifierResults := []protocol.VerifierResult{
+			createTestVerifierResult(t, message, requiredCCV, requiredCCVData),
+		}
+
+		ccvInfo := protocol.CCVAddressInfo{
+			RequiredCCVs: []protocol.UnknownAddress{requiredCCV},
+		}
+
+		attempt := createTestExecutionAttempt(
+			message,
+			[]protocol.UnknownAddress{requiredCCV},
+			[][]byte{requiredCCVData, requiredCCVData},
+			big.NewInt(100000),
+		)
+
+		honest, err := IsHonestCallData(message, attempt, verifierResults, ccvInfo)
+
+		assert.NoError(t, err)
+		assert.False(t, honest)
+	})
 }
 
 func TestIsHonestGasLimit(t *testing.T) {
-	t.Run("gas limit less than execution gas limit", func(t *testing.T) {
-		message := createTestMessage(t, 1, testSourceChain, testDestChain, 100000)
-		attempt := createTestExecutionAttempt(
-			message,
-			[]protocol.UnknownAddress{},
-			[][]byte{},
-			big.NewInt(50000),
-		)
+	abiError := func(signature string, payload ...byte) []byte {
+		return append(crypto.Keccak256([]byte(signature))[:4], payload...)
+	}
+	padded := make([]byte, 64)
 
-		honest := IsHonestGasLimit(message, attempt)
-		assert.False(t, honest)
-	})
+	tests := []struct {
+		name             string
+		failed           bool
+		failureData      []byte
+		gasLimit         int64
+		gasLimitOverride int64
+		nonCanonical     bool
+		honest           bool
+	}{
+		{name: "succeeded", honest: true, gasLimit: 100000},
+		{name: "succeeded with a low gas limit", honest: true, gasLimit: 1},
+		{name: "succeeded with a nonzero override", gasLimitOverride: 1, honest: false, gasLimit: 100000},
+		{name: "succeeded with a maximum override", gasLimitOverride: 4_294_967_295, honest: false, gasLimit: 100000},
+		{name: "receiver error", failed: true, failureData: abiError("ReceiverError(bytes)", padded...), honest: true, gasLimit: 100000},
+		{name: "receiver error below the old gas floor", failed: true, failureData: abiError("ReceiverError(bytes)", padded...), honest: true, gasLimit: 1},
+		{name: "receiver error with a nonzero override", failed: true, failureData: abiError("ReceiverError(bytes)", padded...), gasLimitOverride: 300000, honest: false, gasLimit: 100000},
+		{name: "empty failure data", failed: true, failureData: nil, honest: false, gasLimit: 100000},
+		{name: "NotEnoughGasForCall", failed: true, failureData: abiError("NotEnoughGasForCall()"), honest: false, gasLimit: 100000},
+		{name: "NoGasForCallExactCheck", failed: true, failureData: abiError("NoGasForCallExactCheck()"), honest: false, gasLimit: 100000},
+		{name: "token handling error with empty data", failed: true, failureData: abiError("TokenHandlingError(address,bytes)", padded...), honest: false, gasLimit: 100000},
+		{name: "token handling error with custom data", failed: true, failureData: abiError("TokenHandlingError(address,bytes)", append(make([]byte, 64), 0x01)...), honest: false, gasLimit: 100000},
+		{name: "unknown error", failed: true, failureData: abiError("Unknown()"), honest: false, gasLimit: 100000},
+		{name: "failure data shorter than a selector", failed: true, failureData: []byte{0x01}, honest: false, gasLimit: 100000},
+		{name: "non-canonical envelope with a receiver error", failed: true, failureData: abiError("ReceiverError(bytes)", padded...), nonCanonical: true, honest: false, gasLimit: 100000},
+		{name: "non-canonical envelope that succeeded", nonCanonical: true, honest: false, gasLimit: 100000},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			message := createTestMessage(t, 1, testSourceChain, testDestChain, 100000)
+			attempt := createTestExecutionAttempt(message, []protocol.UnknownAddress{}, [][]byte{}, big.NewInt(tc.gasLimit))
+			attempt.GasLimitOverride = big.NewInt(tc.gasLimitOverride)
+			attempt.HasNonCanonicalGasEnvelope = tc.nonCanonical
+			attempt.Failed = tc.failed
+			attempt.FailureData = tc.failureData
 
-	t.Run("gas limit equal to execution gas limit", func(t *testing.T) {
-		message := createTestMessage(t, 1, testSourceChain, testDestChain, 100000)
-		attempt := createTestExecutionAttempt(
-			message,
-			[]protocol.UnknownAddress{},
-			[][]byte{},
-			big.NewInt(100000),
-		)
-
-		honest := IsHonestGasLimit(message, attempt)
-		assert.True(t, honest)
-	})
-
-	t.Run("gas limit greater than execution gas limit", func(t *testing.T) {
-		message := createTestMessage(t, 1, testSourceChain, testDestChain, 100000)
-		attempt := createTestExecutionAttempt(
-			message,
-			[]protocol.UnknownAddress{},
-			[][]byte{},
-			big.NewInt(150000),
-		)
-
-		honest := IsHonestGasLimit(message, attempt)
-		assert.True(t, honest)
-	})
-}
-
-func Test_honestCCVs(t *testing.T) {
-	t.Run("meets threshold", func(t *testing.T) {
-		message := createTestMessage(t, 1, testSourceChain, testDestChain, 100000)
-		ccvAddr, err := protocol.NewUnknownAddressFromHex("0x1111111111111111111111111111111111111111")
-		require.NoError(t, err)
-
-		ccvData := []byte("test_data")
-		verifierResult := createTestVerifierResult(t, message, ccvAddr, ccvData)
-
-		ccvToKnownResults := map[string][]protocol.VerifierResult{
-			verifierResult.VerifierDestAddress.String(): {verifierResult},
-		}
-
-		attempt := createTestExecutionAttempt(
-			message,
-			[]protocol.UnknownAddress{ccvAddr},
-			[][]byte{ccvData},
-			big.NewInt(100000),
-		)
-
-		attemptCCVs := []string{ccvAddr.String()}
-		messageCCVs := []string{ccvAddr.String()}
-		threshold := 1
-
-		honest := honestCCVs(attempt, attemptCCVs, messageCCVs, threshold, ccvToKnownResults)
-
-		assert.True(t, honest)
-	})
-
-	t.Run("does not meet threshold", func(t *testing.T) {
-		message := createTestMessage(t, 1, testSourceChain, testDestChain, 100000)
-		ccvAddr, err := protocol.NewUnknownAddressFromHex("0x1111111111111111111111111111111111111111")
-		require.NoError(t, err)
-
-		ccvData := []byte("test_data")
-		verifierResult := createTestVerifierResult(t, message, ccvAddr, ccvData)
-
-		ccvToKnownResults := map[string][]protocol.VerifierResult{
-			verifierResult.VerifierDestAddress.String(): {verifierResult},
-		}
-
-		attempt := createTestExecutionAttempt(
-			message,
-			[]protocol.UnknownAddress{ccvAddr},
-			[][]byte{[]byte("wrong_data")},
-			big.NewInt(100000),
-		)
-
-		attemptCCVs := []string{ccvAddr.String()}
-		messageCCVs := []string{ccvAddr.String()}
-		threshold := 1
-
-		honest := honestCCVs(attempt, attemptCCVs, messageCCVs, threshold, ccvToKnownResults)
-
-		assert.False(t, honest)
-	})
-
-	t.Run("CCV not in attempt", func(t *testing.T) {
-		message := createTestMessage(t, 1, testSourceChain, testDestChain, 100000)
-		ccvAddr1, err := protocol.NewUnknownAddressFromHex("0x1111111111111111111111111111111111111111")
-		require.NoError(t, err)
-		ccvAddr2, err := protocol.NewUnknownAddressFromHex("0x2222222222222222222222222222222222222222")
-		require.NoError(t, err)
-
-		ccvToKnownResults := map[string][]protocol.VerifierResult{}
-
-		attempt := createTestExecutionAttempt(
-			message,
-			[]protocol.UnknownAddress{ccvAddr1},
-			[][]byte{[]byte("data")},
-			big.NewInt(100000),
-		)
-
-		attemptCCVs := []string{ccvAddr1.String()}
-		messageCCVs := []string{ccvAddr2.String()}
-		threshold := 1
-
-		honest := honestCCVs(attempt, attemptCCVs, messageCCVs, threshold, ccvToKnownResults)
-
-		assert.False(t, honest)
-	})
-
-	t.Run("CCV index out of bounds", func(t *testing.T) {
-		message := createTestMessage(t, 1, testSourceChain, testDestChain, 100000)
-		ccvAddr, err := protocol.NewUnknownAddressFromHex("0x1111111111111111111111111111111111111111")
-		require.NoError(t, err)
-
-		ccvToKnownResults := map[string][]protocol.VerifierResult{}
-
-		attempt := createTestExecutionAttempt(
-			message,
-			[]protocol.UnknownAddress{ccvAddr},
-			[][]byte{},
-			big.NewInt(100000),
-		)
-
-		attemptCCVs := []string{ccvAddr.String()}
-		messageCCVs := []string{ccvAddr.String()}
-		threshold := 1
-
-		honest := honestCCVs(attempt, attemptCCVs, messageCCVs, threshold, ccvToKnownResults)
-
-		assert.False(t, honest)
-	})
-}
-
-func Test_mapResultsToCCVs(t *testing.T) {
-	t.Run("maps verifier results correctly", func(t *testing.T) {
-		message := createTestMessage(t, 1, testSourceChain, testDestChain, 100000)
-		ccvAddr1, err := protocol.NewUnknownAddressFromHex("0x1111111111111111111111111111111111111111")
-		require.NoError(t, err)
-		ccvAddr2, err := protocol.NewUnknownAddressFromHex("0x2222222222222222222222222222222222222222")
-		require.NoError(t, err)
-
-		verifierResults := []protocol.VerifierResult{
-			createTestVerifierResult(t, message, ccvAddr1, []byte("data1")),
-			createTestVerifierResult(t, message, ccvAddr1, []byte("data2")),
-			createTestVerifierResult(t, message, ccvAddr2, []byte("data3")),
-		}
-
-		result := mapResultsToCCVs(verifierResults)
-
-		addr1Key := verifierResults[0].VerifierDestAddress.String()
-		addr2Key := verifierResults[2].VerifierDestAddress.String()
-
-		assert.Len(t, result[addr1Key], 2, "Should have 2 results for ccvAddr1")
-		assert.Len(t, result[addr2Key], 1, "Should have 1 result for ccvAddr2")
-	})
-
-	t.Run("empty verifier results", func(t *testing.T) {
-		verifierResults := []protocol.VerifierResult{}
-		result := mapResultsToCCVs(verifierResults)
-		assert.Empty(t, result)
-	})
+			assert.Equal(t, tc.honest, IsHonestGasLimit(message, attempt))
+		})
+	}
 }
 
 func Test_assertMessageIDsMatch(t *testing.T) {
@@ -456,27 +568,5 @@ func Test_assertMessageIDsMatch(t *testing.T) {
 		err := assertMessageIDsMatch(message1, attempt)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "message ids do not match")
-	})
-}
-
-func Test_unknownAddressArrayToStrings(t *testing.T) {
-	t.Run("converts addresses correctly", func(t *testing.T) {
-		addr1, err := protocol.NewUnknownAddressFromHex("0x1111111111111111111111111111111111111111")
-		require.NoError(t, err)
-		addr2, err := protocol.NewUnknownAddressFromHex("0x2222222222222222222222222222222222222222")
-		require.NoError(t, err)
-
-		addresses := []protocol.UnknownAddress{addr1, addr2}
-		result := unknownAddressArrayToStrings(addresses)
-
-		assert.Len(t, result, len(addresses))
-		assert.Equal(t, addr1.String(), result[0])
-		assert.Equal(t, addr2.String(), result[1])
-	})
-
-	t.Run("empty array", func(t *testing.T) {
-		addresses := []protocol.UnknownAddress{}
-		result := unknownAddressArrayToStrings(addresses)
-		assert.Empty(t, result)
 	})
 }

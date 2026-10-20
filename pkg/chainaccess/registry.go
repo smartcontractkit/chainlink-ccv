@@ -64,6 +64,16 @@ type registry struct {
 type GenericConfig struct {
 	CommitteeConfig
 	ExecutorConfig
+	PricerConfig
+}
+
+// PricerConfig that is defined as part of the app and required by the FeeQuoter and GasPriceReader.
+type PricerConfig struct {
+	// FeeQuoterAddresses is a map of the FeeQuoter contract addresses for each chain selector.
+	FeeQuoterAddresses map[string]string `json:"fee_quoter_addresses" toml:"fee_quoter_addresses"`
+
+	// NativeTokenDecimals overrides the decimals of the native token for each chain selector.
+	NativeTokenDecimals map[string]uint8 `json:"native_token_decimals" toml:"native_token_decimals"`
 }
 
 // CommitteeConfig that is defined as part of the app and required by the SourceReader.

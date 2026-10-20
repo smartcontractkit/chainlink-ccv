@@ -20,6 +20,7 @@ const (
 	EventUnrecoverableQuorumImpossible = "unrecoverable_quorum_impossible"
 	EventDelayedPollerNotReady         = "delayed_poller_not_ready"
 	EventSkippedHonestAttemptExists    = "skipped_honest_attempt_exists"
+	EventSkippedNotDesignatedRetrier   = "skipped_not_designated_retrier"
 	EventMessageTransmitted            = "message_transmitted"
 )
 

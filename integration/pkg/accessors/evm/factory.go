@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -13,6 +14,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/contracttransmitter"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/destinationreader"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/pricereader"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/keystore"
@@ -21,6 +23,9 @@ import (
 
 // defaultExecutionVisibilityWindow mirrors executor.maxRetryDurationDefault.
 const defaultExecutionVisibilityWindow = 8 * time.Hour
+
+// defaultNativeDecimals is the number of decimals of the native token, unless a chain sets another number.
+const defaultNativeDecimals = 18
 
 type runtimeBuilder func(
 	ctx context.Context,
@@ -37,6 +42,9 @@ type factory struct {
 	onRampAddresses    map[protocol.ChainSelector]string
 	rmnRemoteAddresses map[protocol.ChainSelector]string
 	destChainConfigs   map[protocol.ChainSelector]chainaccess.DestinationChainConfig
+	feeQuoterAddresses map[protocol.ChainSelector]string
+	// nativeDecimals overrides the native token decimals of a chain. The default is 18.
+	nativeDecimals map[protocol.ChainSelector]uint8
 
 	executionVisibilityWindow time.Duration
 	// readerStalenessThreshold overrides the destination reader's staleness default
@@ -49,6 +57,8 @@ func newFactory(
 	lggr logger.Logger,
 	onRampAddresses, rmnRemoteAddresses map[protocol.ChainSelector]string,
 	destChainConfigs map[protocol.ChainSelector]chainaccess.DestinationChainConfig,
+	feeQuoterAddresses map[protocol.ChainSelector]string,
+	nativeDecimals map[protocol.ChainSelector]uint8,
 	executionVisibilityWindow time.Duration,
 	readerStalenessThreshold time.Duration,
 	newRuntime runtimeBuilder,
@@ -61,6 +71,8 @@ func newFactory(
 		onRampAddresses:           onRampAddresses,
 		rmnRemoteAddresses:        rmnRemoteAddresses,
 		destChainConfigs:          destChainConfigs,
+		feeQuoterAddresses:        feeQuoterAddresses,
+		nativeDecimals:            nativeDecimals,
 		executionVisibilityWindow: executionVisibilityWindow,
 		readerStalenessThreshold:  readerStalenessThreshold,
 		newRuntime:                newRuntime,
@@ -103,9 +115,25 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 			chainSelector,
 		)
 	}
-	if !hasSourceReaderConfig && !hasDestinationConfig {
+	feeQuoterAddress := f.feeQuoterAddresses[chainSelector]
+	hasPricerConfig := isValidAddress(feeQuoterAddress)
+	if feeQuoterAddress != "" && !hasPricerConfig {
+		return nil, fmt.Errorf("cannot get accessor for chain %d: invalid fee quoter address %q", chainSelector, feeQuoterAddress)
+	}
+	// Only the gas price reader uses the decimals, so other services ignore this setting.
+	nativeDecimals := uint8(defaultNativeDecimals)
+	if configured, ok := f.nativeDecimals[chainSelector]; ok && hasPricerConfig {
+		if configured > pricereader.MaxNativeTokenDecimals {
+			return nil, fmt.Errorf(
+				"cannot get accessor for chain %d: invalid native token decimals %d, the maximum is %d",
+				chainSelector, configured, pricereader.MaxNativeTokenDecimals,
+			)
+		}
+		nativeDecimals = configured
+	}
+	if !hasSourceReaderConfig && !hasDestinationConfig && !hasPricerConfig {
 		return nil, fmt.Errorf(
-			"cannot get accessor for chain %d: neither source nor destination services are configured",
+			"cannot get accessor for chain %d: no source, destination or pricer services are configured",
 			chainSelector,
 		)
 	}
@@ -142,18 +170,16 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 			closeErr := runtime.Close()
 			return nil, errors.Join(fmt.Errorf("failed to get EVM head tracker for chain %d: tracker is nil", chainSelector), closeErr)
 		}
-		sr, err := NewEVMSourceReader(
-			ctx,
-			chainClient,
-			headTracker,
-			common.HexToAddress(onRampAddress),
-			common.HexToAddress(rmnRemoteAddress),
-			onramp.OnRampCCIPMessageSent{}.Topic().Hex(),
-			chainSelector,
-			chainLggr,
-			runtime.SourceReaderHeaderFetchBatchSize(),
-			nil,
-		)
+		sr, err := NewEVMSourceReader(ctx, SourceReaderParams{
+			ChainClient:                chainClient,
+			HeadTracker:                headTracker,
+			OnRampAddress:              common.HexToAddress(onRampAddress),
+			ConfiguredRMNRemoteAddress: common.HexToAddress(rmnRemoteAddress),
+			CCIPMessageSentTopic:       onramp.OnRampCCIPMessageSent{}.Topic().Hex(),
+			ChainSelector:              chainSelector,
+			Logger:                     chainLggr,
+			HeaderFetchBatchSize:       runtime.SourceReaderHeaderFetchBatchSize(),
+		})
 		if err != nil {
 			closeErr := runtime.Close()
 			return nil, errors.Join(fmt.Errorf("failed to create EVM source reader: %w", err), closeErr)
@@ -176,13 +202,38 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 			Monitoring:                monitoring.NewNoopExecutorMonitoring(),
 		})
 		if err != nil {
-			if evmSourceReader == nil {
+			if evmSourceReader == nil && !hasPricerConfig {
 				closeErr := runtime.Close()
 				return nil, errors.Join(fmt.Errorf("failed to create EVM destination reader: %w", err), closeErr)
 			}
 			chainLggr.Warnw("Failed to create EVM destination reader, DestinationReader will be unavailable", "error", err)
 		} else {
 			evmDestReader = dr
+		}
+	}
+
+	// The fee quoter services and the gas price reader are optional. They exist only with a fee quoter address.
+	var feeQuoterReader *pricereader.EVMFeeQuoterReader
+	var feeQuoterWriter chainaccess.FeeQuoterWriter
+	var gasPriceReader chainaccess.GasPriceReader
+	if hasPricerConfig {
+		feeQuoterWriter = pricereader.NewLoggingFeeQuoterWriter(chainLggr, common.HexToAddress(feeQuoterAddress))
+		daOracle := func(ctx context.Context) (pricereader.DAGasPriceOracle, error) {
+			oracle, err := runtime.DAGasPriceOracle(ctx)
+			// A nil L1Oracle must become a plain nil, so that the reader sees no oracle.
+			if err != nil || oracle == nil {
+				return nil, err
+			}
+			return oracle, nil
+		}
+		var err error
+		if gasPriceReader, err = pricereader.NewEVMGasPriceReader(chainClient, daOracle, nativeDecimals); err != nil {
+			closeErr := runtime.Close()
+			return nil, errors.Join(fmt.Errorf("failed to create EVM gas price reader for chain %d: %w", chainSelector, err), closeErr)
+		}
+		if feeQuoterReader, err = pricereader.NewEVMFeeQuoterReader(common.HexToAddress(feeQuoterAddress), chainClient, nil); err != nil {
+			closeErr := runtime.Close()
+			return nil, errors.Join(fmt.Errorf("failed to create EVM fee quoter reader for chain %d: %w", chainSelector, err), closeErr)
 		}
 	}
 
@@ -200,6 +251,9 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 		evmSourceReader,
 		evmDestReader,
 		nil,
+		feeQuoterReader,
+		feeQuoterWriter,
+		gasPriceReader,
 	), nil
 }
 
@@ -207,6 +261,13 @@ type accessor struct {
 	sourceReader        chainaccess.SourceReader
 	destinationReader   chainaccess.DestinationReader
 	contractTransmitter chainaccess.ContractTransmitter
+	feeQuoterReader     *pricereader.EVMFeeQuoterReader
+	feeQuoterWriter     chainaccess.FeeQuoterWriter
+	gasPriceReader      chainaccess.GasPriceReader
+
+	// serviceAddressesErr is the last failure to load the transmitter addresses for the fee quoter reader.
+	mu                  sync.Mutex
+	serviceAddressesErr error
 
 	lggr          logger.Logger
 	chainSelector protocol.ChainSelector
@@ -224,6 +285,9 @@ func newAccessor(
 	sourceReader chainaccess.SourceReader,
 	destinationReader chainaccess.DestinationReader,
 	contractTransmitter chainaccess.ContractTransmitter,
+	feeQuoterReader *pricereader.EVMFeeQuoterReader,
+	feeQuoterWriter chainaccess.FeeQuoterWriter,
+	gasPriceReader chainaccess.GasPriceReader,
 ) chainaccess.Accessor {
 	return &accessor{
 		lggr:                lggr,
@@ -234,6 +298,9 @@ func newAccessor(
 		sourceReader:        sourceReader,
 		destinationReader:   destinationReader,
 		contractTransmitter: contractTransmitter,
+		feeQuoterReader:     feeQuoterReader,
+		feeQuoterWriter:     feeQuoterWriter,
+		gasPriceReader:      gasPriceReader,
 	}
 }
 
@@ -243,6 +310,7 @@ func (a *accessor) SetKeystore(ctx context.Context, ks keystore.Keystore) error 
 	if a == nil {
 		return errors.New("EVM accessor is nil")
 	}
+	a.setFeeQuoterServiceAddresses(ctx, ks)
 	if a.offRampAddr == (common.Address{}) {
 		return nil
 	}
@@ -281,16 +349,57 @@ func (a *accessor) ContractTransmitter() (chainaccess.ContractTransmitter, error
 	return a.contractTransmitter, nil
 }
 
-func (a *accessor) FeeQuoterReader() (chainaccess.FeeQuoterReader, error) {
-	return nil, errors.New("fee quoter reader not available")
+// setFeeQuoterServiceAddresses gives the fee quoter reader the transmitter addresses.
+// A missing key is not fatal, but Degraded reports it until a later call succeeds.
+func (a *accessor) setFeeQuoterServiceAddresses(ctx context.Context, ks keystore.Keystore) {
+	if a.feeQuoterReader == nil || a.runtime == nil {
+		return
+	}
+	addresses, err := a.runtime.TransmitterAddresses(ctx, ks, a.keyName)
+	if err != nil {
+		err = fmt.Errorf("fee quoter reader for chain %d has no transmitter addresses, so the service is reported as not authorized: %w", a.chainSelector, err)
+		a.lggr.Warnw("Could not load the transmitter addresses", "error", err)
+	} else {
+		a.feeQuoterReader.SetServiceAddresses(addresses)
+	}
+	a.mu.Lock()
+	a.serviceAddressesErr = err
+	a.mu.Unlock()
 }
 
+// The accessor is a health.DegradedReporter. The interface is not imported to keep the health package out.
+var _ interface{ Degraded() error } = (*accessor)(nil)
+
+// Degraded returns an error when a configured service works only in part. The accessor stays usable.
+func (a *accessor) Degraded() error {
+	if a == nil {
+		return nil
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.serviceAddressesErr
+}
+
+func (a *accessor) FeeQuoterReader() (chainaccess.FeeQuoterReader, error) {
+	if a == nil || a.feeQuoterReader == nil {
+		return nil, errors.New("fee quoter reader not available")
+	}
+	return a.feeQuoterReader, nil
+}
+
+// FeeQuoterWriter returns a writer that only logs the updates. It does not send transactions yet.
 func (a *accessor) FeeQuoterWriter() (chainaccess.FeeQuoterWriter, error) {
-	return nil, errors.New("fee quoter writer not available")
+	if a == nil || a.feeQuoterWriter == nil {
+		return nil, errors.New("fee quoter writer not available")
+	}
+	return a.feeQuoterWriter, nil
 }
 
 func (a *accessor) GasPriceReader() (chainaccess.GasPriceReader, error) {
-	return nil, errors.New("gas price reader not available")
+	if a == nil || a.gasPriceReader == nil {
+		return nil, errors.New("gas price reader not available")
+	}
+	return a.gasPriceReader, nil
 }
 
 // Close releases the production services owned by this accessor.

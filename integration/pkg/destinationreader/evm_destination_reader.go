@@ -338,23 +338,24 @@ func (dr *EvmDestinationReader) CheckHealth(_ protocol.ChainSelector) error {
 // HasHonestAttempt reports whether an honest execution attempt has been made
 // for the given message by checking existing on-chain attempts against the
 // provided verifier results.
-func (dr *EvmDestinationReader) HasHonestAttempt(ctx context.Context, message protocol.Message, verifierResults []protocol.VerifierResult, ccvAddressInfo protocol.CCVAddressInfo) (bool, error) {
+func (dr *EvmDestinationReader) HasHonestAttempt(ctx context.Context, message protocol.Message, verifierResults []protocol.VerifierResult, ccvAddressInfo protocol.CCVAddressInfo) (chainaccess.HonestAttemptCheck, error) {
 	attempts, err := dr.GetExecutionAttempts(ctx, message)
 	if err != nil {
-		return false, err
+		return chainaccess.HonestAttemptCheck{}, err
 	}
 
+	notHonestAttemptExists := false
 	for _, attempt := range attempts {
 		honestCallData, err := executionchecker.IsHonestCallData(message, attempt, verifierResults, ccvAddressInfo)
-		honestGasLimit := executionchecker.IsHonestGasLimit(message, attempt)
 		if err != nil {
 			continue
 		}
 
-		if honestCallData && honestGasLimit {
-			return true, nil
+		if honestCallData && executionchecker.IsHonestGasLimit(message, attempt) {
+			return chainaccess.HonestAttemptCheck{Honest: true}, nil
 		}
+		notHonestAttemptExists = true
 	}
 
-	return false, nil
+	return chainaccess.HonestAttemptCheck{NotHonestAttemptExists: notHonestAttemptExists}, nil
 }

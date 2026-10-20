@@ -78,12 +78,16 @@ func CreateAccessorFactory(
 	// one disagrees with the address derived from the ramp's on-chain static config.
 	rmnRemoteInfos := chainaccess.Infos[string](generic.RMNRemoteAddresses).GetAllInfos()
 	destChainConfigs := chainaccess.Infos[chainaccess.DestinationChainConfig](generic.ChainConfiguration).GetAllInfos()
+	feeQuoterInfos := chainaccess.Infos[string](generic.FeeQuoterAddresses).GetAllInfos()
+	nativeDecimalsInfos := chainaccess.Infos[uint8](generic.NativeTokenDecimals).GetAllInfos()
 
 	return newFactory(
 		lggr,
 		onRampInfos,
 		rmnRemoteInfos,
 		destChainConfigs,
+		feeQuoterInfos,
+		nativeDecimalsInfos,
 		generic.MaxRetryDuration,
 		generic.ReaderStalenessThreshold,
 		func(ctx context.Context, chainSelector protocol.ChainSelector, chainLggr logger.Logger) (chainRuntime, error) {

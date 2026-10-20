@@ -2,6 +2,7 @@ package chainaccess
 
 import (
 	"context"
+	"errors"
 
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -61,6 +62,29 @@ type CriticalSourceInvariantCallbackSetter interface {
 	// SetCriticalSourceInvariantCallback attaches the callback invoked when a critical source-chain
 	// invariant is violated. It must be called before the reader starts.
 	SetCriticalSourceInvariantCallback(callback func(context.Context))
+}
+
+// FinalityViolationReporter is a chain's own finality-violation signal, such as the EVM log poller's.
+// The verifier is handed one per chain that has it and uses it instead of comparing block headers.
+type FinalityViolationReporter interface {
+	// FinalityViolated reports whether the data source currently detects a finality violation.
+	FinalityViolated() bool
+}
+
+// ErrSourceNotReady is returned by SourceReader reads while the source is still loading; callers retry
+// later and must not treat the range as scanned.
+var ErrSourceNotReady = errors.New("source not ready")
+
+// SourceLoader is an optional SourceReader capability for readers that must load a local index, such as
+// the EVM log poller, before serving reads.
+type SourceLoader interface {
+	// LoadFrom starts loading from startBlock without blocking; reads return ErrSourceNotReady until done.
+	LoadFrom(startBlock uint64)
+	// Loaded returns nil once loading has finished and an error wrapping ErrSourceNotReady until then, which
+	// the verifier reports in its health.
+	Loaded() error
+	// Close stops loading and releases what LoadFrom set up. Only SourceLoaders are closed by the verifier.
+	Close() error
 }
 
 // ExecutorMonitoringSetter is an optional capability of accessor-provided destination readers and
@@ -156,6 +180,11 @@ type Accessor interface {
 	// Close releases any background services the accessor started. Stateless accessors return nil.
 	Close() error
 
+	// Optional hook: health.DegradedReporter
+	//
+	// Accessors that keep working with a missing part (for example, a missing signing key)
+	// should implement Degraded() error. The service that owns the accessor reports it on /health.
+
 	// Optional hook: bootstrap.KeystoreSetter
 	//
 	// Accessors that require a keystore for signing (e.g. to build a keystore-backed
@@ -210,6 +239,15 @@ type AttemptChecker interface {
 	// for an unhealthy chain should be rejected, not retried.
 	CheckHealth(chain protocol.ChainSelector) error
 	// HasHonestAttempt reports whether an honest execution attempt has been
-	// made for the given message.
-	HasHonestAttempt(ctx context.Context, message protocol.Message, verifierResults []protocol.VerifierResult, ccvAddressInfo protocol.CCVAddressInfo) (bool, error)
+	// made for the given message. If it has not, the result tells if an attempt
+	// that is not honest exists.
+	HasHonestAttempt(ctx context.Context, message protocol.Message, verifierResults []protocol.VerifierResult, ccvAddressInfo protocol.CCVAddressInfo) (HonestAttemptCheck, error)
+}
+
+// HonestAttemptCheck is the result of DestinationReader.HasHonestAttempt.
+type HonestAttemptCheck struct {
+	// Honest is true if an honest execution attempt exists.
+	Honest bool
+	// NotHonestAttemptExists is true if an attempt exists and none of the attempts is honest.
+	NotHonestAttemptExists bool
 }

@@ -2,8 +2,10 @@ package sourcereader
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -303,6 +305,74 @@ func (n *NoOpFinalityViolationChecker) UpdateFinalized(ctx context.Context, fina
 // IsFinalityViolated implements protocol.FinalityViolationChecker.
 func (n *NoOpFinalityViolationChecker) IsFinalityViolated() bool {
 	return false
+}
+
+// logPollerFinalityChecker adapts and latches the log poller's violation signal until recovery.
+// Sampling limitations and accepted risks are documented in the changelog.
+type logPollerFinalityChecker struct {
+	reporter      chainaccess.FinalityViolationReporter
+	chainSelector protocol.ChainSelector
+	lggr          logger.Logger
+	metrics       verifier.FinalityCheckerMetrics
+	violated      atomic.Bool
+}
+
+// UpdateFinalized implements protocol.FinalityViolationChecker. It makes no RPC calls: the log
+// poller already compares finalized blocks against the chain.
+func (c *logPollerFinalityChecker) UpdateFinalized(ctx context.Context, finalized uint64) error {
+	if !c.IsFinalityViolated() && c.reporter.FinalityViolated() {
+		c.latch(ctx, finalized)
+	}
+	if c.IsFinalityViolated() {
+		return errors.New("finality violation reported by the log poller")
+	}
+	return nil
+}
+
+// latch records the violation once, logging the finalized height where it was first observed.
+func (c *logPollerFinalityChecker) latch(ctx context.Context, finalized uint64) {
+	if !c.violated.CompareAndSwap(false, true) {
+		return
+	}
+	c.lggr.Errorw("FINALITY VIOLATION DETECTED - reported by the log poller", "finalizedBlock", finalized)
+	c.metrics.SetVerifierFinalityViolated(ctx, c.chainSelector, true)
+}
+
+// IsFinalityViolated implements protocol.FinalityViolationChecker.
+func (c *logPollerFinalityChecker) IsFinalityViolated() bool {
+	return c.violated.Load()
+}
+
+// newFinalityChecker selects the finality checker for a source chain: DisableFinalityChecker wins, a
+// chain's own finality reporter (the log poller) is used when given, and otherwise headers are compared.
+func newFinalityChecker(
+	cfg verifier.SourceConfig,
+	reader chainaccess.SourceReader,
+	reporter chainaccess.FinalityViolationReporter,
+	chainSelector protocol.ChainSelector,
+	lggr logger.Logger,
+	metrics verifier.FinalityCheckerMetrics,
+) (protocol.FinalityViolationChecker, error) {
+	switch {
+	case cfg.DisableFinalityChecker:
+		lggr.Infow("FinalityViolationChecker is disabled by config", "chainSelector", chainSelector)
+		return &NoOpFinalityViolationChecker{}, nil
+	case reporter != nil:
+		lggr.Infow("Using log poller finality violation checker", "chainSelector", chainSelector)
+		return &logPollerFinalityChecker{
+			reporter:      reporter,
+			chainSelector: chainSelector,
+			lggr:          logger.With(lggr, "component", "LogPollerFinalityChecker", "chain", chainSelector),
+			metrics:       metrics,
+		}, nil
+	default:
+		lggr.Infow("Using header-based finality violation checker", "chainSelector", chainSelector)
+		checker, err := NewFinalityViolationCheckerService(reader, chainSelector, lggr, metrics)
+		if err != nil {
+			return nil, err
+		}
+		return checker, nil
+	}
 }
 
 // FinalityEvidence contains chain-neutral observations already fetched by the checker.

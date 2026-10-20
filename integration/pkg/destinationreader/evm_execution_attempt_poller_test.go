@@ -1,6 +1,7 @@
 package destinationreader
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"math/big"
@@ -12,11 +13,14 @@ import (
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/params"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/offramp"
+	"github.com/smartcontractkit/chainlink-ccv/executor"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/executionchecker"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
@@ -548,6 +552,31 @@ func TestProcessExecutionStateChanged_RejectsTxNotDirectlyToOffRamp(t *testing.T
 	}
 }
 
+// The cached attempt keeps the event's FAILURE state and returnData, which the checker needs.
+func TestProcessExecutionStateChanged_RecordsFailureData(t *testing.T) {
+	mockCli := new(mockClient)
+	poller := setupTestPoller(t, mockCli, 24*time.Hour)
+
+	offRampAddr := poller.offRampAddress
+	tx := types.NewTx(&types.LegacyTx{To: &offRampAddr, Gas: 500_000, Data: buildExecuteCallData(t, 0)})
+	message := buildPollerTestMessage(t)
+	failureData := []byte{0x37, 0xc3, 0xbe, 0x29}
+	event := &offramp.OffRampExecutionStateChanged{
+		MessageId:  message.MustMessageID(),
+		State:      uint8(executor.FAILURE),
+		ReturnData: failureData,
+	}
+	mockCli.On("TransactionByHash", mock.Anything, event.Raw.TxHash).Return(tx, nil).Once()
+
+	require.NoError(t, poller.processExecutionStateChanged(context.Background(), event))
+
+	attempts, ok := poller.attemptCache.Get(event.MessageId)
+	require.True(t, ok)
+	require.Len(t, attempts, 1)
+	assert.True(t, attempts[0].Failed)
+	assert.Equal(t, failureData, attempts[0].FailureData)
+}
+
 func TestProcessExecutionStateChanged_RejectsWhenTransactionByHashFails(t *testing.T) {
 	mockCli := new(mockClient)
 	poller := setupTestPoller(t, mockCli, 24*time.Hour)
@@ -834,11 +863,14 @@ func TestDecodeCallDataToExecutionAttempt(t *testing.T) {
 		poller := setupTestPoller(t, mockCli, 24*time.Hour)
 		gasLimit := uint64(500_000)
 
-		attempt, err := poller.decodeCallDataToExecutionAttempt(validCallData, gasLimit)
+		tx := types.NewTx(&types.LegacyTx{Data: validCallData, Gas: gasLimit})
+		attempt, err := poller.decodeCallDataToExecutionAttempt(tx)
 		require.NoError(t, err)
 		require.NotNil(t, attempt)
 
 		assert.Equal(t, new(big.Int).SetUint64(gasLimit), attempt.TransactionGasLimit)
+		assert.Equal(t, uint64(0), attempt.GasLimitOverride.Uint64())
+		assert.False(t, attempt.HasNonCanonicalGasEnvelope, "a plain legacy tx with exact canonical calldata must be considered canonical")
 		assert.NotEmpty(t, attempt.Report.CCVS, "should have at least one CCV address")
 		assert.Len(t, attempt.Report.CCVS, 2, "should decode two CCV addresses")
 		assert.Len(t, attempt.Report.CCVData, 2, "should decode two CCV data entries")
@@ -858,7 +890,7 @@ func TestDecodeCallDataToExecutionAttempt(t *testing.T) {
 		mockCli := new(mockClient)
 		poller := setupTestPoller(t, mockCli, 24*time.Hour)
 
-		_, err := poller.decodeCallDataToExecutionAttempt([]byte{0x01, 0x02}, 100)
+		_, err := poller.decodeCallDataToExecutionAttempt(types.NewTx(&types.LegacyTx{Data: []byte{0x01, 0x02}, Gas: 100}))
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "call data too short")
 	})
@@ -874,7 +906,7 @@ func TestDecodeCallDataToExecutionAttempt(t *testing.T) {
 		wrongSelector[2] = 0xFF
 		wrongSelector[3] = 0xFF
 
-		_, err := poller.decodeCallDataToExecutionAttempt(wrongSelector, 100)
+		_, err := poller.decodeCallDataToExecutionAttempt(types.NewTx(&types.LegacyTx{Data: wrongSelector, Gas: 100}))
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "call data does not match execute function selector")
 	})
@@ -886,7 +918,7 @@ func TestDecodeCallDataToExecutionAttempt(t *testing.T) {
 		// Keep valid selector but truncate the rest
 		truncated := validCallData[:functionSelectorLength+10]
 
-		_, err := poller.decodeCallDataToExecutionAttempt(truncated, 100)
+		_, err := poller.decodeCallDataToExecutionAttempt(types.NewTx(&types.LegacyTx{Data: truncated, Gas: 100}))
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to unpack execute call data")
 	})
@@ -895,7 +927,7 @@ func TestDecodeCallDataToExecutionAttempt(t *testing.T) {
 		mockCli := new(mockClient)
 		poller := setupTestPoller(t, mockCli, 24*time.Hour)
 
-		_, err := poller.decodeCallDataToExecutionAttempt([]byte{}, 100)
+		_, err := poller.decodeCallDataToExecutionAttempt(types.NewTx(&types.LegacyTx{Data: []byte{}, Gas: 100}))
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "call data too short")
 	})
@@ -1188,4 +1220,179 @@ func TestNewEVMExecutionAttemptPoller_StalenessThreshold(t *testing.T) {
 	poller, err = NewEVMExecutionAttemptPoller(offRampAddr, new(mockClient), logger.Test(t), time.Hour, 42*time.Second)
 	require.NoError(t, err)
 	assert.Equal(t, 42*time.Second, poller.stalenessThreshold)
+}
+
+const (
+	testSourceChainForPoller         = protocol.ChainSelector(1)
+	testDestChainForPoller           = protocol.ChainSelector(2)
+	testExecutionGasLimitForPoller   = uint32(100000)
+	testCcipReceiveGasLimitForPoller = uint32(100000)
+)
+
+// buildPollerTestMessage builds the message used by buildExecuteCallData, so
+// tests that need to run the honesty checker against a decoded attempt can
+// construct a message with matching gas limits.
+func buildPollerTestMessage(t *testing.T) protocol.Message {
+	message, err := protocol.NewMessage(
+		testSourceChainForPoller,
+		testDestChainForPoller,
+		1,
+		protocol.UnknownAddress([]byte("onramp_address")),
+		protocol.UnknownAddress([]byte("offramp_address")),
+		0,
+		testExecutionGasLimitForPoller,
+		testCcipReceiveGasLimitForPoller,
+		protocol.Bytes32{},
+		protocol.UnknownAddress([]byte("sender_address")),
+		protocol.UnknownAddress([]byte("receiver_address")),
+		[]byte("test data"),
+		[]byte("test data"),
+		nil,
+	)
+	require.NoError(t, err)
+	return *message
+}
+
+// buildExecuteCallData ABI-encodes a call to the offramp's execute() method,
+// mirroring what a real transmitter would submit on-chain.
+func buildExecuteCallData(t *testing.T, gasLimitOverride uint32) []byte {
+	message := buildPollerTestMessage(t)
+	encodedMsg, err := message.Encode()
+	require.NoError(t, err)
+
+	method, ok := offrampABI.Methods[executeMethodName]
+	require.True(t, ok)
+
+	packedArgs, err := method.Inputs.Pack(
+		encodedMsg,
+		[]common.Address{common.HexToAddress("0x1111111111111111111111111111111111111111")},
+		[][]byte{[]byte("ccv_data")},
+		gasLimitOverride,
+	)
+	require.NoError(t, err)
+
+	return append(append([]byte{}, method.ID...), packedArgs...)
+}
+
+// decodeCallDataToExecutionAttempt keeps gasLimitOverride, and a nonzero value is not honest
+// because the executor always submits gasLimitOverride == 0.
+func TestDecodeCallDataToExecutionAttempt_CapturesGasLimitOverride(t *testing.T) {
+	mockCli := new(mockClient)
+	poller := setupTestPoller(t, mockCli, time.Hour)
+
+	const nonZeroOverride = uint32(4294967295) // type(uint32).max
+	callData := buildExecuteCallData(t, nonZeroOverride)
+
+	attempt, err := poller.decodeCallDataToExecutionAttempt(types.NewTx(&types.LegacyTx{Data: callData, Gas: 100000}))
+	require.NoError(t, err)
+
+	require.NotNil(t, attempt.GasLimitOverride, "gasLimitOverride must be decoded and retained, not discarded")
+	assert.Equal(t, uint64(nonZeroOverride), attempt.GasLimitOverride.Uint64())
+
+	honest := executionchecker.IsHonestGasLimit(buildPollerTestMessage(t), *attempt)
+	assert.False(t, honest, "any nonzero gasLimitOverride must be dishonest: the canonical executor never sets one")
+}
+
+// An access list makes the gas envelope non-canonical, so the attempt is not honest.
+func TestDecodeCallDataToExecutionAttempt_RejectsAccessList(t *testing.T) {
+	mockCli := new(mockClient)
+	poller := setupTestPoller(t, mockCli, time.Hour)
+
+	callData := buildExecuteCallData(t, 0)
+
+	accessList := make(types.AccessList, 0, 4)
+	for i := range 4 {
+		accessList = append(accessList, types.AccessTuple{
+			Address:     common.BigToAddress(big.NewInt(int64(i) + 1)),
+			StorageKeys: []common.Hash{{}, {}},
+		})
+	}
+
+	// Gas is intrinsic gas plus less than the message requires.
+	intrinsicGas := estimateIntrinsicGasForTest(t, callData, accessList)
+	const executionGas = uint64(50000)
+	tx := types.NewTx(&types.AccessListTx{
+		Data:       callData,
+		Gas:        intrinsicGas + executionGas,
+		AccessList: accessList,
+	})
+
+	attempt, err := poller.decodeCallDataToExecutionAttempt(tx)
+	require.NoError(t, err)
+
+	assert.True(t, attempt.HasNonCanonicalGasEnvelope, "a nonempty access list must mark the gas envelope as non-canonical")
+
+	honest := executionchecker.IsHonestGasLimit(buildPollerTestMessage(t), *attempt)
+	assert.False(t, honest, "an attempt with a non-canonical gas envelope must not be considered honest")
+}
+
+// Calldata with bytes after the canonical ABI encoding makes the gas envelope non-canonical.
+func TestDecodeCallDataToExecutionAttempt_RejectsTrailingCallData(t *testing.T) {
+	mockCli := new(mockClient)
+	poller := setupTestPoller(t, mockCli, time.Hour)
+
+	callData := buildExecuteCallData(t, 0)
+	extendedCallData := append(append([]byte{}, callData...), make([]byte, 5000)...)
+
+	tx := types.NewTx(&types.LegacyTx{Data: extendedCallData, Gas: 500000})
+
+	attempt, err := poller.decodeCallDataToExecutionAttempt(tx)
+	require.NoError(t, err)
+
+	assert.True(t, attempt.HasNonCanonicalGasEnvelope, "trailing calldata bytes must mark the gas envelope as non-canonical")
+
+	honest := executionchecker.IsHonestGasLimit(buildPollerTestMessage(t), *attempt)
+	assert.False(t, honest, "an attempt with trailing calldata must not be considered honest")
+}
+
+// An attempt with the executor's own envelope and gas limit is honest.
+func TestDecodeCallDataToExecutionAttempt_AcceptsCanonicalExecutorAttempt(t *testing.T) {
+	mockCli := new(mockClient)
+	poller := setupTestPoller(t, mockCli, time.Hour)
+
+	callData := buildExecuteCallData(t, 0)
+	message := buildPollerTestMessage(t)
+
+	// Mirrors contracttransmitter's own feeLimit calculation.
+	requiredGas := uint64(message.ExecutionGasLimit) + eip150ForwardingGasBufferForTest(message.CcipReceiveGasLimit)
+
+	tx := types.NewTx(&types.LegacyTx{Data: callData, Gas: requiredGas})
+
+	attempt, err := poller.decodeCallDataToExecutionAttempt(tx)
+	require.NoError(t, err)
+
+	assert.False(t, attempt.HasNonCanonicalGasEnvelope)
+	honest := executionchecker.IsHonestGasLimit(message, *attempt)
+	assert.True(t, honest, "the executor's own canonical attempt at its own computed fee limit must be honest")
+}
+
+// estimateIntrinsicGasForTest returns the intrinsic gas (base cost, calldata, and access list) of a transaction.
+func estimateIntrinsicGasForTest(t *testing.T, callData []byte, accessList types.AccessList) uint64 {
+	t.Helper()
+
+	gas := params.TxGas
+	if len(callData) > 0 {
+		zeroBytes := uint64(bytes.Count(callData, []byte{0}))
+		nonZeroBytes := uint64(len(callData)) - zeroBytes
+		gas += zeroBytes*params.TxDataZeroGas + nonZeroBytes*params.TxDataNonZeroGasEIP2028
+	}
+	for _, entry := range accessList {
+		gas += params.TxAccessListAddressGas
+		gas += uint64(len(entry.StorageKeys)) * params.TxAccessListStorageKeyGas
+	}
+	return gas
+}
+
+// eip150ForwardingGasBufferForTest mirrors contracttransmitter's and
+// executionchecker's eip150ForwardingGasBuffer so this test doesn't need to
+// import either package's unexported helper.
+func eip150ForwardingGasBufferForTest(ccipReceiveGasLimit uint32) uint64 {
+	const (
+		numerator   = 64
+		denominator = 63
+	)
+	gasLimit := uint64(ccipReceiveGasLimit)
+	atRouter := (numerator*gasLimit + denominator - 1) / denominator
+	atOffRamp := (numerator*atRouter + denominator - 1) / denominator
+	return atOffRamp - gasLimit
 }

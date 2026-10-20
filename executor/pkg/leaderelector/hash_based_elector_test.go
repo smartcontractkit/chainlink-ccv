@@ -552,3 +552,44 @@ func TestHashBasedLeaderElector_GetRetryDelay(t *testing.T) {
 		})
 	}
 }
+
+func TestIsFirstRanked(t *testing.T) {
+	const chainSel = protocol.ChainSelector(1)
+	ids := []string{"executor-c", "executor-a", "executor-b"}
+	interval := 30 * time.Second
+	ingestion := time.Unix(1000, 0)
+
+	electors := make(map[string]*HashBasedLeaderElector, len(ids))
+	for _, id := range ids {
+		e, err := NewHashBasedLeaderElector(logger.Test(t), map[protocol.ChainSelector][]string{chainSel: ids}, id, map[protocol.ChainSelector]time.Duration{chainSel: interval})
+		require.NoError(t, err)
+		electors[id] = e
+	}
+
+	for b := range 32 {
+		messageID := protocol.Bytes32{byte(b)}
+
+		var first []string
+		for _, id := range ids {
+			ok, err := electors[id].IsFirstRanked(messageID, chainSel)
+			require.NoError(t, err)
+			if ok {
+				first = append(first, id)
+			}
+		}
+		require.Len(t, first, 1, "message %d", b)
+
+		// The first ranked executor is the one that acts first in the normal stagger.
+		ready, err := electors[first[0]].GetReadyTimestamp(messageID, chainSel, ingestion)
+		require.NoError(t, err)
+		require.Equal(t, ingestion, ready)
+	}
+}
+
+func TestIsFirstRankedUnknownChain(t *testing.T) {
+	e, err := NewHashBasedLeaderElector(logger.Test(t), map[protocol.ChainSelector][]string{1: {"a"}}, "a", map[protocol.ChainSelector]time.Duration{1: time.Second})
+	require.NoError(t, err)
+
+	_, err = e.IsFirstRanked(protocol.Bytes32{}, 2)
+	require.Error(t, err)
+}

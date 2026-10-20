@@ -43,6 +43,7 @@ const (
 	MessageTransitionReasonQuorumNotMet       = "quorum_not_met"
 	MessageTransitionReasonPollerNotReady     = "poller_not_ready"
 	MessageTransitionReasonHonestAttempt      = "honest_attempt_exists"
+	MessageTransitionReasonNotRetrier         = "not_designated_retrier"
 
 	MessageFailureClassInvalidMessage       = "invalid_message"
 	MessageFailureClassExecutionStateRead   = "execution_state_read_failed"
