@@ -149,6 +149,7 @@ func TestCleanVerifierFilters(t *testing.T) {
 func TestAccessorCleanUnusedSourceState(t *testing.T) {
 	t.Run("a nil database is skipped", func(t *testing.T) {
 		acc := newSourceAccessor(t, &lpStubRuntime{stubChainRuntime: newStubRuntime(t), chainID: stubChainID})
+		acc.db = nil
 		require.NoError(t, acc.CleanUnusedSourceState(t.Context(), chainaccess.SourceReaderDeps{DB: nil, VerifierID: "v"}))
 	})
 
@@ -159,6 +160,7 @@ func TestAccessorCleanUnusedSourceState(t *testing.T) {
 		const chainID, otherChainID = 910_401, 910_402
 		runtime := &lpStubRuntime{stubChainRuntime: newStubRuntime(t), chainID: big.NewInt(chainID)}
 		acc := newSourceAccessor(t, runtime)
+		acc.db = staticDatabase(db)
 
 		insert := func(id int64) {
 			orm := logpoller.NewORM(big.NewInt(id), handle, logger.Test(t))
@@ -191,7 +193,8 @@ func TestAccessorCleanUnusedSourceState(t *testing.T) {
 func TestAccessorLogPollerReaderGetsAnORM(t *testing.T) {
 	runtime := &lpStubRuntime{stubChainRuntime: newStubRuntime(t), lp: lpmocks.NewLogPoller(t), chainID: big.NewInt(910_501)}
 	acc := newSourceAccessor(t, runtime)
-	require.NoError(t, acc.SetSourceReaderDeps(chainaccess.SourceReaderDeps{DB: testutil.NewTestDB(t).DB, VerifierID: "verifier-1"}))
+	acc.db = staticDatabase(testutil.NewTestDB(t).DB)
+	require.NoError(t, acc.SetSourceReaderDeps(chainaccess.SourceReaderDeps{VerifierID: "verifier-1"}))
 
 	reader, err := acc.SourceReader()
 	require.NoError(t, err)

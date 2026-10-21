@@ -426,7 +426,7 @@ func (c *standaloneChain) LogPoller(ctx context.Context, db *sql.DB) (logpoller.
 	}
 	chainID := c.chainConfig.EVM().ChainID()
 	if db == nil {
-		return nil, fmt.Errorf("log poller for chain selector %d (evm_chain_id %s) requires the verifier database", c.selector, chainID)
+		return nil, fmt.Errorf("log poller for chain selector %d (evm_chain_id %s) requires the EVM database", c.selector, chainID)
 	}
 
 	if err := logPollerGuard.acquire(chainID.String(), c.selector); err != nil {

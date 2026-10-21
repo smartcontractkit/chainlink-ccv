@@ -60,7 +60,15 @@ func CreateEVMAccessorFactory(lggr logger.Logger, genericConfig chainaccess.Gene
 	}
 	lggr.Infow("loaded EVM config", "numChains", len(infos), "convertedFromNodeConfig", conversion != nil)
 
-	return CreateAccessorFactory(lggr, genericConfig, infos)
+	// Read only here: the database it names is connected and migrated when something first needs it.
+	secrets, err := evmconfig.LoadSecretsFile(evmconfig.ResolveSecretsPath())
+	if err != nil {
+		return nil, fmt.Errorf("failed to load EVM secrets: %w", err)
+	}
+
+	f := newAccessorFactory(lggr, genericConfig, infos)
+	f.db = newLazyDB(lggr, secrets.DB)
+	return f, nil
 }
 
 // CreateAccessorFactory creates a lazy factory that starts one production
@@ -73,6 +81,14 @@ func CreateAccessorFactory(
 	generic chainaccess.GenericConfig,
 	infos chainaccess.Infos[Info],
 ) (chainaccess.AccessorFactory, error) {
+	return newAccessorFactory(lggr, generic, infos), nil
+}
+
+func newAccessorFactory(
+	lggr logger.Logger,
+	generic chainaccess.GenericConfig,
+	infos chainaccess.Infos[Info],
+) *factory {
 	onRampInfos := chainaccess.Infos[string](generic.OnRampAddresses).GetAllInfos()
 	// Deprecated configured RMN remotes are carried through only so the readers can warn when
 	// one disagrees with the address derived from the ramp's on-chain static config.
@@ -97,5 +113,5 @@ func CreateAccessorFactory(
 			}
 			return newStandaloneChain(ctx, chainSelector, info, chainLggr)
 		},
-	), nil
+	)
 }

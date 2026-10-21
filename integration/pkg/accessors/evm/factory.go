@@ -12,6 +12,7 @@ import (
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
+	"github.com/smartcontractkit/chainlink-ccv/common/lazy"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/contracttransmitter"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/destinationreader"
@@ -53,6 +54,8 @@ type factory struct {
 	// (50 poll intervals) when set; zero keeps the default.
 	readerStalenessThreshold time.Duration
 	newRuntime               runtimeBuilder
+	// db is the EVM database shared by every accessor; nil when none is configured.
+	db *lazy.Lazy[*sql.DB]
 }
 
 func newFactory(
@@ -64,7 +67,7 @@ func newFactory(
 	executionVisibilityWindow time.Duration,
 	readerStalenessThreshold time.Duration,
 	newRuntime runtimeBuilder,
-) chainaccess.AccessorFactory {
+) *factory {
 	if executionVisibilityWindow == 0 {
 		executionVisibilityWindow = defaultExecutionVisibilityWindow
 	}
@@ -254,6 +257,7 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 		gasPriceReader,
 	)
 	acc.sourceParams = sourceParams
+	acc.db = f.db
 	return acc, nil
 }
 
@@ -277,7 +281,7 @@ type accessor struct {
 	sourceBuilt  bool
 	// logPoller is set only by a successful SetSourceReaderDeps and selects the LogPoller reader.
 	logPoller      logpoller.LogPoller
-	lpDB           *sql.DB
+	db             *lazy.Lazy[*sql.DB]
 	lpVerifierID   string
 	cancelLifetime context.CancelFunc
 
@@ -379,8 +383,14 @@ func (a *accessor) SourceReader() (chainaccess.SourceReader, error) {
 	if a.logPoller != nil {
 		// logPoller is only set by SetSourceReaderDeps, which required a logPollerRuntime.
 		if lpRuntime, ok := a.runtime.(logPollerRuntime); ok {
-			cfg := NewLogPollerConfig(a.logPoller, a.newORM(lpRuntime, a.lpDB), a.lpVerifierID)
-			a.sourceReader, a.sourceErr = NewLogPollerSourceReader(ctx, *a.sourceParams, cfg)
+			// SetSourceReaderDeps already connected, so this returns the cached database.
+			db, dbErr := a.evmDB(ctx)
+			if dbErr != nil || db == nil {
+				a.sourceErr = errors.Join(dbErr, errors.New("EVM database is not available"))
+			} else {
+				cfg := NewLogPollerConfig(a.logPoller, a.newORM(lpRuntime, db), a.lpVerifierID)
+				a.sourceReader, a.sourceErr = NewLogPollerSourceReader(ctx, *a.sourceParams, cfg)
+			}
 		} else {
 			a.sourceErr = errors.New("EVM chain runtime cannot host a LogPoller")
 		}

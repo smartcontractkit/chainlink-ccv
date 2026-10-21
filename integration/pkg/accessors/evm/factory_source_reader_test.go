@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/smartcontractkit/chainlink-ccv/common/lazy"
 	"math/big"
 	"sync"
 	"testing"
@@ -70,7 +71,14 @@ func newSourceAccessor(t *testing.T, runtime chainRuntime) *accessor {
 	t.Helper()
 	got, err := newSourceFactory(t, runtime).GetAccessor(t.Context(), testSourceSelector)
 	require.NoError(t, err)
-	return got.(*accessor)
+	acc := got.(*accessor)
+	acc.db = staticDatabase(&sql.DB{})
+	return acc
+}
+
+// staticDatabase is a lazy database that returns db without connecting.
+func staticDatabase(db *sql.DB) *lazy.Lazy[*sql.DB] {
+	return lazy.New(func(context.Context) (*sql.DB, error) { return db, nil })
 }
 
 func TestAccessorSourceReaderIsBuiltLazilyAndOnce(t *testing.T) {
@@ -113,6 +121,7 @@ func TestSetSourceReaderDepsSelectsLogPollerReader(t *testing.T) {
 	runtime := &lpStubRuntime{stubChainRuntime: newStubRuntime(t), lp: lp, chainID: stubChainID}
 	acc := newSourceAccessor(t, runtime)
 	db := &sql.DB{}
+	acc.db = staticDatabase(db)
 
 	require.NoError(t, acc.SetSourceReaderDeps(chainaccess.SourceReaderDeps{DB: db, VerifierID: "verifier-1"}))
 	require.Equal(t, 1, runtime.lpCalls)
