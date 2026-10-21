@@ -14,6 +14,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
 
+	evmdb "github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm/db"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/db"
 )
 
@@ -55,6 +56,10 @@ func NewTestDBWithURL(tb testing.TB) (*sqlx.DB, string) {
 
 	err = db.RunPostgresMigrationsContext(ctx, sqlxDB) //nolint:noeagerio // test helper: migrating the test database is this constructor's whole purpose
 	require.NoError(tb, err, "failed to run migrations")
+
+	// The EVM accessor owns the LogPoller schema; apply it so tests that read it find it.
+	err = evmdb.RunPostgresMigrationsContext(ctx, sqlxDB.DB) //nolint:noeagerio // test helper: migrating the test database is this constructor's whole purpose
+	require.NoError(tb, err, "failed to run evm migrations")
 
 	tb.Cleanup(func() {
 		_ = sqlxDB.Close()

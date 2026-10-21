@@ -43,17 +43,25 @@ func SelectorFromChainID(chainID int64) (protocol.ChainSelector, error) {
 }
 
 // CheckLogPollerSchema fails with a clear message when the LogPoller tables are missing, which is the
-// case before the verifier's migration 00010 has run.
+// case before a verifier with the LogPoller enabled has started on the database.
 func CheckLogPollerSchema(ctx context.Context, db *sql.DB) error {
+	exists, err := logPollerSchemaExists(ctx, db)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return errors.New("the LogPoller schema is missing (evm.log_poller_blocks or evm.logs): the EVM accessor migration creates it when a verifier with the LogPoller enabled starts")
+	}
+	return nil
+}
+
+func logPollerSchemaExists(ctx context.Context, db *sql.DB) (bool, error) {
 	var blocks, logs sql.NullString
 	if err := db.QueryRowContext(ctx,
 		`SELECT to_regclass('evm.log_poller_blocks')::text, to_regclass('evm.logs')::text`).Scan(&blocks, &logs); err != nil {
-		return fmt.Errorf("failed to check for the LogPoller schema: %w", err)
+		return false, fmt.Errorf("failed to check for the LogPoller schema: %w", err)
 	}
-	if !blocks.Valid || !logs.Valid {
-		return errors.New("the LogPoller schema is missing (evm.log_poller_blocks or evm.logs): the verifier creates it with migration 00010 when it starts")
-	}
-	return nil
+	return blocks.Valid && logs.Valid, nil
 }
 
 // FindLCA finds the highest block stored for the chain whose hash the chain RPC also has. It builds

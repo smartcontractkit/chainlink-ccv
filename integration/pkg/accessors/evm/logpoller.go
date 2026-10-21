@@ -83,5 +83,10 @@ func (a *accessor) CleanUnusedSourceState(ctx context.Context, deps chainaccess.
 	if !ok {
 		return nil
 	}
+	// Only the LogPoller path creates the schema, so a verifier that never enabled it has no filters.
+	exists, err := logPollerSchemaExists(ctx, deps.DB)
+	if err != nil || !exists {
+		return err
+	}
 	return cleanVerifierFilters(ctx, a.newORM(lpRuntime, deps.DB), deps.VerifierID)
 }

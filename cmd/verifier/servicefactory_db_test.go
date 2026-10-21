@@ -245,7 +245,7 @@ func TestFactoryStart_FlagOff_ConnectsAndMigratesDBBeforeFirstGetAccessor(t *tes
 	reference, dbURL := testutil.NewTestDBWithURL(t)
 	want, err := appliedVersions(t.Context(), reference)
 	require.NoError(t, err)
-	require.Contains(t, want, int64(10), "reference schema must include the LogPoller migration")
+	require.Contains(t, want, int64(9), "reference schema must include the verifier migrations")
 
 	setFactoryEnv(t, emptyDatabase(t, dbURL))
 	f := &factory{}

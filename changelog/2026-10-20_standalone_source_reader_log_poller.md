@@ -3,7 +3,7 @@
 ## Executive Summary
 
 - The standalone committee verifier can now read `CCIPMessageSent` logs through a LogPoller it runs itself, on its own database. Before this, only the CL-mode verifier did (`2026-10-07_source_reader_log_poller.md`). It is off by default and turned on with `[Feature] LogPoller = true` in the bootstrap config.
-- Each chain's LogPoller runs in the verifier process and stores its data in the verifier database, in a new `evm` schema (migration `00010_evm_logpoller_schema.sql`). Only one LogPoller per `evm_chain_id` can run in a process.
+- Each chain's LogPoller runs in the verifier process and stores its data in the verifier database, in a new `evm` schema (migration `00001_evm_logpoller_schema.sql`, owned by the EVM accessor). Only one LogPoller per `evm_chain_id` can run in a process.
 - The LogPoller reader now reports its own finality violations (`chainaccess.FinalityViolationReporter`) and its own health (new `chainaccess.SourceHealthReporter`). `evm.NewLogPollerFinality` is removed. The chain health gauge now has one source, `sourcereader.Service.chainHealth`.
 - The startup load gets three new steps. It removes this verifier's stale filters. It waits until the checkpoint is finalized. If the replay hits a finality violation, it stops retrying and blocks the reader.
 - New `verifier ccv blocks find-lca` and `remove-blocks` commands mirror the node's commands. The finality-violation runbook now covers both the node and the standalone verifier.
@@ -46,7 +46,7 @@
 | `logpollerdb.NewDB` | added | `\blogpollerdb\.NewDB\(` | `integration/pkg/accessors/evm/logpollerdb/postgres.go:12` | [#database-and-schema](#database-and-schema) |
 | `blocks` CLI package (`LCA`, `Operator`, `Deps`, `InitBlocksCommandsWithFactory`) | added | `cli/blocks"` | `cli/blocks/commands.go:44` | [#ccv-blocks-cli](#ccv-blocks-cli) |
 | `verifier.CLIOption`, `verifier.WithoutBlocks` (`cmd/verifier`) | added | `\bWithoutBlocks\(` | `cmd/verifier/run_ccv_cli.go:37` | [#ccv-blocks-cli](#ccv-blocks-cli) |
-| Migration `00010_evm_logpoller_schema.sql` | added | `00010_` | `verifier/migrations/postgres/00010_evm_logpoller_schema.sql:1` | [#database-and-schema](#database-and-schema) |
+| Migration `00001_evm_logpoller_schema.sql` | added | `00001_` | `integration/pkg/accessors/evm/migrations/postgres/00001_evm_logpoller_schema.sql:1` | [#database-and-schema](#database-and-schema) |
 | `testutil.NewTestDBWithURL` | added | `\bNewTestDBWithURL\(` | `verifier/testutil/test_db.go:31` | [#database-and-schema](#database-and-schema) |
 
 ## Breaking Changes
@@ -122,7 +122,7 @@ Other bootstrap behavior changes:
 
 ## Database and schema
 
-- **Migration `00010_evm_logpoller_schema.sql`** creates schema `evm` with `log_poller_filters`, `log_poller_blocks`, `logs`, the `f_log_poller_filter_hash` function, and the node's indexes, including the CCIP `MessageSent`/`ExecutionStateChanged` partial indexes. It runs on every verifier database, whatever the switch says. `Down` drops all of it.
+- **Migration `00001_evm_logpoller_schema.sql`** (tracked in its own `evm_goose_db_version` table) creates schema `evm` with `log_poller_filters`, `log_poller_blocks`, `logs`, the `f_log_poller_filter_hash` function, and the node's indexes, including the CCIP `MessageSent`/`ExecutionStateChanged` partial indexes. It no longer runs on every verifier database: only the EVM accessor applies it. `Down` drops all of it.
 - **Connection order.** The committee verifier factory now connects to and migrates the database in `Start` before it builds any accessor (`factory.connectDB`, `cmd/verifier/servicefactory.go:639`), because source readers use it. Before, the database was connected later, in `createChainStatusManager`.
 - **Ownership.** The factory keeps the `*sqlx.DB` and closes it only in `AfterAccessorsClosed`, never in `Stop`, so accessors and LogPollers can still use it while bootstrap closes them. A handle left over from a previous `Start` is closed with a warning. `createChainStatusManager` now takes the `sqlutil.DataSource` and does no I/O.
 - **`logpollerdb.NewDB(*sql.DB) *sqlx.DB`** wraps the shared pool for the chainlink-evm ORM with the snake_case mapper. It reuses the pool, so never `Close` the result.
@@ -225,7 +225,7 @@ The runbooks changed to match:
 
 ## Compatibility & Requirements
 
-- **Database:** With `LogPoller = true`, the committee verifier needs a database, or it exits at boot. Migration `00010` adds the `evm` schema to every verifier database whether or not the switch is on.
+- **Database:** With `LogPoller = true`, the committee verifier needs a database, or it exits at boot. The EVM accessor's migration adds the `evm` schema, and only when a LogPoller is first built.
 - **Config rollback:** The bootstrap config is decoded strictly. A config that contains `[Feature]` fails to load on binaries older than this change, so remove the section before rolling back.
 - **Token verifier:** It exits at boot if `[Feature] LogPoller = true`. Leave the switch out of the token verifier's bootstrap config.
 - **One verifier per database per chain:** The LogPoller tables are scoped by `evm_chain_id`, not by verifier. Two processes that share a database and a chain would both write the same rows. The in-process guard does not stop this across processes.
