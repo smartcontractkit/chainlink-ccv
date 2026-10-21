@@ -1,12 +1,14 @@
 package admin
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"net"
 	"net/http"
@@ -20,7 +22,11 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-const csrfCookieName = "ccv_admin_csrf"
+const (
+	csrfCookieName = "ccv_admin_csrf"
+	// maxRequestBodyBytes caps non-GET/HEAD request bodies at 1 MiB.
+	maxRequestBodyBytes = 1 << 20
+)
 
 // Deps are the in-process dependencies the console needs from the verifier it runs
 // beside: its application database (migrations already applied) and its secrets.
@@ -146,12 +152,26 @@ func (s *Server) hostAllowlistMiddleware(c *gin.Context) {
 	}
 }
 
-// maxBodyBytesMiddleware caps non-GET/HEAD request bodies at 1 MiB; a read past the
-// limit fails the form parse and the handler rejects the request.
+// maxBodyBytesMiddleware rejects non-GET/HEAD bodies over 1 MiB with 413 before
+// dispatch; the body is read up front because gin's form helpers swallow
+// MaxBytesReader errors, so wrapping alone would not stop mutations.
 func (s *Server) maxBodyBytesMiddleware(c *gin.Context) {
-	if c.Request.Method != http.MethodGet && c.Request.Method != http.MethodHead {
-		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1<<20)
+	if c.Request.Method == http.MethodGet || c.Request.Method == http.MethodHead {
+		c.Next()
+		return
 	}
+	if c.Request.ContentLength > maxRequestBodyBytes {
+		c.AbortWithStatus(http.StatusRequestEntityTooLarge)
+		return
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(c.Writer, c.Request.Body, maxRequestBodyBytes))
+	_ = c.Request.Body.Close()
+	if err != nil {
+		c.AbortWithStatus(http.StatusRequestEntityTooLarge)
+		return
+	}
+	c.Request.Body = io.NopCloser(bytes.NewReader(body))
+	c.Request.ContentLength = int64(len(body))
 	c.Next()
 }
 
@@ -186,9 +206,9 @@ func (s *Server) csrfMiddleware(c *gin.Context) {
 	}
 	if token == "" || len(token) > 128 {
 		token = newCSRFToken()
-		// Secure only over TLS: the default loopback deployment is plain HTTP and
-		// must still receive the token.
-		secure := c.Request.TLS != nil
+		// Secure over TLS, or on plain HTTP when secure_cookies says a fronting
+		// proxy terminates TLS; the loopback default keeps the cookie usable.
+		secure := c.Request.TLS != nil || s.cfg.SecureCookies
 		c.SetCookie(csrfCookieName, token, 0, "/", "", secure, true)
 	}
 	c.Set("csrfToken", token)

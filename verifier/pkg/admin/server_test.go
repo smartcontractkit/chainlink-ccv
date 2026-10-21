@@ -6,6 +6,7 @@ import (
 	"database/sql/driver"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -227,6 +228,18 @@ func TestServerCSRFCookieSecureFlag(t *testing.T) {
 	require.True(t, csrfCookieFrom(t, rec).Secure)
 }
 
+// With secure_cookies configured (a fronting proxy terminates TLS), the cookie is
+// Secure even though the console itself serves plain HTTP.
+func TestServerCSRFCookieSecureFlag_SecureCookiesConfig(t *testing.T) {
+	srv := newTestServer(t, "secure_cookies = true\n", nil)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "http://localhost:8105/search", nil)
+	srv.router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.True(t, csrfCookieFrom(t, rec).Secure)
+}
+
 func TestServerBodySizeLimit(t *testing.T) {
 	srv := newTestServer(t, "", nil)
 
@@ -250,7 +263,48 @@ func TestServerBodySizeLimit(t *testing.T) {
 	small := url.Values{"owner": {"owner-1"}, "chain": {"1"}, "from_block": {"1"}, "mode": {"replay"}}
 	require.Equal(t, http.StatusOK, post(small.Encode()).Code)
 
-	// A body past the 1 MiB cap cannot be parsed and is rejected.
+	// A body past the 1 MiB cap is rejected with 413 before dispatch.
 	oversized := "owner=" + strings.Repeat("a", 1<<20)
-	require.Equal(t, http.StatusBadRequest, post(oversized).Code)
+	require.Equal(t, http.StatusRequestEntityTooLarge, post(oversized).Code)
+}
+
+// An oversized body must be rejected before the handler runs, even on routes that
+// mutate using only the URL id and never read the body.
+func TestServerBodySizeLimit_MutationRouteNotReached(t *testing.T) {
+	srv := newTestServer(t, "", nil)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "http://localhost:8105/search", nil)
+	srv.router.ServeHTTP(rec, req)
+	token := csrfCookieFrom(t, rec).Value
+
+	post := func(target, body string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, target, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("X-CSRF-Token", token)
+		req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: token})
+		srv.router.ServeHTTP(rec, req)
+		return rec
+	}
+
+	cancelURL := "http://localhost:8105/recovery/operations/1f7e3b2a-9b2a-4b0e-9f3a-2b3c4d5e6f70/cancel"
+
+	// Control: a small body dispatches to the handler, which fails the state change
+	// against the fake DB (anything but a pre-dispatch 413).
+	require.NotEqual(t, http.StatusRequestEntityTooLarge, post(cancelURL, "").Code)
+
+	// Oversized bodies are rejected with 413 before dispatch, so no state change occurs.
+	oversized := strings.Repeat("a", 1<<20+1)
+	require.Equal(t, http.StatusRequestEntityTooLarge, post(cancelURL, oversized).Code)
+
+	// Same for a chunked request with no Content-Length to fast-path on.
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, cancelURL, nil)
+	req.Body = io.NopCloser(strings.NewReader(oversized))
+	req.ContentLength = -1
+	req.Header.Set("X-CSRF-Token", token)
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: token})
+	srv.router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
 }

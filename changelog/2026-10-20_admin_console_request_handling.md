@@ -3,8 +3,8 @@
 ## Executive Summary
 
 - The admin console's no-basic-auth loopback mode now serves only requests whose Host header names a loopback address (`localhost`, `127.0.0.1`, `::1`); other hosts are answered 403.
-- Non-GET/HEAD request bodies are capped at 1 MiB; a read past the limit fails the form parse and the handler rejects the request.
-- The CSRF cookie's Secure flag is now set only when the request itself arrives over TLS; `X-Forwarded-Proto` no longer influences it.
+- Non-GET/HEAD request bodies over 1 MiB are rejected with 413 before dispatch, including chunked bodies.
+- The CSRF cookie's Secure flag follows the request's TLS status; `X-Forwarded-Proto` no longer influences it. A new `secure_cookies` config key keeps the flag set behind a TLS-terminating proxy.
 - The console HTTP server sets `ReadTimeout`, `WriteTimeout`, and `IdleTimeout` alongside the existing `ReadHeaderTimeout`.
 - Behavior changes are internal to `verifier/pkg/admin`; no exported signatures changed, so downstream consumers need no migration.
 
@@ -15,6 +15,7 @@
 | `admin.Server.hostAllowlistMiddleware` | behavior-changed | `admin\.NewServer\(` | `verifier/pkg/admin/server.go:132` | [#host-check-in-no-auth-mode](#host-check-in-no-auth-mode) |
 | `admin.Server.maxBodyBytesMiddleware` | behavior-changed | `admin\.NewServer\(` | `verifier/pkg/admin/server.go:151` | [#request-body-size-limit](#request-body-size-limit) |
 | `admin.Server.csrfMiddleware` | behavior-changed | `admin\.NewServer\(` | `verifier/pkg/admin/server.go:191` | [#csrf-cookie-secure-flag](#csrf-cookie-secure-flag) |
+| `admin.Config.SecureCookies` | added | `secure_cookies` | `verifier/pkg/admin/config.go:36` | [#csrf-cookie-secure-flag](#csrf-cookie-secure-flag) |
 | `admin.Server.Run` | behavior-changed | `admin\.NewServer\(` | `verifier/pkg/admin/server.go:103` | [#server-timeouts](#server-timeouts) |
 
 ## Breaking Changes
@@ -28,11 +29,11 @@
 
 ## Request body size limit
 
-- `maxBodyBytesMiddleware` (`server.go:151`) runs second in the chain and wraps the body in `http.MaxBytesReader` with a 1 MiB cap for methods other than GET/HEAD. A read past the limit fails the form parse, so POST handlers (search, reschedule, recovery) reject the request with a 4xx.
+- `maxBodyBytesMiddleware` (`server.go:151`) runs second in the chain and rejects non-GET/HEAD requests with bodies over 1 MiB with 413 before dispatch: a `Content-Length` over the cap fails fast, and other bodies (including chunked) are read up front under `http.MaxBytesReader`, with the buffered body handed to the handler on success. Gin's form helpers swallow `MaxBytesReader` errors, so wrapping the body without reading it would still let mutations such as recovery cancel/resume through.
 
 ## CSRF cookie Secure flag
 
-- The CSRF cookie is now marked Secure only when `c.Request.TLS != nil` (`server.go:191`). The `X-Forwarded-Proto: https` branch is dropped; plain-HTTP loopback deployments still receive a usable (non-Secure) cookie.
+- The CSRF cookie is marked Secure when `c.Request.TLS != nil` or when the new `secure_cookies` config key is true (`server.go:191`); the `X-Forwarded-Proto: https` branch is dropped. Plain-HTTP loopback deployments still receive a usable (non-Secure) cookie; deployments behind a TLS-terminating proxy set `secure_cookies = true` (see `docs/verifier/admin-console.md`).
 
 ## Server timeouts
 
