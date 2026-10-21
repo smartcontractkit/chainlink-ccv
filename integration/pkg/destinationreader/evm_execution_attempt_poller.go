@@ -75,15 +75,19 @@ type EvmExecutionAttemptPoller struct {
 	offRampFilterer offramp.OffRampFilterer
 	eventCh         chan *offramp.OffRampExecutionStateChanged
 	// subMu guards subscription, which is read and replaced by reconnect and Close.
-	subMu           sync.Mutex
-	subscription    event.Subscription
-	attemptCache    *expirable.LRU[protocol.Bytes32, []protocol.ExecutionAttempt]
-	seenEvents      *expirable.LRU[[eventKeyLength]byte, struct{}]
-	cancelFunc      context.CancelFunc
-	runWg           sync.WaitGroup
-	pollInterval    time.Duration
-	lastPolledBlock atomic.Uint64
-	lookbackWindow  time.Duration
+	subMu            sync.Mutex
+	subscription     event.Subscription
+	attemptCache     *expirable.LRU[protocol.Bytes32, []protocol.ExecutionAttempt]
+	seenEvents       *expirable.LRU[[eventKeyLength]byte, struct{}]
+	cancelFunc       context.CancelFunc
+	runWg            sync.WaitGroup
+	pollInterval     time.Duration
+	reconnectBackoff time.Duration
+	lastPolledBlock  atomic.Uint64
+	// wsBlockPartial is true when lastPolledBlock was set by a single event rather than a full
+	// block scan, so an HTTP fallback replays that block inclusively.
+	wsBlockPartial atomic.Bool
+	lookbackWindow time.Duration
 	// stalenessThreshold is how long HTTP polling may go without a successful poll before
 	// Ready fails; defaults to stalenessPollIntervals × pollInterval.
 	stalenessThreshold time.Duration
@@ -175,6 +179,7 @@ func NewEVMExecutionAttemptPoller(
 		attemptCache:       attemptCache,
 		seenEvents:         expirable.NewLRU[[eventKeyLength]byte, struct{}](seenEventsMaxEntries, nil, attemptCacheExpiration),
 		pollInterval:       defaultPollInterval,
+		reconnectBackoff:   baseReconnectBackoffDuration,
 		stalenessThreshold: stalenessThreshold,
 		lookbackWindow:     attemptCacheExpiration, // Use cache expiration as lookback window
 	}, nil
@@ -443,6 +448,11 @@ func (p *EvmExecutionAttemptPoller) startWSMode(ctx context.Context) error {
 	}
 
 	p.subMu.Lock()
+	if ctx.Err() != nil {
+		p.subMu.Unlock()
+		subscription.Unsubscribe()
+		return ctx.Err()
+	}
 	p.subscription = subscription
 	p.subMu.Unlock()
 
@@ -548,6 +558,9 @@ func (p *EvmExecutionAttemptPoller) monitorSubscription(ctx context.Context) {
 
 		p.lggr.Errorw("Subscription error occurred, will attempt to reconnect", "error", err)
 		if err := p.handleReconnection(ctx); err != nil {
+			if ctx.Err() != nil {
+				return
+			}
 			p.lggr.Warn("Unable to reconnect to WS, falling back to HTTP polling")
 			p.startHTTPMode(ctx)
 			return
@@ -577,9 +590,15 @@ func (p *EvmExecutionAttemptPoller) handleReconnection(ctx context.Context) erro
 		select {
 		case <-time.After(backoffDuration):
 			if err := p.reconnectSubscription(ctx); err != nil {
+				if ctx.Err() != nil {
+					return nil
+				}
 				p.lggr.Errorw("Failed to reconnect subscription", "error", err, "reconnectAttempt", reconnectAttempts+1)
 				reconnectAttempts++
 				continue
+			}
+			if ctx.Err() != nil {
+				return nil
 			}
 
 			p.lggr.Infow("Successfully reconnected subscription", "reconnectAttempt", reconnectAttempts+1)
@@ -598,8 +617,12 @@ func (p *EvmExecutionAttemptPoller) handleReconnection(ctx context.Context) erro
 // calculateReconnectBackoff calculates the exponential backoff duration for reconnection attempts.
 // Uses formula: baseDuration * 2^attempt, with a maximum cap to prevent excessive delays.
 func (p *EvmExecutionAttemptPoller) calculateReconnectBackoff(attempt int) time.Duration {
+	base := p.reconnectBackoff
+	if base <= 0 {
+		base = baseReconnectBackoffDuration
+	}
 	// Exponential backoff: baseDuration * 2^attempt
-	backoffDuration := baseReconnectBackoffDuration * time.Duration(1<<attempt)
+	backoffDuration := base * time.Duration(1<<attempt)
 
 	// Cap at 30 seconds to prevent excessive delays
 	maxBackoff := 30 * time.Second
@@ -634,6 +657,11 @@ func (p *EvmExecutionAttemptPoller) reconnectSubscription(ctx context.Context) e
 	}
 
 	p.subMu.Lock()
+	if ctx.Err() != nil {
+		p.subMu.Unlock()
+		subscription.Unsubscribe()
+		return ctx.Err()
+	}
 	p.subscription = subscription
 	p.subMu.Unlock()
 	return nil
@@ -673,13 +701,19 @@ func (p *EvmExecutionAttemptPoller) pollForEvents(ctx context.Context) error {
 
 	toBlock := header.Number.Uint64()
 
-	// If we're already at the latest block, nothing to do
-	if toBlock <= fromBlock {
-		return nil
+	// Process the range in batches if it exceeds maxFilterBlockRange.
+	// If lastPolledBlock was set by a WebSocket event rather than a full block scan,
+	// replay that block inclusively so remaining logs in the block are not skipped.
+	currentFrom := fromBlock + 1
+	if p.wsBlockPartial.Load() {
+		currentFrom = fromBlock
 	}
 
-	// Process the range in batches if it exceeds maxFilterBlockRange
-	currentFrom := fromBlock + 1
+	// If we're already at the latest block, nothing to do
+	if toBlock < currentFrom {
+		return nil
+	}
+	startFrom := currentFrom
 	totalEventCount := 0
 
 	for currentFrom <= toBlock {
@@ -746,7 +780,7 @@ func (p *EvmExecutionAttemptPoller) pollForEvents(ctx context.Context) error {
 
 	if totalEventCount > 0 {
 		p.lggr.Debugw("Polled execution state changed events",
-			"fromBlock", fromBlock+1,
+			"fromBlock", startFrom,
 			"toBlock", toBlock,
 			"totalEventCount", totalEventCount)
 	}
@@ -760,16 +794,24 @@ func (p *EvmExecutionAttemptPoller) getLastPolledBlock() uint64 {
 
 func (p *EvmExecutionAttemptPoller) setLastPolledBlock(block uint64) {
 	p.lastPolledBlock.Store(block)
+	p.wsBlockPartial.Store(false)
 }
 
 // advanceLastPolledBlock moves the cursor forward to block; it never moves backward.
+// Because a single event does not guarantee the entire block has been consumed,
+// wsBlockPartial is set so an HTTP fallback replays that block inclusively.
 func (p *EvmExecutionAttemptPoller) advanceLastPolledBlock(block uint64) {
 	for {
 		current := p.lastPolledBlock.Load()
-		if block <= current {
+		if block < current {
+			return
+		}
+		if block == current {
+			p.wsBlockPartial.Store(true)
 			return
 		}
 		if p.lastPolledBlock.CompareAndSwap(current, block) {
+			p.wsBlockPartial.Store(true)
 			return
 		}
 	}

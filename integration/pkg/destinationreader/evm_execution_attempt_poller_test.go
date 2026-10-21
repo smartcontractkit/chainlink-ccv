@@ -6,6 +6,7 @@ import (
 	"errors"
 	"math/big"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -30,9 +31,36 @@ import (
 // It only implements HeaderByNumber which is what we need for these tests.
 type mockClient struct {
 	mock.Mock
-	client.Client                                                                   // Embed to satisfy interface (will panic if other methods called)
-	headerFunc    func(blockNum uint64) *types.Header                               // Optional: function to generate headers dynamically
-	dynamicFunc   func(ctx context.Context, number *big.Int) (*types.Header, error) // Optional: dynamic function for complex scenarios
+	client.Client                                                                           // Embed to satisfy interface (will panic if other methods called)
+	headerFunc            func(blockNum uint64) *types.Header                               // Optional: function to generate headers dynamically
+	dynamicFunc           func(ctx context.Context, number *big.Int) (*types.Header, error) // Optional: dynamic function for complex scenarios
+	filterLogsFunc        func(ctx context.Context, q ethereum.FilterQuery) ([]types.Log, error)
+	subscribeFilterLogsFn func(ctx context.Context, q ethereum.FilterQuery, ch chan<- types.Log) (ethereum.Subscription, error)
+}
+
+type testSubscription struct {
+	errCh        chan error
+	once         sync.Once
+	unsubscribed atomic.Bool
+}
+
+func newTestSubscription() *testSubscription {
+	return &testSubscription{errCh: make(chan error, 1)}
+}
+
+func (s *testSubscription) Err() <-chan error {
+	return s.errCh
+}
+
+func (s *testSubscription) Unsubscribe() {
+	s.once.Do(func() {
+		s.unsubscribed.Store(true)
+		close(s.errCh)
+	})
+}
+
+func (s *testSubscription) fail(err error) {
+	s.errCh <- err
 }
 
 func (m *mockClient) HeaderByNumber(ctx context.Context, number *big.Int) (*types.Header, error) {
@@ -56,16 +84,19 @@ func (m *mockClient) HeaderByNumber(ctx context.Context, number *big.Int) (*type
 	return args.Get(0).(*types.Header), args.Error(1)
 }
 
-// FilterLogs is a stub implementation needed for FilterExecutionStateChanged.
-// Returns empty results for testing purposes.
 func (m *mockClient) FilterLogs(ctx context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
+	if m.filterLogsFunc != nil {
+		return m.filterLogsFunc(ctx, q)
+	}
 	return []types.Log{}, nil
 }
 
-// SubscribeFilterLogs is a stub that always returns an error, simulating a non-WebSocket
-// RPC endpoint. This prevents a nil-pointer panic from the embedded client.Client when
-// WatchExecutionStateChanged is called in tests.
+// SubscribeFilterLogs is a stub that returns an error by default, simulating a non-WebSocket
+// RPC endpoint unless subscribeFilterLogsFn is configured by the test.
 func (m *mockClient) SubscribeFilterLogs(ctx context.Context, q ethereum.FilterQuery, ch chan<- types.Log) (ethereum.Subscription, error) {
+	if m.subscribeFilterLogsFn != nil {
+		return m.subscribeFilterLogsFn(ctx, q, ch)
+	}
 	return nil, errors.New("websocket not available in test environment")
 }
 
@@ -1475,4 +1506,322 @@ func eip150ForwardingGasBufferForTest(ccipReceiveGasLimit uint32) uint64 {
 	atRouter := (numerator*gasLimit + denominator - 1) / denominator
 	atOffRamp := (numerator*atRouter + denominator - 1) / denominator
 	return atOffRamp - gasLimit
+}
+
+func buildPollerTestMessageWithSeq(t *testing.T, seq protocol.SequenceNumber) protocol.Message {
+	t.Helper()
+	msg, err := protocol.NewMessage(
+		testSourceChainForPoller,
+		testDestChainForPoller,
+		seq,
+		protocol.UnknownAddress([]byte("onramp_address")),
+		protocol.UnknownAddress([]byte("offramp_address")),
+		0,
+		testExecutionGasLimitForPoller,
+		testCcipReceiveGasLimitForPoller,
+		protocol.Bytes32{},
+		protocol.UnknownAddress([]byte("sender_address")),
+		protocol.UnknownAddress([]byte("receiver_address")),
+		[]byte("test data"),
+		[]byte("test data"),
+		nil,
+	)
+	require.NoError(t, err)
+	return *msg
+}
+
+func buildExecuteTxForMessage(t *testing.T, offRampAddr common.Address, msg protocol.Message) *types.Transaction {
+	t.Helper()
+	encodedMsg, err := msg.Encode()
+	require.NoError(t, err)
+
+	method, ok := offrampABI.Methods[executeMethodName]
+	require.True(t, ok)
+
+	packedArgs, err := method.Inputs.Pack(
+		encodedMsg,
+		[]common.Address{common.HexToAddress("0x1111111111111111111111111111111111111111")},
+		[][]byte{[]byte("ccv_data")},
+		uint32(0),
+	)
+	require.NoError(t, err)
+	callData := append(append([]byte{}, method.ID...), packedArgs...)
+	return types.NewTx(&types.LegacyTx{
+		To:   &offRampAddr,
+		Gas:  500_000,
+		Data: callData,
+	})
+}
+
+func buildExecutionStateChangedLog(
+	t *testing.T,
+	offRampAddr common.Address,
+	msg protocol.Message,
+	state executor.MessageExecutionState,
+	returnData []byte,
+	txHash common.Hash,
+	blockNum uint64,
+	logIndex uint,
+) types.Log {
+	t.Helper()
+	eventSpec, ok := offrampABI.Events["ExecutionStateChanged"]
+	require.True(t, ok)
+
+	data, err := eventSpec.Inputs.NonIndexed().Pack(uint8(state), returnData)
+	require.NoError(t, err)
+
+	msgID := msg.MustMessageID()
+	return types.Log{
+		Address: offRampAddr,
+		Topics: []common.Hash{
+			eventSpec.ID,
+			common.BigToHash(new(big.Int).SetUint64(uint64(msg.SourceChainSelector))),
+			common.BigToHash(new(big.Int).SetUint64(uint64(msg.SequenceNumber))),
+			common.Hash(msgID),
+		},
+		Data:        data,
+		BlockNumber: blockNum,
+		TxHash:      txHash,
+		Index:       logIndex,
+	}
+}
+
+// If block B contains two logs and the WebSocket drops after delivering only the first log,
+// falling back to HTTP polling must replay block B inclusively, deduplicate the first log,
+// and process the second log without waiting for block B+1.
+func TestWSFallbackToHTTP_ReplaysPartialWebSocketBlockAndDeduplicates(t *testing.T) {
+	mockCli := new(mockClient)
+	poller := setupTestPoller(t, mockCli, 24*time.Hour)
+	poller.startBlock = 90
+	poller.setLastPolledBlock(99)
+	poller.pollInterval = 10 * time.Millisecond
+	poller.reconnectBackoff = time.Millisecond
+
+	msg1 := buildPollerTestMessageWithSeq(t, 1)
+	msg2 := buildPollerTestMessageWithSeq(t, 2)
+	tx1Hash := common.HexToHash("0x1111")
+	tx2Hash := common.HexToHash("0x2222")
+	tx1 := buildExecuteTxForMessage(t, poller.offRampAddress, msg1)
+	tx2 := buildExecuteTxForMessage(t, poller.offRampAddress, msg2)
+
+	const blockB = uint64(100)
+	log0 := buildExecutionStateChangedLog(t, poller.offRampAddress, msg1, executor.FAILURE, []byte{0x01}, tx1Hash, blockB, 0)
+	log1 := buildExecutionStateChangedLog(t, poller.offRampAddress, msg2, executor.FAILURE, []byte{0x02}, tx2Hash, blockB, 1)
+
+	// Each transaction is fetched only once: log0 via WS (deduplicated on HTTP replay), log1 via HTTP fallback.
+	mockCli.On("TransactionByHash", mock.Anything, tx1Hash).Return(tx1, nil).Once()
+	mockCli.On("TransactionByHash", mock.Anything, tx2Hash).Return(tx2, nil).Once()
+
+	// Chain head stays at block B (100) when HTTP fallback runs.
+	mockCli.dynamicFunc = func(context.Context, *big.Int) (*types.Header, error) {
+		return &types.Header{
+			Number: big.NewInt(int64(blockB)),
+			Time:   uint64(time.Now().Unix()),
+		}, nil
+	}
+
+	var (
+		filterMu    sync.Mutex
+		filterFroms []uint64
+	)
+	mockCli.filterLogsFunc = func(_ context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
+		if q.FromBlock != nil && q.ToBlock != nil {
+			from := q.FromBlock.Uint64()
+			to := q.ToBlock.Uint64()
+			filterMu.Lock()
+			filterFroms = append(filterFroms, from)
+			filterMu.Unlock()
+			if from <= blockB && blockB <= to {
+				return []types.Log{log0, log1}, nil
+			}
+		}
+		return nil, nil
+	}
+
+	sub := newTestSubscription()
+	var subCalls atomic.Int32
+	var wsCh chan<- types.Log
+	mockCli.subscribeFilterLogsFn = func(_ context.Context, _ ethereum.FilterQuery, ch chan<- types.Log) (ethereum.Subscription, error) {
+		if subCalls.Add(1) == 1 {
+			wsCh = ch
+			return sub, nil
+		}
+		return nil, errors.New("ws reconnect failed")
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	poller.cancelFunc = cancel
+
+	require.NoError(t, poller.StartOnce(evmExecutionAttemptPollerServiceName, func() error {
+		return poller.startWSMode(ctx)
+	}))
+	defer func() { require.NoError(t, poller.Close()) }()
+
+	// Deliver only the first log in block B over WebSocket, then drop the subscription.
+	wsCh <- log0
+	require.Eventually(t, func() bool {
+		attempts, err := poller.GetExecutionAttempts(ctx, msg1)
+		return err == nil && len(attempts) == 1
+	}, 2*time.Second, 10*time.Millisecond, "first log must be processed via WebSocket")
+	assert.Equal(t, blockB, poller.getLastPolledBlock())
+	assert.True(t, poller.wsBlockPartial.Load(), "cursor from WS event must mark block as partially consumed")
+
+	// Drop the WebSocket connection; all reconnect attempts fail, triggering HTTP fallback.
+	sub.fail(errors.New("websocket connection lost"))
+
+	require.Eventually(t, func() bool {
+		attempts, err := poller.GetExecutionAttempts(ctx, msg2)
+		return err == nil && len(attempts) == 1
+	}, 2*time.Second, 10*time.Millisecond, "second log in block B must be recovered by HTTP fallback")
+
+	attempts1, err := poller.GetExecutionAttempts(ctx, msg1)
+	require.NoError(t, err)
+	assert.Len(t, attempts1, 1, "first log in block B must be deduplicated during HTTP replay")
+
+	filterMu.Lock()
+	assert.Contains(t, filterFroms, blockB, "HTTP fallback must replay block B inclusively")
+	filterMu.Unlock()
+	assert.False(t, poller.wsBlockPartial.Load(), "full HTTP poll must clear wsBlockPartial")
+	mockCli.AssertExpectations(t)
+}
+
+// Repeated WebSocket reconnects replace and unsubscribe previous subscriptions without spawning
+// duplicate event consumers, and events continue to be processed across reconnects.
+func TestWSReconnectLifecycle_SingleConsumerAndProcessesEventsAcrossReconnects(t *testing.T) {
+	mockCli := new(mockClient)
+	poller := setupTestPoller(t, mockCli, 24*time.Hour)
+	poller.startBlock = 100
+	poller.setLastPolledBlock(100)
+	poller.reconnectBackoff = time.Millisecond
+
+	msgs := []protocol.Message{
+		buildPollerTestMessageWithSeq(t, 1),
+		buildPollerTestMessageWithSeq(t, 2),
+		buildPollerTestMessageWithSeq(t, 3),
+	}
+	txHashes := []common.Hash{
+		common.HexToHash("0xa1"),
+		common.HexToHash("0xa2"),
+		common.HexToHash("0xa3"),
+	}
+	for i := range msgs {
+		tx := buildExecuteTxForMessage(t, poller.offRampAddress, msgs[i])
+		mockCli.On("TransactionByHash", mock.Anything, txHashes[i]).Return(tx, nil).Once()
+	}
+
+	subs := []*testSubscription{
+		newTestSubscription(),
+		newTestSubscription(),
+		newTestSubscription(),
+	}
+	logChs := make(chan chan<- types.Log, 3)
+	var subIdx atomic.Int32
+	mockCli.subscribeFilterLogsFn = func(_ context.Context, _ ethereum.FilterQuery, ch chan<- types.Log) (ethereum.Subscription, error) {
+		idx := int(subIdx.Add(1)) - 1
+		if idx >= len(subs) {
+			return nil, errors.New("unexpected extra subscription")
+		}
+		logChs <- ch
+		return subs[idx], nil
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	poller.cancelFunc = cancel
+
+	require.NoError(t, poller.StartOnce(evmExecutionAttemptPollerServiceName, func() error {
+		return poller.startWSMode(ctx)
+	}))
+
+	// Across 3 subscriptions (initial + 2 reconnects), deliver one event per subscription.
+	for i := range subs {
+		var ch chan<- types.Log
+		select {
+		case ch = <-logChs:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("timed out waiting for subscription %d", i)
+		}
+
+		logEntry := buildExecutionStateChangedLog(
+			t, poller.offRampAddress, msgs[i], executor.FAILURE, []byte{byte(i + 1)},
+			txHashes[i], uint64(101+i), 0,
+		)
+		ch <- logEntry
+
+		require.Eventually(t, func() bool {
+			attempts, err := poller.GetExecutionAttempts(ctx, msgs[i])
+			return err == nil && len(attempts) == 1
+		}, 2*time.Second, 10*time.Millisecond, "event %d must be processed", i)
+
+		if i < len(subs)-1 {
+			subs[i].fail(errors.New("transient ws disconnect"))
+			require.Eventually(t, func() bool {
+				return subs[i].unsubscribed.Load()
+			}, 2*time.Second, 10*time.Millisecond, "replaced subscription %d must be unsubscribed", i)
+		}
+	}
+
+	require.NoError(t, poller.Close())
+	assert.True(t, subs[len(subs)-1].unsubscribed.Load(), "active subscription must be unsubscribed on Close")
+	poller.subMu.Lock()
+	assert.Nil(t, poller.subscription, "subscription field must be cleared after Close")
+	poller.subMu.Unlock()
+	mockCli.AssertExpectations(t)
+}
+
+// Closing the poller while a reconnect is in flight inside SubscribeFilterLogs must unsubscribe
+// the late-returning subscription and leave poller.subscription nil.
+func TestWSReconnect_CloseDuringReconnectionLeavesNoActiveSubscription(t *testing.T) {
+	mockCli := new(mockClient)
+	poller := setupTestPoller(t, mockCli, 24*time.Hour)
+	poller.startBlock = 100
+	poller.setLastPolledBlock(100)
+	poller.reconnectBackoff = time.Millisecond
+
+	initialSub := newTestSubscription()
+	lateSub := newTestSubscription()
+	reconnectStarted := make(chan struct{})
+	allowReconnectReturn := make(chan struct{})
+	var subCalls atomic.Int32
+
+	mockCli.subscribeFilterLogsFn = func(_ context.Context, _ ethereum.FilterQuery, _ chan<- types.Log) (ethereum.Subscription, error) {
+		if subCalls.Add(1) == 1 {
+			return initialSub, nil
+		}
+		close(reconnectStarted)
+		<-allowReconnectReturn
+		return lateSub, nil
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	poller.cancelFunc = cancel
+	// Mark StateMachine as started so Close() runs StopOnce.
+	require.NoError(t, poller.StartOnce(evmExecutionAttemptPollerServiceName, func() error {
+		return poller.startWSMode(ctx)
+	}))
+
+	// Trigger reconnect and wait until reconnectSubscription is blocked in SubscribeFilterLogs.
+	initialSub.fail(errors.New("ws dropped"))
+	<-reconnectStarted
+
+	// Start Close() in the background; it cancels ctx, clears p.subscription, and waits on runWg.
+	closeDone := make(chan error, 1)
+	go func() {
+		closeDone <- poller.Close()
+	}()
+
+	// Wait until Close() has canceled the context before letting SubscribeFilterLogs return lateSub.
+	require.Eventually(t, func() bool {
+		return ctx.Err() != nil
+	}, 2*time.Second, 5*time.Millisecond)
+	close(allowReconnectReturn)
+
+	require.NoError(t, <-closeDone)
+	assert.True(t, initialSub.unsubscribed.Load(), "initial subscription must be unsubscribed")
+	assert.True(t, lateSub.unsubscribed.Load(), "late subscription created during Close must be unsubscribed")
+	poller.subMu.Lock()
+	assert.Nil(t, poller.subscription, "no active subscription may remain after Close")
+	poller.subMu.Unlock()
 }
