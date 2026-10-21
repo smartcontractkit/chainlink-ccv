@@ -314,25 +314,8 @@ func classifyHTTPOutcome(err error, status Status) string {
 
 func (h *httpClient) setCoolDownPeriod(lggr logger.Logger, headers http.Header) {
 	coolDownDuration := h.coolDownDuration
-	if retryAfterHeader := headers.Get("Retry-After"); retryAfterHeader != "" {
-		retryAfterSec, errParseInt := strconv.ParseInt(retryAfterHeader, 10, 64)
-		if errParseInt == nil {
-			if retryAfterSec > 0 {
-				maxSec := int64(maxCoolDownDuration / time.Second)
-				if retryAfterSec > maxSec {
-					coolDownDuration = maxCoolDownDuration
-				} else {
-					coolDownDuration = time.Duration(retryAfterSec) * time.Second
-				}
-			}
-		} else {
-			parsedTime, err := time.Parse(time.RFC1123, retryAfterHeader)
-			if err == nil {
-				if until := time.Until(parsedTime); until > 0 {
-					coolDownDuration = until
-				}
-			}
-		}
+	if parsed, ok := parseRetryAfterDuration(headers.Get("Retry-After")); ok {
+		coolDownDuration = parsed
 	}
 	coolDownDuration = min(coolDownDuration, maxCoolDownDuration)
 	// Logging on the error level, because we should always self-rate limit before hitting the API rate limit
@@ -344,6 +327,30 @@ func (h *httpClient) setCoolDownPeriod(lggr logger.Logger, headers http.Header) 
 	h.coolDownMu.Lock()
 	defer h.coolDownMu.Unlock()
 	h.coolDownUntil = time.Now().Add(coolDownDuration)
+}
+
+func parseRetryAfterDuration(retryAfterHeader string) (time.Duration, bool) {
+	if retryAfterHeader == "" {
+		return 0, false
+	}
+	if retryAfterSec, err := strconv.ParseInt(retryAfterHeader, 10, 64); err == nil {
+		if retryAfterSec <= 0 {
+			return 0, false
+		}
+		if retryAfterSec > int64(maxCoolDownDuration/time.Second) {
+			return maxCoolDownDuration, true
+		}
+		return time.Duration(retryAfterSec) * time.Second, true
+	}
+	parsedTime, err := time.Parse(time.RFC1123, retryAfterHeader)
+	if err != nil {
+		return 0, false
+	}
+	until := time.Until(parsedTime)
+	if until <= 0 {
+		return 0, false
+	}
+	return until, true
 }
 
 func (h *httpClient) inCoolDownPeriod() (bool, time.Duration) {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1176,4 +1177,139 @@ func TestDestinationReaderUnhealthy_MessageScheduledNotDropped(t *testing.T) {
 	}, 3*time.Second, 50*time.Millisecond, "timed out waiting for HandleMessage")
 	require.True(t, found("destination reader unhealthy, scheduling message for retry"), "expected reader-unhealthy log")
 	require.False(t, found("invalid message, skipping"), "message must not be dropped as invalid")
+}
+
+// Verifies that when multiple messages are popped in a single batch and the sole worker blocks on
+// the first message (leaving dispatch blocked on the second), a storage-stream replay of the third
+// message is still rejected as in-flight and each message is handled exactly once.
+func TestDuplicateMessageIDFromStreamWhileWaitingInPoppedBatch_IsSkippedAndHandledOnce(t *testing.T) {
+	lggr, hook := logger.TestObserved(t, zapcore.DebugLevel)
+	baseTime := time.Now().UTC()
+	readyTime := baseTime.Add(10 * time.Second)
+
+	var timeReady atomic.Bool
+	mockTimeProvider := mocks.NewMockTimeProvider(t)
+	mockTimeProvider.EXPECT().GetTime().RunAndReturn(func() time.Time {
+		if timeReady.Load() {
+			return readyTime.Add(time.Second)
+		}
+		return baseTime
+	}).Maybe()
+
+	makeMsg := func(seq uint64) common.MessageWithMetadata {
+		return common.MessageWithMetadata{
+			Message: protocol.Message{
+				DestChainSelector:   1,
+				SourceChainSelector: 2,
+				SequenceNumber:      protocol.SequenceNumber(seq),
+			},
+			Metadata: common.MessageMetadata{
+				IngestionTimestamp: baseTime.Add(time.Duration(seq) * time.Millisecond),
+			},
+		}
+	}
+	msg1 := makeMsg(1)
+	msg2 := makeMsg(2)
+	msg3 := makeMsg(3)
+
+	results := make(chan common.MessageWithMetadata, 10)
+	messageSubscriber := mocks.NewMockMessageSubscriber(t)
+	messageSubscriber.EXPECT().Start(mock.Anything).Return(results, nil, nil)
+
+	firstBlocked := make(chan struct{})
+	unblockFirst := make(chan struct{})
+	var (
+		handledMu     sync.Mutex
+		handledCounts = make(map[protocol.SequenceNumber]int)
+	)
+
+	mockExecutor := mocks.NewMockExecutor(t)
+	mockExecutor.EXPECT().Start(mock.Anything).Return(nil)
+	mockExecutor.EXPECT().Close().Return(nil)
+	mockExecutor.EXPECT().CheckValidMessage(mock.Anything, mock.Anything).Return(nil).Maybe()
+	mockExecutor.EXPECT().HandleMessage(mock.Anything, mock.Anything).Run(func(_ context.Context, msg protocol.Message) {
+		if msg.SequenceNumber == 1 {
+			close(firstBlocked)
+			<-unblockFirst
+		}
+		handledMu.Lock()
+		handledCounts[msg.SequenceNumber]++
+		handledMu.Unlock()
+	}).Return(false, nil).Times(3)
+
+	leaderElector := mocks.NewMockLeaderElector(t)
+	leaderElector.EXPECT().IsExecutorForChain(mock.Anything).Return(true).Maybe()
+	leaderElector.EXPECT().GetReadyTimestamp(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
+		func(_ protocol.Bytes32, _ protocol.ChainSelector, ingestion time.Time) (time.Time, error) {
+			// Strictly increasing ready timestamps preserve FIFO order (msg1, msg2, msg3) in the heap.
+			return ingestion.Add(10 * time.Second), nil
+		},
+	).Maybe()
+	leaderElector.EXPECT().GetRetryDelay(mock.Anything).Return(time.Second, nil).Maybe()
+
+	ec, err := executor.NewCoordinator(
+		lggr,
+		"",
+		mockExecutor,
+		messageSubscriber,
+		leaderElector,
+		monitoring.NewNoopExecutorMonitoring(),
+		8*time.Hour,
+		mockTimeProvider,
+		1,
+		time.Second,
+	)
+	require.NoError(t, err)
+
+	require.NoError(t, ec.Start(t.Context()))
+	defer func() { require.NoError(t, ec.Close()) }()
+
+	// Push all three messages while GetTime() < readyTime so none are popped individually.
+	results <- msg1
+	results <- msg2
+	results <- msg3
+
+	countScheduledLogs := func() int {
+		count := 0
+		for _, entry := range hook.All() {
+			if strings.Contains(fmt.Sprintf("%+v", entry), "pushing message to delayed heap") {
+				count++
+			}
+		}
+		return count
+	}
+	require.Eventuallyf(t, func() bool {
+		return countScheduledLogs() == 3
+	}, 3*time.Second, 20*time.Millisecond, "all 3 messages must be in the heap before advancing time")
+
+	// Advance time so PopAllReady pops all 3 messages in one batch.
+	// Worker 1 blocks on msg1; runProcessingLoop blocks sending msg2 to workerPoolTasks; msg3 waits at index 2.
+	timeReady.Store(true)
+	require.Eventuallyf(t, func() bool {
+		select {
+		case <-firstBlocked:
+			return true
+		default:
+			return false
+		}
+	}, 3*time.Second, 20*time.Millisecond, "timed out waiting for worker to block on first message")
+
+	// Replay the third message while dispatch is still blocked on the second message.
+	results <- msg3
+	require.Eventuallyf(t, func() bool {
+		for _, entry := range hook.All() {
+			if strings.Contains(fmt.Sprintf("%+v", entry), "message already in flight, skipping") {
+				return true
+			}
+		}
+		return false
+	}, 3*time.Second, 20*time.Millisecond, "replayed third message must be skipped as in-flight")
+
+	// Unblock the worker and verify each original message is handled exactly once.
+	close(unblockFirst)
+	require.Eventuallyf(t, func() bool {
+		handledMu.Lock()
+		defer handledMu.Unlock()
+		return handledCounts[1] == 1 && handledCounts[2] == 1 && handledCounts[3] == 1
+	}, 3*time.Second, 20*time.Millisecond, "expected all three messages to be handled once")
 }
