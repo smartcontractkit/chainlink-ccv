@@ -41,12 +41,17 @@ type Params struct {
 	CacheExpiry time.Duration
 }
 
+// resolveCacheExpiry maps a non-positive configured expiry to the finite default.
+func resolveCacheExpiry(d time.Duration) time.Duration {
+	if d <= 0 {
+		return defaultCurseCacheExpiry
+	}
+	return d
+}
+
 // NewCachedCurseChecker creates a new CachedCurseChecker.
 func NewCachedCurseChecker(params Params) CachedCurseChecker {
-	expiry := params.CacheExpiry
-	if expiry <= 0 {
-		expiry = defaultCurseCacheExpiry
-	}
+	expiry := resolveCacheExpiry(params.CacheExpiry)
 	curseCache := expirable.NewLRU[protocol.ChainSelector, cacheValue](curseCacheMaxEntries, nil, expiry)
 	return CachedCurseChecker{
 		lggr:       params.Lggr,

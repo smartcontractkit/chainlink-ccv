@@ -282,10 +282,15 @@ func TestCurseDetectorService_StaleStateUnknown(t *testing.T) {
 		chainB protocol.ChainSelector = 2
 	)
 
-	// Chain A's reader first reports chainB cursed, then starts failing.
+	// Chain A's reader succeeds once, then fails for the rest of the test. Both
+	// expectations are registered before Start so the running poller never sees
+	// a mock with no matching call.
 	mockReaderA := mocks.NewMockRMNCurseReader(t)
 	mockReaderA.EXPECT().GetRMNCursedSubjects(mock.Anything).
 		Return([]protocol.Bytes16{ChainSelectorToBytes16(chainB)}, nil).
+		Once()
+	mockReaderA.EXPECT().GetRMNCursedSubjects(mock.Anything).
+		Return(nil, errors.New("RPC error")).
 		Maybe()
 
 	rmnReaders := map[protocol.ChainSelector]chainaccess.RMNCurseReader{
@@ -312,12 +317,7 @@ func TestCurseDetectorService_StaleStateUnknown(t *testing.T) {
 		return err == nil && cursed
 	}, 2*time.Second, 5*time.Millisecond, "fresh state should report chainB as cursed")
 
-	// Reader starts failing; the cached state ages out.
-	mockReaderA.EXPECT().GetRMNCursedSubjects(mock.Anything).Unset()
-	mockReaderA.EXPECT().GetRMNCursedSubjects(mock.Anything).
-		Return(nil, errors.New("RPC error")).
-		Maybe()
-
+	// With the reader failing, the cached state ages out.
 	require.Eventually(t, func() bool {
 		cursed, err := svc.IsRemoteChainCursed(ctx, chainA, chainB)
 		return cursed && errors.Is(err, common.ErrCurseStateUnknown)

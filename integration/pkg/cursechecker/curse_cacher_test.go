@@ -664,6 +664,27 @@ func TestCachedCurseChecker_ZeroCacheExpiry(t *testing.T) {
 	// Mock assertions will verify GetRMNCursedSubjects was only called once
 }
 
+// TestResolveCacheExpiry pins the finite default for non-positive configured
+// expiries and passthrough of positive ones; the LRU TTL itself is not
+// observable without sleeping for minutes.
+func TestResolveCacheExpiry(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		in   time.Duration
+		want time.Duration
+	}{
+		{"zero selects the default", 0, defaultCurseCacheExpiry},
+		{"negative selects the default", -time.Minute, defaultCurseCacheExpiry},
+		{"positive passes through", time.Minute, time.Minute},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.want, resolveCacheExpiry(tc.in))
+		})
+	}
+}
+
 // TestCachedCurseChecker_MissingReader tests that a chain with no configured
 // RMN reader blocks the lane with ErrCurseStateUnknown.
 func TestCachedCurseChecker_MissingReader(t *testing.T) {
