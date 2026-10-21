@@ -7,6 +7,7 @@ import "github.com/smartcontractkit/chainlink-common/x/config/commentparsing"
 func (Config) DocComments() map[string]commentparsing.FieldDoc {
 	return map[string]commentparsing.FieldDoc{
 		"ListenAddress": {Comment: "ListenAddress is the bind address; loopback by default."},
+		"SecureCookies": {Comment: "SecureCookies marks the CSRF cookie Secure even when requests arrive over plain\nHTTP; set only when a fronting proxy terminates TLS for the console."},
 		"TraceURL":      {Comment: "TraceURL (optional) is a base URL to the operator's trace viewer — typically an\ninternal Grafana/Tempo or Jaeger — linked from the message detail page when set."},
 	}
 }
