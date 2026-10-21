@@ -1503,6 +1503,27 @@ func TestVerifierResultMessage_NilChecks(t *testing.T) {
 		_, err := msg.ToMessage()
 		require.Error(t, err)
 	})
+
+	t.Run("ToMessage rejects short CcvAndExecutorHash without panicking", func(t *testing.T) {
+		msg := &VerifierResultMessage{
+			Message: &v1.Message{
+				CcvAndExecutorHash: []byte{0x01, 0x02},
+			},
+		}
+		_, err := msg.ToMessage()
+		require.ErrorContains(t, err, "invalid CcvAndExecutorHash length")
+	})
+
+	t.Run("ToMessage treats empty CcvAndExecutorHash slice as zero hash", func(t *testing.T) {
+		msg := &VerifierResultMessage{
+			Message: &v1.Message{
+				CcvAndExecutorHash: []byte{},
+			},
+		}
+		got, err := msg.ToMessage()
+		require.NoError(t, err)
+		require.Equal(t, protocol.Bytes32{}, got.CcvAndExecutorHash)
+	})
 }
 
 func TestVerifierResultsMetadata_NilChecks(t *testing.T) {

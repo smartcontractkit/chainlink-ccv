@@ -129,23 +129,26 @@ func (f *FanOutWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []proto
 		return nil, nil
 	}
 
+	perAggregator := make([][]protocol.WriteResult, len(f.writers))
+	for a := range f.writers {
+		perAggregator[a] = make([]protocol.WriteResult, len(ccvDataList))
+	}
+
 	// Per-aggregator plan: which items still need writing, and where each maps back into the
-	// caller's slice. Items an aggregator already acked are left out and never re-sent.
+	// caller's slice. Items an aggregator already acked are recorded as WriteSuccess up front and
+	// left out of the network batch, so an ackCache eviction during wg.Wait() cannot cause merge()
+	// to read a zero-value WriteResult for a skipped item.
 	outstanding := make([][]protocol.VerifierNodeResult, len(f.writers))
 	outstandingIdx := make([][]int, len(f.writers))
 	for i, data := range ccvDataList {
 		for a := range f.writers {
 			if f.isAcked(f.writers[a].label, data.MessageID) {
+				perAggregator[a][i] = protocol.WriteResult{Input: data, Status: protocol.WriteSuccess}
 				continue
 			}
 			outstanding[a] = append(outstanding[a], data)
 			outstandingIdx[a] = append(outstandingIdx[a], i)
 		}
-	}
-
-	perAggregator := make([][]protocol.WriteResult, len(f.writers))
-	for a := range f.writers {
-		perAggregator[a] = make([]protocol.WriteResult, len(ccvDataList))
 	}
 
 	var wg sync.WaitGroup
@@ -226,10 +229,10 @@ func (f *FanOutWriter) merge(ccvDataList []protocol.VerifierNodeResult, perAggre
 			failedLabels    []string
 		)
 		for a := range f.writers {
-			if f.isAcked(f.writers[a].label, data.MessageID) {
+			r := perAggregator[a][i]
+			if r.Status == protocol.WriteSuccess {
 				continue
 			}
-			r := perAggregator[a][i]
 			anyFailure = true
 			failedLabels = append(failedLabels, f.writers[a].label)
 			if !r.Retryable {

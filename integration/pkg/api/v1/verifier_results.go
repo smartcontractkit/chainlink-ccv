@@ -101,7 +101,9 @@ func (r *VerifierResultsResponse) MarshalJSON() ([]byte, error) {
 	}
 	errors := make([]string, len(r.Errors))
 	for i, errStatus := range r.Errors {
-		errors[i] = errStatus.Message
+		if errStatus != nil {
+			errors[i] = errStatus.Message
+		}
 	}
 
 	return json.Marshal(
@@ -390,7 +392,14 @@ func (r *VerifierResultMessage) ToMessage() (protocol.Message, error) {
 
 	ccvAndExecutorHash := protocol.Bytes32{}
 
-	if r.CcvAndExecutorHash != nil {
+	if len(r.CcvAndExecutorHash) > 0 {
+		if len(r.CcvAndExecutorHash) != len(ccvAndExecutorHash) {
+			return protocol.Message{}, fmt.Errorf(
+				"invalid CcvAndExecutorHash length: got %d, expected %d",
+				len(r.CcvAndExecutorHash),
+				len(ccvAndExecutorHash),
+			)
+		}
 		ccvAndExecutorHash = protocol.Bytes32(r.CcvAndExecutorHash)
 	}
 

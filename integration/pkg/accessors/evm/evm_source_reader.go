@@ -398,35 +398,45 @@ func (r *sourceReaderCore) parseMessageSentLogs(ctx context.Context, logs []type
 			continue // to next message
 		}
 
+		if decodedMsg.SourceChainSelector != r.chainSelector {
+			r.onCriticalInvariant(ctx)
+			r.lggr.Errorw("source chain selector must match the value configured — critical invariant violated; escalate immediately",
+				"expected", r.chainSelector,
+				"actual", decodedMsg.SourceChainSelector,
+				protocol.LogKeyMessageID, protocol.Bytes32(event.MessageId).String())
+			continue // ensure we never process this msg
+		}
+
 		if !decodedMsg.OnRampAddress.Equal(expectedSourceAddressBytes(r.onRampAddress)) {
 			r.onCriticalInvariant(ctx)
-			r.lggr.Fatalw("onRampAddress must match the value configured — critical invariant violated; escalate immediately",
+			r.lggr.Errorw("onRampAddress must match the value configured — critical invariant violated; escalate immediately",
 				protocol.LogKeyMessageID, protocol.Bytes32(event.MessageId).String())
 			continue // ensure we never process this msg
 		}
 
 		if !decodedMsg.Sender.Equal(expectedSourceAddressBytes(event.Sender)) {
 			r.onCriticalInvariant(ctx)
-			r.lggr.Fatalw("sender must match the value emitted from the on-chain event. This should never happen.", "sender", protocol.ByteSlice(event.Sender[:]).String())
+			r.lggr.Errorw("sender must match the value emitted from the on-chain event. This should never happen.", "sender", protocol.ByteSlice(event.Sender[:]).String())
 			continue // ensure we never process this msg
 		}
 
 		if decodedMsg.MustMessageID() != event.MessageId {
 			r.onCriticalInvariant(ctx)
-			r.lggr.Fatalw("computed messageID must match the value emitted from the on-chain event — critical invariant violated; escalate immediately",
+			r.lggr.Errorw("computed messageID must match the value emitted from the on-chain event — critical invariant violated; escalate immediately",
 				protocol.LogKeyMessageID, protocol.Bytes32(event.MessageId).String())
 			continue // ensure we never process this msg
 		}
 
 		if decodedMsg.DestChainSelector != protocol.ChainSelector(event.DestChainSelector) {
 			r.onCriticalInvariant(ctx)
-			r.lggr.Fatalw("destination chain selector must match the value emitted from the on-chain event. This should never happen", protocol.LogKeyMessageID, protocol.Bytes32(event.MessageId).String())
+			r.lggr.Errorw("destination chain selector must match the value emitted from the on-chain event. This should never happen", protocol.LogKeyMessageID, protocol.Bytes32(event.MessageId).String())
 			continue // ensure we never process this msg
 		}
 
 		allReceipts := receiptBlobsFromEvent(event.Receipts, event.VerifierBlobs) // Validate the receipt structure matches expectations
 		// Validate ccvAndExecutorHash
 		if err := protocol.ValidateCCVAndExecutorHash(*decodedMsg, allReceipts); err != nil {
+			r.onCriticalInvariant(ctx)
 			r.lggr.Errorw("ccvAndExecutorHash validation failed",
 				"error", err,
 				protocol.LogKeyMessageID, protocol.Bytes32(event.MessageId).String(),

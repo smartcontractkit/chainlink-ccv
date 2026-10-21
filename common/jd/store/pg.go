@@ -74,7 +74,9 @@ func (s *PostgresStore) SavePendingJob(ctx context.Context, proposalID string, v
 func (s *PostgresStore) AcceptPendingJob(ctx context.Context) (bool, error) {
 	var promoted bool
 	err := sqlutil.TransactDataSource(ctx, s.ds, nil, func(tx sqlutil.DataSource) error {
-		_, err := tx.ExecContext(ctx, `DELETE FROM job_store WHERE status = 'approved'`)
+		_, err := tx.ExecContext(ctx,
+			`DELETE FROM job_store WHERE status = 'approved' AND EXISTS (SELECT 1 FROM job_store WHERE status = 'pending')`,
+		)
 		if err != nil {
 			return fmt.Errorf("failed to remove old approved job: %w", err)
 		}

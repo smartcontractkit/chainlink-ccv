@@ -441,3 +441,116 @@ func TestGetRMNCursedSubjects_RetriesDerivationAndCaches(t *testing.T) {
 	require.Equal(t, want, subjects)
 	require.Equal(t, int32(3), staticConfigCalls.Load())
 }
+
+func TestFetchMessageSentEvents_CriticalInvariantsDoNotExitProcess(t *testing.T) {
+	t.Parallel()
+
+	onRampAddress := common.HexToAddress("0x1234")
+	sender := common.HexToAddress("0x5678")
+	receipts := []onramp.OnRampReceipt{
+		{Issuer: common.HexToAddress("0x1111"), FeeTokenAmount: big.NewInt(2)},
+		{Issuer: common.HexToAddress("0x2222"), FeeTokenAmount: big.NewInt(3)},
+		{Issuer: common.HexToAddress("0x3333"), FeeTokenAmount: big.NewInt(4)},
+	}
+	ccvHash, err := protocol.ComputeCCVAndExecutorHash(
+		[]protocol.UnknownAddress{receipts[0].Issuer.Bytes()}, receipts[1].Issuer.Bytes())
+	require.NoError(t, err)
+
+	onRampABI, err := onramp.OnRampMetaData.GetAbi()
+	require.NoError(t, err)
+
+	buildLog := func(t *testing.T, msg *protocol.Message, topicSender common.Address, topicDest uint64, topicMsgID protocol.Bytes32, logReceipts []onramp.OnRampReceipt) types.Log {
+		t.Helper()
+		encodedMessage, err := msg.Encode()
+		require.NoError(t, err)
+		data, err := onRampABI.Events["CCIPMessageSent"].Inputs.NonIndexed().Pack(
+			common.HexToAddress("0xabcd"), big.NewInt(0), encodedMessage, logReceipts, [][]byte{{0x01}},
+		)
+		require.NoError(t, err)
+		return types.Log{
+			Address: onRampAddress,
+			Topics: []common.Hash{
+				onRampABI.Events["CCIPMessageSent"].ID,
+				common.BigToHash(new(big.Int).SetUint64(topicDest)),
+				common.BytesToHash(topicSender.Bytes()),
+				common.Hash(topicMsgID),
+			},
+			Data:        data,
+			BlockNumber: 95,
+		}
+	}
+
+	validMsg, err := protocol.NewMessage(
+		1337, 100, 1,
+		expectedSourceAddressBytes(onRampAddress), protocol.UnknownAddress{0x01},
+		protocol.FinalityWaitForFinality, 300000, 200000, ccvHash,
+		expectedSourceAddressBytes(sender), protocol.UnknownAddress{0x02}, nil, nil, nil,
+	)
+	require.NoError(t, err)
+	validMsgID := validMsg.MustMessageID()
+
+	wrongSourceSelectorMsg, err := protocol.NewMessage(
+		9999, 100, 1,
+		expectedSourceAddressBytes(onRampAddress), protocol.UnknownAddress{0x01},
+		protocol.FinalityWaitForFinality, 300000, 200000, ccvHash,
+		expectedSourceAddressBytes(sender), protocol.UnknownAddress{0x02}, nil, nil, nil,
+	)
+	require.NoError(t, err)
+
+	wrongOnRampMsg, err := protocol.NewMessage(
+		1337, 100, 1,
+		expectedSourceAddressBytes(common.HexToAddress("0x9999")), protocol.UnknownAddress{0x01},
+		protocol.FinalityWaitForFinality, 300000, 200000, ccvHash,
+		expectedSourceAddressBytes(sender), protocol.UnknownAddress{0x02}, nil, nil, nil,
+	)
+	require.NoError(t, err)
+
+	wrongHashMsg, err := protocol.NewMessage(
+		1337, 100, 1,
+		expectedSourceAddressBytes(onRampAddress), protocol.UnknownAddress{0x01},
+		protocol.FinalityWaitForFinality, 300000, 200000, protocol.Bytes32{0xff},
+		expectedSourceAddressBytes(sender), protocol.UnknownAddress{0x02}, nil, nil, nil,
+	)
+	require.NoError(t, err)
+
+	logs := []types.Log{
+		// 1. Mismatched source chain selector
+		buildLog(t, wrongSourceSelectorMsg, sender, 100, wrongSourceSelectorMsg.MustMessageID(), receipts),
+		// 2. Mismatched onRampAddress
+		buildLog(t, wrongOnRampMsg, sender, 100, wrongOnRampMsg.MustMessageID(), receipts),
+		// 3. Mismatched sender in topic vs decoded message
+		buildLog(t, validMsg, common.HexToAddress("0xdead"), 100, validMsgID, receipts),
+		// 4. Mismatched messageID in topic vs computed
+		buildLog(t, validMsg, sender, 100, protocol.Bytes32{0xaa}, receipts),
+		// 5. Mismatched destChainSelector in topic vs decoded message
+		buildLog(t, validMsg, sender, 200, validMsgID, receipts),
+		// 6. Invalid ccvAndExecutorHash vs receipts
+		buildLog(t, wrongHashMsg, sender, 100, wrongHashMsg.MustMessageID(), receipts),
+		// 7. Valid log after all invalid logs (proves processing continues)
+		buildLog(t, validMsg, sender, 100, validMsgID, receipts),
+	}
+
+	var invariantCalls atomic.Int32
+	core := sourceReaderCore{
+		lggr:                 logger.Test(t),
+		onRampAddress:        onRampAddress,
+		chainSelector:        protocol.ChainSelector(1337),
+		onRampABI:            onRampABI,
+		ccipMessageSentTopic: onRampABI.Events["CCIPMessageSent"].ID.Hex(),
+		chainClient: &mockFilterLogsClient{
+			filterLogsFunc: func(context.Context, ethereum.FilterQuery) ([]types.Log, error) {
+				return logs, nil
+			},
+		},
+	}
+	core.SetCriticalSourceInvariantCallback(func(context.Context) {
+		invariantCalls.Add(1)
+	})
+	src := &SourceReader{sourceReaderCore: core}
+
+	events, err := src.FetchMessageSentEvents(t.Context(), 90, 100)
+	require.NoError(t, err)
+	require.Len(t, events, 1)
+	require.Equal(t, validMsgID, events[0].MessageID)
+	require.Equal(t, int32(6), invariantCalls.Load())
+}

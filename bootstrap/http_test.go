@@ -97,6 +97,19 @@ func TestInfoServerGetKeyAddressesRejectsMalformedRequest(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, recorder.Code)
 }
 
+func TestInfoServerRejectsOversizedRequestBody(t *testing.T) {
+	server := newInfoServer(logger.Test(t), nil, 0, new(atomic.Bool))
+	oversized := bytes.Repeat([]byte("a"), maxKeystoreRequestBodyBytes+1)
+
+	recorder := httptest.NewRecorder()
+	server.handleGetKeys(recorder, httptest.NewRequest(http.MethodPost, GetKeysEndpoint, bytes.NewReader(oversized)))
+	require.Equal(t, http.StatusRequestEntityTooLarge, recorder.Code)
+
+	recorder = httptest.NewRecorder()
+	server.handleGetKeyAddresses(recorder, httptest.NewRequest(http.MethodPost, GetKeyAddressesEndpoint, bytes.NewReader(oversized)))
+	require.Equal(t, http.StatusRequestEntityTooLarge, recorder.Code)
+}
+
 func TestRunnerApplicationReadinessTracksJobLifecycle(t *testing.T) {
 	var ready atomic.Bool
 	factory := &spyServiceFactory{

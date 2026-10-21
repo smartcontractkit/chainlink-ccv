@@ -314,14 +314,23 @@ func classifyHTTPOutcome(err error, status Status) string {
 
 func (h *httpClient) setCoolDownPeriod(lggr logger.Logger, headers http.Header) {
 	coolDownDuration := h.coolDownDuration
-	if retryAfterHeader, exists := headers["Retry-After"]; exists && len(retryAfterHeader) > 0 {
-		retryAfterSec, errParseInt := strconv.ParseInt(retryAfterHeader[0], 10, 64)
+	if retryAfterHeader := headers.Get("Retry-After"); retryAfterHeader != "" {
+		retryAfterSec, errParseInt := strconv.ParseInt(retryAfterHeader, 10, 64)
 		if errParseInt == nil {
-			coolDownDuration = time.Duration(retryAfterSec) * time.Second
+			if retryAfterSec > 0 {
+				maxSec := int64(maxCoolDownDuration / time.Second)
+				if retryAfterSec > maxSec {
+					coolDownDuration = maxCoolDownDuration
+				} else {
+					coolDownDuration = time.Duration(retryAfterSec) * time.Second
+				}
+			}
 		} else {
-			parsedTime, err := time.Parse(time.RFC1123, retryAfterHeader[0])
+			parsedTime, err := time.Parse(time.RFC1123, retryAfterHeader)
 			if err == nil {
-				coolDownDuration = time.Until(parsedTime)
+				if until := time.Until(parsedTime); until > 0 {
+					coolDownDuration = until
+				}
 			}
 		}
 	}
