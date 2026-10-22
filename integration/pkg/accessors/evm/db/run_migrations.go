@@ -1,4 +1,5 @@
-// Package db runs the EVM accessor's own migrations, which are independent of the verifier's.
+// Package db is the EVM accessor's database: its own migrations, independent of the verifier's, and
+// the LogPoller ORM's handle on the shared pool.
 package db
 
 import (

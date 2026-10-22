@@ -16,7 +16,7 @@ import (
 	lpmocks "github.com/smartcontractkit/chainlink-evm/pkg/logpoller/mocks"
 	evmtypes "github.com/smartcontractkit/chainlink-evm/pkg/types"
 
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm/logpollerdb"
+	evmdb "github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm/db"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
 )
 
@@ -50,7 +50,7 @@ func TestIsVerifierFilterName(t *testing.T) {
 func TestCleanVerifierFilters(t *testing.T) {
 	t.Run("only the verifier's filters on the ORM's chain are removed", func(t *testing.T) {
 		db := testutil.NewTestDB(t).DB
-		handle := logpollerdb.NewDB(db)
+		handle := evmdb.NewLogPollerDB(db)
 		ctx := context.Background()
 		const chainID, otherChainID = 910_301, 910_302
 		orm := logpoller.NewORM(big.NewInt(chainID), handle, logger.Test(t))
@@ -96,7 +96,7 @@ func TestCleanVerifierFilters(t *testing.T) {
 	t.Run("logs and blocks are untouched and an empty table is fine", func(t *testing.T) {
 		db := testutil.NewTestDB(t).DB
 		ctx := context.Background()
-		orm := logpoller.NewORM(big.NewInt(910_303), logpollerdb.NewDB(db), logger.Test(t))
+		orm := logpoller.NewORM(big.NewInt(910_303), evmdb.NewLogPollerDB(db), logger.Test(t))
 		require.NoError(t, cleanVerifierFilters(ctx, orm, "v"))
 
 		require.NoError(t, orm.InsertFilter(ctx, logpoller.Filter{
@@ -119,7 +119,7 @@ func TestCleanVerifierFilters(t *testing.T) {
 		db := testutil.NewTestDB(t).DB
 		_, err := db.ExecContext(context.Background(), `DROP SCHEMA evm CASCADE`)
 		require.NoError(t, err)
-		orm := logpoller.NewORM(big.NewInt(910_304), logpollerdb.NewDB(db), logger.Test(t))
+		orm := logpoller.NewORM(big.NewInt(910_304), evmdb.NewLogPollerDB(db), logger.Test(t))
 		require.Error(t, cleanVerifierFilters(context.Background(), orm, "v"))
 	})
 
@@ -201,7 +201,7 @@ func TestFactoryCleansUnusedFiltersOncePerProcess(t *testing.T) {
 
 func insertTestFilter(t *testing.T, db *sql.DB, chainID int64, verifierID string) {
 	t.Helper()
-	orm := logpoller.NewORM(big.NewInt(chainID), logpollerdb.NewDB(db), logger.Test(t))
+	orm := logpoller.NewORM(big.NewInt(chainID), evmdb.NewLogPollerDB(db), logger.Test(t))
 	require.NoError(t, orm.InsertFilter(t.Context(), logpoller.Filter{
 		Name:      verifierFilterName(verifierID, filterTestOnRamp),
 		Addresses: evmtypes.AddressArray{filterTestOnRamp},

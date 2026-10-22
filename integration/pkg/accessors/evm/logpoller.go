@@ -9,7 +9,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-evm/pkg/logpoller"
 
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm/logpollerdb"
+	evmdb "github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm/db"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 )
 
@@ -44,7 +44,7 @@ func (a *accessor) newLogPollerSourceReader() (chainaccess.SourceReader, error) 
 
 // newORM is the chain's own LogPoller ORM on the EVM database, which it never closes.
 func (a *accessor) newORM(rt logPollerRuntime, db *sql.DB) logpoller.ORM {
-	return logpoller.NewORM(rt.EVMChainID(), logpollerdb.NewDB(db), a.lggr)
+	return logpoller.NewORM(rt.EVMChainID(), evmdb.NewLogPollerDB(db), a.lggr)
 }
 
 // cleanUnusedFilters removes the verifier's LogPoller filters on every configured chain, once per
@@ -70,7 +70,7 @@ func (f *factory) deleteVerifierFilters(ctx context.Context) error {
 	}
 	var errs []error
 	for _, id := range f.chainIDs {
-		orm := logpoller.NewORM(id, logpollerdb.NewDB(db), f.lggr)
+		orm := logpoller.NewORM(id, evmdb.NewLogPollerDB(db), f.lggr)
 		if err := cleanVerifierFilters(ctx, orm, f.verifierID); err != nil {
 			errs = append(errs, fmt.Errorf("EVM chain %s: %w", id, err))
 		}

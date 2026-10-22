@@ -23,7 +23,7 @@ import (
 	"github.com/smartcontractkit/chainlink-evm/pkg/logpoller"
 	evmtypes "github.com/smartcontractkit/chainlink-evm/pkg/types"
 
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm/logpollerdb"
+	evmdb "github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm/db"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
 )
@@ -57,7 +57,7 @@ func operatorTestLog(chainID *big.Int, block int64) logpoller.Log {
 // seedOperatorChain stores blocks 1..n and one log per block for the chain.
 func seedOperatorChain(t *testing.T, db *sql.DB, chainID *big.Int, n int64) {
 	t.Helper()
-	orm := logpoller.NewORM(chainID, logpollerdb.NewDB(db), logger.Test(t))
+	orm := logpoller.NewORM(chainID, evmdb.NewLogPollerDB(db), logger.Test(t))
 	var blocks []logpoller.Block
 	var logs []logpoller.Log
 	for i := int64(1); i <= n; i++ {

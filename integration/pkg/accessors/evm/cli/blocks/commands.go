@@ -1,6 +1,6 @@
 // Package blocks is the standalone verifier's version of the Chainlink node's find-lca and
-// remove-blocks commands, which resolve a LogPoller finality violation. It knows nothing of the EVM
-// adapter: an Operator does the work, so this package only parses and prints.
+// remove-blocks commands, which resolve a LogPoller finality violation. The commands parse and print;
+// the operator runs them against the EVM adapter.
 package blocks
 
 import (

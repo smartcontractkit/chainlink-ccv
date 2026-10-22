@@ -1,4 +1,4 @@
-package logpollerdb
+package db_test
 
 import (
 	"context"
@@ -15,6 +15,7 @@ import (
 	"github.com/smartcontractkit/chainlink-evm/pkg/logpoller"
 	evmtypes "github.com/smartcontractkit/chainlink-evm/pkg/types"
 
+	evmdb "github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm/db"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
 )
 
@@ -28,7 +29,7 @@ var (
 // Any ORM method the LogPoller starts calling must get a case below.
 func TestLogPollerORMAgainstVerifierSchema(t *testing.T) {
 	testDB := testutil.NewTestDB(t)
-	handle := NewDB(testDB.DB)
+	handle := evmdb.NewLogPollerDB(testDB.DB)
 	ctx := context.Background()
 
 	newORM := func(t *testing.T, chainID int64) (*logpoller.DSORM, *big.Int) {

@@ -11,7 +11,7 @@ import (
 	clevmconfig "github.com/smartcontractkit/chainlink-evm/pkg/config"
 	"github.com/smartcontractkit/chainlink-evm/pkg/logpoller"
 
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm/logpollerdb"
+	evmdb "github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm/db"
 )
 
 // logPollerRuntime is the optional capability of a chain runtime that can host a LogPoller. It is
@@ -42,7 +42,7 @@ func buildLogPoller(input logPollerInputs) (logpoller.LogPoller, error) {
 	if err != nil {
 		return nil, err
 	}
-	orm, err := logpoller.NewObservedORM(input.chainID, logpollerdb.NewDB(input.db), input.logger)
+	orm, err := logpoller.NewObservedORM(input.chainID, evmdb.NewLogPollerDB(input.db), input.logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create logpoller observed ORM: %w", err)
 	}

@@ -14,7 +14,7 @@ import (
 	"github.com/smartcontractkit/chainlink-evm/pkg/logpoller"
 	evmtypes "github.com/smartcontractkit/chainlink-evm/pkg/types"
 
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm/logpollerdb"
+	evmdb "github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm/db"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
 )
@@ -33,7 +33,7 @@ const (
 // entry points are called directly; the schedule itself is covered by chainlink-evm.
 func TestLogPollerPrunesItsOwnRows(t *testing.T) {
 	testDB := testutil.NewTestDB(t)
-	handle := logpollerdb.NewDB(testDB.DB)
+	handle := evmdb.NewLogPollerDB(testDB.DB)
 	ctx := t.Context()
 	onRamp := common.HexToAddress("0x1234")
 	topic := common.HexToHash("0x01")

@@ -18,7 +18,7 @@ import (
 	lpmocks "github.com/smartcontractkit/chainlink-evm/pkg/logpoller/mocks"
 	evmtypes "github.com/smartcontractkit/chainlink-evm/pkg/types"
 
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm/logpollerdb"
+	evmdb "github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm/db"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
 )
 
@@ -161,7 +161,7 @@ func TestLogPollerStaleFilterCleanup(t *testing.T) {
 // exactly one filter for the verifier on its chain, and never touch another chain's.
 func TestLogPollerStaleFilterCleanup_RealORM(t *testing.T) {
 	testDB := testutil.NewTestDB(t)
-	handle := logpollerdb.NewDB(testDB.DB)
+	handle := evmdb.NewLogPollerDB(testDB.DB)
 	ctx := t.Context()
 
 	const chainID, otherChainID = 910_101, 910_102

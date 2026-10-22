@@ -1,4 +1,4 @@
-package logpollerdb
+package db_test
 
 import (
 	"context"
@@ -12,6 +12,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 	"github.com/smartcontractkit/chainlink-evm/pkg/logpoller"
 
+	evmdb "github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm/db"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
 )
 
@@ -30,7 +31,7 @@ func TestNewDB_MapperAndSharedPool(t *testing.T) {
 
 	t.Run("wrapped handle inserts logs on the shared pool", func(t *testing.T) {
 		func() {
-			handle := NewDB(testDB.DB)
+			handle := evmdb.NewLogPollerDB(testDB.DB)
 			require.Same(t, testDB.DB, handle.DB, "wrapper must reuse the shared pool, not open another")
 			require.NoError(t, logpoller.NewORM(chainID, handle, logger.Test(t)).InsertLogs(ctx, logs))
 		}()

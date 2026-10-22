@@ -13,7 +13,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/logpoller"
 
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm/logpollerdb"
+	evmdb "github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm/db"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
@@ -83,7 +83,7 @@ func FindLCA(ctx context.Context, db *sql.DB, info Info, lggr logger.Logger) (LC
 // the ORM and the client, so there is no head tracker and nothing to stop. The ORM wraps the borrowed
 // database, which is never closed.
 func findLCA(ctx context.Context, db *sql.DB, chainID *big.Int, chainClient logpoller.Client, lggr logger.Logger) (LCA, error) {
-	orm := logpoller.NewORM(chainID, logpollerdb.NewDB(db), lggr)
+	orm := logpoller.NewORM(chainID, evmdb.NewLogPollerDB(db), lggr)
 	lp := logpoller.NewLogPoller(orm, chainClient, lggr, nil, logpoller.Opts{PollPeriod: lcaPollPeriod})
 	block, err := lp.FindLCA(ctx)
 	if err != nil {
@@ -95,7 +95,7 @@ func findLCA(ctx context.Context, db *sql.DB, chainID *big.Int, chainClient logp
 // RemoveBlocksFrom deletes the chain's stored blocks and logs from start up, start included. The
 // verifier must be stopped: this does not stop a running LogPoller from storing again.
 func RemoveBlocksFrom(ctx context.Context, db *sql.DB, lggr logger.Logger, chainID *big.Int, start int64) error {
-	orm := logpoller.NewORM(chainID, logpollerdb.NewDB(db), lggr)
+	orm := logpoller.NewORM(chainID, evmdb.NewLogPollerDB(db), lggr)
 	if err := orm.DeleteLogsAndBlocksAfter(ctx, start); err != nil {
 		return fmt.Errorf("failed to delete log poller data after block %d for chain ID %s: %w", start, chainID, err)
 	}

@@ -19,7 +19,7 @@ import (
 	"github.com/smartcontractkit/chainlink-evm/pkg/logpoller"
 
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm/logpollerdb"
+	evmdb "github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm/db"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vsecrets"
@@ -112,7 +112,7 @@ func TestBlocksOperatorFailsSafeBeforeTouchingAnything(t *testing.T) {
 
 func seedSepolia(t *testing.T, db *sql.DB, chainID *big.Int, n int64) {
 	t.Helper()
-	orm := logpoller.NewORM(chainID, logpollerdb.NewDB(db), logger.Test(t))
+	orm := logpoller.NewORM(chainID, evmdb.NewLogPollerDB(db), logger.Test(t))
 	var blocks []logpoller.Block
 	var logs []logpoller.Log
 	event := common.HexToHash("0xe1")
