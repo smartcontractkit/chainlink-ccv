@@ -257,8 +257,12 @@ func (r *LogPollerSourceReader) Close() error {
 }
 
 // FetchMessageSentEvents returns MessageSentEvents in the given block range.
-// A toBlock of 0 queries up to the last block the log poller has processed.
+// A toBlock of 0 queries up to the last block the log poller has processed. After a critical
+// invariant violation the reader is disabled and every call fails with chainaccess.ErrSourceReaderDisabled.
 func (r *LogPollerSourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, toBlock uint64) ([]protocol.MessageSentEvent, error) {
+	if err := r.disabledErr(); err != nil {
+		return nil, err
+	}
 	if !r.ready.Load() {
 		return nil, ErrLogPollerNotReady
 	}

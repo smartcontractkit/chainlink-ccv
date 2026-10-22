@@ -525,7 +525,7 @@ func TestFetchMessageSentEvents_CriticalInvariantsDoNotExitProcess(t *testing.T)
 		buildLog(t, validMsg, sender, 100, protocol.Bytes32{0xaa}, receipts),
 		// 5. Mismatched destChainSelector in topic vs decoded message
 		buildLog(t, validMsg, sender, 200, validMsgID, receipts),
-		// 6. Invalid ccvAndExecutorHash vs receipts
+		// 6. Invalid ccvAndExecutorHash vs receipts (non-critical: error log, no disable)
 		buildLog(t, wrongHashMsg, sender, 100, wrongHashMsg.MustMessageID(), receipts),
 		// 7. Valid log after all invalid logs (proves processing continues)
 		buildLog(t, validMsg, sender, 100, validMsgID, receipts),
@@ -539,6 +539,7 @@ func TestFetchMessageSentEvents_CriticalInvariantsDoNotExitProcess(t *testing.T)
 		chainSelector:        protocol.ChainSelector(1337),
 		onRampABI:            onRampABI,
 		ccipMessageSentTopic: onRampABI.Events["CCIPMessageSent"].ID.Hex(),
+		disabled:             new(atomic.Bool),
 		chainClient: &mockFilterLogsClient{
 			filterLogsFunc: func(context.Context, ethereum.FilterQuery) ([]types.Log, error) {
 				return logs, nil
@@ -555,5 +556,53 @@ func TestFetchMessageSentEvents_CriticalInvariantsDoNotExitProcess(t *testing.T)
 	require.Len(t, events, 1)
 	require.Equal(t, validMsgID, events[0].MessageID)
 	require.Equal(t, int32(6), invariantCalls.Load())
-	require.Equal(t, 6, observed.Len(), "each critical invariant violation must emit a Criticalw log")
+	require.Equal(t, 5, observed.Len(), "each critical invariant violation must emit a Criticalw log; the hash mismatch is a plain error")
+
+	// The critical violations disable the reader: later reads fail permanently instead of serving the chain.
+	_, err = src.FetchMessageSentEvents(t.Context(), 90, 100)
+	require.ErrorIs(t, err, chainaccess.ErrSourceReaderDisabled)
+}
+
+// TestFetchMessageSentEvents_DisabledAfterCriticalInvariant covers both read paths: once a
+// critical invariant violation fires, the reader stops serving message events for its chain.
+func TestFetchMessageSentEvents_DisabledAfterCriticalInvariant(t *testing.T) {
+	t.Parallel()
+
+	newCore := func(t *testing.T) sourceReaderCore {
+		return sourceReaderCore{
+			lggr:          logger.Test(t),
+			chainSelector: protocol.ChainSelector(1337),
+			disabled:      new(atomic.Bool),
+		}
+	}
+
+	rpcReader := &SourceReader{sourceReaderCore: newCore(t)}
+	rpcReader.onCriticalInvariant(t.Context(), "test invariant violation")
+	_, err := rpcReader.FetchMessageSentEvents(t.Context(), 90, 100)
+	require.ErrorIs(t, err, chainaccess.ErrSourceReaderDisabled)
+
+	lpReader := readyLogPollerReader(newCore(t), lpmocks.NewLogPoller(t))
+	lpReader.onCriticalInvariant(t.Context(), "test invariant violation")
+	_, err = lpReader.FetchMessageSentEvents(t.Context(), 90, 100)
+	require.ErrorIs(t, err, chainaccess.ErrSourceReaderDisabled)
+}
+
+// TestFetchMessageSentEvents_NonCriticalViolationKeepsServing covers the violations that were never
+// fatal: the metric fires and the message is skipped, but the reader keeps serving the chain.
+func TestFetchMessageSentEvents_NonCriticalViolationKeepsServing(t *testing.T) {
+	t.Parallel()
+
+	core := sourceReaderCore{
+		lggr:          logger.Test(t),
+		chainSelector: protocol.ChainSelector(1337),
+		disabled:      new(atomic.Bool),
+		chainClient: &mockFilterLogsClient{
+			filterLogsFunc: func(context.Context, ethereum.FilterQuery) ([]types.Log, error) { return nil, nil },
+		},
+	}
+	core.onInvariantViolation(t.Context(), "test non-critical violation")
+	src := &SourceReader{sourceReaderCore: core}
+	events, err := src.FetchMessageSentEvents(t.Context(), 90, 100)
+	require.NoError(t, err)
+	require.Empty(t, events)
 }

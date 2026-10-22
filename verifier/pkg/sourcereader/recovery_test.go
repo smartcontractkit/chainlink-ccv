@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"math"
 	"math/big"
 	"testing"
@@ -15,6 +16,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/common/jobqueue"
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
@@ -201,6 +203,35 @@ func TestAuditFailureCannotPreventFinalityBlock(t *testing.T) {
 	require.True(t, r.disabled.Load())
 	require.True(t, r.finalityBlocked.Load())
 	require.Equal(t, int64(1), r.recovery.failedAuditWrites.Load())
+}
+
+func TestSourceInvariantViolationDisablesChain(t *testing.T) {
+	r, reader, _ := recoveryTestService(t, false, common.AllowAllMessagesChecker{})
+	ctx := t.Context()
+
+	events := createTestMessageSentEvents(t, 1, 42, defaultDestChain, []uint64{100})
+	head := &protocol.BlockHeader{Number: 1000, Timestamp: time.Now()}
+	tasks := r.tasksFromEvents(ctx, events, head, head)
+	r.addToPendingQueueHandleReorg(tasks, uint64(100), uint64(100))
+	require.NotEmpty(t, r.pendingTasks)
+
+	reader.EXPECT().FetchMessageSentEvents(mock.Anything, mock.Anything, mock.Anything).
+		Return(nil, fmt.Errorf("%w: chain selector 42", chainaccess.ErrSourceReaderDisabled)).Once()
+	require.False(t, r.processEventCycle(ctx, head, head))
+
+	// Same durability as a finality violation: tasks flushed, disable latched and persisted.
+	require.True(t, r.disabled.Load())
+	require.True(t, r.invariantBlocked.Load())
+	require.False(t, r.finalityBlocked.Load())
+	require.Empty(t, r.pendingTasks)
+	require.Empty(t, r.sentTasks)
+	statuses, err := r.chainStatusManager.ReadChainStatuses(ctx, []protocol.ChainSelector{42})
+	require.NoError(t, err)
+	require.True(t, statuses[42].Disabled)
+
+	// A repeated report is a no-op.
+	r.handleSourceInvariantViolation(ctx)
+	require.True(t, r.disabled.Load())
 }
 
 func TestNormalAdmissionPersistsReaderMetadata(t *testing.T) {
