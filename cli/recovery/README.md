@@ -25,14 +25,14 @@ An optional `--request-id <UUID>` is an idempotency key. Repeating the same requ
 
 All commands write JSON to stdout and diagnostics to stderr. Operations include their durable ID, owner/source, mode, actor/note, target, next block, state, timestamps, `reset_applied`, counters and latest error. Selectors, block heights and counters are decimal strings to preserve integer precision in browser clients.
 
-| State | Meaning and action |
-| --- | --- |
-| `accepted` | Persisted and waiting for its reader's turn. |
-| `running` | Processing chunks, or waiting for a source head, admission certainty, finality or queue capacity. Inspect `last_error`. |
-| `completed` | The full range was scanned and its queue admissions/drop evidence committed. Verify final attestations separately. |
-| `cancelled` | No further chunks run. Already committed work remains. Resume continues at `next_block`. |
-| `failed` | A chunk or reset failed; its uncommitted jobs/evidence/progress rolled back. Resolve `last_error`, then resume. |
-| `blocked` | The reader is disabled or a reset was superseded. Ordinary resume does not clear a finality block. |
+| State       | Meaning and action                                                                                                      |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `accepted`  | Persisted and waiting for its reader's turn.                                                                            |
+| `running`   | Processing chunks, or waiting for a source head, admission certainty, finality or queue capacity. Inspect `last_error`. |
+| `completed` | The full range was scanned and its queue admissions/drop evidence committed. Verify final attestations separately.      |
+| `cancelled` | No further chunks run. Already committed work remains. Resume continues at `next_block`.                                |
+| `failed`    | A chunk or reset failed; its uncommitted jobs/evidence/progress rolled back. Resolve `last_error`, then resume.         |
+| `blocked`   | The reader is disabled or a reset was superseded. Ordinary resume does not clear a finality block.                      |
 
 Cancellation waits for a currently executing chunk transaction; once the command returns, further work for that request is stopped. Repeated cancel/resume is safe while applicable. Completed operations cannot resume. A process failure leaves the last committed next-block cursor; the same operation resumes when its configured reader starts again.
 
@@ -49,6 +49,8 @@ Jobs, drop evidence, counters and progress commit together. Unknown curse/rule s
 Ordinary replay never rewinds the normal reader's checkpoint. Normal polling can continue independently. Overlapping scans reconcile pending/sent tracking after a committed chunk. Deployments retain the existing requirement that one live source-reader owner controls normal polling for a given owner/source; recovery locking does not turn normal polling into a multi-writer service.
 
 ## Investigated finality reset
+
+This is for chains that use the RPC source reader. On a log poller chain (`[Feature] LogPoller = true`), `reset-reader` is not supported for a finality violation, and `replay` is not a recovery for one: neither repairs the log poller's stored blocks above the last common ancestor. To reset a violation where the source reader uses log poller follow [Resolving a Finality Violation](../../docs/runbooks/resolving-finality-violation.md), which is the same on the node and the standalone verifier.
 
 First establish the canonical chain and a known-good boundary. A detection height is evidence, not necessarily the first affected height. Then submit a new explicit reset:
 

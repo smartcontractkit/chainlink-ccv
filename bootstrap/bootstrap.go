@@ -69,6 +69,13 @@ const (
 	AppConfigModeLocal AppConfigMode = "local_app_config"
 )
 
+// Features are the operator-selected opt-in switches from the bootstrap config's [Feature] section.
+type Features struct {
+	// LogPoller selects the LogPoller source reader for EVM chains of the committee verifier instead
+	// of the RPC source reader. It requires a verifier database. Defaults to false.
+	LogPoller bool `toml:"LogPoller"`
+}
+
 // ServiceDeps are the dependencies passed to the services started by the bootstrapper.
 type ServiceDeps struct {
 	// Logger is a logger that can be used by the service.
@@ -79,6 +86,9 @@ type ServiceDeps struct {
 
 	// Registry for chainaccess.Accessor objects.
 	Registry chainaccess.Registry
+
+	// Features is a read-only copy of the operator's [Feature] switches, refreshed on every start.
+	Features Features
 }
 
 // ServiceFactory is an interface implemented by the application that seeks to be bootstrapped.
@@ -96,6 +106,32 @@ type ServiceFactory interface {
 type ServiceFactoryValidator interface {
 	// Validate checks the parsed job spec without side effects.
 	Validate(spec JobSpec) error
+}
+
+// FeatureValidator is an optional extension for factories that must reject an unsupported or
+// incomplete [Feature] combination at boot, before any lifecycle starts.
+type FeatureValidator interface {
+	// ValidateFeatures returns an error that stops the process when the switches cannot be honored.
+	ValidateFeatures(features Features) error
+}
+
+// AccessorsClosedHook is an optional extension for factories that own resources the chain
+// accessors depend on (for example a shared database). Bootstrap calls it after every
+// [AccessorCloserRegistry.CloseAll], so those resources outlive the accessors.
+type AccessorsClosedHook interface {
+	// AfterAccessorsClosed releases resources that had to outlive the accessors. It must be
+	// idempotent and safe to call when nothing was acquired.
+	AfterAccessorsClosed(ctx context.Context) error
+}
+
+// runAfterAccessorsClosed calls the factory's [AccessorsClosedHook], if it has one. Cancellation
+// is dropped because teardown often runs with an already-canceled context.
+func runAfterAccessorsClosed(ctx context.Context, fac ServiceFactory) error {
+	hook, ok := fac.(AccessorsClosedHook)
+	if !ok {
+		return nil
+	}
+	return hook.AfterAccessorsClosed(context.WithoutCancel(ctx))
 }
 
 // A runner adapts a [ServiceFactory] to the [lifecycle.JobRunner] interface.
@@ -181,6 +217,9 @@ func (r *runner) StartJob(ctx context.Context, config string) (startErr error) {
 			if cErr := r.accCloser.CloseAll(); cErr != nil {
 				r.lggr.Warnw("close accessors after failed StartJob", "error", cErr)
 			}
+			if hErr := runAfterAccessorsClosed(ctx, r.fac); hErr != nil {
+				r.lggr.Warnw("release resources after failed StartJob", "error", hErr)
+			}
 		}
 	}()
 
@@ -213,6 +252,9 @@ func (r *runner) StopJob(ctx context.Context) error {
 		if err := r.accCloser.CloseAll(); err != nil {
 			errs = append(errs, fmt.Errorf("close accessors: %w", err))
 		}
+	}
+	if err := runAfterAccessorsClosed(ctx, r.fac); err != nil {
+		errs = append(errs, fmt.Errorf("release resources after accessors closed: %w", err))
 	}
 	return errors.Join(errs...)
 }
@@ -463,6 +505,7 @@ func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 	deps := ServiceDeps{
 		Logger:   b.lggr,
 		Keystore: keyStore,
+		Features: b.config.Feature,
 	}
 
 	jobRunner := &runner{lggr: b.lggr, fac: b.fac, deps: deps, applicationReady: &b.applicationReady}
@@ -648,12 +691,18 @@ func (b *Bootstrapper) startLocalService(ctx context.Context, keyStore keystore.
 			if cErr := b.accCloser.CloseAll(); cErr != nil {
 				b.lggr.Warnw("close accessors after failed startLocal", "error", cErr)
 			}
+			if hErr := runAfterAccessorsClosed(ctx, b.fac); hErr != nil {
+				b.lggr.Warnw("release resources after failed startLocal", "error", hErr)
+			}
 			b.accCloser = nil
 		}
 	}()
 
 	js := JobSpec{Name: "local", AppConfig: string(appCfg)}
-	if err := b.fac.Start(ctx, js, ServiceDeps{Logger: b.lggr, Keystore: keyStore, Registry: b.accCloser}); err != nil {
+	if err := b.fac.Start(ctx, js, ServiceDeps{Logger: b.lggr, Keystore: keyStore, Registry: b.accCloser, Features: b.config.Feature}); err != nil {
+		if stopErr := b.fac.Stop(ctx); stopErr != nil {
+			b.lggr.Warnw("stop factory after failed startLocal", "error", stopErr)
+		}
 		return err
 	}
 	b.applicationReady.Store(true)
@@ -708,6 +757,12 @@ func localConfigFileReady(path string) bool {
 func (b *Bootstrapper) Start(ctx context.Context) error {
 	if b.lggr == nil {
 		return fmt.Errorf("bootstrapper has no logger")
+	}
+	// One call above both modes: a misconfigured feature must stop the process, not reject a job.
+	if v, ok := b.fac.(FeatureValidator); ok {
+		if err := v.ValidateFeatures(b.config.Feature); err != nil {
+			return fmt.Errorf("invalid [Feature] configuration: %w", err)
+		}
 	}
 	if b.mode == AppConfigModeJD {
 		//nolint:noeagerio // fail-fast by design: the DB connection, migrations, and keystore are hard dependencies of any job, verified up front and bounded by the startup timeout
@@ -765,6 +820,9 @@ func (b *Bootstrapper) stopLocal(ctx context.Context) error {
 			errs = append(errs, fmt.Errorf("failed to close accessors: %w", err))
 		}
 		b.accCloser = nil
+	}
+	if err := runAfterAccessorsClosed(ctx, b.fac); err != nil {
+		errs = append(errs, fmt.Errorf("failed to release resources after accessors closed: %w", err))
 	}
 	return errors.Join(errs...)
 }

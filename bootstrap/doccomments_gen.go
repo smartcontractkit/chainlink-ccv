@@ -24,6 +24,12 @@ func (DBConfig) DocComments() map[string]commentparsing.FieldDoc {
 	}
 }
 
+func (Features) DocComments() map[string]commentparsing.FieldDoc {
+	return map[string]commentparsing.FieldDoc{
+		"LogPoller": {Comment: "LogPoller selects the LogPoller source reader for EVM chains of the committee verifier instead\nof the RPC source reader. It requires a verifier database. Defaults to false."},
+	}
+}
+
 func (JDConfig) DocComments() map[string]commentparsing.FieldDoc {
 	return map[string]commentparsing.FieldDoc{
 		"ServerCSAPublicKey": {Comment: "ServerCSAPublicKey is the public key of the Job Distributor server's CSA key."},
@@ -60,9 +66,10 @@ func (NonSecretConfig) DocComments() map[string]commentparsing.FieldDoc {
 	return map[string]commentparsing.FieldDoc{
 		"AppConfigMode":      {Comment: "AppConfigMode selects how the bootstrapper loads application config: \"jd_app_config\" (default\nwhen empty, for backward compatibility) or \"local_app_config\". See AppConfigMode."},
 		"Chains":             {Comment: "Chains declares the chains on which this node has a signing identity.\nEach entry causes the bootstrapper to register the node's signing key for that chain in JD.\nOptional: if empty, no signing key sync is performed.\n\nAt boot each entry is checked against the chain family's own mounted config when the family\nregistered a coverage checker (chainaccess.RegisterDeclaredChainCoverageChecker): a declared\nchain the config cannot serve is a startup error naming the chain, rather than a message-time\nfailure. Families without a registered checker are not checked."},
+		"Feature":            {Comment: "Feature holds opt-in switches for behavior that is off by default. Every app decodes the\nsection so one operator config can be shared, but only an app that reads a switch acts on it."},
 		"KeyImport":          {Comment: "KeyImport adopts a Chainlink node key into the keystore on first boot instead of generating\none. Optional: when absent every declared key is generated, which is right for a new\ndeployment. It is set when migrating an operator off CL mode. When the section is present,\nexpected_id is required."},
 		"LocalAppConfigPath": {Comment: "LocalAppConfigPath is the path to the application config file read in local mode. Required when\nAppConfigMode is \"local_app_config\"; ignored otherwise. Distinct from the bootstrap config path\n(BOOTSTRAPPER_CONFIG_PATH): this file holds the app's own config, not the operator/infra config."},
-		"Monitoring":         {Comment: "Monitoring is the operator-provided monitoring configuration.\nThese are operator- and environment-specific (the OTel exporter endpoints point\nat a collector deployed alongside the app, typically a k8s sidecar), so they belong in the\noperator-provided bootstrap config rather than the JD-shipped app config.\n\nIt is a pointer to distinguish \"operator did not configure monitoring here\" (nil) from \"operator\nexplicitly configured it, possibly with Enabled=false\" (non-nil). The apps that consume it (commit\nverifier, executor) read only this value; their deprecated app-config Monitoring sections are\nignored (retained so older job specs still decode). The token verifier is the exception: it loads\nno bootstrap config and keeps monitoring in its (already operator-provided) mounted app config."},
+		"Monitoring":         {Comment: "Monitoring is the operator-provided monitoring configuration.\nThese are operator- and environment-specific (the OTel exporter endpoints point\nat a collector deployed alongside the app, typically a k8s sidecar), so they belong in the\noperator-provided bootstrap config rather than the JD-shipped app config.\n\nIt is a pointer to distinguish \"operator did not configure monitoring here\" (nil) from \"operator\nexplicitly configured it, possibly with Enabled=false\" (non-nil). The apps that consume it (commit\nverifier, executor) read only this value; their deprecated app-config Monitoring sections are\nignored (retained so older job specs still decode). The token verifier is the exception: it does\nnot read this value and keeps monitoring in its (already operator-provided) mounted app config."},
 	}
 }
 

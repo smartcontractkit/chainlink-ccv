@@ -25,6 +25,8 @@ var (
 	_ chainaccess.SourceReader                          = (*LogPollerSourceReader)(nil)
 	_ chainaccess.CriticalSourceInvariantCallbackSetter = (*LogPollerSourceReader)(nil)
 	_ chainaccess.SourceLoader                          = (*LogPollerSourceReader)(nil)
+	_ chainaccess.FinalityViolationReporter             = (*LogPollerSourceReader)(nil)
+	_ chainaccess.SourceHealthReporter                  = (*LogPollerSourceReader)(nil)
 )
 
 // DefaultMessageSentLogRetention is how long the log poller keeps CCIPMessageSent logs. It must
@@ -38,10 +40,21 @@ var ErrLogPollerBehind = errors.New("log poller has not reached the requested bl
 // ErrLogPollerNotReady is returned by reads until the log poller filter is registered and replayed.
 var ErrLogPollerNotReady = fmt.Errorf("%w: log poller filter not loaded", chainaccess.ErrSourceNotReady)
 
+// CheckpointAboveFinalizedError fails the load while the verifier's checkpoint is above the chain's
+// finalized block, as after a testnet reset. The load retries until finality reaches the checkpoint.
+type CheckpointAboveFinalizedError struct {
+	Checkpoint, Finalized uint64
+}
+
+func (e CheckpointAboveFinalizedError) Error() string {
+	return fmt.Sprintf("checkpoint block %d is above the chain's finalized block %d", e.Checkpoint, e.Finalized)
+}
+
+const logPollerOpTimeout = 10 * time.Second
+
 const (
-	logPollerInitBackoff    = time.Second
-	maxLogPollerInitBackoff = time.Minute
-	logPollerOpTimeout      = 10 * time.Second
+	defaultLogPollerInitBackoff    = time.Second
+	defaultMaxLogPollerInitBackoff = time.Minute
 )
 
 // LogPollerConfig wires a LogPollerSourceReader to the Chainlink node's log poller.
@@ -49,29 +62,25 @@ type LogPollerConfig struct {
 	LogPoller  logpoller.LogPoller
 	VerifierID string
 	Retention  time.Duration
+	// ORM removes this verifier's stale filters at startup. Without it the cleanup is skipped.
+	ORM logpoller.ORM
+}
+
+// NewLogPollerConfig is the one place both deployment paths build a reader config, so the
+// in-node and standalone verifiers cannot drift on retention.
+func NewLogPollerConfig(lp logpoller.LogPoller, orm logpoller.ORM, verifierID string) *LogPollerConfig {
+	return &LogPollerConfig{
+		LogPoller:  lp,
+		ORM:        orm,
+		VerifierID: verifierID,
+		Retention:  DefaultMessageSentLogRetention,
+	}
 }
 
 // LogPollerEnabled reports whether the node's LogPoller feature is on for a chain. It decides both
 // which source reader the verifier builds and whether it uses the log poller's finality signal.
 func LogPollerEnabled(lp logpoller.LogPoller) bool {
 	return lp != nil && lp != logpoller.LogPollerDisabled
-}
-
-// logPollerFinality reports the finality violations the node's log poller detects.
-type logPollerFinality struct {
-	lp logpoller.LogPoller
-}
-
-// NewLogPollerFinality returns the log poller's finality signal, or nil when the log poller is disabled.
-func NewLogPollerFinality(lp logpoller.LogPoller) chainaccess.FinalityViolationReporter {
-	if !LogPollerEnabled(lp) {
-		return nil
-	}
-	return logPollerFinality{lp: lp}
-}
-
-func (f logPollerFinality) FinalityViolated() bool {
-	return errors.Is(f.lp.Healthy(), commontypes.ErrFinalityViolated)
 }
 
 // LogPollerSourceReader reads CCIPMessageSent logs from the node's log poller instead of eth_getLogs.
@@ -81,10 +90,20 @@ type LogPollerSourceReader struct {
 	lp         logpoller.LogPoller
 	cfg        *LogPollerConfig
 	filterName string
-	// ready is set once the filter is registered and the log poller replayed.
-	ready  atomic.Bool
-	stopCh services.StopChan
-	wg     sync.WaitGroup
+	// ready is set once the filter is registered and the log poller replayed. It never goes back.
+	ready atomic.Bool
+	// loadStarted is set by LoadFrom. Before it, block reads come from the head tracker, so the start
+	// block of a verifier with no checkpoint never depends on what the log poller has stored.
+	loadStarted atomic.Bool
+	// loadErr is the last failed load attempt, so Loaded can say why the reader is not ready.
+	loadErr atomic.Pointer[error]
+	// finalityBlocked is set when the startup replay hit a finality violation. The reader then counts as
+	// loaded so recovery can run on it, and only a reset-reader prepare clears it.
+	finalityBlocked atomic.Bool
+	// initBackoff and maxInitBackoff bound the retry of a failed load; zero uses the defaults.
+	initBackoff, maxInitBackoff time.Duration
+	stopCh                      services.StopChan
+	wg                          sync.WaitGroup
 	// mu orders LoadFrom against Close so the startup goroutine never starts after Close.
 	mu      sync.Mutex
 	started bool
@@ -116,15 +135,33 @@ func NewLogPollerSourceReader(ctx context.Context, p SourceReaderParams, cfg *Lo
 		sourceReaderCore: core,
 		lp:               cfg.LogPoller,
 		cfg:              cfg,
-		filterName:       logpoller.FilterName("ccv-verifier", cfg.VerifierID, core.onRampAddress.Hex()),
+		filterName:       verifierFilterName(cfg.VerifierID, core.onRampAddress),
 		stopCh:           make(services.StopChan),
 	}
 	return r, nil
 }
 
+// FinalityViolated reports whether the reader's log poller has detected a finality violation. The reader's
+// own block keeps the signal after the log poller clears its flag, which a later successful poll does.
+func (r *LogPollerSourceReader) FinalityViolated() bool {
+	return r.finalityBlocked.Load() || errors.Is(r.lp.Healthy(), commontypes.ErrFinalityViolated)
+}
+
+// Healthy returns the log poller's health without finality violations, which are reported only through
+// FinalityViolated so a violation is not counted twice.
+func (r *LogPollerSourceReader) Healthy() error {
+	err := r.lp.Healthy()
+	if errors.Is(err, commontypes.ErrFinalityViolated) {
+		return nil
+	}
+	return err
+}
+
 // LoadFrom starts loading the log poller from startBlock, the first block the verifier reads. Only the
 // first call before Close counts.
 func (r *LogPollerSourceReader) LoadFrom(startBlock uint64) {
+	// Set even on a closed reader, so its block reads never fall back to the head tracker.
+	r.loadStarted.Store(true)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.started || r.closed {
@@ -134,13 +171,33 @@ func (r *LogPollerSourceReader) LoadFrom(startBlock uint64) {
 	r.wg.Go(func() { r.initLogPoller(startBlock) })
 }
 
-// Loaded returns nil once the log poller is loaded and ErrLogPollerNotReady until then, so a startup that
-// keeps failing shows in the verifier's health.
+// Loaded returns nil once the log poller is loaded and, until then, the last failed attempt wrapped with
+// ErrLogPollerNotReady, so a startup that keeps failing shows its cause in the verifier's health.
 func (r *LogPollerSourceReader) Loaded() error {
 	if r.ready.Load() {
 		return nil
 	}
+	if errp := r.loadErr.Load(); errp != nil {
+		return fmt.Errorf("%w: %w", ErrLogPollerNotReady, *errp)
+	}
 	return ErrLogPollerNotReady
+}
+
+// serveErr returns why reads cannot be served from the log poller, or nil when they can.
+func (r *LogPollerSourceReader) serveErr() error {
+	if err := r.Loaded(); err != nil {
+		return err
+	}
+	// The startup replay hit a finality violation, so nothing read from the log poller is safe.
+	if r.finalityBlocked.Load() {
+		return fmt.Errorf("chain %d: %w", r.chainSelector, commontypes.ErrFinalityViolated)
+	}
+	return nil
+}
+
+// clearFinalityBlock lifts the block for a reset-reader prepare. Nothing else may call it.
+func (r *LogPollerSourceReader) clearFinalityBlock() {
+	r.finalityBlocked.Store(false)
 }
 
 // initLogPoller retries loading the log poller from the start block with backoff until it succeeds or
@@ -148,7 +205,7 @@ func (r *LogPollerSourceReader) Loaded() error {
 func (r *LogPollerSourceReader) initLogPoller(from uint64) {
 	ctx, cancel := r.stopCh.NewCtx()
 	defer cancel()
-	backoff := logPollerInitBackoff
+	backoff, maxBackoff := r.retryBackoffs()
 	for {
 		err := r.loadLogPoller(ctx, from)
 		if err == nil {
@@ -156,14 +213,37 @@ func (r *LogPollerSourceReader) initLogPoller(from uint64) {
 			r.lggr.Infow("Log poller ready, reading CCIPMessageSent logs from it", "filter", r.filterName)
 			return
 		}
+		if errors.Is(err, commontypes.ErrFinalityViolated) {
+			// Retrying would replay again over data the log poller declared unsafe.
+			r.finalityBlocked.Store(true)
+			r.ready.Store(true)
+			r.lggr.Errorw("Log poller startup hit a finality violation, not retrying", "chainSelector", r.chainSelector, "filter", r.filterName, "error", err)
+			return
+		}
+		// An attempt cut short by Close is not a cause worth reporting.
+		if ctx.Err() == nil {
+			r.loadErr.Store(&err)
+		}
 		r.lggr.Warnw("Log poller startup failed, retrying", "filter", r.filterName, "retryIn", backoff, "error", err)
 		select {
 		case <-ctx.Done():
 			return
 		case <-time.After(backoff):
 		}
-		backoff = min(2*backoff, maxLogPollerInitBackoff)
+		backoff = min(2*backoff, maxBackoff)
 	}
+}
+
+// retryBackoffs returns the initial and maximum retry delay of a failed load.
+func (r *LogPollerSourceReader) retryBackoffs() (initial, maxBackoff time.Duration) {
+	initial, maxBackoff = r.initBackoff, r.maxInitBackoff
+	if initial <= 0 {
+		initial = defaultLogPollerInitBackoff
+	}
+	if maxBackoff <= 0 {
+		maxBackoff = defaultMaxLogPollerInitBackoff
+	}
+	return initial, max(initial, maxBackoff)
 }
 
 // loadLogPoller registers the filter, anchors an empty log poller, and replays from fromBlock.
@@ -175,10 +255,60 @@ func (r *LogPollerSourceReader) loadLogPoller(ctx context.Context, fromBlock uin
 	if err := r.registerLogPollerFilter(ctx); err != nil {
 		return err
 	}
+	r.removeStaleFilters(ctx)
+	if err := r.checkStartBlockFinalized(ctx, fromBlock); err != nil {
+		return err
+	}
 	if err := r.anchorLogPoller(ctx, fromBlock); err != nil {
 		return err
 	}
 	return r.replayLogPoller(ctx, fromBlock)
+}
+
+// checkStartBlockFinalized fails while the checkpoint, the block before fromBlock, is above the chain's
+// finalized block. The anchor needs a finalized checkpoint, and a reader loaded there could not serve.
+func (r *LogPollerSourceReader) checkStartBlockFinalized(ctx context.Context, fromBlock uint64) error {
+	_, finalized, err := r.headTrackerBlocks(ctx)
+	if err != nil {
+		return err
+	}
+	if fromBlock > finalized.Number+1 {
+		return CheckpointAboveFinalizedError{Checkpoint: fromBlock - 1, Finalized: finalized.Number}
+	}
+	return nil
+}
+
+// removeStaleFilters deletes this verifier's other filters stored for the chain, such as the one a crash or
+// an on-ramp change left behind. The ORM delete comes first because UnregisterFilter only knows the filters
+// the log poller has loaded into memory. Failures are warnings: a leftover filter only costs indexing, so the
+// cleanup is bounded and gives up once the reader closes or its time runs out.
+func (r *LogPollerSourceReader) removeStaleFilters(ctx context.Context) {
+	if r.cfg.ORM == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, logPollerOpTimeout)
+	defer cancel()
+	names, err := staleVerifierFilters(ctx, r.cfg.ORM, r.cfg.VerifierID, r.filterName)
+	if err != nil {
+		r.lggr.Warnw("Skipping stale log poller filter cleanup", "error", err)
+		return
+	}
+	for i, name := range names {
+		if err := ctx.Err(); err != nil {
+			r.lggr.Warnw("Stopping stale log poller filter cleanup", "remaining", names[i:], "error", err)
+			return
+		}
+		// Each step is tried even if the other failed, so one error leaves as little behind as possible.
+		deleteErr := r.cfg.ORM.DeleteFilter(ctx, name)
+		if deleteErr != nil {
+			r.lggr.Warnw("Failed to delete stale log poller filter", "filter", name, "error", deleteErr)
+		}
+		if err := r.lp.UnregisterFilter(ctx, name); err != nil {
+			r.lggr.Warnw("Failed to unregister stale log poller filter", "filter", name, "error", err)
+		} else if deleteErr == nil {
+			r.lggr.Infow("Removed stale log poller filter", "filter", name)
+		}
+	}
 }
 
 // anchorLogPoller saves the block before fromBlock as the log poller's last processed block when it has
@@ -219,18 +349,24 @@ func (r *LogPollerSourceReader) registerLogPollerFilter(ctx context.Context) err
 	return nil
 }
 
-// replayLogPoller replays the log poller from fromBlock up to its latest finalized block and waits for it.
+// replayLogPoller replays the log poller from fromBlock and waits for the part up to its stored finalized
+// block; Replay hands the rest to the poll loop.
 func (r *LogPollerSourceReader) replayLogPoller(ctx context.Context, fromBlock uint64) error {
 	latest, _, err := r.headTrackerBlocks(ctx)
 	if err != nil {
 		return err
 	}
 	if fromBlock > latest.Number {
-		return nil // Not mined yet: the log poller indexes it as it arrives.
+		// The checkpoint is the finalized head and the next block is not mined yet: the log poller indexes it as it arrives.
+		return nil
 	}
-	// A finality violation here is declared on the log poller itself, so Healthy() reports it.
 	if err := r.lp.Replay(ctx, int64(max(fromBlock, 1))); err != nil { // #nosec G115 -- range checked by loadLogPoller
 		return fmt.Errorf("log poller replay from block %d failed: %w", fromBlock, err)
+	}
+	// Replay hands the blocks past its stored finalized block to the poll loop and drops that part's
+	// errors, so a violation found there only shows in Healthy().
+	if err := r.lp.Healthy(); errors.Is(err, commontypes.ErrFinalityViolated) {
+		return fmt.Errorf("log poller replay from block %d: %w", fromBlock, err)
 	}
 	return nil
 }
@@ -259,8 +395,8 @@ func (r *LogPollerSourceReader) Close() error {
 // FetchMessageSentEvents returns MessageSentEvents in the given block range.
 // A toBlock of 0 queries up to the last block the log poller has processed.
 func (r *LogPollerSourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, toBlock uint64) ([]protocol.MessageSentEvent, error) {
-	if !r.ready.Load() {
-		return nil, ErrLogPollerNotReady
+	if err := r.serveErr(); err != nil {
+		return nil, err
 	}
 	logs, err := r.logPollerLogs(ctx, fromBlock, toBlock)
 	if err != nil {
@@ -327,8 +463,15 @@ func (r *LogPollerSourceReader) logPollerBlock(ctx context.Context) (uint64, err
 }
 
 // LatestAndFinalizedBlock returns the log poller's last processed block and the finalized block saved with
-// it, so the verifier never advances past logs the log poller has not indexed.
+// it, so the verifier never advances past logs the log poller has not indexed. Before LoadFrom it returns
+// the head tracker's blocks, which the verifier derives its start block from when it has no checkpoint.
 func (r *LogPollerSourceReader) LatestAndFinalizedBlock(ctx context.Context) (latest, finalized *protocol.BlockHeader, err error) {
+	if !r.loadStarted.Load() {
+		return r.headTrackerBlocks(ctx)
+	}
+	if err := r.serveErr(); err != nil {
+		return nil, nil, err
+	}
 	b, err := r.logPollerLatestBlock(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -340,8 +483,15 @@ func (r *LogPollerSourceReader) LatestAndFinalizedBlock(ctx context.Context) (la
 	return logPollerHeader(b), finalized, nil
 }
 
-// LatestSafeBlock returns the safe block the log poller saved with its last processed block.
+// LatestSafeBlock returns the safe block the log poller saved with its last processed block, or the head
+// tracker's before LoadFrom.
 func (r *LogPollerSourceReader) LatestSafeBlock(ctx context.Context) (*protocol.BlockHeader, error) {
+	if !r.loadStarted.Load() {
+		return r.headTrackerSafeBlock(ctx)
+	}
+	if err := r.serveErr(); err != nil {
+		return nil, err
+	}
 	b, err := r.logPollerLatestBlock(ctx)
 	if err != nil {
 		return nil, err

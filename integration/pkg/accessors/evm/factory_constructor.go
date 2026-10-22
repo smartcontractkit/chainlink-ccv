@@ -95,7 +95,7 @@ func CreateAccessorFactory(
 			if err != nil {
 				return nil, fmt.Errorf("failed to get EVM config for chain %d: %w", chainSelector, err)
 			}
-			return newStandaloneChain(ctx, info, chainLggr)
+			return newStandaloneChain(ctx, chainSelector, info, chainLggr)
 		},
 	), nil
 }

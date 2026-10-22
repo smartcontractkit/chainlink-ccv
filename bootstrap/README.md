@@ -132,6 +132,14 @@ listen_port = 9988
 # [monitoring.beholder]
 # otel_exporter_http_endpoint = "collector.example.com:4318"
 
+[Feature]
+# Optional opt-in switches, all off by default. Every app accepts the section; an app that has no use
+# for a switch ignores it, except where noted.
+# LogPoller makes the committee verifier read EVM source chains through a LogPoller instead of RPC.
+# It needs the verifier database: set [db].url in the committee verifier secrets file or CL_DATABASE_URL,
+# otherwise the process exits at boot. The token verifier exits at boot if it is set.
+LogPoller = false
+
 [[chains]]
 # Declare each chain on which this node has a signing identity. The bootstrapper derives the
 # onchain signing address from the node's ECDSA_S256 key and registers it with JD on connect,
