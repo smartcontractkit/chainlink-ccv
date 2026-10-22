@@ -164,6 +164,8 @@ func (ec *Coordinator) runStorageStream(ctx context.Context) {
 		case e, ok := <-componentErrors:
 			if !ok {
 				ec.lggr.Errorw("coordinator component errors channel closed")
+				// Nil the channel so the closed channel stops firing in this select.
+				componentErrors = nil
 			} else {
 				ec.lggr.Errorw("error in coordinator component", "error", e)
 			}
@@ -176,20 +178,26 @@ func (ec *Coordinator) runStorageStream(ctx context.Context) {
 
 			msg := streamResult.Message
 			metrics := ec.metricsForMessage(msg)
+			discoveryReason := execmonitoring.MessageTransitionReasonNone
 			err := ec.executor.CheckValidMessage(ctx, msg)
 			if err != nil {
-				ec.lggr.Errorw("invalid message, skipping", "error", err, "message", msg)
-				metrics.IncrementMessageTransition(
-					ctx,
-					execmonitoring.MessageTransitionStageDiscovery,
-					execmonitoring.MessageTransitionOutcomeSkipped,
-					execmonitoring.MessageTransitionReasonInvalidMessage)
-				metrics.IncrementMessageFailure(
-					ctx,
-					execmonitoring.MessageTransitionStageDiscovery,
-					false,
-					execmonitoring.MessageFailureClassInvalidMessage)
-				continue
+				if !errors.Is(err, ErrDestinationReaderUnhealthy) {
+					ec.lggr.Errorw("invalid message, skipping", "error", err, "message", msg)
+					metrics.IncrementMessageTransition(
+						ctx,
+						execmonitoring.MessageTransitionStageDiscovery,
+						execmonitoring.MessageTransitionOutcomeSkipped,
+						execmonitoring.MessageTransitionReasonInvalidMessage)
+					metrics.IncrementMessageFailure(
+						ctx,
+						execmonitoring.MessageTransitionStageDiscovery,
+						false,
+						execmonitoring.MessageFailureClassInvalidMessage)
+					continue
+				}
+				// Unhealthy destination reader is transient: schedule the message normally.
+				ec.lggr.Warnw("destination reader unhealthy, scheduling message for retry", "error", err, protocol.LogKeyMessageID, msg.MustMessageID())
+				discoveryReason = execmonitoring.MessageTransitionReasonReaderUnhealthy
 			}
 
 			id := msg.MustMessageID()
@@ -282,7 +290,7 @@ func (ec *Coordinator) runStorageStream(ctx context.Context) {
 				ctx,
 				execmonitoring.MessageTransitionStageDiscovery,
 				execmonitoring.MessageTransitionOutcomeDiscovered,
-				execmonitoring.MessageTransitionReasonNone)
+				discoveryReason)
 
 			if !ec.delayedMessageHeap.Push(message_heap.MessageWithTimestamps{
 				Message:       &msg,
@@ -334,13 +342,20 @@ func (ec *Coordinator) runProcessingLoop(ctx context.Context) {
 				"currentTime", currentTime.String(),
 				"readyMessages", readyMessages,
 			)
-			for _, payload := range readyMessages {
-				// If the channel is full, we will block here, but messages will continue to accumulate in the heap.
+			for i, payload := range readyMessages {
+				// Track in-flight before the send: a worker can finish and remove the entry
+				// before the send on the unbuffered channel returns.
+				ec.inFlightAdd(payload.MessageID, *payload.Message)
 				select {
 				case ec.workerPoolTasks <- payload:
-					ec.inFlightAdd(payload.MessageID, *payload.Message)
 				case <-ctx.Done():
-					ec.lggr.Infow("Processing loop dropping payload to exit")
+					// Requeue undispatched messages so they are not lost on shutdown.
+					ec.inFlightRemove(payload.MessageID)
+					ec.delayedMessageHeap.Push(payload)
+					for _, remaining := range readyMessages[i+1:] {
+						ec.delayedMessageHeap.Push(remaining)
+					}
+					ec.lggr.Infow("Processing loop requeued undispatched payloads to exit", "count", len(readyMessages)-i)
 					return
 				}
 			}
@@ -358,9 +373,11 @@ func (ec *Coordinator) handleMessage(ctx context.Context) {
 			ec.lggr.Infow("Message handler exiting")
 			return
 		case payload, ok := <-ec.workerPoolTasks:
-			if ok {
-				ec.processPayload(ctx, payload)
+			if !ok {
+				ec.lggr.Infow("Message handler exiting: worker pool tasks channel closed")
+				return
 			}
+			ec.processPayload(ctx, payload)
 		}
 	}
 }
@@ -562,7 +579,14 @@ func (ec *Coordinator) dataNotReadyBackoff(attempt int, capDuration time.Duratio
 		attempt = 30
 	}
 	d := ec.dataNotReadyRetryInterval << (attempt - 1)
-	if d <= 0 || (capDuration > 0 && d > capDuration) {
+	if d <= 0 {
+		// Shift overflow: fall back to the base interval when no cap is set.
+		if capDuration <= 0 {
+			return ec.dataNotReadyRetryInterval
+		}
+		return capDuration
+	}
+	if capDuration > 0 && d > capDuration {
 		return capDuration
 	}
 	return d

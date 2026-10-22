@@ -42,6 +42,7 @@ const (
 	MessageTransitionReasonNoVerifierResults  = "no_verifier_results"
 	MessageTransitionReasonQuorumNotMet       = "quorum_not_met"
 	MessageTransitionReasonPollerNotReady     = "poller_not_ready"
+	MessageTransitionReasonReaderUnhealthy    = "reader_unhealthy"
 	MessageTransitionReasonHonestAttempt      = "honest_attempt_exists"
 	MessageTransitionReasonNotRetrier         = "not_designated_retrier"
 

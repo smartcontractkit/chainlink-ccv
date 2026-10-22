@@ -13,6 +13,9 @@ var (
 	ErrInsufficientVerifiers = fmt.Errorf("insufficient verifiers for message")
 	ErrMessageEncoding       = fmt.Errorf("message encoding failed")
 	ErrExecutionContended    = fmt.Errorf("execution attempted; retry must respect executor stagger")
+	// ErrDestinationReaderUnhealthy marks a transient destination reader health
+	// failure; messages carrying it are retried rather than dropped.
+	ErrDestinationReaderUnhealthy = fmt.Errorf("destination reader unhealthy")
 	// ErrMessageRejectedByTransmitter is returned by contract transmitters when a message
 	// is terminally rejected before submission (e.g. zero aggregated gas limits, which would
 	// produce an unexecutable transaction). The executor treats it as non-retryable and

@@ -834,11 +834,55 @@ func Test_ChainlinkExecutor_CheckValidMessage_HealthCheck(t *testing.T) {
 			if tc.expectedError {
 				assert.Error(t, err)
 				assert.Contains(t, err.Error(), "critically failed")
+				assert.True(t, errors.Is(err, coordinator.ErrDestinationReaderUnhealthy))
 			} else {
 				assert.NoError(t, err)
 			}
 		})
 	}
+}
+
+func Test_ChainlinkExecutor_HandleMessage_DestinationReaderUnhealthy(t *testing.T) {
+	address1, err := protocol.RandomAddress()
+	assert.NoError(t, err)
+	address2, err := protocol.RandomAddress()
+	assert.NoError(t, err)
+
+	t.Run("reader health failure is retryable", func(t *testing.T) {
+		ct := map[protocol.ChainSelector]*mocks.MockContractTransmitter{
+			1: mocks.NewMockContractTransmitter(t),
+		}
+		dr := map[protocol.ChainSelector]*mocks.MockDestinationReader{
+			1: mocks.NewMockDestinationReader(t),
+		}
+		dr[1].EXPECT().CheckHealth(mock.Anything).Return(errors.New("rpc unreachable")).Once()
+		vr := mocks.NewMockVerifierResultReader(t)
+		executor := setupTestExecutor(t, ct, dr, vr, address1, address2, 2)
+		msg := generateFakeMessage(1, 2, 1, nil, address2)
+
+		shouldRetry, err := executor.HandleMessage(context.Background(), msg)
+		assert.True(t, shouldRetry)
+		assert.Error(t, err)
+		assert.True(t, errors.Is(err, coordinator.ErrDestinationReaderUnhealthy))
+	})
+
+	t.Run("missing reader is not retryable", func(t *testing.T) {
+		ct := map[protocol.ChainSelector]*mocks.MockContractTransmitter{
+			1: mocks.NewMockContractTransmitter(t),
+		}
+		dr := map[protocol.ChainSelector]*mocks.MockDestinationReader{
+			1: mocks.NewMockDestinationReader(t),
+		}
+		vr := mocks.NewMockVerifierResultReader(t)
+		executor := setupTestExecutor(t, ct, dr, vr, address1, address2, 2)
+		msg := generateFakeMessage(99, 2, 1, nil, address2)
+
+		shouldRetry, err := executor.HandleMessage(context.Background(), msg)
+		assert.False(t, shouldRetry)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "no destination reader for chain")
+		assert.False(t, errors.Is(err, coordinator.ErrDestinationReaderUnhealthy))
+	})
 }
 
 // generateFakeMessage creates a fake protocol.Message for testing purposes.

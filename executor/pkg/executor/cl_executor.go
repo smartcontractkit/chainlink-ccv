@@ -179,7 +179,7 @@ func (cle *ChainlinkExecutor) CheckValidMessage(ctx context.Context, message pro
 	}
 	if err := reader.CheckHealth(destinationChain); err != nil {
 		cle.metricsForMessage(message).IncrementDestinationReaderCriticalFailure(ctx, destinationChain)
-		return fmt.Errorf("destination reader critically failed for chain %d: %w", destinationChain, err)
+		return fmt.Errorf("destination reader critically failed for chain %d: %w", destinationChain, errors.Join(err, executor.ErrDestinationReaderUnhealthy))
 	}
 	return nil
 }
@@ -198,6 +198,10 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 	// Check prerequisites to avoid toctou issues
 	if err := cle.CheckValidMessage(ctx, message); err != nil {
 		span.AddEvent(monitoring.EventInvalidMessageSkipped)
+		if errors.Is(err, executor.ErrDestinationReaderUnhealthy) {
+			// Transient destination reader health failure: retry the message later.
+			return true, err
+		}
 		return false, err
 	}
 	start := time.Now()
