@@ -342,10 +342,6 @@ type NonSecretConfig struct {
 	// ignored (retained so older job specs still decode). The token verifier is the exception: it does
 	// not read this value and keeps monitoring in its (already operator-provided) mounted app config.
 	Monitoring *monitoring.Config `toml:"Monitoring"`
-
-	// Feature holds opt-in switches for behavior that is off by default. Every app decodes the
-	// section so one operator config can be shared, but only an app that reads a switch acts on it.
-	Feature Features `toml:"Feature,omitempty"`
 }
 
 // Secrets is the secret half of the bootstrap config: the credential-bearing sections. It is
@@ -520,30 +516,6 @@ func LoadAndValidateConfig(paths []string, cfg *Config) (AppConfigMode, error) {
 		return "", fmt.Errorf("config validation failed: %w", err)
 	}
 	return mode, nil
-}
-
-// LoadFeatures reads the [Feature] switches from the bootstrap config the service starts from
-// (BOOTSTRAPPER_CONFIG_PATH, default /etc/config.toml), for tooling outside the service. Only that
-// section is decoded, since the CLI needs the switches and not a config valid for a service start.
-func LoadFeatures() (Features, error) {
-	path := resolveBootstrapConfigPath("")
-	data, err := os.ReadFile(path) //nolint:gosec // G304: operator-provided config path
-	if err != nil {
-		return Features{}, fmt.Errorf("failed to read the bootstrap config %q for the [Feature] section (set %s): %w", path, ConfigPathEnv, err)
-	}
-	var cfg struct {
-		Feature Features `toml:"Feature"`
-	}
-	md, err := toml.Decode(string(data), &cfg)
-	if err != nil {
-		return Features{}, fmt.Errorf("failed to parse the bootstrap config %q: %w", path, err)
-	}
-	for _, key := range md.Undecoded() {
-		if len(key) > 0 && key[0] == "Feature" {
-			return Features{}, fmt.Errorf("bootstrap config %q: unknown key %s", path, key)
-		}
-	}
-	return cfg.Feature, nil
 }
 
 func parseTOML[T any](tomlString string, out *T, strict bool) error {

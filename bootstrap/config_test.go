@@ -1,7 +1,6 @@
 package bootstrap
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -947,104 +946,4 @@ func TestConfig_validate_Chains(t *testing.T) {
 		require.Contains(t, err.Error(), `chain at index 2 has type "SOLANA"`)
 		require.Contains(t, err.Error(), `same family (found "EVM" at index 1)`)
 	})
-}
-
-func TestLoadAndValidateConfig_Feature(t *testing.T) {
-	const base = `
-[jd]
-server_wsrpc_url = "ws://localhost:8080/ws"
-server_csa_public_key = "` + validEd25519PublicKeyHex + `"
-
-[server]
-listen_port = 9988
-
-[db]
-url = "postgres://localhost:5432/bootstrapper"
-
-[keystore]
-password = "s3cret"
-`
-
-	load := func(t *testing.T, files ...string) (*Config, error) {
-		t.Helper()
-		dir := t.TempDir()
-		paths := make([]string, 0, len(files))
-		for i, content := range files {
-			paths = append(paths, writeFile(t, dir, fmt.Sprintf("config%d.toml", i), content))
-		}
-		cfg := &Config{}
-		_, err := LoadAndValidateConfig(paths, cfg)
-		return cfg, err
-	}
-
-	t.Run("absent section defaults to false", func(t *testing.T) {
-		cfg, err := load(t, base)
-		require.NoError(t, err)
-		require.False(t, cfg.Feature.LogPoller)
-	})
-
-	t.Run("section without the key defaults to false", func(t *testing.T) {
-		cfg, err := load(t, base+"\n[Feature]\n")
-		require.NoError(t, err)
-		require.False(t, cfg.Feature.LogPoller)
-	})
-
-	t.Run("LogPoller = true decodes", func(t *testing.T) {
-		cfg, err := load(t, base+"\n[Feature]\nLogPoller = true\n")
-		require.NoError(t, err)
-		require.True(t, cfg.Feature.LogPoller)
-	})
-
-	t.Run("unknown key under Feature is rejected", func(t *testing.T) {
-		_, err := load(t, base+"\n[Feature]\nLogPoller = true\nBogus = 1\n")
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "Bogus")
-	})
-
-	t.Run("flag is accepted from the secrets file too", func(t *testing.T) {
-		cfg, err := load(t, base, "[Feature]\nLogPoller = true\n")
-		require.NoError(t, err)
-		require.True(t, cfg.Feature.LogPoller)
-	})
-}
-
-func writeBootstrapConfig(t *testing.T, content string) string {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "config.toml")
-	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
-	t.Setenv(ConfigPathEnv, path)
-	return path
-}
-
-func TestLoadFeaturesReadsOnlyTheFeatureSection(t *testing.T) {
-	// The rest of the file is not valid for any mode: the CLI must not need it to be.
-	writeBootstrapConfig(t, "app_config_mode = \"nonsense\"\n\n[Feature]\nLogPoller = true\n\n[db]\nunknown_key = 1\n")
-
-	features, err := LoadFeatures()
-	require.NoError(t, err)
-	require.True(t, features.LogPoller)
-}
-
-func TestLoadFeaturesDefaultsToOff(t *testing.T) {
-	writeBootstrapConfig(t, "app_config_mode = \"local_app_config\"\n")
-
-	features, err := LoadFeatures()
-	require.NoError(t, err)
-	require.False(t, features.LogPoller)
-}
-
-func TestLoadFeaturesNamesThePathAndEnvVarWhenTheFileIsMissing(t *testing.T) {
-	missing := filepath.Join(t.TempDir(), "absent.toml")
-	t.Setenv(ConfigPathEnv, missing)
-
-	_, err := LoadFeatures()
-	require.ErrorContains(t, err, missing)
-	require.ErrorContains(t, err, ConfigPathEnv)
-}
-
-func TestLoadFeaturesRejectsAnUnknownFeatureKey(t *testing.T) {
-	writeBootstrapConfig(t, "[Feature]\nLogPollr = true\n")
-
-	_, err := LoadFeatures()
-	require.ErrorContains(t, err, "LogPollr")
 }
