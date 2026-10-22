@@ -17,7 +17,11 @@ const (
 	// ChainHealthyGaugeName tracks chain health across CCIP services.
 	ChainHealthyGaugeName = "ccip_chain_healthy"
 	// ServiceNameLabel is the label key for the service name (e.g. indexer, aggregator, verifier, executor).
-	ServiceNameLabel = "service_name"
+	// Namespaced because OTel resource "service.name" is exported as "service_name" and shadows it.
+	ServiceNameLabel = "ccip_service_name"
+	// DeprecatedServiceNameLabel is the legacy label key, emitted alongside ServiceNameLabel.
+	// Unsafe on pipelines that export resource "service.name" as "service_name": the resource wins.
+	DeprecatedServiceNameLabel = "service_name"
 	// ChainSelectorLabel is the label key for the chain selector.
 	ChainSelectorLabel = "chain_selector"
 	// ChainNameLabel is the label key for the human-readable chain name.
@@ -41,8 +45,9 @@ type serviceMetrics struct {
 }
 
 // NewServiceMetrics creates shared service-level metrics. serviceName is emitted as the
-// "service_name" label so all services use the same gauge (e.g. ccip_service_started) with
-// different label values (indexer, aggregator, verifier, executor).
+// "ccip_service_name" label so all services use the same gauge (e.g. ccip_service_started) with
+// different label values (indexer, aggregator, verifier, executor). "service_name" is still
+// emitted until consumers migrate off it; see DeprecatedServiceNameLabel.
 func NewServiceMetrics(
 	labeler metrics.Labeler,
 	serviceName string,
@@ -61,7 +66,10 @@ func NewServiceMetrics(
 	if err != nil {
 		return nil, err
 	}
-	labeler = labeler.With(ServiceNameLabel, serviceName)
+	labeler = labeler.With(
+		ServiceNameLabel, serviceName,
+		DeprecatedServiceNameLabel, serviceName,
+	)
 	s := &serviceMetrics{
 		Labeler:             labeler,
 		serviceName:         serviceName,
