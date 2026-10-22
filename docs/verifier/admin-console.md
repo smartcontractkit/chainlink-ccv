@@ -205,7 +205,9 @@ credential itself on every request except `/healthz` (kept open for probes), and
 username becomes the audit actor. Basic auth carries the password base64-encoded, so
 serve it over TLS — or keep the console on loopback and SSH-forward. A fronting proxy
 can inject the `Authorization` header if you need shared access without handing out
-per-user credentials.
+per-user credentials. When a proxy terminates TLS in front of the console, also set
+`secure_cookies = true` in the console config: requests arrive at the console over
+plain HTTP, so without it the CSRF cookie is set without the `Secure` attribute.
 
 ## See also
 

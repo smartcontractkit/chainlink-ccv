@@ -32,6 +32,9 @@ type Config struct {
 	// TraceURL (optional) is a base URL to the operator's trace viewer — typically an
 	// internal Grafana/Tempo or Jaeger — linked from the message detail page when set.
 	TraceURL string `toml:"trace_url"`
+	// SecureCookies marks the CSRF cookie Secure even when requests arrive over plain
+	// HTTP; set only when a fronting proxy terminates TLS for the console.
+	SecureCookies bool `toml:"secure_cookies"`
 }
 
 // LoadConfig reads and validates the console config. A missing file is an error: the

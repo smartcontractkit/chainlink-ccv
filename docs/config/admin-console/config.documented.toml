@@ -8,3 +8,7 @@ listen_address = "127.0.0.1:8105"
 # internal Grafana/Tempo or Jaeger — linked from the message detail page when set.
 trace_url = "https://traces.example.com"
 
+# secure_cookies marks the CSRF cookie Secure even when requests arrive over plain
+# HTTP; set only when a fronting proxy terminates TLS for the console.
+secure_cookies = false
+

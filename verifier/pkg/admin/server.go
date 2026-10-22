@@ -1,15 +1,17 @@
 package admin
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
+	"net"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -20,7 +22,11 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-const csrfCookieName = "ccv_admin_csrf"
+const (
+	csrfCookieName = "ccv_admin_csrf"
+	// maxRequestBodyBytes caps non-GET/HEAD request bodies at 1 MiB.
+	maxRequestBodyBytes = 1 << 20
+)
 
 // Deps are the in-process dependencies the console needs from the verifier it runs
 // beside: its application database (migrations already applied) and its secrets.
@@ -82,7 +88,7 @@ func NewServer(cfg *Config, deps Deps, lggr logger.Logger) (*Server, error) {
 func (s *Server) buildRouter(aggregatorAddress string) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
-	r.Use(middleware.GinLogger(s.lggr), middleware.SecureRecovery(s.lggr), s.securityHeaders, s.basicAuthMiddleware, s.csrfMiddleware)
+	r.Use(s.hostAllowlistMiddleware, s.maxBodyBytesMiddleware, middleware.GinLogger(s.lggr), middleware.SecureRecovery(s.lggr), s.securityHeaders, s.basicAuthMiddleware, s.csrfMiddleware)
 
 	h := &handlers{cfg: s.cfg, lggr: s.lggr, stores: s.stores, actions: s.actions, aggregatorAddress: aggregatorAddress, dialer: s.dialer}
 	staticSub, err := fs.Sub(views.StaticFS, "static")
@@ -105,6 +111,9 @@ func (s *Server) Run(ctx context.Context) error {
 		Addr:              s.cfg.ListenAddress,
 		Handler:           s.router,
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 	errCh := make(chan error, 1)
 	go func() {
@@ -121,6 +130,49 @@ func (s *Server) Run(ctx context.Context) error {
 		defer cancel()
 		return s.httpSrv.Shutdown(shutdownCtx)
 	}
+}
+
+// hostAllowlistMiddleware confines the no-basic-auth mode (the loopback personal-tool
+// default) to requests addressing the console by a loopback hostname; with [admin_ui]
+// configured the credential already gates access and any host is accepted.
+func (s *Server) hostAllowlistMiddleware(c *gin.Context) {
+	if s.basicAuth != nil {
+		c.Next()
+		return
+	}
+	host := c.Request.Host
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	switch host {
+	case "localhost", "127.0.0.1", "::1", "[::1]":
+		c.Next()
+	default:
+		c.AbortWithStatus(http.StatusForbidden)
+	}
+}
+
+// maxBodyBytesMiddleware rejects non-GET/HEAD bodies over 1 MiB with 413 before
+// dispatch; the body is read up front because gin's form helpers swallow
+// MaxBytesReader errors, so wrapping alone would not stop mutations.
+func (s *Server) maxBodyBytesMiddleware(c *gin.Context) {
+	if c.Request.Method == http.MethodGet || c.Request.Method == http.MethodHead {
+		c.Next()
+		return
+	}
+	if c.Request.ContentLength > maxRequestBodyBytes {
+		c.AbortWithStatus(http.StatusRequestEntityTooLarge)
+		return
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(c.Writer, c.Request.Body, maxRequestBodyBytes))
+	_ = c.Request.Body.Close()
+	if err != nil {
+		c.AbortWithStatus(http.StatusRequestEntityTooLarge)
+		return
+	}
+	c.Request.Body = io.NopCloser(bytes.NewReader(body))
+	c.Request.ContentLength = int64(len(body))
+	c.Next()
 }
 
 // basicAuthMiddleware gates every route except /healthz when the verifier secrets file
@@ -154,9 +206,9 @@ func (s *Server) csrfMiddleware(c *gin.Context) {
 	}
 	if token == "" || len(token) > 128 {
 		token = newCSRFToken()
-		// Secure only over TLS or an https-forwarding proxy: the default
-		// loopback deployment is plain HTTP and must still receive the token.
-		secure := c.Request.TLS != nil || strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https")
+		// Secure over TLS, or on plain HTTP when secure_cookies says a fronting
+		// proxy terminates TLS; the loopback default keeps the cookie usable.
+		secure := c.Request.TLS != nil || s.cfg.SecureCookies
 		c.SetCookie(csrfCookieName, token, 0, "/", "", secure, true)
 	}
 	c.Set("csrfToken", token)
