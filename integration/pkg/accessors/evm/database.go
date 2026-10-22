@@ -35,7 +35,7 @@ func newLazyDB(lggr logger.Logger, cfg *evmconfig.DBConfig) *lazy.Lazy[*sql.DB] 
 	return lazy.New(func(ctx context.Context) (*sql.DB, error) {
 		ctx, cancel := context.WithTimeout(ctx, startupTimeout)
 		defer cancel()
-		return connectDB(ctx, lggr, cfg)
+		return connectAndMigrateDB(ctx, lggr, cfg)
 	})
 }
 
@@ -48,8 +48,21 @@ func (a *accessor) evmDB(ctx context.Context) (*sql.DB, error) {
 	return a.db.Value(ctx)
 }
 
-// connectDB opens, pings and migrates the EVM accessor's database, like the verifier's connectVerifierDB.
-func connectDB(ctx context.Context, lggr logger.Logger, cfg *evmconfig.DBConfig) (*sql.DB, error) {
+// connectAndMigrateDB opens the EVM accessor's database and migrates it, like the verifier's connectVerifierDB.
+func connectAndMigrateDB(ctx context.Context, lggr logger.Logger, cfg *evmconfig.DBConfig) (*sql.DB, error) {
+	db, err := OpenDB(ctx, lggr, cfg)
+	if err != nil {
+		return nil, err
+	}
+	if err := evmdb.RunPostgresMigrationsContext(ctx, db); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("failed to run postgres migrations: %w", err)
+	}
+	return db, nil
+}
+
+// OpenDB opens and pings the EVM database.
+func OpenDB(ctx context.Context, lggr logger.Logger, cfg *evmconfig.DBConfig) (*sql.DB, error) {
 	db, err := sql.Open("postgres", cfg.URL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open postgres database: %w", err)
@@ -62,10 +75,6 @@ func connectDB(ctx context.Context, lggr logger.Logger, cfg *evmconfig.DBConfig)
 	if err := ccvcommon.EnsureDBConnectionContext(ctx, lggr, db); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("failed to ping postgres database: %w", err)
-	}
-	if err := evmdb.RunPostgresMigrationsContext(ctx, db); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("failed to run postgres migrations: %w", err)
 	}
 	return db, nil
 }

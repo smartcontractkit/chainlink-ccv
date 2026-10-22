@@ -33,7 +33,9 @@ stale blocks or reports the violation again.
 
 The standalone commands run in the verifier's container or host, not inside a node:
 
-- Database: the verifier secrets file (`[db].url`), or `CL_DATABASE_URL`.
+- `ccv chain-statuses` uses the verifier database: the verifier secrets file (`[db].url`), or `CL_DATABASE_URL`.
+- `ccv blocks` uses the EVM database, where the LogPoller keeps its tables: `[db].url` in the EVM secrets file
+  (`EVM_SECRETS_PATH`, default `/etc/evm/secrets.toml`).
 - `find-lca` needs the chain's RPC from the mounted EVM config (`EVM_CONFIG_PATH`, default `/etc/evm/config.toml`).
 - The commands read `log_poller_enabled` from the same EVM config and refuse to run when it is off.
 

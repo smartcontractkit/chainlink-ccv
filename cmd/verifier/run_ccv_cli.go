@@ -129,7 +129,7 @@ func RunCCVCLI(args []string, secretsEnvVar, defaultSecretsPath string, opts ...
 
 	// The blocks operator opens its own database connection, after it has checked the chain's mode,
 	// so a command that cannot run never touches the database. Building Deps does no I/O.
-	var blocksOp blocks.Operator = newBlocksOperator(lggr, secrets)
+	var blocksOp blocks.Operator = newBlocksOperator(lggr)
 	if options.blocksUnsupported != "" {
 		blocksOp = unsupportedBlocksOperator{reason: options.blocksUnsupported}
 	}

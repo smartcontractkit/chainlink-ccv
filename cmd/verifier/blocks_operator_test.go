@@ -4,7 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"math/big"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -19,6 +22,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm/logpollerdb"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vsecrets"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
 )
 
@@ -149,6 +153,40 @@ func TestBlocksOperatorFailsWhenTheLogPollerSchemaIsMissing(t *testing.T) {
 
 	err = h.op.RemoveFrom(t.Context(), sepolia, 4)
 	require.ErrorContains(t, err, "evm.log_poller_blocks")
+}
+
+func TestOpenEVMDBNeedsTheEVMDatabase(t *testing.T) {
+	for name, secrets := range map[string]string{
+		"no EVM secrets file":      "",
+		"EVM secrets without [db]": "[[chains.\"16015286601757825753\".nodes]]\nname = \"primary\"\nhttp_url = \"http://localhost:8545\"\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "secrets.toml")
+			if secrets != "" {
+				require.NoError(t, os.WriteFile(path, []byte(secrets), 0o600))
+			}
+			t.Setenv(evmconfig.EVMSecretsPathEnv, path)
+
+			_, _, err := openEVMDB(t.Context(), logger.Test(t))
+			require.ErrorContains(t, err, "[db].url in the EVM secrets file")
+			require.ErrorContains(t, err, evmconfig.EVMSecretsPathEnv)
+		})
+	}
+}
+
+// The commands read the LogPoller tables, which live in the EVM database, so the verifier's own
+// database settings must not be used.
+func TestOpenEVMDBOpensTheEVMDatabase(t *testing.T) {
+	_, dbURL := testutil.NewTestDBWithURL(t)
+	path := filepath.Join(t.TempDir(), "secrets.toml")
+	require.NoError(t, os.WriteFile(path, []byte(fmt.Sprintf("[db]\nurl = %q\n", dbURL)), 0o600))
+	t.Setenv(evmconfig.EVMSecretsPathEnv, path)
+	t.Setenv(vsecrets.DatabaseURLEnvVar, "postgres://nobody@127.0.0.1:1/not-the-evm-db")
+
+	db, closeDB, err := openEVMDB(t.Context(), logger.Test(t))
+	require.NoError(t, err)
+	defer closeDB()
+	require.NoError(t, evm.CheckLogPollerSchema(t.Context(), db))
 }
 
 func TestUnsupportedBlocksOperatorExplainsWhy(t *testing.T) {

@@ -28,7 +28,7 @@ verifier ccv blocks remove-blocks --evm-chain-id <chain id> --start <lca+1>
 |-------|------|
 | The LogPoller switch | `log_poller_enabled` in the mounted EVM config (`EVM_CONFIG_PATH`, default `/etc/evm/config.toml`) |
 | The chain's RPC (`find-lca` only) | The mounted EVM config (`EVM_CONFIG_PATH`, default `/etc/evm/config.toml`) |
-| The database | The verifier secrets file `[db].url`, or `CL_DATABASE_URL` |
+| The database | `[db].url` in the EVM secrets file (`EVM_SECRETS_PATH`, default `/etc/evm/secrets.toml`) |
 
 The commands check the switch and the chain before they open the database, and open it without running migrations. They exit non-zero and change nothing when the switch is off (the chain reads through the RPC source reader), the chain ID is not a known EVM chain, or its chain is missing from the EVM config (`find-lca`), or the `evm` schema is missing. `--help` needs none of this.
 

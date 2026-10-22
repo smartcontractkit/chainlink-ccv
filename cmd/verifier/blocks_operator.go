@@ -3,18 +3,15 @@ package verifier
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"math/big"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	"github.com/smartcontractkit/chainlink-ccv/cli/blocks"
-	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vsecrets"
 )
 
 // blocksOperator runs the ccv blocks commands. It is the only caller of the EVM adapter's operator
@@ -25,35 +22,33 @@ type blocksOperator struct {
 	logPollerOn func() (bool, error)
 	// evmInfo is the chain's RPC settings from the mounted EVM config.
 	evmInfo func(protocol.ChainSelector) (evm.Info, error)
-	// openDB opens the verifier database without migrating it, and returns what closes it.
+	// openDB opens the EVM database and returns what closes it.
 	openDB func(context.Context) (*sql.DB, func(), error)
 }
 
-func newBlocksOperator(lggr logger.Logger, secrets *vsecrets.VerifierSecrets) *blocksOperator {
+func newBlocksOperator(lggr logger.Logger) *blocksOperator {
 	return &blocksOperator{
 		lggr:        lggr,
 		logPollerOn: logPollerOnInMountedConfig,
 		evmInfo:     evmInfoFromMountedConfig,
 		openDB: func(ctx context.Context) (*sql.DB, func(), error) {
-			return openBlocksDB(ctx, lggr, secrets)
+			return openEVMDB(ctx, lggr)
 		},
 	}
 }
 
-// openBlocksDB opens and pings the verifier database without running migrations, and is used only by
-// the blocks commands: they must not create or change the schema they operate on.
-func openBlocksDB(ctx context.Context, lggr logger.Logger, secrets *vsecrets.VerifierSecrets) (*sql.DB, func(), error) {
-	dbURL := secrets.DatabaseURL()
-	if dbURL == "" {
-		return nil, nil, errors.New("a database URL must be set (verifier secrets file [db].url or CL_DATABASE_URL) for ccv blocks commands")
-	}
-	db, err := sql.Open("postgres", dbURL)
+// openEVMDB opens the EVM database named in the mounted EVM secrets file.
+func openEVMDB(ctx context.Context, lggr logger.Logger) (*sql.DB, func(), error) {
+	secrets, err := evmconfig.LoadSecretsFile(evmconfig.ResolveSecretsPath())
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to open postgres database: %w", err)
+		return nil, nil, fmt.Errorf("failed to load the EVM secrets (set %s): %w", evmconfig.EVMSecretsPathEnv, err)
 	}
-	if err := ccvcommon.EnsureDBConnectionContext(ctx, lggr, db); err != nil {
-		_ = db.Close()
-		return nil, nil, fmt.Errorf("failed to ping postgres database: %w", err)
+	if secrets.DB == nil {
+		return nil, nil, fmt.Errorf("ccv blocks commands need the EVM database: set [db].url in the EVM secrets file (%s)", evmconfig.EVMSecretsPathEnv)
+	}
+	db, err := evm.OpenDB(ctx, lggr, secrets.DB)
+	if err != nil {
+		return nil, nil, err
 	}
 	return db, func() { _ = db.Close() }, nil
 }
