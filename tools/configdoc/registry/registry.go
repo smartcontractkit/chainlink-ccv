@@ -369,6 +369,7 @@ func evmConfigInstance() any { return evmConfig() }
 
 func evmConfig() evm.Config {
 	return evm.Config{
+		LogPollerEnabled: true,
 		Chains: map[string]evm.ChainConfig{
 			"1": {
 				Nodes: []evm.Node{

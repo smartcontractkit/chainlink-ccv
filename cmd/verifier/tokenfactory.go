@@ -49,17 +49,6 @@ func NewTokenVerifierServiceFactory() bootstrap.ServiceFactory {
 	return &tokenVerifierFactory{}
 }
 
-var _ bootstrap.FeatureValidator = (*tokenVerifierFactory)(nil)
-
-// ValidateFeatures implements [bootstrap.FeatureValidator]. The token verifier has no LogPoller
-// source reader, so an operator config that asks for one is rejected rather than silently ignored.
-func (tvf *tokenVerifierFactory) ValidateFeatures(features bootstrap.Features) error {
-	if features.LogPoller {
-		return errors.New("[Feature] LogPoller: the LogPoller source reader is not supported for the token verifier")
-	}
-	return nil
-}
-
 // Stop tries to stop all services gracefully.
 func (tvf *tokenVerifierFactory) Stop(_ context.Context) error {
 	var errs []error

@@ -8,7 +8,8 @@ already saved as finalized no longer matches the chain. The verifier disables th
 verifying that source until an operator resolves it.
 
 This runbook applies to committee verifiers that read through the log poller
-(`Feature.LogPoller = true`), whether they run inside a Chainlink node or as a standalone verifier.
+(`Feature.LogPoller = true` on a Chainlink node, `log_poller_enabled = true` in a standalone verifier's EVM
+config), whether they run inside a Chainlink node or as a standalone verifier.
 The steps are the same on both. Only the command prefix differs:
 
 | | Chainlink node | Standalone verifier |
@@ -34,8 +35,7 @@ The standalone commands run in the verifier's container or host, not inside a no
 
 - Database: the verifier secrets file (`[db].url`), or `CL_DATABASE_URL`.
 - `find-lca` needs the chain's RPC from the mounted EVM config (`EVM_CONFIG_PATH`, default `/etc/evm/config.toml`).
-- The commands read `[Feature] LogPoller` from the bootstrap config (`BOOTSTRAPPER_CONFIG_PATH`, default `/etc/config.toml`)
-  and refuse to run when it is off.
+- The commands read `log_poller_enabled` from the same EVM config and refuse to run when it is off.
 
 On a node the commands use the node's own configuration and take the node's database lock. A
 standalone verifier has no such lock, so nothing but this runbook keeps the verifier stopped while

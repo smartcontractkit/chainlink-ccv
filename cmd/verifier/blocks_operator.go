@@ -9,7 +9,6 @@ import (
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
-	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	"github.com/smartcontractkit/chainlink-ccv/cli/blocks"
 	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
@@ -21,8 +20,9 @@ import (
 // blocksOperator runs the ccv blocks commands. It is the only caller of the EVM adapter's operator
 // functions. Each call checks the chain's mode and the RPC config before it opens the database.
 type blocksOperator struct {
-	lggr     logger.Logger
-	features func() (bootstrap.Features, error)
+	lggr logger.Logger
+	// logPollerOn reports whether the mounted EVM config turns the LogPoller on.
+	logPollerOn func() (bool, error)
 	// evmInfo is the chain's RPC settings from the mounted EVM config.
 	evmInfo func(protocol.ChainSelector) (evm.Info, error)
 	// openDB opens the verifier database without migrating it, and returns what closes it.
@@ -31,9 +31,9 @@ type blocksOperator struct {
 
 func newBlocksOperator(lggr logger.Logger, secrets *vsecrets.VerifierSecrets) *blocksOperator {
 	return &blocksOperator{
-		lggr:     lggr,
-		features: bootstrap.LoadFeatures,
-		evmInfo:  evmInfoFromMountedConfig,
+		lggr:        lggr,
+		logPollerOn: logPollerOnInMountedConfig,
+		evmInfo:     evmInfoFromMountedConfig,
 		openDB: func(ctx context.Context) (*sql.DB, func(), error) {
 			return openBlocksDB(ctx, lggr, secrets)
 		},
@@ -58,6 +58,14 @@ func openBlocksDB(ctx context.Context, lggr logger.Logger, secrets *vsecrets.Ver
 	return db, func() { _ = db.Close() }, nil
 }
 
+func logPollerOnInMountedConfig() (bool, error) {
+	cfg, _, err := evmconfig.LoadConfigFile(evmconfig.ResolveConfigPath())
+	if err != nil {
+		return false, fmt.Errorf("the EVM config is needed (set %s): %w", evmconfig.EVMConfigPathEnv, err)
+	}
+	return cfg.LogPollerEnabled, nil
+}
+
 func evmInfoFromMountedConfig(selector protocol.ChainSelector) (evm.Info, error) {
 	path := evmconfig.ResolveConfigPath()
 	cfg, _, err := evmconfig.LoadConfigFile(path)
@@ -76,16 +84,16 @@ func evmInfoFromMountedConfig(selector protocol.ChainSelector) (evm.Info, error)
 }
 
 // check fails unless the chain reads through the LogPoller, which is when it has LogPoller data, and
-// returns the chain's selector. It reads the bootstrap config and does no I/O beyond that.
+// returns the chain's selector. It reads the EVM config and does no I/O beyond that.
 // operation is the node's name for what is being run, which its flag-off error uses.
 func (o *blocksOperator) check(evmChainID int64, operation string) (protocol.ChainSelector, error) {
-	features, err := o.features()
+	on, err := o.logPollerOn()
 	if err != nil {
 		return 0, fmt.Errorf("EVM chain ID %d: cannot tell whether the LogPoller is on: %w", evmChainID, err)
 	}
-	if !features.LogPoller {
-		return 0, fmt.Errorf("EVM chain ID %d reads through the RPC source reader: %s is only available if LogPoller is enabled (set [Feature] LogPoller in the bootstrap config from %s)",
-			evmChainID, operation, bootstrap.ConfigPathEnv)
+	if !on {
+		return 0, fmt.Errorf("EVM chain ID %d reads through the RPC source reader: %s is only available if LogPoller is enabled (set log_poller_enabled in the EVM config from %s)",
+			evmChainID, operation, evmconfig.EVMConfigPathEnv)
 	}
 	return evm.SelectorFromChainID(evmChainID)
 }

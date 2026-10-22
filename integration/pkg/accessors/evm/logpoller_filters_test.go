@@ -2,6 +2,7 @@ package evm
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"math/big"
 	"testing"
@@ -16,7 +17,6 @@ import (
 	evmtypes "github.com/smartcontractkit/chainlink-evm/pkg/types"
 
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm/logpollerdb"
-	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
 )
 
@@ -146,55 +146,84 @@ func TestCleanVerifierFilters(t *testing.T) {
 	})
 }
 
-func TestAccessorCleanUnusedSourceState(t *testing.T) {
-	t.Run("a nil database is skipped", func(t *testing.T) {
-		acc := newSourceAccessor(t, &lpStubRuntime{stubChainRuntime: newStubRuntime(t), chainID: stubChainID})
-		acc.db = nil
-		require.NoError(t, acc.CleanUnusedSourceState(t.Context(), chainaccess.SourceReaderDeps{DB: nil, VerifierID: "v"}))
-	})
-
-	t.Run("it removes the verifier's filters on its own chain only", func(t *testing.T) {
+func TestFactoryCleansUnusedFiltersOncePerProcess(t *testing.T) {
+	const chainID, otherChainID, unconfiguredChainID = 910_401, 910_402, 910_403
+	// setup returns a LogPoller-off factory for verifier "v" on chainID and otherChainID. Its database
+	// holds filters of "v" on all three chains and of verifier "other" on chainID.
+	setup := func(t *testing.T) (*factory, *sql.DB) {
 		db := testutil.NewTestDB(t).DB
-		handle := logpollerdb.NewDB(db)
-		ctx := t.Context()
-		const chainID, otherChainID = 910_401, 910_402
-		runtime := &lpStubRuntime{stubChainRuntime: newStubRuntime(t), chainID: big.NewInt(chainID)}
-		acc := newSourceAccessor(t, runtime)
-		acc.db = staticDatabase(db)
+		insertTestFilter(t, db, chainID, "v")
+		insertTestFilter(t, db, otherChainID, "v")
+		insertTestFilter(t, db, unconfiguredChainID, "v")
+		insertTestFilter(t, db, chainID, "other")
+		f := newSourceFactory(t, &lpStubRuntime{stubChainRuntime: newStubRuntime(t), chainID: big.NewInt(chainID)}).(*factory)
+		f.db = staticDatabase(db)
+		f.verifierID = "v"
+		f.chainIDs = []*big.Int{big.NewInt(chainID), big.NewInt(otherChainID)}
+		return f, db
+	}
 
-		insert := func(id int64) {
-			orm := logpoller.NewORM(big.NewInt(id), handle, logger.Test(t))
-			require.NoError(t, orm.InsertFilter(ctx, logpoller.Filter{
-				Name:      verifierFilterName("v", filterTestOnRamp),
-				Addresses: evmtypes.AddressArray{filterTestOnRamp},
-				EventSigs: evmtypes.HashArray{common.HexToHash("0x01")},
-			}))
-		}
-		insert(chainID)
-		insert(otherChainID)
+	t.Run("the first RPC reader removes the verifier's filters on every configured chain", func(t *testing.T) {
+		f, db := setup(t)
+		acc, err := f.GetAccessor(t.Context(), testSourceSelector)
+		require.NoError(t, err)
+		_, err = acc.SourceReader()
+		require.NoError(t, err)
 
-		require.NoError(t, acc.CleanUnusedSourceState(ctx, chainaccess.SourceReaderDeps{DB: db, VerifierID: "v"}))
-
-		var own, other int
-		require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM evm.log_poller_filters WHERE evm_chain_id = $1`, chainID).Scan(&own))
-		require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM evm.log_poller_filters WHERE evm_chain_id = $1`, otherChainID).Scan(&other))
-		assert.Zero(t, own)
-		assert.Equal(t, 1, other)
+		assert.Zero(t, countTestFilters(t, db, chainID, "v"))
+		assert.Zero(t, countTestFilters(t, db, otherChainID, "v"))
+		assert.Equal(t, 1, countTestFilters(t, db, chainID, "other"), "another verifier's filter must stay")
+		assert.Equal(t, 1, countTestFilters(t, db, unconfiguredChainID, "v"), "only configured chains are cleaned")
 	})
 
-	t.Run("a runtime that cannot host a LogPoller has nothing to clean", func(t *testing.T) {
-		acc := newSourceAccessor(t, newStubRuntime(t))
-		require.NoError(t, acc.CleanUnusedSourceState(t.Context(), chainaccess.SourceReaderDeps{DB: testutil.NewTestDB(t).DB, VerifierID: "v"}))
+	t.Run("it runs once per process", func(t *testing.T) {
+		f, db := setup(t)
+		f.cleanUnusedFilters()
+		insertTestFilter(t, db, chainID, "v")
+		f.cleanUnusedFilters()
+		assert.Equal(t, 1, countTestFilters(t, db, chainID, "v"))
 	})
+
+	t.Run("with the LogPoller on nothing is removed", func(t *testing.T) {
+		f, db := setup(t)
+		f.logPollerEnabled = true
+		f.cleanUnusedFilters()
+		assert.Equal(t, 1, countTestFilters(t, db, chainID, "v"))
+	})
+
+	t.Run("without a verifier ID nothing is removed", func(t *testing.T) {
+		f, db := setup(t)
+		f.verifierID = ""
+		f.cleanUnusedFilters()
+		assert.Equal(t, 1, countTestFilters(t, db, chainID, "v"))
+	})
+}
+
+func insertTestFilter(t *testing.T, db *sql.DB, chainID int64, verifierID string) {
+	t.Helper()
+	orm := logpoller.NewORM(big.NewInt(chainID), logpollerdb.NewDB(db), logger.Test(t))
+	require.NoError(t, orm.InsertFilter(t.Context(), logpoller.Filter{
+		Name:      verifierFilterName(verifierID, filterTestOnRamp),
+		Addresses: evmtypes.AddressArray{filterTestOnRamp},
+		EventSigs: evmtypes.HashArray{common.HexToHash("0x01")},
+	}))
+}
+
+func countTestFilters(t *testing.T, db *sql.DB, chainID int64, verifierID string) int {
+	t.Helper()
+	var n int
+	require.NoError(t, db.QueryRowContext(t.Context(),
+		`SELECT count(*) FROM evm.log_poller_filters WHERE evm_chain_id = $1 AND name = $2`,
+		chainID, verifierFilterName(verifierID, filterTestOnRamp)).Scan(&n))
+	return n
 }
 
 // The standalone LogPoller reader does its own stale-filter cleanup through the ORM, so the accessor
 // must hand it one for its chain.
 func TestAccessorLogPollerReaderGetsAnORM(t *testing.T) {
 	runtime := &lpStubRuntime{stubChainRuntime: newStubRuntime(t), lp: lpmocks.NewLogPoller(t), chainID: big.NewInt(910_501)}
-	acc := newSourceAccessor(t, runtime)
+	acc := newLogPollerAccessor(t, runtime)
 	acc.db = staticDatabase(testutil.NewTestDB(t).DB)
-	require.NoError(t, acc.SetSourceReaderDeps(chainaccess.SourceReaderDeps{VerifierID: "verifier-1"}))
 
 	reader, err := acc.SourceReader()
 	require.NoError(t, err)

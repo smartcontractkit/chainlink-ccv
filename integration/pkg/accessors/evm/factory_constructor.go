@@ -3,6 +3,7 @@ package evm
 import (
 	"context"
 	"fmt"
+	"math/big"
 	"strings"
 
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
@@ -66,8 +67,21 @@ func CreateEVMAccessorFactory(lggr logger.Logger, genericConfig chainaccess.Gene
 		return nil, fmt.Errorf("failed to load EVM secrets: %w", err)
 	}
 
+	if evmCfg.LogPollerEnabled && secrets.DB == nil {
+		return nil, fmt.Errorf("log_poller_enabled in the EVM config %s requires [db] in the EVM secrets file", configPath)
+	}
+
 	f := newAccessorFactory(lggr, genericConfig, infos)
 	f.db = newLazyDB(lggr, secrets.DB)
+	f.logPollerEnabled = evmCfg.LogPollerEnabled
+	f.verifierID = genericConfig.VerifierID
+	for selector, info := range infos {
+		id, ok := new(big.Int).SetString(info.ChainID, 10)
+		if !ok {
+			return nil, fmt.Errorf("chain selector %s has an invalid EVM chain ID %q", selector, info.ChainID)
+		}
+		f.chainIDs = append(f.chainIDs, id)
+	}
 	return f, nil
 }
 

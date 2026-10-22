@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/smartcontractkit/chainlink-evm/pkg/logpoller"
 
@@ -12,64 +13,33 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 )
 
-// The accessor's LogPoller-only behavior: the reader dependencies that select the LogPoller reader and
-// the cleanup of the verifier's filters when the LogPoller is off.
-var (
-	_ chainaccess.SourceReaderDepsSetter   = (*accessor)(nil)
-	_ chainaccess.UnusedSourceStateCleaner = (*accessor)(nil)
-)
+// filterCleanupTimeout caps the best-effort removal of a verifier's unused LogPoller filters.
+const filterCleanupTimeout = 10 * time.Second
 
-// SetSourceReaderDeps builds and starts the chain's LogPoller on the EVM database, which makes
-// the first SourceReader call return the LogPoller reader. It does no network I/O and must come
-// before SourceReader: a reader that is already built is never swapped.
-func (a *accessor) SetSourceReaderDeps(deps chainaccess.SourceReaderDeps) error {
-	verifierID := deps.VerifierID
-	if a == nil {
-		return errors.New("EVM accessor is nil")
-	}
-	a.sourceMu.Lock()
-	defer a.sourceMu.Unlock()
-
-	if a.sourceParams == nil {
-		return fmt.Errorf("chain %d has no source reader configured", a.chainSelector)
-	}
-	if verifierID == "" {
-		return fmt.Errorf("source reader dependencies for chain %d need a verifier ID", a.chainSelector)
-	}
-	if a.logPoller != nil {
-		if verifierID == a.lpVerifierID {
-			return nil
-		}
-		return fmt.Errorf("source reader dependencies for chain %d are already set to different values", a.chainSelector)
-	}
-	if a.sourceBuilt {
-		return fmt.Errorf("source reader for chain %d is already built, set its dependencies before reading it", a.chainSelector)
+// newLogPollerSourceReader starts the chain's LogPoller on the EVM database and builds its reader.
+// The caller holds sourceMu.
+func (a *accessor) newLogPollerSourceReader() (chainaccess.SourceReader, error) {
+	if a.verifierID == "" {
+		return nil, fmt.Errorf("log_poller_enabled for chain %d needs the committee verifier's verifier_id", a.chainSelector)
 	}
 	lpRuntime, ok := a.runtime.(logPollerRuntime)
 	if !ok {
-		return fmt.Errorf("EVM chain runtime for chain %d cannot host a LogPoller", a.chainSelector)
+		return nil, fmt.Errorf("EVM chain runtime for chain %d cannot host a LogPoller", a.chainSelector)
 	}
-
-	// The LogPoller must not outlive the accessor, so its start context ends in Close.
-	ctx, cancel := context.WithCancel(context.Background())
+	// The lazy connect has its own timeout, and LogPoller.Start does not keep its ctx.
+	ctx := context.Background()
 	db, err := a.evmDB(ctx)
 	if err != nil {
-		cancel()
-		return fmt.Errorf("failed to connect the EVM database for chain %d: %w", a.chainSelector, err)
+		return nil, fmt.Errorf("failed to connect the EVM database for chain %d: %w", a.chainSelector, err)
 	}
 	if db == nil {
-		cancel()
-		return fmt.Errorf("source reader dependencies for chain %d need the EVM database ([db] in the EVM secrets file)", a.chainSelector)
+		return nil, fmt.Errorf("log_poller_enabled for chain %d needs the EVM database ([db] in the EVM secrets file)", a.chainSelector)
 	}
 	lp, err := lpRuntime.LogPoller(ctx, db)
 	if err != nil {
-		cancel()
-		return err
+		return nil, err
 	}
-	a.cancelLifetime = cancel
-	a.logPoller = lp
-	a.lpVerifierID = verifierID
-	return nil
+	return NewLogPollerSourceReader(ctx, *a.sourceParams, NewLogPollerConfig(lp, a.newORM(lpRuntime, db), a.verifierID))
 }
 
 // newORM is the chain's own LogPoller ORM on the EVM database, which it never closes.
@@ -77,25 +47,33 @@ func (a *accessor) newORM(rt logPollerRuntime, db *sql.DB) logpoller.ORM {
 	return logpoller.NewORM(rt.EVMChainID(), logpollerdb.NewDB(db), a.lggr)
 }
 
-// CleanUnusedSourceState deletes this verifier's stored log poller filters for the accessor's chain. The
-// verifier calls it when it starts without the LogPoller. Filters of chains no longer configured are not
-// reached: a graceful stop already unregisters them, so only a crash can leave one behind.
-func (a *accessor) CleanUnusedSourceState(ctx context.Context, deps chainaccess.SourceReaderDeps) error {
-	if a == nil || a.sourceParams == nil {
-		return nil
-	}
-	lpRuntime, ok := a.runtime.(logPollerRuntime)
-	if !ok {
-		return nil
-	}
-	db, err := a.evmDB(ctx)
-	if err != nil || db == nil {
+// cleanUnusedFilters removes the verifier's LogPoller filters on every configured chain, once per
+// process and only with the LogPoller off. Failures are only logged.
+func (f *factory) cleanUnusedFilters() {
+	f.cleanupOnce.Do(func() {
+		if f.logPollerEnabled || f.db == nil || f.verifierID == "" {
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), filterCleanupTimeout)
+		defer cancel()
+		if err := f.deleteVerifierFilters(ctx); err != nil {
+			f.lggr.Warnw("Failed to clean up the verifier's unused LogPoller filters, continuing", "verifierID", f.verifierID, "error", err)
+		}
+	})
+}
+
+// deleteVerifierFilters deletes the verifier's filters on each configured chain through its ORM.
+func (f *factory) deleteVerifierFilters(ctx context.Context) error {
+	db, err := f.db.Value(ctx)
+	if err != nil {
 		return err
 	}
-	// Only the LogPoller path creates the schema, so a verifier that never enabled it has no filters.
-	exists, err := logPollerSchemaExists(ctx, db)
-	if err != nil || !exists {
-		return err
+	var errs []error
+	for _, id := range f.chainIDs {
+		orm := logpoller.NewORM(id, logpollerdb.NewDB(db), f.lggr)
+		if err := cleanVerifierFilters(ctx, orm, f.verifierID); err != nil {
+			errs = append(errs, fmt.Errorf("EVM chain %s: %w", id, err))
+		}
 	}
-	return cleanVerifierFilters(ctx, a.newORM(lpRuntime, db), deps.VerifierID)
+	return errors.Join(errs...)
 }

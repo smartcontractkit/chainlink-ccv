@@ -2,7 +2,6 @@ package verifier
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"net/http"
@@ -70,7 +69,6 @@ type factory struct {
 
 var (
 	_ bootstrap.ServiceFactoryValidator = (*factory)(nil)
-	_ bootstrap.FeatureValidator        = (*factory)(nil)
 	_ bootstrap.AccessorsClosedHook     = (*factory)(nil)
 )
 
@@ -123,23 +121,6 @@ func instrumentSourceReader(
 func (f *factory) Validate(spec bootstrap.JobSpec) error {
 	_, err := validateJobSpec(spec)
 	return err
-}
-
-// ValidateFeatures implements [bootstrap.FeatureValidator]. The LogPoller needs the verifier database,
-// and ConnectToPostgresDB treats an empty URL as "no database", so the check must be explicit.
-func (f *factory) ValidateFeatures(features bootstrap.Features) error {
-	if !features.LogPoller {
-		return nil
-	}
-	//nolint:noeagerio // fail-fast by design: misconfiguration must stop the process at boot
-	secrets, err := vsecrets.LoadFromEnv(vsecrets.CommitteeVerifierSecretsPathEnv, vsecrets.DefaultCommitteeVerifierSecretsPath)
-	if err != nil {
-		return fmt.Errorf("failed to load verifier secrets: %w", err)
-	}
-	if secrets.DatabaseURL() == "" {
-		return fmt.Errorf("LogPoller requires a database: set [db].url in the committee verifier secrets file or %s", vsecrets.DatabaseURLEnvVar)
-	}
-	return nil
 }
 
 // Start implements [bootstrap.ServiceFactory].
@@ -244,8 +225,7 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		}
 	}
 
-	// The database must be connected and migrated before any accessor exists, because accessors
-	// and their source readers may use it. An absent URL leaves it nil (storage is optional).
+	// An absent URL leaves the database nil (storage is optional).
 	chainStatusDB, err := f.connectDB(ctx, lggr, secrets)
 	if err != nil {
 		lggr.Errorw("Failed to connect to Postgres DB", "error", err)
@@ -263,29 +243,38 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	sourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
 	finalityReporters := make(map[protocol.ChainSelector]chainaccess.FinalityViolationReporter)
 	healthReporters := make(map[protocol.ChainSelector]chainaccess.SourceHealthReporter)
-	sqlDB := f.sharedSQLDB()
 	var readersMu sync.Mutex
 	var wg sync.WaitGroup
 	for _, selector := range chainSelectors {
 		wg.Go(func() {
 			chainCtx, cancel := context.WithTimeout(ctx, accessorBuildTimeout)
 			defer cancel()
-			chain, err := selectChainReader(
-				chainCtx, lggr, deps.Registry, selector,
-				deps.Features.LogPoller, sqlDB, config.VerifierID,
-				slices.Contains(config.DisableFinalityCheckers, selector.String()),
-			)
-			if err != nil {
+			skip := func(msg string, err error) {
+				lggr.Errorw(msg+", skipping chain", "selector", selector, "error", err)
 				startupSkips.SkipChain(selector, err)
 				verifierMonitoring.RecordChainHealthy(ctx, selector, false)
+			}
+			//nolint:noeagerio // accessor construction dials the chain; it runs concurrently per chain with a bounded ctx, and failures are skipped, not fatal
+			accessor, err := deps.Registry.GetAccessor(chainCtx, selector)
+			if err != nil {
+				skip("Failed to get accessor", err)
 				return
 			}
-			// Capabilities were resolved from the raw reader above, because wrapping hides them.
-			observedReader, err := instrumentSourceReader(chain.reader, config.VerifierID, selector, verifierMonitoring)
+			reader, err := accessor.SourceReader()
 			if err != nil {
-				lggr.Errorw("Failed to instrument source reader, skipping chain", "selector", selector, "error", err)
-				startupSkips.SkipChain(selector, err)
-				verifierMonitoring.RecordChainHealthy(ctx, selector, false)
+				skip("Failed to get source reader", err)
+				return
+			}
+			// Take the reader's own reporters, such as the EVM LogPoller reader's, before wrapping hides them.
+			// A chain in disable_finality_checkers ignores its finality reporter in newFinalityChecker.
+			finalityReporter, _ := reader.(chainaccess.FinalityViolationReporter)
+			healthReporter, _ := reader.(chainaccess.SourceHealthReporter)
+			lggr.Infow("Source reader selected", "chainSelector", selector,
+				"reportsFinality", finalityReporter != nil, "reportsHealth", healthReporter != nil)
+
+			observedReader, err := instrumentSourceReader(reader, config.VerifierID, selector, verifierMonitoring)
+			if err != nil {
+				skip("Failed to instrument source reader", err)
 				return
 			}
 			// Unhealthy until its service says otherwise, so the series exists even if no service ever
@@ -293,11 +282,11 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 			verifierMonitoring.RecordChainHealthy(ctx, selector, false)
 			readersMu.Lock()
 			sourceReaders[selector] = observedReader
-			if chain.finalityReporter != nil {
-				finalityReporters[selector] = chain.finalityReporter
+			if finalityReporter != nil {
+				finalityReporters[selector] = finalityReporter
 			}
-			if chain.healthReporter != nil {
-				healthReporters[selector] = chain.healthReporter
+			if healthReporter != nil {
+				healthReporters[selector] = healthReporter
 			}
 			readersMu.Unlock()
 		})
@@ -649,7 +638,7 @@ func (f *factory) connectDB(ctx context.Context, lggr logger.Logger, secrets *vs
 		f.db = nil
 	}
 
-	//nolint:noeagerio // the service's own DB is a hard dependency that source readers may use, so it is connected + migrated before any accessor; fails fast (bounded by the startup ctx) and JD/local restarts retry
+	//nolint:noeagerio // the service's own DB is a hard dependency; fails fast (bounded by the startup ctx) and JD/local restarts retry
 	db, err := connectVerifierDB(ctx, lggr, secrets)
 	if err != nil {
 		return nil, err
@@ -659,16 +648,6 @@ func (f *factory) connectDB(ctx context.Context, lggr logger.Logger, secrets *vs
 	}
 	f.db = db
 	return db, nil
-}
-
-// sharedSQLDB returns the pool behind the shared verifier database, or nil when none is configured.
-func (f *factory) sharedSQLDB() *sql.DB {
-	f.dbMu.Lock()
-	defer f.dbMu.Unlock()
-	if f.db == nil {
-		return nil
-	}
-	return f.db.DB
 }
 
 // AfterAccessorsClosed implements [bootstrap.AccessorsClosedHook]. It closes the shared database

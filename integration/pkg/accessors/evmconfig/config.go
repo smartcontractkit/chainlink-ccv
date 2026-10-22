@@ -29,6 +29,9 @@ const (
 // not stored here. This mirrors the Solana and Canton local-config pattern, keeping connection
 // details out of the JD job spec's blockchain_infos.
 type Config struct {
+	// LogPollerEnabled makes the committee verifier read source chains through a LogPoller instead of RPC.
+	// It requires [db] in the EVM secrets file. Defaults to false.
+	LogPollerEnabled bool `toml:"log_poller_enabled,omitempty"`
 	// Chains maps EVM chain selector (decimal string) to its operator-local settings.
 	Chains map[string]ChainConfig `toml:"chains"`
 }

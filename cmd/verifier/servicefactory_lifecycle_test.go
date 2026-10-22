@@ -39,13 +39,12 @@ aggregator_address = "localhost:50051"
 "4949039107694359620" = "0x0000000000000000000000000000000000000013"
 `
 
-// countingRegistry hands out accessors that take source reader dependencies and count how many
+// countingRegistry hands out accessors with a reporting reader and counts how many
 // are open, as one LogPoller per chain would be.
 type countingRegistry struct {
 	mu        sync.Mutex
 	built     int
 	live      int
-	depsCalls int
 	accessors []*countingAccessor
 }
 
@@ -81,13 +80,6 @@ type countingAccessor struct {
 	registry *countingRegistry
 }
 
-func (a *countingAccessor) SetSourceReaderDeps(chainaccess.SourceReaderDeps) error {
-	a.registry.mu.Lock()
-	defer a.registry.mu.Unlock()
-	a.registry.depsCalls++
-	return nil
-}
-
 func (a *countingAccessor) SourceReader() (chainaccess.SourceReader, error) {
 	return reportingSourceReader{reported: new(atomic.Int32)}, nil
 }
@@ -99,9 +91,9 @@ func (a *countingAccessor) Close() error {
 	return nil
 }
 
-// Repeated start and stop with the LogPoller on leaves one open accessor per chain after each start,
+// Repeated start and stop with a reporting reader leaves one open accessor per chain after each start,
 // none after each stop, and no goroutines or database connections behind.
-func TestFactoryRestart_FlagOn_LeavesNothingBehind(t *testing.T) {
+func TestFactoryRestart_LeavesNothingBehind(t *testing.T) {
 	_, dbURL := testutil.NewTestDBWithURL(t)
 	setFactoryEnv(t, dbURL)
 	baseline := serverConnections(t, dbURL)
@@ -123,7 +115,6 @@ func TestFactoryRestart_FlagOn_LeavesNothingBehind(t *testing.T) {
 		releaseCounting(t, f, reg)
 		require.Zero(t, reg.liveCount(), "every accessor closed after stop %d", i)
 	}
-	require.Equal(t, 2*(restarts+1), reg.depsCalls, "the setter runs once per chain per start")
 
 	require.Eventually(t, func() bool { return serverConnections(t, dbURL) <= baseline },
 		5*time.Second, 50*time.Millisecond, "restarts must release every database connection")
@@ -155,6 +146,5 @@ func startTwoChains(t *testing.T, f *factory, reg chainaccess.Registry, port int
 		Logger:   logger.Test(t),
 		Keystore: ks,
 		Registry: reg,
-		Features: bootstrap.Features{LogPoller: true},
 	})
 }

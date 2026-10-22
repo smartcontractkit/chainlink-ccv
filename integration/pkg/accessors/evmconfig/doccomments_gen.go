@@ -15,7 +15,8 @@ func (ChainConfig) DocComments() map[string]commentparsing.FieldDoc {
 
 func (Config) DocComments() map[string]commentparsing.FieldDoc {
 	return map[string]commentparsing.FieldDoc{
-		"Chains": {Comment: "Chains maps EVM chain selector (decimal string) to its operator-local settings."},
+		"Chains":           {Comment: "Chains maps EVM chain selector (decimal string) to its operator-local settings."},
+		"LogPollerEnabled": {Comment: "LogPollerEnabled makes the committee verifier read source chains through a LogPoller instead of RPC.\nIt requires [db] in the EVM secrets file. Defaults to false."},
 	}
 }
 

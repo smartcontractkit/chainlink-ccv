@@ -87,7 +87,6 @@ func startFactoryCtx(ctx context.Context, t *testing.T, f *factory, reg chainacc
 		Logger:   logger.Test(t),
 		Keystore: stubKeystore{},
 		Registry: reg,
-		Features: bootstrap.Features{LogPoller: false},
 	})
 }
 
@@ -178,11 +177,11 @@ func (idleSourceReader) GetRMNCursedSubjects(context.Context) ([]protocol.Bytes1
 // startServing runs a Start that succeeds: a real signing key, an idle chain and an HTTP port.
 func startServing(t *testing.T, f *factory, reg chainaccess.Registry, port int) error {
 	t.Helper()
-	return startServingWith(t, f, reg, port, bootstrap.Features{LogPoller: false})
+	return startServingWith(t, f, reg, port)
 }
 
 // startServingWith is startServing with the given feature flags.
-func startServingWith(t *testing.T, f *factory, reg chainaccess.Registry, port int, features bootstrap.Features) error {
+func startServingWith(t *testing.T, f *factory, reg chainaccess.Registry, port int) error {
 	t.Helper()
 	ks, err := keystore.LoadKeystore(t.Context(), keystore.NewMemoryStorage(), "test",
 		keystore.WithScryptParams(keystore.FastScryptParams))
@@ -197,7 +196,6 @@ func startServingWith(t *testing.T, f *factory, reg chainaccess.Registry, port i
 		Logger:   logger.Test(t),
 		Keystore: ks,
 		Registry: reg,
-		Features: features,
 	})
 }
 

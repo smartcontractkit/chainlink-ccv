@@ -11,7 +11,6 @@ import (
 
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 
-	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	commonmetrics "github.com/smartcontractkit/chainlink-ccv/common/metrics"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -64,7 +63,7 @@ func TestFactoryStart_SelectedChainIsUnhealthyUntilItsServiceReports(t *testing.
 	setFactoryEnv(t, dbURL)
 	f, reg, port := &factory{}, &stalledRegistry{release: make(chan struct{})}, freePort(t)
 
-	require.NoError(t, startServingWith(t, f, reg, port, bootstrap.Features{}))
+	require.NoError(t, startServingWith(t, f, reg, port))
 	t.Cleanup(func() { release(t, f, &reg.idleRegistry) })
 	t.Cleanup(func() { close(reg.release) })
 

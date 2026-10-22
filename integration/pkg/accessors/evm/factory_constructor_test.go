@@ -1,6 +1,7 @@
 package evm
 
 import (
+	"math/big"
 	"os"
 	"path/filepath"
 	"testing"
@@ -8,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -21,6 +23,36 @@ func TestCreateEVMAccessorFactoryUsesLocalConfigInsteadOfBlockchainInfos(t *test
 	factory, err := CreateEVMAccessorFactory(logger.Test(t), genericConfig)
 	require.NoError(t, err)
 	require.NotNil(t, factory)
+}
+
+// writeEVMFiles mounts an EVM config and secrets file with the given contents.
+func writeEVMFiles(t *testing.T, config, secrets string) {
+	t.Helper()
+	dir := t.TempDir()
+	configPath, secretsPath := filepath.Join(dir, "evm.toml"), filepath.Join(dir, "secrets.toml")
+	require.NoError(t, os.WriteFile(configPath, []byte(config), 0o600))
+	require.NoError(t, os.WriteFile(secretsPath, []byte(secrets), 0o600))
+	t.Setenv(EVMConfigPathEnv, configPath)
+	t.Setenv(evmconfig.EVMSecretsPathEnv, secretsPath)
+}
+
+func TestCreateEVMAccessorFactoryLogPollerNeedsTheEVMDatabase(t *testing.T) {
+	writeEVMFiles(t, "log_poller_enabled = true\n[chains]\n", "")
+	_, err := CreateEVMAccessorFactory(logger.Test(t), chainaccess.GenericConfig{})
+	require.ErrorContains(t, err, "requires [db]")
+}
+
+func TestCreateEVMAccessorFactoryPassesLogPollerAndVerifierID(t *testing.T) {
+	writeEVMFiles(t,
+		"log_poller_enabled = true\n[chains.16015286601757825753]\n[[chains.16015286601757825753.nodes]]\nname = \"primary\"\nhttp_url = \"http://localhost:8545\"\n",
+		"[db]\nurl = \"postgres://localhost:5432/evm\"\n")
+	got, err := CreateEVMAccessorFactory(logger.Test(t), chainaccess.GenericConfig{VerifierID: "verifier-1"})
+	require.NoError(t, err)
+	f := got.(*factory)
+	require.True(t, f.logPollerEnabled)
+	require.Equal(t, "verifier-1", f.verifierID)
+	require.NotNil(t, f.db, "the database is configured but not connected")
+	require.Equal(t, []*big.Int{big.NewInt(11155111)}, f.chainIDs, "Sepolia's chain ID, from the EVM config")
 }
 
 func TestCreateAccessorFactoryDoesNotDialRPCDuringConstruction(t *testing.T) {

@@ -15,9 +15,9 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 	"github.com/smartcontractkit/chainlink-evm/pkg/logpoller"
 
-	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm/logpollerdb"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
 )
@@ -40,8 +40,8 @@ func newOperatorHarness(t *testing.T, logPollerOn bool, db *sql.DB) *operatorHar
 	t.Helper()
 	h := &operatorHarness{db: db}
 	h.op = &blocksOperator{
-		lggr:     logger.Test(t),
-		features: func() (bootstrap.Features, error) { return bootstrap.Features{LogPoller: logPollerOn}, nil },
+		lggr:        logger.Test(t),
+		logPollerOn: func() (bool, error) { return logPollerOn, nil },
 		evmInfo: func(s protocol.ChainSelector) (evm.Info, error) {
 			h.infoCalls++
 			return evm.Info{ChainID: "11155111"}, nil
@@ -67,17 +67,17 @@ func TestBlocksOperatorFailsSafeBeforeTouchingAnything(t *testing.T) {
 		require.ErrorContains(t, removeErr, "DeleteLogPollerDataAfter is only available if LogPoller is enabled")
 		for _, err := range []error{lcaErr, removeErr} {
 			require.ErrorContains(t, err, "RPC source reader")
-			require.ErrorContains(t, err, bootstrap.ConfigPathEnv)
+			require.ErrorContains(t, err, evmconfig.EVMConfigPathEnv)
 		}
 		require.Zero(t, h.dbOpens, "no database is opened when the chain reads through RPC")
 		require.Zero(t, h.infoCalls, "no RPC config is read either")
 	})
-	t.Run("feature section unreadable", func(t *testing.T) {
+	t.Run("EVM config unreadable", func(t *testing.T) {
 		h := newOperatorHarness(t, true, nil)
-		h.op.features = func() (bootstrap.Features, error) { return bootstrap.Features{}, errors.New("no bootstrap config") }
+		h.op.logPollerOn = func() (bool, error) { return false, errors.New("no EVM config") }
 
 		err := h.op.RemoveFrom(t.Context(), sepolia, 5)
-		require.ErrorContains(t, err, "no bootstrap config")
+		require.ErrorContains(t, err, "no EVM config")
 		require.Zero(t, h.dbOpens)
 	})
 	t.Run("unknown chain ID", func(t *testing.T) {

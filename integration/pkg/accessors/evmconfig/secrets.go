@@ -30,8 +30,7 @@ const (
 	ws_url = "wss://user:key@evm-rpc.example.com"
 */
 type Secrets struct {
-	// DB is the database for the EVM accessor's own tables. Optional: absent means the accessor
-	// uses a database handed to it by its host.
+	// DB is the database for the EVM accessor's own tables. Required only when log_poller_enabled is on.
 	DB *DBConfig `toml:"db,omitempty"`
 	// Chains maps EVM chain selector (decimal string) to that chain's secret settings.
 	Chains map[string]ChainSecrets `toml:"chains,omitempty"`

@@ -28,20 +28,18 @@ const testSourceSelector = protocol.ChainSelector(5009297550715157269)
 // lpStubRuntime is a chain runtime that can also host a LogPoller.
 type lpStubRuntime struct {
 	*stubChainRuntime
-	lp       logpoller.LogPoller
-	lpErr    error
-	lpCalls  int
-	gotDB    *sql.DB
-	startCtx context.Context
-	chainID  *big.Int
+	lp      logpoller.LogPoller
+	lpErr   error
+	lpCalls int
+	gotDB   *sql.DB
+	chainID *big.Int
 }
 
 func (r *lpStubRuntime) EVMChainID() *big.Int { return r.chainID }
 
-func (r *lpStubRuntime) LogPoller(ctx context.Context, db *sql.DB) (logpoller.LogPoller, error) {
+func (r *lpStubRuntime) LogPoller(_ context.Context, db *sql.DB) (logpoller.LogPoller, error) {
 	r.lpCalls++
 	r.gotDB = db
-	r.startCtx = ctx //nolint:fatcontext // the test inspects the context the accessor passed
 	return r.lp, r.lpErr
 }
 
@@ -114,65 +112,88 @@ func TestAccessorSourceReaderConcurrentCallsShareOneReader(t *testing.T) {
 	}
 }
 
-func TestSetSourceReaderDepsSelectsLogPollerReader(t *testing.T) {
+// newLogPollerAccessor is a source accessor with log_poller_enabled on for verifier-1.
+func newLogPollerAccessor(t *testing.T, runtime chainRuntime) *accessor {
+	t.Helper()
+	acc := newSourceAccessor(t, runtime)
+	acc.logPollerEnabled = true
+	acc.verifierID = "verifier-1"
+	return acc
+}
+
+func TestLogPollerOnSelectsLogPollerReader(t *testing.T) {
 	t.Parallel()
 
-	lp := lpmocks.NewLogPoller(t)
-	runtime := &lpStubRuntime{stubChainRuntime: newStubRuntime(t), lp: lp, chainID: stubChainID}
-	acc := newSourceAccessor(t, runtime)
+	runtime := &lpStubRuntime{stubChainRuntime: newStubRuntime(t), lp: lpmocks.NewLogPoller(t), chainID: stubChainID}
+	acc := newLogPollerAccessor(t, runtime)
 	db := &sql.DB{}
 	acc.db = staticDatabase(db)
-
-	require.NoError(t, acc.SetSourceReaderDeps(chainaccess.SourceReaderDeps{DB: db, VerifierID: "verifier-1"}))
-	require.Equal(t, 1, runtime.lpCalls)
-	require.Same(t, db, runtime.gotDB)
 
 	reader, err := acc.SourceReader()
 	require.NoError(t, err)
 	require.IsType(t, &LogPollerSourceReader{}, reader)
+	require.Equal(t, 1, runtime.lpCalls)
+	require.Same(t, db, runtime.gotDB)
+
 	again, err := acc.SourceReader()
 	require.NoError(t, err)
 	require.Same(t, reader, again)
-
-	// The same call again is a no-op, a different one is refused.
-	require.NoError(t, acc.SetSourceReaderDeps(chainaccess.SourceReaderDeps{DB: db, VerifierID: "verifier-1"}))
 	require.Equal(t, 1, runtime.lpCalls)
-	require.Error(t, acc.SetSourceReaderDeps(chainaccess.SourceReaderDeps{DB: db, VerifierID: "verifier-2"}))
 }
 
-func TestSetSourceReaderDepsIsRefusedOnceTheReaderIsBuilt(t *testing.T) {
+func TestLogPollerOffNeverBuildsALogPoller(t *testing.T) {
 	t.Parallel()
 
 	runtime := &lpStubRuntime{stubChainRuntime: newStubRuntime(t), lp: lpmocks.NewLogPoller(t), chainID: stubChainID}
 	acc := newSourceAccessor(t, runtime)
+
 	reader, err := acc.SourceReader()
 	require.NoError(t, err)
-
-	require.ErrorContains(t, acc.SetSourceReaderDeps(chainaccess.SourceReaderDeps{DB: &sql.DB{}, VerifierID: "verifier-1"}), "already built")
+	require.IsType(t, &SourceReader{}, reader)
 	require.Zero(t, runtime.lpCalls)
-	again, err := acc.SourceReader()
-	require.NoError(t, err)
-	require.Same(t, reader, again)
 }
 
-func TestSetSourceReaderDepsFailureKeepsTheRPCReader(t *testing.T) {
+func TestLogPollerOnFailureDoesNotFallBackToTheRPCReader(t *testing.T) {
 	t.Parallel()
 
 	wantErr := errors.New("another runtime owns this chain")
 	runtime := &lpStubRuntime{stubChainRuntime: newStubRuntime(t), lpErr: wantErr, chainID: stubChainID}
-	acc := newSourceAccessor(t, runtime)
+	acc := newLogPollerAccessor(t, runtime)
 
-	require.ErrorIs(t, acc.SetSourceReaderDeps(chainaccess.SourceReaderDeps{DB: &sql.DB{}, VerifierID: "verifier-1"}), wantErr)
 	reader, err := acc.SourceReader()
-	require.NoError(t, err)
-	require.IsType(t, &SourceReader{}, reader)
+	require.ErrorIs(t, err, wantErr)
+	require.Nil(t, reader)
 }
 
-func TestSetSourceReaderDepsNeedsARuntimeThatHostsALogPoller(t *testing.T) {
+func TestLogPollerOnNeedsARuntimeThatHostsALogPoller(t *testing.T) {
 	t.Parallel()
 
-	acc := newSourceAccessor(t, newStubRuntime(t))
-	require.ErrorContains(t, acc.SetSourceReaderDeps(chainaccess.SourceReaderDeps{DB: &sql.DB{}, VerifierID: "verifier-1"}), "cannot host a LogPoller")
+	_, err := newLogPollerAccessor(t, newStubRuntime(t)).SourceReader()
+	require.ErrorContains(t, err, "cannot host a LogPoller")
+}
+
+func TestLogPollerOnNeedsAVerifierID(t *testing.T) {
+	t.Parallel()
+
+	runtime := &lpStubRuntime{stubChainRuntime: newStubRuntime(t), lp: lpmocks.NewLogPoller(t), chainID: stubChainID}
+	acc := newLogPollerAccessor(t, runtime)
+	acc.verifierID = ""
+
+	_, err := acc.SourceReader()
+	require.ErrorContains(t, err, "verifier_id")
+	require.Zero(t, runtime.lpCalls)
+}
+
+func TestLogPollerOnNeedsTheEVMDatabase(t *testing.T) {
+	t.Parallel()
+
+	runtime := &lpStubRuntime{stubChainRuntime: newStubRuntime(t), lp: lpmocks.NewLogPoller(t), chainID: stubChainID}
+	acc := newLogPollerAccessor(t, runtime)
+	acc.db = nil
+
+	_, err := acc.SourceReader()
+	require.ErrorContains(t, err, "needs the EVM database")
+	require.Zero(t, runtime.lpCalls)
 }
 
 func TestExecutorStyleAccessorNeverBuildsALogPoller(t *testing.T) {
@@ -180,21 +201,10 @@ func TestExecutorStyleAccessorNeverBuildsALogPoller(t *testing.T) {
 
 	runtime := &lpStubRuntime{stubChainRuntime: newStubRuntime(t), lp: lpmocks.NewLogPoller(t), chainID: stubChainID}
 	acc := newAccessor(logger.Test(t), testSourceSelector, runtime, [20]byte{1}, "key", nil, nil, nil, nil, nil, nil).(*accessor)
+	acc.logPollerEnabled = true
+	acc.verifierID = "verifier-1"
 
 	_, err := acc.SourceReader()
 	require.ErrorContains(t, err, "source reader not available")
-	require.ErrorContains(t, acc.SetSourceReaderDeps(chainaccess.SourceReaderDeps{DB: &sql.DB{}, VerifierID: "verifier-1"}), "no source reader")
 	require.Zero(t, runtime.lpCalls)
-}
-
-func TestAccessorCloseEndsTheLogPollerStartContext(t *testing.T) {
-	t.Parallel()
-
-	runtime := &lpStubRuntime{stubChainRuntime: newStubRuntime(t), lp: lpmocks.NewLogPoller(t), chainID: stubChainID}
-	acc := newSourceAccessor(t, runtime)
-	require.NoError(t, acc.SetSourceReaderDeps(chainaccess.SourceReaderDeps{DB: &sql.DB{}, VerifierID: "verifier-1"}))
-	require.NoError(t, runtime.startCtx.Err())
-
-	require.NoError(t, acc.Close())
-	require.Error(t, runtime.startCtx.Err())
 }

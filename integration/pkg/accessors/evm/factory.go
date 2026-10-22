@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math/big"
 	"sync"
 	"time"
 
@@ -21,7 +22,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/keystore"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-	"github.com/smartcontractkit/chainlink-evm/pkg/logpoller"
 )
 
 // defaultExecutionVisibilityWindow mirrors executor.maxRetryDurationDefault.
@@ -56,6 +56,13 @@ type factory struct {
 	newRuntime               runtimeBuilder
 	// db is the EVM database shared by every accessor; nil when none is configured.
 	db *lazy.Lazy[*sql.DB]
+	// logPoller makes source readers read through the chain's LogPoller on db.
+	logPollerEnabled bool
+	// verifierID scopes LogPoller filter names; empty outside the committee verifier.
+	verifierID  string
+	cleanupOnce sync.Once
+	// chainIDs are the configured chains' EVM chain IDs, whose filters the cleanup removes.
+	chainIDs []*big.Int
 }
 
 func newFactory(
@@ -258,6 +265,9 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 	)
 	acc.sourceParams = sourceParams
 	acc.db = f.db
+	acc.logPollerEnabled = f.logPollerEnabled
+	acc.verifierID = f.verifierID
+	acc.cleanUnusedFilters = f.cleanUnusedFilters
 	return acc, nil
 }
 
@@ -272,18 +282,18 @@ type accessor struct {
 	mu                  sync.Mutex
 	serviceAddressesErr error
 
-	// sourceMu guards the lazily built source reader and the dependencies that select it.
+	// sourceMu guards the lazily built source reader.
 	// sourceParams is nil for an accessor with no source config, such as the executor's.
-	sourceMu     sync.Mutex
-	sourceParams *SourceReaderParams
-	sourceReader chainaccess.SourceReader
-	sourceErr    error
-	sourceBuilt  bool
-	// logPoller is set only by a successful SetSourceReaderDeps and selects the LogPoller reader.
-	logPoller      logpoller.LogPoller
-	db             *lazy.Lazy[*sql.DB]
-	lpVerifierID   string
-	cancelLifetime context.CancelFunc
+	sourceMu         sync.Mutex
+	sourceParams     *SourceReaderParams
+	sourceReader     chainaccess.SourceReader
+	sourceErr        error
+	sourceBuilt      bool
+	logPollerEnabled bool
+	verifierID       string
+	db               *lazy.Lazy[*sql.DB]
+	// cleanUnusedFilters is the factory\'s once-per-process filter cleanup for the LogPoller-off case.
+	cleanUnusedFilters func()
 
 	lggr          logger.Logger
 	chainSelector protocol.ChainSelector
@@ -363,7 +373,7 @@ func (a *accessor) SetKeystore(ctx context.Context, ks keystore.Keystore) error 
 }
 
 // SourceReader builds the reader on the first call and returns the same result afterwards: the
-// LogPoller reader if SetSourceReaderDeps succeeded, the RPC reader otherwise.
+// LogPoller reader when log_poller_enabled is on, the RPC reader otherwise.
 func (a *accessor) SourceReader() (chainaccess.SourceReader, error) {
 	if a == nil {
 		return nil, errors.New("source reader not available")
@@ -378,24 +388,14 @@ func (a *accessor) SourceReader() (chainaccess.SourceReader, error) {
 		return nil, errors.New("source reader not available")
 	}
 	a.sourceBuilt = true
-	// The constructors take a ctx but do no I/O with it.
-	ctx := context.Background()
-	if a.logPoller != nil {
-		// logPoller is only set by SetSourceReaderDeps, which required a logPollerRuntime.
-		if lpRuntime, ok := a.runtime.(logPollerRuntime); ok {
-			// SetSourceReaderDeps already connected, so this returns the cached database.
-			db, dbErr := a.evmDB(ctx)
-			if dbErr != nil || db == nil {
-				a.sourceErr = errors.Join(dbErr, errors.New("EVM database is not available"))
-			} else {
-				cfg := NewLogPollerConfig(a.logPoller, a.newORM(lpRuntime, db), a.lpVerifierID)
-				a.sourceReader, a.sourceErr = NewLogPollerSourceReader(ctx, *a.sourceParams, cfg)
-			}
-		} else {
-			a.sourceErr = errors.New("EVM chain runtime cannot host a LogPoller")
-		}
+	if a.logPollerEnabled {
+		a.sourceReader, a.sourceErr = a.newLogPollerSourceReader()
 	} else {
-		a.sourceReader, a.sourceErr = NewEVMSourceReader(ctx, *a.sourceParams)
+		// The constructor takes a ctx but does no I/O with it.
+		a.sourceReader, a.sourceErr = NewEVMSourceReader(context.Background(), *a.sourceParams)
+		if a.cleanUnusedFilters != nil {
+			a.cleanUnusedFilters()
+		}
 	}
 	if a.sourceErr != nil {
 		a.sourceReader = nil
@@ -475,12 +475,6 @@ func (a *accessor) GasPriceReader() (chainaccess.GasPriceReader, error) {
 func (a *accessor) Close() error {
 	if a == nil || a.runtime == nil {
 		return nil
-	}
-	a.sourceMu.Lock()
-	cancel := a.cancelLifetime
-	a.sourceMu.Unlock()
-	if cancel != nil {
-		cancel()
 	}
 	return a.runtime.Close()
 }
