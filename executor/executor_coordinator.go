@@ -88,6 +88,8 @@ func (ec *Coordinator) Start(ctx context.Context) error {
 		ec.cancel = cancel
 
 		if err := ec.executor.Start(c); err != nil {
+			cancel()
+			ec.cancel = nil
 			ec.lggr.Errorf("unable to start executor coordinator due to error: %w", err)
 			return err
 		}
@@ -337,22 +339,24 @@ func (ec *Coordinator) runProcessingLoop(ctx context.Context) {
 
 			// Process all messages that are ready to be processed.
 			readyMessages := ec.delayedMessageHeap.PopAllReady(currentTime)
+			for _, payload := range readyMessages {
+				// Track all popped messages as in-flight before any send: a worker can
+				// finish before the send on the unbuffered channel returns, and items
+				// waiting their turn in readyMessages must stay visible to inFlightHas.
+				ec.inFlightAdd(payload.MessageID, *payload.Message)
+			}
 			ec.lggr.Debugw("found messages ready for processing",
 				"count", len(readyMessages),
 				"currentTime", currentTime.String(),
 				"readyMessages", readyMessages,
 			)
 			for i, payload := range readyMessages {
-				// Track in-flight before the send: a worker can finish and remove the entry
-				// before the send on the unbuffered channel returns.
-				ec.inFlightAdd(payload.MessageID, *payload.Message)
 				select {
 				case ec.workerPoolTasks <- payload:
 				case <-ctx.Done():
 					// Requeue undispatched messages so they are not lost on shutdown.
-					ec.inFlightRemove(payload.MessageID)
-					ec.delayedMessageHeap.Push(payload)
-					for _, remaining := range readyMessages[i+1:] {
+					for _, remaining := range readyMessages[i:] {
+						ec.inFlightRemove(remaining.MessageID)
 						ec.delayedMessageHeap.Push(remaining)
 					}
 					ec.lggr.Infow("Processing loop requeued undispatched payloads to exit", "count", len(readyMessages)-i)

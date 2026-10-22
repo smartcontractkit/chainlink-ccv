@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"math/big"
+	"sync/atomic"
 	"time"
 
 	"github.com/ethereum/go-ethereum"
@@ -58,13 +59,17 @@ type sourceReaderCore struct {
 	onRampAddress common.Address
 	// configuredRMNRemoteAddress is the deprecated configured address, zero when unset. The
 	// authoritative address is derived lazily from the OnRamp's static config at query time.
-	configuredRMNRemoteAddress       common.Address
-	rmnRemoteCaller                  *lazy.Lazy[rmn_remote.RMNRemoteCaller]
-	ccipMessageSentTopic             string
-	chainSelector                    protocol.ChainSelector
-	lggr                             logger.Logger
-	onRampABI                        *abi.ABI // Cached ABI to avoid re-parsing
-	onCriticalInvariant              func(context.Context)
+	configuredRMNRemoteAddress  common.Address
+	rmnRemoteCaller             *lazy.Lazy[rmn_remote.RMNRemoteCaller]
+	ccipMessageSentTopic        string
+	chainSelector               protocol.ChainSelector
+	lggr                        logger.Logger
+	onRampABI                   *abi.ABI // Cached ABI to avoid re-parsing
+	onCriticalInvariantCallback func(context.Context)
+	// disabled latches on the first critical invariant violation; message reads then fail
+	// permanently with chainaccess.ErrSourceReaderDisabled. A pointer so copies of the core
+	// (the readers embed it by value) share one latch; nil only in hand-built test cores.
+	disabled                         *atomic.Bool
 	sourceReaderHeaderFetchBatchSize int
 }
 
@@ -160,6 +165,7 @@ func newSourceReaderCore(p SourceReaderParams) (sourceReaderCore, error) {
 		chainSelector:                    p.ChainSelector,
 		lggr:                             lggr,
 		onRampABI:                        onRampABI,
+		disabled:                         new(atomic.Bool),
 		sourceReaderHeaderFetchBatchSize: sourceReaderHeaderFetchBatchSize(p.HeaderFetchBatchSize),
 	}
 	core.SetCriticalSourceInvariantCallback(p.OnCriticalInvariant)
@@ -192,7 +198,36 @@ func (r *sourceReaderCore) SetCriticalSourceInvariantCallback(callback func(cont
 	if callback == nil {
 		callback = func(context.Context) {}
 	}
-	r.onCriticalInvariant = callback
+	r.onCriticalInvariantCallback = callback
+}
+
+// onCriticalInvariant reports violated invariants and disables the reader: the chain's data can no
+// longer be trusted, so later message reads fail instead of skipping only the offending message.
+func (r *sourceReaderCore) onCriticalInvariant(ctx context.Context, msg string, keysAndValues ...any) {
+	if r.disabled != nil {
+		r.disabled.Store(true)
+	}
+	if r.onCriticalInvariantCallback != nil {
+		r.onCriticalInvariantCallback(ctx)
+	}
+	logger.Sugared(r.lggr).Helper(1).Criticalw(msg, keysAndValues...)
+}
+
+// onInvariantViolation reports source-chain data that violates expectations without proving the
+// chain untrustworthy: the metric fires and the message is skipped, but the reader keeps serving.
+func (r *sourceReaderCore) onInvariantViolation(ctx context.Context, msg string, keysAndValues ...any) {
+	if r.onCriticalInvariantCallback != nil {
+		r.onCriticalInvariantCallback(ctx)
+	}
+	logger.Sugared(r.lggr).Helper(1).Errorw(msg, keysAndValues...)
+}
+
+// disabledErr returns the permanent read failure once a critical invariant violation disabled the reader.
+func (r *sourceReaderCore) disabledErr() error {
+	if r.disabled == nil || !r.disabled.Load() {
+		return nil
+	}
+	return fmt.Errorf("%w: chain selector %d", chainaccess.ErrSourceReaderDisabled, r.chainSelector)
 }
 
 // GetBlocksHeaders fetches headers for the given block numbers and returns them
@@ -262,8 +297,12 @@ func (r *sourceReaderCore) fetchHeadBatch(ctx context.Context, blockNumbers []ui
 }
 
 // FetchMessageSentEvents returns MessageSentEvents in the given block range.
-// A toBlock of 0 queries up to the latest block.
+// A toBlock of 0 queries up to the latest block. After a critical invariant violation the reader
+// is disabled and every call fails with chainaccess.ErrSourceReaderDisabled.
 func (r *SourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, toBlock uint64) ([]protocol.MessageSentEvent, error) {
+	if err := r.disabledErr(); err != nil {
+		return nil, err
+	}
 	logs, err := r.rpcLogs(ctx, fromBlock, toBlock)
 	if err != nil {
 		return nil, err
@@ -293,7 +332,8 @@ func (r *SourceReader) rpcLogs(ctx context.Context, fromBlock, toBlock uint64) (
 }
 
 // parseMessageSentLogs decodes and validates CCIPMessageSent logs. Invalid logs are reported
-// through onCriticalInvariant and skipped.
+// through onInvariantViolation or onCriticalInvariant and skipped; a critical violation also
+// disables the reader, so later FetchMessageSentEvents calls fail with chainaccess.ErrSourceReaderDisabled.
 func (r *sourceReaderCore) parseMessageSentLogs(ctx context.Context, logs []types.Log) []protocol.MessageSentEvent {
 	results := make([]protocol.MessageSentEvent, 0, len(logs))
 
@@ -312,8 +352,7 @@ func (r *sourceReaderCore) parseMessageSentLogs(ctx context.Context, logs []type
 
 		// Explicitly check for the expected number of topics
 		if len(log.Topics) < 4 {
-			r.onCriticalInvariant(ctx)
-			r.lggr.Errorw("CCIPMessageSent event has insufficient topics",
+			r.onInvariantViolation(ctx, "CCIPMessageSent event has insufficient topics",
 				"expected", 4,
 				"actual", len(log.Topics),
 				"blockNumber", log.BlockNumber,
@@ -338,8 +377,7 @@ func (r *sourceReaderCore) parseMessageSentLogs(ctx context.Context, logs []type
 		event.Sender = sender
 		err := r.onRampABI.UnpackIntoInterface(event, "CCIPMessageSent", log.Data)
 		if err != nil {
-			r.onCriticalInvariant(ctx)
-			r.lggr.Errorw("Failed to unpack CCIPMessageSent event payload", "error", err)
+			r.onInvariantViolation(ctx, "Failed to unpack CCIPMessageSent event payload", "error", err)
 			continue // to next message
 		}
 		r.lggr.Debugw("OnRamp Event Structure",
@@ -351,8 +389,7 @@ func (r *sourceReaderCore) parseMessageSentLogs(ctx context.Context, logs []type
 
 		// Check minimum receipt count: at least 1 CCV + executor + network fees = 3 receipts
 		if len(event.Receipts) < 3 {
-			r.onCriticalInvariant(ctx)
-			r.lggr.Errorw("Insufficient receipts. Expected at least 3 (1 CCV + executor + network fees)",
+			r.onInvariantViolation(ctx, "Insufficient receipts. Expected at least 3 (1 CCV + executor + network fees)",
 				"count", len(event.Receipts),
 				protocol.LogKeyMessageID, protocol.Bytes32(event.MessageId).String())
 			continue // to next message
@@ -382,8 +419,7 @@ func (r *sourceReaderCore) parseMessageSentLogs(ctx context.Context, logs []type
 			protocol.LogKeyMessageID, protocol.Bytes32(event.MessageId).String())
 		decodedMsg, err := protocol.DecodeMessage(event.EncodedMessage)
 		if err != nil {
-			r.onCriticalInvariant(ctx)
-			r.lggr.Errorw("Failed to decode message", "error", err, "rawMessage", event.EncodedMessage)
+			r.onInvariantViolation(ctx, "Failed to decode message", "error", err, "rawMessage", event.EncodedMessage)
 			continue // to next message
 		}
 		r.lggr.Debugw("Decoded message",
@@ -391,43 +427,46 @@ func (r *sourceReaderCore) parseMessageSentLogs(ctx context.Context, logs []type
 
 		// Validate that ccvAndExecutorHash is not zero - it's required
 		if decodedMsg.CcvAndExecutorHash == (protocol.Bytes32{}) {
-			r.onCriticalInvariant(ctx)
-			r.lggr.Errorw("ccvAndExecutorHash is zero in decoded message",
+			r.onInvariantViolation(ctx, "ccvAndExecutorHash is zero in decoded message",
 				protocol.LogKeyMessageID, protocol.Bytes32(event.MessageId).String(),
 				"blockNumber", log.BlockNumber)
 			continue // to next message
 		}
 
+		if decodedMsg.SourceChainSelector != r.chainSelector {
+			r.onCriticalInvariant(ctx, "source chain selector must match the value configured — critical invariant violated; escalate immediately",
+				"expected", r.chainSelector,
+				"actual", decodedMsg.SourceChainSelector,
+				protocol.LogKeyMessageID, protocol.Bytes32(event.MessageId).String())
+			continue // ensure we never process this msg
+		}
+
 		if !decodedMsg.OnRampAddress.Equal(expectedSourceAddressBytes(r.onRampAddress)) {
-			r.onCriticalInvariant(ctx)
-			r.lggr.Fatalw("onRampAddress must match the value configured — critical invariant violated; escalate immediately",
+			r.onCriticalInvariant(ctx, "onRampAddress must match the value configured — critical invariant violated; escalate immediately",
 				protocol.LogKeyMessageID, protocol.Bytes32(event.MessageId).String())
 			continue // ensure we never process this msg
 		}
 
 		if !decodedMsg.Sender.Equal(expectedSourceAddressBytes(event.Sender)) {
-			r.onCriticalInvariant(ctx)
-			r.lggr.Fatalw("sender must match the value emitted from the on-chain event. This should never happen.", "sender", protocol.ByteSlice(event.Sender[:]).String())
+			r.onCriticalInvariant(ctx, "sender must match the value emitted from the on-chain event. This should never happen.", "sender", protocol.ByteSlice(event.Sender[:]).String())
 			continue // ensure we never process this msg
 		}
 
 		if decodedMsg.MustMessageID() != event.MessageId {
-			r.onCriticalInvariant(ctx)
-			r.lggr.Fatalw("computed messageID must match the value emitted from the on-chain event — critical invariant violated; escalate immediately",
+			r.onCriticalInvariant(ctx, "computed messageID must match the value emitted from the on-chain event — critical invariant violated; escalate immediately",
 				protocol.LogKeyMessageID, protocol.Bytes32(event.MessageId).String())
 			continue // ensure we never process this msg
 		}
 
 		if decodedMsg.DestChainSelector != protocol.ChainSelector(event.DestChainSelector) {
-			r.onCriticalInvariant(ctx)
-			r.lggr.Fatalw("destination chain selector must match the value emitted from the on-chain event. This should never happen", protocol.LogKeyMessageID, protocol.Bytes32(event.MessageId).String())
+			r.onCriticalInvariant(ctx, "destination chain selector must match the value emitted from the on-chain event. This should never happen", protocol.LogKeyMessageID, protocol.Bytes32(event.MessageId).String())
 			continue // ensure we never process this msg
 		}
 
 		allReceipts := receiptBlobsFromEvent(event.Receipts, event.VerifierBlobs) // Validate the receipt structure matches expectations
 		// Validate ccvAndExecutorHash
 		if err := protocol.ValidateCCVAndExecutorHash(*decodedMsg, allReceipts); err != nil {
-			r.lggr.Errorw("ccvAndExecutorHash validation failed",
+			r.onInvariantViolation(ctx, "ccvAndExecutorHash validation failed",
 				"error", err,
 				protocol.LogKeyMessageID, protocol.Bytes32(event.MessageId).String(),
 				"blockNumber", log.BlockNumber)

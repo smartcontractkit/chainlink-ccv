@@ -88,7 +88,7 @@ func NewServer(cfg *Config, deps Deps, lggr logger.Logger) (*Server, error) {
 func (s *Server) buildRouter(aggregatorAddress string) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
-	r.Use(s.hostAllowlistMiddleware, s.maxBodyBytesMiddleware, middleware.GinLogger(s.lggr), middleware.SecureRecovery(s.lggr), s.securityHeaders, s.basicAuthMiddleware, s.csrfMiddleware)
+	r.Use(s.hostAllowlistMiddleware, middleware.GinLogger(s.lggr), middleware.SecureRecovery(s.lggr), s.securityHeaders, s.basicAuthMiddleware, s.maxBodyBytesMiddleware, s.csrfMiddleware)
 
 	h := &handlers{cfg: s.cfg, lggr: s.lggr, stores: s.stores, actions: s.actions, aggregatorAddress: aggregatorAddress, dialer: s.dialer}
 	staticSub, err := fs.Sub(views.StaticFS, "static")
@@ -167,7 +167,12 @@ func (s *Server) maxBodyBytesMiddleware(c *gin.Context) {
 	body, err := io.ReadAll(http.MaxBytesReader(c.Writer, c.Request.Body, maxRequestBodyBytes))
 	_ = c.Request.Body.Close()
 	if err != nil {
-		c.AbortWithStatus(http.StatusRequestEntityTooLarge)
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			c.AbortWithStatus(http.StatusRequestEntityTooLarge)
+			return
+		}
+		c.AbortWithStatus(http.StatusBadRequest)
 		return
 	}
 	c.Request.Body = io.NopCloser(bytes.NewReader(body))

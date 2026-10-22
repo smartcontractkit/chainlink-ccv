@@ -853,10 +853,10 @@ func (p *EvmExecutionAttemptPoller) processExecutionStateChanged(ctx context.Con
 		return fmt.Errorf("failed to decode call data for transaction %s: %w", txHash.Hex(), err)
 	}
 
-	// Invairant check: assert that computed messageID matches on-chain event emission.
+	// Invariant check: assert that computed messageID matches on-chain event emission.
 	attemptMsgID := executionAttempt.Report.Message.MustMessageID()
 	if !bytes.Equal(msgID[:], attemptMsgID[:]) {
-		p.lggr.Errorw("MessageID from event does not match the computed messageID. This should never happen.", protocol.LogKeyMessageID, protocol.Bytes32(msgID).String(), "computedMessageID", attemptMsgID.String())
+		logger.Sugared(p.lggr).Criticalw("MessageID from event does not match the computed messageID. This should never happen.", protocol.LogKeyMessageID, protocol.Bytes32(msgID).String(), "computedMessageID", attemptMsgID.String())
 		return fmt.Errorf("computed message id does not match event message id")
 	}
 

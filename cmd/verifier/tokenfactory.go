@@ -142,6 +142,7 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 				verifierMonitoring.RecordChainHealthy(ctx, selector, false)
 				return
 			}
+			attachCriticalSourceInvariantCallback(reader, selector, verifierMonitoring)
 			verifierMonitoring.RecordChainHealthy(ctx, selector, true)
 			accessorsMu.Lock()
 			sourceReaders[selector] = reader
