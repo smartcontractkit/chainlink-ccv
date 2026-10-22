@@ -1524,6 +1524,22 @@ func TestVerifierResultMessage_NilChecks(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, protocol.Bytes32{}, got.CcvAndExecutorHash)
 	})
+
+	t.Run("VerifierResultsResponse handles nil elements in Results and Errors during JSON round-trip", func(t *testing.T) {
+		resp := &VerifierResultsResponse{
+			GetVerifierResultsForMessageResponse: &v1.GetVerifierResultsForMessageResponse{
+				Results: []*v1.VerifierResult{nil},
+				Errors:  []*status.Status{nil},
+			},
+		}
+		bz, err := json.Marshal(resp)
+		require.NoError(t, err)
+
+		var decoded VerifierResultsResponse
+		require.NoError(t, json.Unmarshal(bz, &decoded))
+		require.Len(t, decoded.Results, 1)
+		require.Nil(t, decoded.Results[0])
+	})
 }
 
 func TestVerifierResultsMetadata_NilChecks(t *testing.T) {

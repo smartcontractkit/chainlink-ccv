@@ -296,6 +296,7 @@ func (r *SourceReader) rpcLogs(ctx context.Context, fromBlock, toBlock uint64) (
 // through onCriticalInvariant and skipped.
 func (r *sourceReaderCore) parseMessageSentLogs(ctx context.Context, logs []types.Log) []protocol.MessageSentEvent {
 	results := make([]protocol.MessageSentEvent, 0, len(logs))
+	critLggr := logger.Sugared(r.lggr)
 
 	// Process found events
 	for _, log := range logs {
@@ -313,7 +314,7 @@ func (r *sourceReaderCore) parseMessageSentLogs(ctx context.Context, logs []type
 		// Explicitly check for the expected number of topics
 		if len(log.Topics) < 4 {
 			r.onCriticalInvariant(ctx)
-			r.lggr.Errorw("CCIPMessageSent event has insufficient topics",
+			critLggr.Criticalw("CCIPMessageSent event has insufficient topics",
 				"expected", 4,
 				"actual", len(log.Topics),
 				"blockNumber", log.BlockNumber,
@@ -339,7 +340,7 @@ func (r *sourceReaderCore) parseMessageSentLogs(ctx context.Context, logs []type
 		err := r.onRampABI.UnpackIntoInterface(event, "CCIPMessageSent", log.Data)
 		if err != nil {
 			r.onCriticalInvariant(ctx)
-			r.lggr.Errorw("Failed to unpack CCIPMessageSent event payload", "error", err)
+			critLggr.Criticalw("Failed to unpack CCIPMessageSent event payload", "error", err)
 			continue // to next message
 		}
 		r.lggr.Debugw("OnRamp Event Structure",
@@ -352,7 +353,7 @@ func (r *sourceReaderCore) parseMessageSentLogs(ctx context.Context, logs []type
 		// Check minimum receipt count: at least 1 CCV + executor + network fees = 3 receipts
 		if len(event.Receipts) < 3 {
 			r.onCriticalInvariant(ctx)
-			r.lggr.Errorw("Insufficient receipts. Expected at least 3 (1 CCV + executor + network fees)",
+			critLggr.Criticalw("Insufficient receipts. Expected at least 3 (1 CCV + executor + network fees)",
 				"count", len(event.Receipts),
 				protocol.LogKeyMessageID, protocol.Bytes32(event.MessageId).String())
 			continue // to next message
@@ -383,7 +384,7 @@ func (r *sourceReaderCore) parseMessageSentLogs(ctx context.Context, logs []type
 		decodedMsg, err := protocol.DecodeMessage(event.EncodedMessage)
 		if err != nil {
 			r.onCriticalInvariant(ctx)
-			r.lggr.Errorw("Failed to decode message", "error", err, "rawMessage", event.EncodedMessage)
+			critLggr.Criticalw("Failed to decode message", "error", err, "rawMessage", event.EncodedMessage)
 			continue // to next message
 		}
 		r.lggr.Debugw("Decoded message",
@@ -392,7 +393,7 @@ func (r *sourceReaderCore) parseMessageSentLogs(ctx context.Context, logs []type
 		// Validate that ccvAndExecutorHash is not zero - it's required
 		if decodedMsg.CcvAndExecutorHash == (protocol.Bytes32{}) {
 			r.onCriticalInvariant(ctx)
-			r.lggr.Errorw("ccvAndExecutorHash is zero in decoded message",
+			critLggr.Criticalw("ccvAndExecutorHash is zero in decoded message",
 				protocol.LogKeyMessageID, protocol.Bytes32(event.MessageId).String(),
 				"blockNumber", log.BlockNumber)
 			continue // to next message
@@ -400,7 +401,7 @@ func (r *sourceReaderCore) parseMessageSentLogs(ctx context.Context, logs []type
 
 		if decodedMsg.SourceChainSelector != r.chainSelector {
 			r.onCriticalInvariant(ctx)
-			r.lggr.Errorw("source chain selector must match the value configured — critical invariant violated; escalate immediately",
+			critLggr.Criticalw("source chain selector must match the value configured — critical invariant violated; escalate immediately",
 				"expected", r.chainSelector,
 				"actual", decodedMsg.SourceChainSelector,
 				protocol.LogKeyMessageID, protocol.Bytes32(event.MessageId).String())
@@ -409,27 +410,27 @@ func (r *sourceReaderCore) parseMessageSentLogs(ctx context.Context, logs []type
 
 		if !decodedMsg.OnRampAddress.Equal(expectedSourceAddressBytes(r.onRampAddress)) {
 			r.onCriticalInvariant(ctx)
-			r.lggr.Errorw("onRampAddress must match the value configured — critical invariant violated; escalate immediately",
+			critLggr.Criticalw("onRampAddress must match the value configured — critical invariant violated; escalate immediately",
 				protocol.LogKeyMessageID, protocol.Bytes32(event.MessageId).String())
 			continue // ensure we never process this msg
 		}
 
 		if !decodedMsg.Sender.Equal(expectedSourceAddressBytes(event.Sender)) {
 			r.onCriticalInvariant(ctx)
-			r.lggr.Errorw("sender must match the value emitted from the on-chain event. This should never happen.", "sender", protocol.ByteSlice(event.Sender[:]).String())
+			critLggr.Criticalw("sender must match the value emitted from the on-chain event. This should never happen.", "sender", protocol.ByteSlice(event.Sender[:]).String())
 			continue // ensure we never process this msg
 		}
 
 		if decodedMsg.MustMessageID() != event.MessageId {
 			r.onCriticalInvariant(ctx)
-			r.lggr.Errorw("computed messageID must match the value emitted from the on-chain event — critical invariant violated; escalate immediately",
+			critLggr.Criticalw("computed messageID must match the value emitted from the on-chain event — critical invariant violated; escalate immediately",
 				protocol.LogKeyMessageID, protocol.Bytes32(event.MessageId).String())
 			continue // ensure we never process this msg
 		}
 
 		if decodedMsg.DestChainSelector != protocol.ChainSelector(event.DestChainSelector) {
 			r.onCriticalInvariant(ctx)
-			r.lggr.Errorw("destination chain selector must match the value emitted from the on-chain event. This should never happen", protocol.LogKeyMessageID, protocol.Bytes32(event.MessageId).String())
+			critLggr.Criticalw("destination chain selector must match the value emitted from the on-chain event. This should never happen", protocol.LogKeyMessageID, protocol.Bytes32(event.MessageId).String())
 			continue // ensure we never process this msg
 		}
 
@@ -437,7 +438,7 @@ func (r *sourceReaderCore) parseMessageSentLogs(ctx context.Context, logs []type
 		// Validate ccvAndExecutorHash
 		if err := protocol.ValidateCCVAndExecutorHash(*decodedMsg, allReceipts); err != nil {
 			r.onCriticalInvariant(ctx)
-			r.lggr.Errorw("ccvAndExecutorHash validation failed",
+			critLggr.Criticalw("ccvAndExecutorHash validation failed",
 				"error", err,
 				protocol.LogKeyMessageID, protocol.Bytes32(event.MessageId).String(),
 				"blockNumber", log.BlockNumber)

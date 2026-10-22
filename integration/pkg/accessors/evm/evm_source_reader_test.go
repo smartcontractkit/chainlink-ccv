@@ -16,6 +16,7 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap/zapcore"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	evmclient "github.com/smartcontractkit/chainlink-evm/pkg/client"
@@ -531,8 +532,9 @@ func TestFetchMessageSentEvents_CriticalInvariantsDoNotExitProcess(t *testing.T)
 	}
 
 	var invariantCalls atomic.Int32
+	lggr, observed := logger.TestObserved(t, zapcore.DPanicLevel)
 	core := sourceReaderCore{
-		lggr:                 logger.Test(t),
+		lggr:                 lggr,
 		onRampAddress:        onRampAddress,
 		chainSelector:        protocol.ChainSelector(1337),
 		onRampABI:            onRampABI,
@@ -553,4 +555,5 @@ func TestFetchMessageSentEvents_CriticalInvariantsDoNotExitProcess(t *testing.T)
 	require.Len(t, events, 1)
 	require.Equal(t, validMsgID, events[0].MessageID)
 	require.Equal(t, int32(6), invariantCalls.Load())
+	require.Equal(t, 6, observed.Len(), "each critical invariant violation must emit a Criticalw log")
 }

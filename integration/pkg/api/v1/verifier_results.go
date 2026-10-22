@@ -97,7 +97,9 @@ func (r *VerifierResultsResponse) MarshalJSON() ([]byte, error) {
 
 	results := make([]*VerifierResult, len(r.Results))
 	for i, res := range r.Results {
-		results[i] = &VerifierResult{res}
+		if res != nil {
+			results[i] = &VerifierResult{res}
+		}
 	}
 	errors := make([]string, len(r.Errors))
 	for i, errStatus := range r.Errors {
@@ -121,7 +123,9 @@ func (r *VerifierResultsResponse) UnmarshalJSON(data []byte) error {
 
 	results := make([]*v1.VerifierResult, len(aux.Results))
 	for i, res := range aux.Results {
-		results[i] = res.VerifierResult
+		if res != nil {
+			results[i] = res.VerifierResult
+		}
 	}
 
 	errors := make([]*status.Status, len(aux.Errors))
