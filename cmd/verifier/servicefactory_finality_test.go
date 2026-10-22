@@ -68,7 +68,6 @@ func TestFactoryStart_PassesReaderReportersToCoordinator(t *testing.T) {
 	require.NoError(t, startServingWith(t, f, reg, port))
 	t.Cleanup(func() {
 		require.NoError(t, f.Stop(t.Context()))
-		require.NoError(t, f.AfterAccessorsClosed(t.Context()))
 	})
 
 	require.Eventually(t, func() bool { return reg.reported.Load() > 0 },

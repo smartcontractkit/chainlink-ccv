@@ -129,7 +129,6 @@ func releaseCounting(t *testing.T, f *factory, reg *countingRegistry) {
 	t.Helper()
 	require.NoError(t, f.Stop(t.Context()))
 	reg.closeAll()
-	require.NoError(t, f.AfterAccessorsClosed(t.Context()))
 }
 
 func startTwoChains(t *testing.T, f *factory, reg chainaccess.Registry, port int) error {

@@ -199,12 +199,11 @@ func startServingWith(t *testing.T, f *factory, reg chainaccess.Registry, port i
 	})
 }
 
-// release runs the teardown bootstrap performs: factory Stop, then accessors, then the hook.
+// release runs the teardown bootstrap performs: factory Stop, then accessors.
 func release(t *testing.T, f *factory, reg *idleRegistry) {
 	t.Helper()
 	require.NoError(t, f.Stop(t.Context()))
 	reg.closeAll(t)
-	require.NoError(t, f.AfterAccessorsClosed(t.Context()))
 }
 
 func freePort(t *testing.T) int {
@@ -255,7 +254,6 @@ func TestFactoryStart_FlagOff_ConnectsAndMigratesDBBeforeFirstGetAccessor(t *tes
 	require.Equal(t, want, reg.versions, "every migration must be applied before the first GetAccessor")
 
 	require.NoError(t, f.Stop(t.Context()))
-	require.NoError(t, f.AfterAccessorsClosed(t.Context()))
 }
 
 // The subtests share one Postgres container and run serially (they set environment variables).
@@ -268,25 +266,22 @@ func TestFactoryDatabaseOwnership(t *testing.T) {
 			5*time.Second, 50*time.Millisecond, msg)
 	}
 
-	t.Run("Stop leaves the handle and the hook closes it exactly once", func(t *testing.T) {
+	t.Run("Stop closes the database exactly once", func(t *testing.T) {
 		setFactoryEnv(t, dbURL)
 		baseline := serverConnections(t, dbURL)
 		f := &factory{}
-		require.NoError(t, f.AfterAccessorsClosed(t.Context()), "no database configured is a no-op")
+		require.NoError(t, f.Stop(t.Context()), "no database open is a no-op")
 		require.ErrorContains(t, startFactory(t, f, &dbCheckRegistry{f: f}), "no source readers")
 		require.Greater(t, serverConnections(t, dbURL), baseline)
-
-		require.NoError(t, f.Stop(t.Context()))
 		f.dbMu.Lock()
 		db := f.db
 		f.dbMu.Unlock()
-		require.NotNil(t, db, "Stop must leave the handle for AfterAccessorsClosed")
-		require.NoError(t, db.PingContext(t.Context()), "database must still be usable after Stop")
+		require.NotNil(t, db)
 
-		require.NoError(t, f.AfterAccessorsClosed(t.Context()))
-		require.Error(t, db.PingContext(t.Context()), "hook must close the database")
-		require.NoError(t, f.AfterAccessorsClosed(t.Context()), "second call is a no-op")
-		settled(t, baseline, "hook must release every server-side connection")
+		require.NoError(t, f.Stop(t.Context()))
+		require.Error(t, db.PingContext(t.Context()), "Stop must close the database")
+		require.NoError(t, f.Stop(t.Context()), "second Stop is a no-op")
+		settled(t, baseline, "Stop must release every server-side connection")
 	})
 
 	t.Run("a started job releases the database and HTTP port on teardown", func(t *testing.T) {
@@ -332,7 +327,7 @@ func TestFactoryDatabaseOwnership(t *testing.T) {
 		settled(t, baseline, "teardown must release every server-side connection")
 	})
 
-	t.Run("Start closes a handle the hook never released", func(t *testing.T) {
+	t.Run("Start closes a handle a previous Start left open", func(t *testing.T) {
 		setFactoryEnv(t, dbURL)
 		baseline := serverConnections(t, dbURL)
 		f := &factory{}
@@ -344,7 +339,7 @@ func TestFactoryDatabaseOwnership(t *testing.T) {
 		require.ErrorContains(t, startFactory(t, f, &dbCheckRegistry{f: f}), "no source readers")
 		require.Error(t, leftover.PingContext(t.Context()), "previous handle must be closed")
 
-		require.NoError(t, f.AfterAccessorsClosed(t.Context()))
+		require.NoError(t, f.Stop(t.Context()))
 		settled(t, baseline, "only the test's own connections may remain")
 	})
 

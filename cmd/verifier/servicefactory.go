@@ -61,16 +61,12 @@ type factory struct {
 	heartbeatClient  heartbeatclient.HeartbeatSender
 	adminStop        func()
 
-	// db is the shared verifier database. It is closed only by AfterAccessorsClosed, never by
-	// Stop, because accessors and source readers still use it until bootstrap has closed them.
+	// db is the verifier database, opened in Start and closed last in Stop.
 	dbMu sync.Mutex
 	db   *sqlx.DB
 }
 
-var (
-	_ bootstrap.ServiceFactoryValidator = (*factory)(nil)
-	_ bootstrap.AccessorsClosedHook     = (*factory)(nil)
-)
+var _ bootstrap.ServiceFactoryValidator = (*factory)(nil)
 
 // NewCommitteeVerifierServiceFactory creates a new ServiceFactory for the committee verifier service.
 // The factory loads the verifier secrets file itself in Start, so each chain-family binary's main.go
@@ -612,6 +608,12 @@ func (f *factory) Stop(ctx context.Context) error {
 		f.adminStop()
 	}
 
+	// Close the database last: the coordinator and the admin console use it until they stop.
+	if err := f.closeDB(); err != nil {
+		f.lggr.Errorw("Database close error", "error", err)
+		allErrors = errors.Join(allErrors, err)
+	}
+
 	f.server = nil
 	f.coordinator = nil
 	f.profiler = nil
@@ -623,8 +625,8 @@ func (f *factory) Stop(ctx context.Context) error {
 	return allErrors
 }
 
-// connectDB opens and migrates the shared database and keeps it for AfterAccessorsClosed. It
-// returns a nil DataSource when no database URL is configured.
+// connectDB opens and migrates the verifier database and keeps it for Stop. It returns a nil
+// DataSource when no database URL is configured.
 func (f *factory) connectDB(ctx context.Context, lggr logger.Logger, secrets *vsecrets.VerifierSecrets) (sqlutil.DataSource, error) {
 	f.dbMu.Lock()
 	defer f.dbMu.Unlock()
@@ -650,9 +652,8 @@ func (f *factory) connectDB(ctx context.Context, lggr logger.Logger, secrets *vs
 	return db, nil
 }
 
-// AfterAccessorsClosed implements [bootstrap.AccessorsClosedHook]. It closes the shared database
-// exactly once; later calls, or calls with no database configured, do nothing.
-func (f *factory) AfterAccessorsClosed(context.Context) error {
+// closeDB closes the verifier database once; later calls, or calls with none open, do nothing.
+func (f *factory) closeDB() error {
 	f.dbMu.Lock()
 	defer f.dbMu.Unlock()
 
