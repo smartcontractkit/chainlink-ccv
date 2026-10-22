@@ -26,10 +26,12 @@ execute the staging plan's step with the substitutions in "Conventions".
    Cutovers need a posted schedule, a quiet window per node, and a real lane for the
    confirmation message in step 11. Staging's "pick a quiet moment" becomes "announce it,
    then pick a quiet moment."
-2. **59 EVM chains, not 5.** The pre-cutover config diff runs per chain. There is no
-   curated block-time table: every chain flagged `txm_block_time_is_default: true` in
-   the diff gets an explicit value in the EVM TOML or a recorded acceptance. This is
-   the scale test for the config tooling.
+2. **59 EVM chains, not 5.** The pre-cutover config diff runs per chain. While
+   `curatedTXMBlockTimeByChainID` (PR #1461) covers common >2s chains (`txm_block_time_source:
+   "curated_chain_default"`), every chain that still falls back to `txm_block_time_source:
+   "generic_fallback"` (`2s`) in the diff gets an explicit `BlockTime` value in the EVM TOML (if
+   its block time exceeds `2s`) or a recorded acceptance. This is the scale test for the config
+   tooling.
 3. **Balance alerting is mandatory.** Staging skipped it with manual soak checks. Here
    the external alert on each new executor transmitter address, per chain, goes up before
    that node's jobs start. This is the rehearsal for the prod-mainnet alerting
@@ -135,8 +137,10 @@ chart copied from the Solana executor chart). Create the prod-testnet value tree
 
 Model them on the staging trees; the only intended differences are environment labels,
 the image tag (P2), and resource sizing if staging's soak showed a need. Probe
-configuration is the same (liveness → app `/health` on 8100/8101, readiness → bootstrap
-`/ready` on 9988).
+configuration is the same as staging: both `livenessProbe` and `readinessProbe` in Helm
+values target bootstrap `/health` on `9988` (`[server].listen_port`) so pods come up ready
+in Step 6 before JD proposes a job in Step 9 (once the job starts in Step 9, verify
+bootstrap `/ready` on `9988` and app `/health` on `8100`/`8101`).
 
 ### P4. Databases (3 per migrating node, on their own cluster)
 
@@ -155,10 +159,13 @@ traffic. Map keys ≤ 43 chars; set `connectionSecret.name` explicitly.
 For each of the 59 EVM chains: run `ccv migrate inspect-config` against the node EVM
 TOML (the `chainlink-ccv-testnet` values carry 61 `[[EVM]]` entries; the committee
 serves 59 — reconcile the difference during the first node's diff) and record
-accept-or-correct for every warning and every chain flagged
-`txm_block_time_is_default: true`. A chain that fails to convert fails the whole
-report, so it is a fix, not a review item. This is one recorded review, reused
-across nodes, re-run when the config changes.
+accept-or-correct for every warning and every chain's `txm_block_time` /
+`txm_block_time_source` (`operator`, `curated_chain_default`, or
+`generic_fallback`). Unconvertible `[[EVM]]` entries are reported under `failed_chains`
+(and boot-time `chainaccess.CheckDeclaredChainCoverage` rejects any declared `[[chains]]`
+entry that is missing or in `failed_chains`), so `failed_chains` must be empty for all 59
+committee chains. This is one recorded review, reused across nodes, re-run when the
+config changes.
 
 ### P6. Secrets per node
 
