@@ -270,8 +270,7 @@ func launchVerifier(ctx context.Context, in *Input, outputs []*blockchain.Output
 
 	// Update bootstrap config w/ the keystore/ORM database URL (needed in every mode).
 	// TODO: make this easier? All standalone setups will have to do the same thing.
-	bootstrapInput.DB.URL = fmt.Sprintf("postgresql://%s:%s@%s:5432/%s?sslmode=disable",
-		in.ContainerName, in.ContainerName, dbContainerName(in.DB.Name, in.ChainFamily), services.DefaultBootstrapDBName)
+	bootstrapInput.DB.URL = internalDBURL(in, services.DefaultBootstrapDBName)
 
 	if !local {
 		// Point the bootstrapper at JD. In local mode [jd] is left blank (omitted by omitempty and
@@ -294,8 +293,7 @@ func launchVerifier(ctx context.Context, in *Input, outputs []*blockchain.Output
 	}
 
 	// Database connection for chain status (internal docker network address).
-	internalDBConnectionString := fmt.Sprintf("postgresql://%s:%s@%s:5432/%s?sslmode=disable",
-		in.ContainerName, in.ContainerName, dbContainerName(in.DB.Name, in.ChainFamily), in.ContainerName)
+	internalDBConnectionString := InternalDBURL(in)
 
 	// Deliver the DB URL and per-aggregator HMAC credentials via the verifier secrets file,
 	// mounted at the default path, instead of the CL_DATABASE_URL / VERIFIER_AGGREGATOR_* env vars —
@@ -666,6 +664,16 @@ func getAggregatorSecretEntries(in *Input) ([]vsecrets.AggregatorSecret, error) 
 	}
 
 	return []vsecrets.AggregatorSecret{{APIKey: apiKey, SecretKey: secretKey}}, nil
+}
+
+// InternalDBURL is the URL of the verifier database on the Docker network, as the container sees it.
+func InternalDBURL(in *Input) string {
+	return internalDBURL(in, in.ContainerName)
+}
+
+func internalDBURL(in *Input, database string) string {
+	return fmt.Sprintf("postgresql://%s:%s@%s:5432/%s?sslmode=disable",
+		in.ContainerName, in.ContainerName, dbContainerName(in.DB.Name, in.ChainFamily), database)
 }
 
 func dbContainerName(inDBName, chainFamily string) string {

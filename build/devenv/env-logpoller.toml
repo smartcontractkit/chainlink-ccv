@@ -1,5 +1,6 @@
-# Overlay for the LogPoller profile. It does not turn the LogPoller on yet: that is log_poller_enabled
-# in each committee verifier's EVM config, with [db] in its EVM secrets, and devenv writes neither.
+# Overlay that runs every committee verifier with log_poller_enabled = true in its EVM config, so each
+# reads its EVM source chains through the LogPoller reader instead of the RPC reader. The EVM secrets
+# point [db] at the verifier's own database. The token verifier is not listed: it has no LogPoller.
 #
 # Use it with env-src-auto-mine.toml (see standard.logpoller.profile): the finality-violation and
 # reorg flows for the ccv blocks commands need manual control of source-chain block progress.
@@ -22,6 +23,8 @@
     image = "postgres:16-alpine"
     name = "default-verifier-1-db"
     port = 8432
+  [verifier.opaque_configs.evm]
+    log_poller_enabled = true
 
 [[verifier]]
   image = "verifier:latest"
@@ -36,6 +39,8 @@
     image = "postgres:16-alpine"
     name = "default-verifier-2-db"
     port = 8433
+  [verifier.opaque_configs.evm]
+    log_poller_enabled = true
 
 [[verifier]]
   image = "verifier:latest"
@@ -50,6 +55,8 @@
     image = "postgres:16-alpine"
     name = "secondary-verifier-1-db"
     port = 8434
+  [verifier.opaque_configs.evm]
+    log_poller_enabled = true
 
 [[verifier]]
   image = "verifier:latest"
@@ -64,6 +71,8 @@
     image = "postgres:16-alpine"
     name = "secondary-verifier-2-db"
     port = 8435
+  [verifier.opaque_configs.evm]
+    log_poller_enabled = true
 
 [[verifier]]
   image = "verifier:latest"
@@ -78,6 +87,8 @@
     image = "postgres:16-alpine"
     name = "tertiary-verifier-1-db"
     port = 8436
+  [verifier.opaque_configs.evm]
+    log_poller_enabled = true
 
 [[verifier]]
   image = "verifier:latest"
@@ -92,3 +103,5 @@
     image = "postgres:16-alpine"
     name = "tertiary-verifier-2-db"
     port = 8437
+  [verifier.opaque_configs.evm]
+    log_poller_enabled = true

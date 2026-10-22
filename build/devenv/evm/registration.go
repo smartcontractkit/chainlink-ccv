@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -36,7 +37,9 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/contracttransmitter"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
@@ -93,25 +96,42 @@ func init() {
 	}
 }
 
+// verifierEVMConfig is a committee verifier's [verifier.opaque_configs.evm] section.
+type verifierEVMConfig struct {
+	LogPollerEnabled bool `toml:"log_poller_enabled"`
+}
+
 // VerifierModifier adjusts committee verifier container requests for EVM.
 func VerifierModifier(req testcontainers.ContainerRequest, verifierInput *committeeverifier.Input, outputs []*blockchain.Output) (testcontainers.ContainerRequest, error) {
 	req.Name = fmt.Sprintf("evm-%s", verifierInput.ContainerName)
-	return addEVMConfig(req, outputs)
+	var cfg verifierEVMConfig
+	if opaque, ok := verifierInput.OpaqueConfigs[chainsel.FamilyEVM]; ok {
+		parsed, err := util.OpaqueToConcreteStrict[verifierEVMConfig](opaque)
+		if err != nil {
+			return req, fmt.Errorf("invalid opaque_configs.evm for verifier %s: %w", verifierInput.ContainerName, err)
+		}
+		cfg = *parsed
+	}
+	req, err := addEVMConfig(req, outputs, cfg.LogPollerEnabled)
+	if err != nil || !cfg.LogPollerEnabled {
+		return req, err
+	}
+	return addEVMSecrets(req, verifierInput)
 }
 
 // ExecutorModifier adjusts executor container requests for EVM.
 func ExecutorModifier(req testcontainers.ContainerRequest, executorInput *executor.Input, outputs []*blockchain.Output) (testcontainers.ContainerRequest, error) {
 	req.Name = fmt.Sprintf("evm-%s", executorInput.ContainerName)
-	return addEVMConfig(req, outputs)
+	return addEVMConfig(req, outputs, false)
 }
 
 // TokenVerifierModifier adjusts token verifier container requests for EVM.
 func TokenVerifierModifier(req testcontainers.ContainerRequest, _ *services.TokenVerifierInput, outputs []*blockchain.Output) (testcontainers.ContainerRequest, error) {
-	return addEVMConfig(req, outputs)
+	return addEVMConfig(req, outputs, false)
 }
 
-func addEVMConfig(req testcontainers.ContainerRequest, outputs []*blockchain.Output) (testcontainers.ContainerRequest, error) {
-	config, err := marshalEVMConfig(outputs)
+func addEVMConfig(req testcontainers.ContainerRequest, outputs []*blockchain.Output, logPollerEnabled bool) (testcontainers.ContainerRequest, error) {
+	config, err := marshalEVMConfig(outputs, logPollerEnabled)
 	if err != nil {
 		return req, fmt.Errorf("failed to marshal EVM config: %w", err)
 	}
@@ -145,6 +165,23 @@ func addEVMConfig(req testcontainers.ContainerRequest, outputs []*blockchain.Out
 		FileMode:          0o644,
 	})
 
+	return req, nil
+}
+
+// addEVMSecrets writes the verifier's EVM secrets beside its other secrets files and bind-mounts them at
+// the default path. [db] is the verifier's own database, where the LogPoller keeps its evm schema.
+func addEVMSecrets(req testcontainers.ContainerRequest, in *committeeverifier.Input) (testcontainers.ContainerRequest, error) {
+	secrets, err := toml.Marshal(evmconfig.Secrets{DB: &evmconfig.DBConfig{URL: committeeverifier.InternalDBURL(in)}})
+	if err != nil {
+		return req, fmt.Errorf("failed to marshal EVM secrets: %w", err)
+	}
+	secretsFilePath := filepath.Join(util.CCVConfigDir(),
+		fmt.Sprintf("evm-%s-secrets-%d.toml", in.CommitteeName, in.NodeIndex+1))
+	// 0o644 like the verifier secrets: the ccv CLI run through docker exec must be able to read it.
+	if err := os.WriteFile(secretsFilePath, secrets, 0o644); err != nil {
+		return req, fmt.Errorf("failed to write EVM secrets to file: %w", err)
+	}
+	req.Mounts = append(req.Mounts, testcontainers.BindMount(secretsFilePath, evmconfig.DefaultEVMSecretsPath))
 	return req, nil
 }
 
@@ -329,13 +366,15 @@ func ChainConfigLoader(outputs []*blockchain.Output) (map[string]any, error) {
 	return infos, nil
 }
 
-func marshalEVMConfig(outputs []*blockchain.Output) ([]byte, error) {
+func marshalEVMConfig(outputs []*blockchain.Output, logPollerEnabled bool) ([]byte, error) {
 	infos, err := evmchainconfig.ConvertBlockchainOutputsToInfo(outputs)
 	if err != nil {
 		return nil, err
 	}
 
-	config, err := toml.Marshal(evm.NewConfigFromInfos(infos))
+	cfg := evm.NewConfigFromInfos(infos)
+	cfg.LogPollerEnabled = logPollerEnabled
+	config, err := toml.Marshal(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal config: %w", err)
 	}
