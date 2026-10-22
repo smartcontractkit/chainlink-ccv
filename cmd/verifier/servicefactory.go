@@ -221,13 +221,6 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		}
 	}
 
-	// An absent URL leaves the database nil (storage is optional).
-	chainStatusDB, err := f.connectDB(ctx, lggr, secrets)
-	if err != nil {
-		lggr.Errorw("Failed to connect to Postgres DB", "error", err)
-		return fmt.Errorf("failed to connect to Postgres DB: %w", err)
-	}
-
 	// A failure to stand up one chain's reader (e.g. an unreachable RPC) must not stop the
 	// remaining chains from starting. Log and skip, then only reject the whole coordinator if no
 	// chain is usable. Chains are built concurrently with a per-chain timeout: accessor
@@ -337,6 +330,13 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		return err
 	}
 	lggr.Infow("Using signer address", "address", signerAddress)
+
+	// An absent URL leaves the database nil (storage is optional).
+	chainStatusDB, err := f.connectDB(ctx, lggr, secrets)
+	if err != nil {
+		lggr.Errorw("Failed to connect to Postgres DB", "error", err)
+		return fmt.Errorf("failed to connect to Postgres DB: %w", err)
+	}
 
 	// Create chain status manager (PostgreSQL storage) with monitoring decorator
 	chainStatusManager := createChainStatusManager(lggr, config.VerifierID, verifierMonitoring, chainStatusDB)

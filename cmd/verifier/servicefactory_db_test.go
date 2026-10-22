@@ -180,19 +180,25 @@ func startServing(t *testing.T, f *factory, reg chainaccess.Registry, port int) 
 	return startServingWith(t, f, reg, port)
 }
 
-// startServingWith is startServing with the given feature flags.
+// startServingWith is startServing under t's context.
 func startServingWith(t *testing.T, f *factory, reg chainaccess.Registry, port int) error {
 	t.Helper()
-	ks, err := keystore.LoadKeystore(t.Context(), keystore.NewMemoryStorage(), "test",
+	return startServingCtx(t.Context(), t, f, reg, port)
+}
+
+// startServingCtx is startServing under the given context.
+func startServingCtx(ctx context.Context, t *testing.T, f *factory, reg chainaccess.Registry, port int) error {
+	t.Helper()
+	ks, err := keystore.LoadKeystore(ctx, keystore.NewMemoryStorage(), "test",
 		keystore.WithScryptParams(keystore.FastScryptParams))
 	require.NoError(t, err)
-	_, err = ks.CreateKeys(t.Context(), keystore.CreateKeysRequest{Keys: []keystore.CreateKeyRequest{
+	_, err = ks.CreateKeys(ctx, keystore.CreateKeysRequest{Keys: []keystore.CreateKeyRequest{
 		{KeyName: commit.DefaultECDSASigningKeyName, KeyType: keystore.ECDSA_S256},
 	}})
 	require.NoError(t, err)
 	// Top-level TOML keys must precede the spec's tables.
 	spec := fmt.Sprintf("signer_address = %q\nhttp_listen_port = %d\n", commit.AutoSignerAddress, port) + testDBSpec
-	return f.Start(t.Context(), bootstrap.JobSpec{AppConfig: spec}, bootstrap.ServiceDeps{
+	return f.Start(ctx, bootstrap.JobSpec{AppConfig: spec}, bootstrap.ServiceDeps{
 		Logger:   logger.Test(t),
 		Keystore: ks,
 		Registry: reg,
@@ -236,24 +242,34 @@ func serverConnections(t *testing.T, dbURL string) int {
 	return n
 }
 
-// With the LogPoller off, Start applies the same migrations as before, now ahead of the first
-// GetAccessor. Story 1.5 extends this for the flag-on path.
-func TestFactoryStart_FlagOff_ConnectsAndMigratesDBBeforeFirstGetAccessor(t *testing.T) {
+// Start connects and migrates the verifier database only after the chains' readers are built, so a
+// chain-side failure never waits on it.
+func TestFactoryStart_ConnectsAndMigratesDBAfterSourceReaders(t *testing.T) {
 	reference, dbURL := testutil.NewTestDBWithURL(t)
 	want, err := appliedVersions(t.Context(), reference)
 	require.NoError(t, err)
 	require.Contains(t, want, int64(9), "reference schema must include the verifier migrations")
 
-	setFactoryEnv(t, emptyDatabase(t, dbURL))
+	target := emptyDatabase(t, dbURL)
+	setFactoryEnv(t, target)
 	f := &factory{}
 	reg := &dbCheckRegistry{f: f}
 
 	require.ErrorContains(t, startFactory(t, f, reg), "no source readers configured")
 	require.Equal(t, 1, reg.calls)
-	require.True(t, reg.dbWasOpen, "database must be connected before the first GetAccessor")
-	require.Equal(t, want, reg.versions, "every migration must be applied before the first GetAccessor")
-
+	require.False(t, reg.dbWasOpen, "database must not be connected before the readers are built")
 	require.NoError(t, f.Stop(t.Context()))
+
+	f, idle := &factory{}, &idleRegistry{}
+	require.NoError(t, startServing(t, f, idle, freePort(t)))
+	f.dbMu.Lock()
+	db := f.db
+	f.dbMu.Unlock()
+	require.NotNil(t, db)
+	got, err := appliedVersions(t.Context(), db)
+	require.NoError(t, err)
+	require.Equal(t, want, got, "every migration must be applied once Start succeeds")
+	release(t, f, idle)
 }
 
 // The subtests share one Postgres container and run serially (they set environment variables).
@@ -269,16 +285,16 @@ func TestFactoryDatabaseOwnership(t *testing.T) {
 	t.Run("Stop closes the database exactly once", func(t *testing.T) {
 		setFactoryEnv(t, dbURL)
 		baseline := serverConnections(t, dbURL)
-		f := &factory{}
+		f, reg := &factory{}, &idleRegistry{}
 		require.NoError(t, f.Stop(t.Context()), "no database open is a no-op")
-		require.ErrorContains(t, startFactory(t, f, &dbCheckRegistry{f: f}), "no source readers")
+		require.NoError(t, startServing(t, f, reg, freePort(t)))
 		require.Greater(t, serverConnections(t, dbURL), baseline)
 		f.dbMu.Lock()
 		db := f.db
 		f.dbMu.Unlock()
 		require.NotNil(t, db)
 
-		require.NoError(t, f.Stop(t.Context()))
+		release(t, f, reg)
 		require.Error(t, db.PingContext(t.Context()), "Stop must close the database")
 		require.NoError(t, f.Stop(t.Context()), "second Stop is a no-op")
 		settled(t, baseline, "Stop must release every server-side connection")
@@ -330,28 +346,25 @@ func TestFactoryDatabaseOwnership(t *testing.T) {
 	t.Run("Start closes a handle a previous Start left open", func(t *testing.T) {
 		setFactoryEnv(t, dbURL)
 		baseline := serverConnections(t, dbURL)
-		f := &factory{}
-		require.ErrorContains(t, startFactory(t, f, &dbCheckRegistry{f: f}), "no source readers")
-		f.dbMu.Lock()
-		leftover := f.db
-		f.dbMu.Unlock()
+		leftover, err := sqlx.Open("postgres", dbURL)
+		require.NoError(t, err)
+		require.NoError(t, leftover.PingContext(t.Context()))
+		f, reg := &factory{db: leftover}, &idleRegistry{}
 
-		require.ErrorContains(t, startFactory(t, f, &dbCheckRegistry{f: f}), "no source readers")
+		require.NoError(t, startServing(t, f, reg, freePort(t)))
 		require.Error(t, leftover.PingContext(t.Context()), "previous handle must be closed")
 
-		require.NoError(t, f.Stop(t.Context()))
+		release(t, f, reg)
 		settled(t, baseline, "only the test's own connections may remain")
 	})
 
-	t.Run("an unreachable database fails startup before any accessor is requested", func(t *testing.T) {
+	t.Run("an unreachable database fails startup", func(t *testing.T) {
 		setFactoryEnv(t, "postgres://nobody:nopass@127.0.0.1:1/none?sslmode=disable&connect_timeout=1")
-		f := &factory{}
-		reg := &dbCheckRegistry{f: f}
+		f, reg := &factory{}, &idleRegistry{}
 
 		// The connect retries are bounded by the startup ctx, so a short deadline keeps this fast.
 		ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 		defer cancel()
-		require.ErrorContains(t, startFactoryCtx(ctx, t, f, reg), "failed to connect to Postgres DB")
-		require.Zero(t, reg.calls)
+		require.ErrorContains(t, startServingCtx(ctx, t, f, reg, freePort(t)), "failed to connect to Postgres DB")
 	})
 }
