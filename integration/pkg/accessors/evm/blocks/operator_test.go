@@ -1,4 +1,4 @@
-package verifier
+package blocks
 
 import (
 	"context"
@@ -187,14 +187,4 @@ func TestOpenEVMDBOpensTheEVMDatabase(t *testing.T) {
 	require.NoError(t, err)
 	defer closeDB()
 	require.NoError(t, evm.CheckLogPollerSchema(t.Context(), db))
-}
-
-func TestUnsupportedBlocksOperatorExplainsWhy(t *testing.T) {
-	op := unsupportedBlocksOperator{reason: "the token verifier has no LogPoller"}
-
-	_, lcaErr := op.FindLCA(t.Context(), sepolia)
-	removeErr := op.RemoveFrom(t.Context(), sepolia, 1)
-	for _, err := range []error{lcaErr, removeErr} {
-		require.ErrorContains(t, err, "the token verifier has no LogPoller")
-	}
 }

@@ -1,18 +1,33 @@
-package verifier
+package blocks
 
 import (
 	"context"
 	"database/sql"
 	"fmt"
 	"math/big"
+	"os"
+
+	"github.com/urfave/cli"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
-	"github.com/smartcontractkit/chainlink-ccv/cli/blocks"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
+
+// Command is the ccv blocks command, for a binary whose EVM chains can read through the LogPoller.
+// Building it does no I/O, so --help works without the EVM config or database.
+func Command(lggr logger.Logger) cli.Command {
+	op := newBlocksOperator(lggr)
+	return cli.Command{
+		Name:  "blocks",
+		Usage: "Find the last common ancestor and remove stale LogPoller blocks (the node's find-lca and remove-blocks)",
+		Subcommands: InitBlocksCommandsWithFactory(func() Deps {
+			return Deps{Logger: lggr, Operator: op, Stdout: os.Stdout}
+		}),
+	}
+}
 
 // blocksOperator runs the ccv blocks commands. It is the only caller of the EVM adapter's operator
 // functions. Each call checks the chain's mode and the RPC config before it opens the database.
@@ -106,26 +121,26 @@ func (o *blocksOperator) open(ctx context.Context, evmChainID int64) (*sql.DB, f
 	return db, closeDB, nil
 }
 
-func (o *blocksOperator) FindLCA(ctx context.Context, evmChainID int64) (blocks.LCA, error) {
+func (o *blocksOperator) FindLCA(ctx context.Context, evmChainID int64) (LCA, error) {
 	selector, err := o.check(evmChainID, "FindLCA")
 	if err != nil {
-		return blocks.LCA{}, err
+		return LCA{}, err
 	}
 	info, err := o.evmInfo(selector)
 	if err != nil {
-		return blocks.LCA{}, err
+		return LCA{}, err
 	}
 	db, closeDB, err := o.open(ctx, evmChainID)
 	if err != nil {
-		return blocks.LCA{}, err
+		return LCA{}, err
 	}
 	defer closeDB()
 
 	lca, err := evm.FindLCA(ctx, db, info, o.lggr)
 	if err != nil {
-		return blocks.LCA{}, err
+		return LCA{}, err
 	}
-	return blocks.LCA{ChainID: lca.ChainID, BlockHash: lca.BlockHash, BlockNumber: lca.BlockNumber}, nil
+	return LCA{ChainID: lca.ChainID, BlockHash: lca.BlockHash, BlockNumber: lca.BlockNumber}, nil
 }
 
 func (o *blocksOperator) RemoveFrom(ctx context.Context, evmChainID, start int64) error {
@@ -139,20 +154,4 @@ func (o *blocksOperator) RemoveFrom(ctx context.Context, evmChainID, start int64
 	defer closeDB()
 
 	return evm.RemoveBlocksFrom(ctx, db, o.lggr, big.NewInt(evmChainID), start)
-}
-
-// unsupportedBlocksOperator is the ccv blocks commands of a binary that has no LogPoller, so they
-// exist for --help and the same runbook but fail with the reason.
-type unsupportedBlocksOperator struct{ reason string }
-
-func (u unsupportedBlocksOperator) err() error {
-	return fmt.Errorf("ccv blocks is not available: %s", u.reason)
-}
-
-func (u unsupportedBlocksOperator) FindLCA(context.Context, int64) (blocks.LCA, error) {
-	return blocks.LCA{}, u.err()
-}
-
-func (u unsupportedBlocksOperator) RemoveFrom(context.Context, int64, int64) error {
-	return u.err()
 }

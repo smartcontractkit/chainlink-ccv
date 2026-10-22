@@ -56,7 +56,7 @@ func TestOnlyTheCLIWiringCallsTheOperatorFunctions(t *testing.T) {
 	root := repoRoot(t)
 	adapter := filepath.Join(root, "integration", "pkg", "accessors", "evm")
 	operator := filepath.Join(adapter, "evm_logpoller_operator.go")
-	wiring := filepath.Join(root, "cmd", "verifier", "blocks_operator.go")
+	wiring := filepath.Join(adapter, "blocks", "operator.go")
 	allowed := []string{operator, wiring}
 
 	offenders := referencesOutside(t, root, true, map[string]guard{

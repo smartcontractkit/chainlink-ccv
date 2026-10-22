@@ -12,7 +12,6 @@ import (
 	"go.uber.org/zap/zapcore"
 
 	"github.com/smartcontractkit/chainlink-ccv/cli/admin"
-	"github.com/smartcontractkit/chainlink-ccv/cli/blocks"
 	"github.com/smartcontractkit/chainlink-ccv/cli/chainstatuses"
 	"github.com/smartcontractkit/chainlink-ccv/cli/jobqueue"
 	"github.com/smartcontractkit/chainlink-ccv/cli/migrate"
@@ -25,19 +24,6 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-// CLIOption customizes RunCCVCLI.
-type CLIOption func(*cliOptions)
-
-type cliOptions struct {
-	blocksUnsupported string
-}
-
-// WithoutBlocks makes the ccv blocks commands fail with reason, for a binary that has no LogPoller.
-// They stay registered so --help and the runbook read the same on both binaries.
-func WithoutBlocks(reason string) CLIOption {
-	return func(o *cliOptions) { o.blocksUnsupported = reason }
-}
-
 // RunCCVCLI runs the CCV CLI (ccv chain-statuses ..., ccv job-queue ..., ccv migrate ...).
 // DB is connected lazily when a subcommand runs, so --help works without a configured DB URL.
 // The DB URL is resolved from the verifier secrets file (with CL_DATABASE_URL fallback), so an
@@ -48,12 +34,9 @@ func WithoutBlocks(reason string) CLIOption {
 // secretsEnvVar/defaultSecretsPath name the calling app's verifier secrets file; the CLI loads it
 // itself (it runs before the service factory) so an operator who has cut over to the file need not
 // re-export CL_DATABASE_URL to run the CLI.
-func RunCCVCLI(args []string, secretsEnvVar, defaultSecretsPath string, opts ...CLIOption) {
-	var options cliOptions
-	for _, opt := range opts {
-		opt(&options)
-	}
-
+//
+// commands adds extra ccv subcommands, such as a chain family's own; building one must do no I/O.
+func RunCCVCLI(args []string, secretsEnvVar, defaultSecretsPath string, commands ...func(logger.Logger) cli.Command) {
 	// The profile and the stderr override are one function because NewWith takes a single
 	// customizer. Logs go to stderr so a caller can pipe the CLI's own output on stdout
 	// without them.
@@ -127,16 +110,6 @@ func RunCCVCLI(args []string, secretsEnvVar, defaultSecretsPath string, opts ...
 		return recoveryStore
 	}
 
-	// The blocks operator opens its own database connection, after it has checked the chain's mode,
-	// so a command that cannot run never touches the database. Building Deps does no I/O.
-	var blocksOp blocks.Operator = newBlocksOperator(lggr)
-	if options.blocksUnsupported != "" {
-		blocksOp = unsupportedBlocksOperator{reason: options.blocksUnsupported}
-	}
-	getBlocksDeps := func() blocks.Deps {
-		return blocks.Deps{Logger: lggr, Operator: blocksOp, Stdout: os.Stdout}
-	}
-
 	app := cli.NewApp()
 	app.Name = filepath.Base(os.Args[0])
 	app.Usage = "CCV verifier service and CLI"
@@ -151,11 +124,6 @@ func RunCCVCLI(args []string, secretsEnvVar, defaultSecretsPath string, opts ...
 					Name:        "chain-statuses",
 					Usage:       "List, enable, disable, or set finalized block height for chain statuses",
 					Subcommands: chainstatuses.InitCCVChainStatusesCommandsWithFactory(getChainStatusDeps),
-				},
-				{
-					Name:        "blocks",
-					Usage:       "Find the last common ancestor and remove stale LogPoller blocks (the node's find-lca and remove-blocks)",
-					Subcommands: blocks.InitBlocksCommandsWithFactory(getBlocksDeps),
 				},
 				{
 					Name:        "job-queue",
@@ -174,6 +142,9 @@ func RunCCVCLI(args []string, secretsEnvVar, defaultSecretsPath string, opts ...
 				},
 			},
 		},
+	}
+	for _, command := range commands {
+		app.Commands[0].Subcommands = append(app.Commands[0].Subcommands, command(lggr))
 	}
 
 	if err := app.Run(append([]string{app.Name}, args...)); err != nil {
