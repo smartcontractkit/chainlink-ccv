@@ -79,14 +79,10 @@ func (*fakeChainClient) CodeAt(context.Context, common.Address, *big.Int) ([]byt
 
 type fakeHeadTracker struct {
 	heads.Tracker
-	events  *eventLog
-	onClose func()
+	events *eventLog
 }
 
 func (f *fakeHeadTracker) Close() error {
-	if f.onClose != nil {
-		f.onClose()
-	}
 	f.events.add("head tracker closed")
 	return nil
 }
@@ -101,8 +97,7 @@ func (*fakeHeadTracker) LatestSafeBlock(context.Context) (*evmtypes.Head, error)
 
 var nextTestChainID atomic.Int64
 
-// newTestChain builds a runtime over fakes for a chain ID no other test uses, so parallel tests
-// do not contend for the package guard.
+// newTestChain builds a runtime over fakes for a chain ID no other test uses.
 func newTestChain(t *testing.T, selector protocol.ChainSelector) (chain *standaloneChain, chainID string, events *eventLog) {
 	t.Helper()
 	chainID = newTestChainID()
@@ -112,8 +107,7 @@ func newTestChain(t *testing.T, selector protocol.ChainSelector) (chain *standal
 
 func newTestChainID() string { return strconv.FormatInt(920_000+nextTestChainID.Add(1), 10) }
 
-// newTestChainFor builds a runtime over fakes for chainID, as a second registry would for a chain
-// another runtime already serves. Its events are on the fakes it holds.
+// newTestChainFor builds a runtime over fakes for chainID. Its events are on the fakes it holds.
 func newTestChainFor(t *testing.T, selector protocol.ChainSelector, chainID string) *standaloneChain {
 	t.Helper()
 	cfg, err := newChainlinkEVMConfig(evmconfig.Info{
@@ -157,17 +151,6 @@ func (f *fakeLogPoller) Close() error {
 	return f.closeErr
 }
 
-func requireChainFree(t *testing.T, chainID, msg string) {
-	t.Helper()
-	require.NoError(t, logPollerGuard.acquire(chainID, protocol.ChainSelector(99)), msg)
-	logPollerGuard.release(chainID, protocol.ChainSelector(99))
-}
-
-func requireChainHeld(t *testing.T, chainID, msg string) {
-	t.Helper()
-	require.Error(t, logPollerGuard.acquire(chainID, protocol.ChainSelector(99)), msg)
-}
-
 func TestStandaloneChainLogPollerBuiltOnceAndShared(t *testing.T) {
 	t.Parallel()
 	chain, _, _ := newTestChain(t, 1)
@@ -209,10 +192,9 @@ func TestStandaloneChainLogPollerRequiresDatabase(t *testing.T) {
 	require.ErrorContains(t, err, "database")
 	require.ErrorContains(t, err, "selector 1")
 	require.ErrorContains(t, err, "evm_chain_id "+chainID)
-	requireChainFree(t, chainID, "a refused request must not hold the chain")
 }
 
-func TestStandaloneChainLogPollerFailuresReleaseTheChain(t *testing.T) {
+func TestStandaloneChainLogPollerFailuresLeaveNoPoller(t *testing.T) {
 	t.Parallel()
 	errBuild := errors.New("metrics already registered")
 	errStart := errors.New("start failed")
@@ -246,13 +228,12 @@ func TestStandaloneChainLogPollerFailuresReleaseTheChain(t *testing.T) {
 			require.ErrorContains(t, err, "evm_chain_id "+chainID)
 			require.Nil(t, lp)
 			require.Nil(t, chain.logPoller)
-			requireChainFree(t, chainID, "a failed "+tc.name+" must release the chain")
 			require.NoError(t, chain.Close())
 		})
 	}
 }
 
-func TestStandaloneChainLogPollerFailedCloseKeepsTheChain(t *testing.T) {
+func TestStandaloneChainLogPollerCloseErrorIsReturned(t *testing.T) {
 	t.Parallel()
 	errClose := errors.New("close failed")
 	chain, chainID, _ := newTestChain(t, 1)
@@ -265,81 +246,31 @@ func TestStandaloneChainLogPollerFailedCloseKeepsTheChain(t *testing.T) {
 	err = chain.Close()
 	require.ErrorIs(t, err, errClose)
 	require.ErrorContains(t, err, "evm_chain_id "+chainID)
-	requireChainHeld(t, chainID, "a poller that may still be writing keeps its chain")
 }
 
-func TestStandaloneChainLogPollerAlreadyStoppedReleasesTheChain(t *testing.T) {
+func TestStandaloneChainLogPollerAlreadyStoppedClosesCleanly(t *testing.T) {
 	t.Parallel()
-	chain, chainID, _ := newTestChain(t, 1)
+	chain, _, _ := newTestChain(t, 1)
 	lp, err := chain.LogPoller(t.Context(), newUnconnectedDB(t))
 	require.NoError(t, err)
 	require.NoError(t, lp.Close(), "something other than the runtime stops the poller")
 
 	require.NoError(t, chain.Close())
-	requireChainFree(t, chainID, "a poller that was already stopped is not writing")
 }
 
-// A second runtime for the same chain ID, as a rebuilt registry produces through newStandaloneChain,
-// must not build a second LogPoller.
-func TestLogPollerGuardAcrossRuntimes(t *testing.T) {
-	t.Parallel()
-	var builds atomic.Int32
-	countBuilds := func(input logPollerInputs) (logpoller.LogPoller, error) {
-		builds.Add(1)
-		return buildLogPoller(input)
-	}
-	db := newUnconnectedDB(t)
-
-	first, chainID, _ := newTestChain(t, 1)
-	second := newTestChainFor(t, 2, chainID)
-	other, _, _ := newTestChain(t, 3)
-	for _, c := range []*standaloneChain{first, second, other} {
-		c.newLogPoller = countBuilds
-	}
-
-	_, err := first.LogPoller(t.Context(), db)
-	require.NoError(t, err)
-
-	lp, err := second.LogPoller(t.Context(), db)
-	require.ErrorContains(t, err, "evm_chain_id "+chainID)
-	require.ErrorContains(t, err, "selector 1")
-	require.ErrorContains(t, err, "selector 2")
-	require.Nil(t, lp, "no second LogPoller is built for a held chain")
-	require.Nil(t, second.logPoller)
-	require.Equal(t, int32(1), builds.Load())
-
-	_, err = other.LogPoller(t.Context(), db)
-	require.NoError(t, err)
-
-	require.NoError(t, first.Close())
-	_, err = second.LogPoller(t.Context(), db)
-	require.NoError(t, err, "the chain is free again once the first runtime closed its LogPoller")
-	require.Equal(t, int32(3), builds.Load())
-	require.NoError(t, second.Close())
-	require.NoError(t, other.Close())
-}
-
-// The head tracker reports whether the chain was already free when it closed, which shows the
-// guard was released after the LogPoller closed and before the head tracker.
+// The LogPoller reads heads from the head tracker, so it closes first.
 func TestStandaloneChainCloseOrder(t *testing.T) {
 	t.Parallel()
-	chain, chainID, events := newTestChain(t, 1)
+	chain, _, events := newTestChain(t, 1)
 	chain.newLogPoller = func(logPollerInputs) (logpoller.LogPoller, error) {
 		return &fakeLogPoller{events: events}, nil
 	}
-	chain.headTracker = &fakeHeadTracker{events: events, onClose: func() {
-		if logPollerGuard.acquire(chainID, protocol.ChainSelector(9)) == nil {
-			logPollerGuard.release(chainID, protocol.ChainSelector(9))
-			events.add("guard free")
-		} else {
-			events.add("guard held")
-		}
-	}}
+	chain.headTracker = &fakeHeadTracker{events: events}
 	_, err := chain.LogPoller(t.Context(), newUnconnectedDB(t))
 	require.NoError(t, err)
 
 	require.NoError(t, chain.Close())
-	require.Equal(t, []string{"log poller closed", "guard free", "head tracker closed", "chain client closed"}, events.snapshot())
+	require.Equal(t, []string{"log poller closed", "head tracker closed", "chain client closed"}, events.snapshot())
 	require.NoError(t, chain.Close(), "Close stays idempotent")
 }
 

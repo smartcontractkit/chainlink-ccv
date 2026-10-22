@@ -412,8 +412,7 @@ func (c *standaloneChain) EVMChainID() *big.Int {
 }
 
 // LogPoller builds and starts this chain's LogPoller on the first call and returns the same one
-// afterwards. The process-wide guard is taken before anything is built, so a second runtime for
-// the same evm_chain_id fails instead of writing to the same rows.
+// afterwards.
 func (c *standaloneChain) LogPoller(ctx context.Context, db *sql.DB) (logpoller.LogPoller, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -429,10 +428,6 @@ func (c *standaloneChain) LogPoller(ctx context.Context, db *sql.DB) (logpoller.
 		return nil, fmt.Errorf("log poller for chain selector %d (evm_chain_id %s) requires the EVM database", c.selector, chainID)
 	}
 
-	if err := logPollerGuard.acquire(chainID.String(), c.selector); err != nil {
-		return nil, err
-	}
-
 	// Building fails the same way on every attempt (metric registration), so the caller skips the chain.
 	lp, err := c.newLogPoller(logPollerInputs{
 		chainID:     chainID,
@@ -443,12 +438,9 @@ func (c *standaloneChain) LogPoller(ctx context.Context, db *sql.DB) (logpoller.
 		db:          db,
 	})
 	if err != nil {
-		logPollerGuard.release(chainID.String(), c.selector)
 		return nil, fmt.Errorf("failed to build log poller for chain selector %d (evm_chain_id %s): %w", c.selector, chainID, err)
 	}
 	if err := lp.Start(ctx); err != nil {
-		// Never started, so nothing can be writing and the chain may be released.
-		logPollerGuard.release(chainID.String(), c.selector)
 		return nil, fmt.Errorf("failed to start log poller for chain selector %d (evm_chain_id %s): %w", c.selector, chainID, err)
 	}
 
@@ -570,16 +562,11 @@ func (c *standaloneChain) Close() error {
 	c.recoveryWG.Wait()
 
 	// The LogPoller reads heads from the head tracker, so it stops first. A poller something else
-	// already stopped is not writing, so its chain is released. Any other failed close keeps the
-	// chain held: the poller may still be writing, and a second poller must not start beside it.
+	// already stopped is not an error.
 	if lp != nil {
-		chainID := c.chainConfig.EVM().ChainID().String()
 		if closeErr := lp.Close(); closeErr != nil && !errors.Is(closeErr, services.ErrAlreadyStopped) {
-			c.lggr.Errorw("Failed to close log poller, keeping its chain held",
-				"chainSelector", c.selector, "evmChainID", chainID, "error", closeErr)
+			chainID := c.chainConfig.EVM().ChainID().String()
 			err = errors.Join(err, fmt.Errorf("failed to close log poller for chain selector %d (evm_chain_id %s): %w", c.selector, chainID, closeErr))
-		} else {
-			logPollerGuard.release(chainID, c.selector)
 		}
 	}
 
