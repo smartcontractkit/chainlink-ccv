@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.16.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.15.0...v0.16.0) (2026-10-23)
+
+
+### Features
+
+* **executor:** Align execution-attempt checks and coordinate pool retries ([#1525](https://github.com/smartcontractkit/chainlink-ccv/issues/1525)) ([6510e66](https://github.com/smartcontractkit/chainlink-ccv/commit/6510e66b2ef592d20a99b5ea040b5a259419233b))
+* **metrics:** add ccip_service_name to ccip_service_started ([#1536](https://github.com/smartcontractkit/chainlink-ccv/issues/1536)) ([5352629](https://github.com/smartcontractkit/chainlink-ccv/commit/5352629dcb585390d4d5c74ff97707ed0520f095))
+* runtime chain-liveness probes for verifier/executor readers ([#1521](https://github.com/smartcontractkit/chainlink-ccv/issues/1521)) ([03ff42e](https://github.com/smartcontractkit/chainlink-ccv/commit/03ff42ec29d887cb1c1ac634e63e9eaaecdaf081))
+
+
+### Bug Fixes
+
+* **cursechecker:** improve curse state freshness handling ([#1532](https://github.com/smartcontractkit/chainlink-ccv/issues/1532)) ([8fb1d0c](https://github.com/smartcontractkit/chainlink-ccv/commit/8fb1d0cc875905b18e69b6223ea011d91a9e6595))
+* **executor:** improve coordinator lifecycle handling ([#1530](https://github.com/smartcontractkit/chainlink-ccv/issues/1530)) ([ee35e4d](https://github.com/smartcontractkit/chainlink-ccv/commit/ee35e4d5a6599e7bfdea1fae78a1533b21af42b2))
+* **executor:** improve execution-attempt poller event handling ([#1531](https://github.com/smartcontractkit/chainlink-ccv/issues/1531)) ([923d4ad](https://github.com/smartcontractkit/chainlink-ccv/commit/923d4adbe64893d6eeb6c3b617196dab9337d9c5))
+* improve request, storage, and reader error handling ([#1535](https://github.com/smartcontractkit/chainlink-ccv/issues/1535)) ([2e847c4](https://github.com/smartcontractkit/chainlink-ccv/commit/2e847c4a8fe9b7b41d3110f60204f15f96dce0d4))
+* **verifier:** improve admin console request handling ([#1533](https://github.com/smartcontractkit/chainlink-ccv/issues/1533)) ([7580faa](https://github.com/smartcontractkit/chainlink-ccv/commit/7580faa3631e3aad6dbdaccca86ce37a6da46516))
+
 ## [0.15.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.14.0...v0.15.0) (2026-10-19)
 
 
