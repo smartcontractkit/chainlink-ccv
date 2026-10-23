@@ -8,6 +8,8 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"github.com/ethereum/go-ethereum/common"
 
+	chainsel "github.com/smartcontractkit/chain-selectors"
+
 	cldfchain "github.com/smartcontractkit/chainlink-deployments-framework/chain"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	cldfops "github.com/smartcontractkit/chainlink-deployments-framework/operations"
@@ -192,10 +194,22 @@ func resolveRemoteLaneConfig(
 		return ccvadapters.RemoteChainConfig[[]byte, string]{}, fmt.Errorf("resolve outbound CCVs: %w", err)
 	}
 
-	fqConfig := laneChainFamily.GetDefaultFeeQuoterDestChainConfig(local, remote, laneChainFamily.GetChainFamilySelector())
-	fqConfig.ChainFamilySelector = laneChainFamily.GetChainFamilySelector()
+	// Remote-scoped defaults come from the remote chain's family adapter, so
+	// cross-family lanes get the remote's address length and fee encoding
+	// (mirrors the stellar lane config adapter).
+	remoteFamily, err := chainsel.GetSelectorFamily(remote)
+	if err != nil {
+		return ccvadapters.RemoteChainConfig[[]byte, string]{}, fmt.Errorf("get chain family for remote chain %d: %w", remote, err)
+	}
+	remoteAdapter, ok := ccvadapters.GetChainFamilyRegistry().GetChainFamily(remoteFamily)
+	if !ok {
+		return ccvadapters.RemoteChainConfig[[]byte, string]{}, fmt.Errorf("no chain family adapter registered for remote chain family %q", remoteFamily)
+	}
 
-	defaults := laneChainFamily.GetDefaultRemoteChainConfig(local, remote)
+	fqConfig := remoteAdapter.GetDefaultFeeQuoterDestChainConfig(local, remote, remoteAdapter.GetChainFamilySelector())
+	fqConfig.ChainFamilySelector = remoteAdapter.GetChainFamilySelector()
+
+	defaults := remoteAdapter.GetDefaultRemoteChainConfig(local, remote)
 	allowTrafficFrom := utils.Coalesce(rlc.AllowTrafficFrom, defaults.AllowTrafficFrom)
 	tokenReceiverAllowed := utils.Coalesce(rlc.TokenReceiverAllowed, defaults.TokenReceiverAllowed)
 
@@ -208,7 +222,7 @@ func resolveRemoteLaneConfig(
 		DefaultOutboundCCVs:       outboundCCVs,
 		FeeQuoterDestChainConfig:  fqConfig,
 		ExecutorDestChainConfig:   defaults.ExecutorDestChainConfig,
-		AddressBytesLength:        laneChainFamily.GetAddressBytesLength(),
+		AddressBytesLength:        remoteAdapter.GetAddressBytesLength(),
 		BaseExecutionGasCost:      utils.Coalesce(rlc.BaseExecutionGasCost, defaults.BaseExecutionGasCost),
 		TokenReceiverAllowed:      &tokenReceiverAllowed,
 		MessageNetworkFeeUSDCents: utils.Coalesce(rlc.MessageNetworkFeeUSDCents, defaults.MessageNetworkFeeUSDCents),
