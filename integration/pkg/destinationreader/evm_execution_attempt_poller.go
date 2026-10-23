@@ -64,6 +64,11 @@ var (
 	ErrBackfillInProgress = errors.New("execution attempt poller backfill in progress")
 )
 
+type cachedExecutionAttempt struct {
+	attempt  protocol.ExecutionAttempt
+	eventKey [eventKeyLength]byte
+}
+
 // EvmExecutionAttemptPoller polls for execution state changed events and caches execution attempts.
 type EvmExecutionAttemptPoller struct {
 	services.StateMachine
@@ -77,7 +82,7 @@ type EvmExecutionAttemptPoller struct {
 	// subMu guards subscription, which is read and replaced by reconnect and Close.
 	subMu            sync.Mutex
 	subscription     event.Subscription
-	attemptCache     *expirable.LRU[protocol.Bytes32, []protocol.ExecutionAttempt]
+	attemptCache     *expirable.LRU[protocol.Bytes32, []cachedExecutionAttempt]
 	seenEvents       *expirable.LRU[[eventKeyLength]byte, struct{}]
 	cancelFunc       context.CancelFunc
 	runWg            sync.WaitGroup
@@ -92,7 +97,6 @@ type EvmExecutionAttemptPoller struct {
 	// Ready fails; defaults to stalenessPollIntervals × pollInterval.
 	stalenessThreshold time.Duration
 	backfillComplete   atomic.Bool
-	fatalErr           atomic.Pointer[error]
 	// pollingMode is true in HTTP polling mode; lastSuccessfulPoll (unix ts) drives
 	// Ready() staleness there. WS mode has no poll loop, so silence is not anomalous.
 	pollingMode        atomic.Bool
@@ -105,17 +109,11 @@ func (p *EvmExecutionAttemptPoller) HealthReport() map[string]error {
 	return report
 }
 
-// Ready returns nil when the poller has completed its initial backfill and is
-// fully operational. Returns ErrBackfillInProgress while the backfill is still
-// running, or an errNotStarted error if the service hasn't been started.
-// In HTTP polling mode it also fails once no poll has succeeded for the
-// staleness threshold, so a dead RPC turns the reader not-ready instead of silently stale.
+// Ready returns nil after initial backfill, or errNotStarted before startup. It returns
+// ErrBackfillInProgress during startup and reports stale HTTP polling after the staleness threshold.
 func (p *EvmExecutionAttemptPoller) Ready() error {
 	if err := p.StateMachine.Ready(); err != nil {
 		return err
-	}
-	if fatalErr := p.fatalErr.Load(); fatalErr != nil {
-		return *fatalErr
 	}
 	if !p.backfillComplete.Load() {
 		return ErrBackfillInProgress
@@ -128,15 +126,9 @@ func (p *EvmExecutionAttemptPoller) Ready() error {
 	return nil
 }
 
-// Healthy returns the recorded fatal error, if any; unlike Ready it stays nil during backfill.
+// Healthy reports service health without treating an in-progress backfill as unhealthy.
 func (p *EvmExecutionAttemptPoller) Healthy() error {
-	if err := p.StateMachine.Healthy(); err != nil {
-		return err
-	}
-	if fatalErr := p.fatalErr.Load(); fatalErr != nil {
-		return *fatalErr
-	}
-	return nil
+	return p.StateMachine.Healthy()
 }
 
 func (p *EvmExecutionAttemptPoller) Name() string {
@@ -169,7 +161,7 @@ func NewEVMExecutionAttemptPoller(
 		return nil, fmt.Errorf("failed to create offramp filterer: %w", err)
 	}
 
-	attemptCache := expirable.NewLRU[protocol.Bytes32, []protocol.ExecutionAttempt](0, nil, attemptCacheExpiration)
+	attemptCache := expirable.NewLRU[protocol.Bytes32, []cachedExecutionAttempt](0, nil, attemptCacheExpiration)
 	return &EvmExecutionAttemptPoller{
 		lggr:               lggr,
 		client:             client,
@@ -202,21 +194,28 @@ func (p *EvmExecutionAttemptPoller) Start(ctx context.Context) error {
 	})
 }
 
-// runStartupSequence performs the full startup: find the start block, backfill
-// historical events, then switch to WS or HTTP polling mode. If getStartBlock
-// fails the error is stored as a fatal error (surfaced via Healthy and Ready)
-// and backfillComplete is never set, so Ready() will continue to return an error.
-// Context cancellation (e.g. from Close) is not treated as a fatal error.
+// runStartupSequence retries start-block discovery until success or cancellation,
+// then backfills historical events and switches to WS or HTTP polling mode.
 func (p *EvmExecutionAttemptPoller) runStartupSequence(ctx context.Context) {
-	if err := p.getStartBlock(ctx, p.lookbackWindow); err != nil {
+	for {
+		err := p.getStartBlock(ctx, p.lookbackWindow)
+		if err == nil {
+			break
+		}
 		if ctx.Err() != nil {
 			p.lggr.Infow("Startup sequence cancelled", "error", err)
 			return
 		}
-		fatalErr := fmt.Errorf("failed to get start block: %w", err)
-		p.lggr.Errorw("Failed to get start block, execution attempt poller permanently failed", "error", fatalErr)
-		p.fatalErr.Store(&fatalErr)
-		return
+
+		p.lggr.Warnw("Failed to get start block, retrying", "error", err, "retryInterval", p.pollInterval)
+		timer := time.NewTimer(p.pollInterval)
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			timer.Stop()
+			p.lggr.Infow("Startup sequence cancelled", "error", ctx.Err())
+			return
+		}
 	}
 
 	if err := p.runBackfill(ctx); err != nil {
@@ -508,7 +507,9 @@ func (p *EvmExecutionAttemptPoller) GetExecutionAttempts(ctx context.Context, me
 
 	// Return a copy to prevent external modification
 	result := make([]protocol.ExecutionAttempt, len(attempts))
-	copy(result, attempts)
+	for i, cached := range attempts {
+		result[i] = cached.attempt
+	}
 	return result, nil
 }
 
@@ -825,14 +826,40 @@ func eventKey(event *offramp.OffRampExecutionStateChanged) [eventKeyLength]byte 
 	return key
 }
 
-// processExecutionStateChanged processes a single execution state changed event.
-// Events already seen (e.g. replayed by a resubscription) are skipped, and each
-// successfully processed event advances lastPolledBlock to its block number.
+func (p *EvmExecutionAttemptPoller) removeCachedAttempt(msgID protocol.Bytes32, key [eventKeyLength]byte) {
+	attempts, exists := p.attemptCache.Get(msgID)
+	if !exists {
+		return
+	}
+
+	for i, cached := range attempts {
+		if cached.eventKey != key {
+			continue
+		}
+		remaining := make([]cachedExecutionAttempt, 0, len(attempts)-1)
+		remaining = append(remaining, attempts[:i]...)
+		remaining = append(remaining, attempts[i+1:]...)
+		if len(remaining) == 0 {
+			p.attemptCache.Remove(msgID)
+		} else {
+			p.attemptCache.Add(msgID, remaining)
+		}
+		return
+	}
+}
+
+// processExecutionStateChanged caches new events, removes reorged attempts, and skips replays.
+// Each successfully processed canonical event advances lastPolledBlock to its block number.
 func (p *EvmExecutionAttemptPoller) processExecutionStateChanged(ctx context.Context, event *offramp.OffRampExecutionStateChanged) error {
 	msgID := event.MessageId
 	txHash := event.Raw.TxHash
 
 	key := eventKey(event)
+	if event.Raw.Removed {
+		p.removeCachedAttempt(msgID, key)
+		p.seenEvents.Remove(key)
+		return nil
+	}
 	if p.seenEvents.Contains(key) {
 		return nil
 	}
@@ -865,7 +892,7 @@ func (p *EvmExecutionAttemptPoller) processExecutionStateChanged(ctx context.Con
 
 	// store the execution attempt in cache
 	attempts, _ := p.attemptCache.Get(msgID)
-	attempts = append(attempts, *executionAttempt)
+	attempts = append(attempts, cachedExecutionAttempt{attempt: *executionAttempt, eventKey: key})
 	p.attemptCache.Add(msgID, attempts)
 
 	p.seenEvents.Add(key, struct{}{})

@@ -357,15 +357,13 @@ func TestFinalityViolationChecker_ParentHashMismatch(t *testing.T) {
 func TestFinalityViolationChecker_LargeForwardGapCapped(t *testing.T) {
 	lggr, _ := logger.New()
 
-	// Simulate the scenario where the RPC jumps ahead by millions of blocks.
-	// The checker caps toBlock so it only fetches MaxFinalityBlocksStored blocks per call,
-	// advancing lastFinalized partially and leaving no gaps in validation coverage.
+	// The checker fetches only MaxFinalityBlocksStored blocks and reports that the requested
+	// finalized head remains unchecked.
 	const startBlock = 93154146
 	const newFinalized = 95322726 // gap of ~2.1M blocks
 	const expectedAdvance = uint64(startBlock + MaxFinalityBlocksStored - 1)
 
 	blocks := make(map[uint64]protocol.BlockHeader)
-	// Populate the window the checker should actually fetch: [startBlock, startBlock+999]
 	for i := uint64(startBlock); i <= expectedAdvance; i++ {
 		blocks[i] = protocol.BlockHeader{
 			Number:     i,
@@ -385,12 +383,98 @@ func TestFinalityViolationChecker_LargeForwardGapCapped(t *testing.T) {
 	err = checker.UpdateFinalized(ctx, startBlock)
 	require.NoError(t, err)
 
-	// lastFinalized advances by exactly MaxFinalityBlocksStored, not to newFinalized.
 	err = checker.UpdateFinalized(ctx, newFinalized)
-	require.NoError(t, err)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "incomplete check")
 	assert.False(t, checker.IsFinalityViolated())
 	assert.Equal(t, expectedAdvance, checker.lastFinalized)
 	assert.LessOrEqual(t, len(checker.finalizedBlocks), MaxFinalityBlocksStored)
+}
+
+func TestFinalityViolationChecker_CappedForwardGapCatchUp(t *testing.T) {
+	lggr, _ := logger.New()
+
+	const startBlock uint64 = 100
+	const newFinalized = startBlock + 2*MaxFinalityBlocksStored + 250
+	const firstCursor = startBlock + MaxFinalityBlocksStored - 1
+	const secondCursor = firstCursor + MaxFinalityBlocksStored - 1
+
+	blocks := make(map[uint64]protocol.BlockHeader)
+	for i := startBlock; i <= newFinalized; i++ {
+		blocks[i] = protocol.BlockHeader{
+			Number:     i,
+			Hash:       makeBytes32(fmt.Sprintf("hash%d", i)),
+			ParentHash: makeBytes32(fmt.Sprintf("hash%d", i-1)),
+		}
+	}
+
+	mockSetup := setupMockSourceReaderForFinality(t, blocks)
+	checker, err := NewFinalityViolationCheckerService(
+		mockSetup.Reader, protocol.ChainSelector(1), lggr, &testutil.NoopMetricLabeler{})
+	require.NoError(t, err)
+	require.NoError(t, checker.UpdateFinalized(t.Context(), startBlock))
+
+	err = checker.UpdateFinalized(t.Context(), newFinalized)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "incomplete check")
+	assert.False(t, checker.IsFinalityViolated())
+	assert.Equal(t, firstCursor, checker.lastFinalized)
+	assert.LessOrEqual(t, len(checker.finalizedBlocks), MaxFinalityBlocksStored)
+
+	err = checker.UpdateFinalized(t.Context(), newFinalized)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "incomplete check")
+	assert.False(t, checker.IsFinalityViolated())
+	assert.Equal(t, secondCursor, checker.lastFinalized)
+	assert.LessOrEqual(t, len(checker.finalizedBlocks), MaxFinalityBlocksStored)
+
+	require.NoError(t, checker.UpdateFinalized(t.Context(), newFinalized))
+	assert.False(t, checker.IsFinalityViolated())
+	assert.Equal(t, newFinalized, checker.lastFinalized)
+	assert.LessOrEqual(t, len(checker.finalizedBlocks), MaxFinalityBlocksStored)
+}
+
+func TestFinalityViolationChecker_CappedForwardGapCatchUpDetectsViolation(t *testing.T) {
+	lggr, _ := logger.New()
+
+	const startBlock uint64 = 100
+	const newFinalized = startBlock + MaxFinalityBlocksStored + 100
+	const cappedCursor = startBlock + MaxFinalityBlocksStored - 1
+	const violationBlock = cappedCursor + 1
+
+	blocks := make(map[uint64]protocol.BlockHeader)
+	for i := startBlock; i <= newFinalized; i++ {
+		blocks[i] = protocol.BlockHeader{
+			Number:     i,
+			Hash:       makeBytes32(fmt.Sprintf("hash%d", i)),
+			ParentHash: makeBytes32(fmt.Sprintf("hash%d", i-1)),
+		}
+	}
+	badHeader := blocks[violationBlock]
+	badHeader.ParentHash = makeBytes32("wrong parent")
+	blocks[violationBlock] = badHeader
+
+	mockSetup := setupMockSourceReaderForFinality(t, blocks)
+	checker, err := NewFinalityViolationCheckerService(
+		mockSetup.Reader, protocol.ChainSelector(1), lggr, &testutil.NoopMetricLabeler{})
+	require.NoError(t, err)
+	require.NoError(t, checker.UpdateFinalized(t.Context(), startBlock))
+
+	// The bad parent is beyond the first capped window, so it is not a violation yet.
+	err = checker.UpdateFinalized(t.Context(), newFinalized)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "incomplete check")
+	assert.False(t, checker.IsFinalityViolated())
+	assert.Equal(t, cappedCursor, checker.lastFinalized)
+
+	err = checker.UpdateFinalized(t.Context(), newFinalized)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "finality violation")
+	assert.Contains(t, err.Error(), "parent hash")
+	assert.True(t, checker.IsFinalityViolated())
+	assert.Equal(t, cappedCursor, checker.lastFinalized)
+	require.NotNil(t, checker.Evidence())
+	assert.Equal(t, violationBlock, checker.Evidence().BlockNumber)
 }
 
 func TestFinalityViolationChecker_LargeBackwardGapCapped(t *testing.T) {

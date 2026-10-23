@@ -181,32 +181,45 @@ func TestHasHonestAttempt(t *testing.T) {
 		}
 	}
 	starved := attempt(true, nil)
-	honest := attempt(true, receiverError)
+	honestFailed := attempt(true, receiverError)
+	honestSuccess := attempt(false, nil)
 
 	tests := []struct {
-		name          string
-		attempts      []protocol.ExecutionAttempt
-		wantHonest    bool
-		wantNotHonest bool
+		name             string
+		attempts         []protocol.ExecutionAttempt
+		wantHonest       bool
+		wantHonestFailed bool
+		wantNotHonest    bool
 	}{
 		{name: "no attempts"},
-		{name: "honest failed attempt", attempts: []protocol.ExecutionAttempt{honest}, wantHonest: true},
+		{name: "honest failed attempt", attempts: []protocol.ExecutionAttempt{honestFailed}, wantHonest: true, wantHonestFailed: true},
+		{name: "honest successful attempt", attempts: []protocol.ExecutionAttempt{honestSuccess}, wantHonest: true},
 		{name: "one attempt that is not honest", attempts: []protocol.ExecutionAttempt{starved}, wantNotHonest: true},
 		{name: "several attempts that are not honest", attempts: []protocol.ExecutionAttempt{starved, starved}, wantNotHonest: true},
-		{name: "honest attempt after one that is not honest", attempts: []protocol.ExecutionAttempt{starved, honest}, wantHonest: true},
-		{name: "honest attempt before one that is not honest", attempts: []protocol.ExecutionAttempt{honest, starved}, wantHonest: true},
+		{name: "honest failed attempt after one that is not honest", attempts: []protocol.ExecutionAttempt{starved, honestFailed}, wantHonest: true, wantHonestFailed: true},
+		{name: "honest failed attempt before one that is not honest", attempts: []protocol.ExecutionAttempt{honestFailed, starved}, wantHonest: true, wantHonestFailed: true},
+		{name: "honest success after honest failure", attempts: []protocol.ExecutionAttempt{honestFailed, honestSuccess}, wantHonest: true},
+		{name: "honest success before honest failure", attempts: []protocol.ExecutionAttempt{honestSuccess, honestFailed}, wantHonest: true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			poller := setupTestPoller(t, new(mockClient), time.Hour)
 			if len(tc.attempts) > 0 {
-				poller.attemptCache.Add(messageID, tc.attempts)
+				cachedAttempts := make([]cachedExecutionAttempt, len(tc.attempts))
+				for i, attempt := range tc.attempts {
+					cachedAttempts[i] = cachedExecutionAttempt{
+						attempt:  attempt,
+						eventKey: [eventKeyLength]byte{byte(i + 1)},
+					}
+				}
+				poller.attemptCache.Add(messageID, cachedAttempts)
 			}
 			dr := &EvmDestinationReader{executionAttemptPoller: poller}
 
 			check, err := dr.HasHonestAttempt(context.Background(), message, nil, protocol.CCVAddressInfo{})
 			require.NoError(t, err)
 			require.Equal(t, tc.wantHonest, check.Honest)
+			require.Equal(t, tc.wantHonestFailed, check.HonestAttemptFailed)
 			require.Equal(t, tc.wantNotHonest, check.NotHonestAttemptExists)
 		})
 	}

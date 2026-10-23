@@ -224,6 +224,31 @@ func TestChainStatusBatcher_ReadReturnsManagerError(t *testing.T) {
 	require.ErrorIs(t, err, expectedErr)
 }
 
+func TestChainStatusBatcher_ReadOverlaysStickyDisables(t *testing.T) {
+	batcher, mockManager := newTestBatcher(t)
+	failure := errors.New("database unavailable")
+	mockManager.EXPECT().WriteChainStatuses(mock.Anything, []protocol.ChainStatusInfo{
+		status(1, 0, true),
+		status(2, 0, true),
+	}).Return(failure).Once()
+	require.ErrorIs(t, batcher.WriteChainStatuses(t.Context(), []protocol.ChainStatusInfo{
+		status(1, 0, true),
+		status(2, 0, true),
+	}), failure)
+
+	stored := status(1, 100, false)
+	mockManager.EXPECT().ReadChainStatuses(mock.Anything, []protocol.ChainSelector{1, 2}).
+		Return(map[protocol.ChainSelector]*protocol.ChainStatusInfo{1: &stored}, nil).Once()
+	result, err := batcher.ReadChainStatuses(t.Context(), []protocol.ChainSelector{1, 2})
+	require.NoError(t, err)
+	require.True(t, result[1].Disabled)
+	require.Equal(t, int64(100), result[1].FinalizedBlockHeight.Int64())
+	require.False(t, stored.Disabled, "the manager's stored value must not be mutated")
+	require.True(t, result[2].Disabled)
+	require.NotNil(t, result[2].FinalizedBlockHeight)
+	require.Zero(t, result[2].FinalizedBlockHeight.Sign())
+}
+
 func TestChainStatusBatcher_CloseFlushesRemainder(t *testing.T) {
 	batcher, mockManager := newTestBatcher(t)
 

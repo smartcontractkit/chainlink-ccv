@@ -423,7 +423,12 @@ func (c *standaloneChain) recoverOrphanedTransactions(ctx context.Context, txm *
 		c.lggr.Warnw("Could not check for orphaned transactions", "address", address, "error", err)
 		return
 	}
-	if len(nonceRange(latest, pending)) == 0 {
+	orphans, err := nonceRange(latest, pending)
+	if err != nil {
+		c.lggr.Warnw("Could not determine orphaned transaction nonces", "address", address, "error", err)
+		return
+	}
+	if len(orphans) == 0 {
 		return
 	}
 
@@ -448,7 +453,11 @@ func (c *standaloneChain) recoverOrphanedTransactions(ctx context.Context, txm *
 		c.lggr.Warnw("Could not re-check orphaned transactions after grace period", "address", address, "error", err)
 		return
 	}
-	orphans := nonceRange(latest, pending)
+	orphans, err = nonceRange(latest, pending)
+	if err != nil {
+		c.lggr.Warnw("Could not determine orphaned transaction nonces after grace period", "address", address, "error", err)
+		return
+	}
 	if len(orphans) == 0 {
 		c.lggr.Infow("Orphaned transactions confirmed on their own; no recovery needed", "address", address)
 		return

@@ -237,10 +237,8 @@ type AttemptChecker interface {
 	// A false return indicates a transient condition (e.g. backfill in progress)
 	// that will resolve on its own; callers should retry later.
 	IsReady(chain protocol.ChainSelector) bool
-	// CheckHealth returns nil when the destination reader is operating normally.
-	// A non-nil error indicates an unrecoverable failure (e.g. the execution
-	// attempt poller could not determine its start block). Messages destined
-	// for an unhealthy chain should be rejected, not retried.
+	// CheckHealth reports current destination reader health. Startup discovery retries in the
+	// background, so callers should treat health failures as retryable unless another error says otherwise.
 	CheckHealth(chain protocol.ChainSelector) error
 	// HasHonestAttempt reports whether an honest execution attempt has been
 	// made for the given message. If it has not, the result tells if an attempt
@@ -252,6 +250,8 @@ type AttemptChecker interface {
 type HonestAttemptCheck struct {
 	// Honest is true if an honest execution attempt exists.
 	Honest bool
+	// HonestAttemptFailed is true when all honest attempts failed in the receiver.
+	HonestAttemptFailed bool
 	// NotHonestAttemptExists is true if an attempt exists and none of the attempts is honest.
 	NotHonestAttemptExists bool
 }

@@ -231,12 +231,39 @@ func (s *Batcher) WriteChainStatuses(ctx context.Context, statuses []protocol.Ch
 	return nil
 }
 
-// ReadChainStatuses passes the read through to the wrapped manager.
+// ReadChainStatuses overlays sticky disables on the manager result so a pending
+// disabled write fails closed even before persistence succeeds.
 func (s *Batcher) ReadChainStatuses(
 	ctx context.Context,
 	chainSelectors []protocol.ChainSelector,
 ) (map[protocol.ChainSelector]*protocol.ChainStatusInfo, error) {
-	return s.manager.ReadChainStatuses(ctx, chainSelectors)
+	statuses, err := s.manager.ReadChainStatuses(ctx, chainSelectors)
+	if err != nil {
+		return nil, err
+	}
+	if statuses == nil {
+		statuses = make(map[protocol.ChainSelector]*protocol.ChainStatusInfo)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, selector := range chainSelectors {
+		if !s.disabledChains[selector] {
+			continue
+		}
+		if existing := statuses[selector]; existing != nil {
+			copied := *existing
+			copied.Disabled = true
+			statuses[selector] = &copied
+			continue
+		}
+		statuses[selector] = &protocol.ChainStatusInfo{
+			ChainSelector:        selector,
+			FinalizedBlockHeight: new(big.Int),
+			Disabled:             true,
+		}
+	}
+	return statuses, nil
 }
 
 // flush drains the buffer and writes it to the wrapped manager. On failure, the
