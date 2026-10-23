@@ -1,6 +1,7 @@
 # Overlay that runs every committee verifier with log_poller_enabled = true in its EVM config, so each
 # reads its EVM source chains through the LogPoller reader instead of the RPC reader. The EVM secrets
-# point [db] at the verifier's own database. The token verifier is not listed: it has no LogPoller.
+# point [db] at evm_db, a separate database on the verifier's DB server. The token verifier is not listed:
+# it has no LogPoller.
 #
 # Use it with env-src-auto-mine.toml (see standard.logpoller.profile): the finality-violation and
 # reorg flows for the ccv blocks commands need manual control of source-chain block progress.

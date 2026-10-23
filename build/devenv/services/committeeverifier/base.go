@@ -94,6 +94,10 @@ type Input struct {
 	// only used in standalone mode.
 	OpaqueConfigs map[string]util.OpaqueConfig `toml:"opaque_configs"`
 
+	// ExtraDatabases are created on the verifier's DB server beside its own database. The caller sets
+	// them from the chain family's registration; they are not read from config.
+	ExtraDatabases []string `toml:"-"`
+
 	// DisableFinalityCheckers is a list of chain selectors for which the finality violation checker should be disabled.
 	// The chain selectors are formatted as strings of the chain selector.
 	DisableFinalityCheckers []string `toml:"disable_finality_checkers"`
@@ -193,6 +197,9 @@ type Output struct {
 	BootstrapDBConnectionString string                 `toml:"bootstrap_db_connection_string"`
 	BootstrapKeys               services.BootstrapKeys `toml:"bootstrap_keys"`
 
+	// ExtraDBConnectionStrings maps each of Input.ExtraDatabases to its host URL.
+	ExtraDBConnectionStrings map[string]string `toml:"extra_db_connection_strings"`
+
 	// JDNodeID is set after the bootstrap is registered with JD.
 	JDNodeID string `toml:"jd_node_id"`
 
@@ -270,7 +277,7 @@ func launchVerifier(ctx context.Context, in *Input, outputs []*blockchain.Output
 
 	// Update bootstrap config w/ the keystore/ORM database URL (needed in every mode).
 	// TODO: make this easier? All standalone setups will have to do the same thing.
-	bootstrapInput.DB.URL = internalDBURL(in, services.DefaultBootstrapDBName)
+	bootstrapInput.DB.URL = InternalDBURL(in, services.DefaultBootstrapDBName)
 
 	if !local {
 		// Point the bootstrapper at JD. In local mode [jd] is left blank (omitted by omitempty and
@@ -293,7 +300,7 @@ func launchVerifier(ctx context.Context, in *Input, outputs []*blockchain.Output
 	}
 
 	// Database connection for chain status (internal docker network address).
-	internalDBConnectionString := InternalDBURL(in)
+	internalDBConnectionString := InternalDBURL(in, in.ContainerName)
 
 	// Deliver the DB URL and per-aggregator HMAC credentials via the verifier secrets file,
 	// mounted at the default path, instead of the CL_DATABASE_URL / VERIFIER_AGGREGATOR_* env vars —
@@ -468,6 +475,13 @@ func launchVerifier(ctx context.Context, in *Input, outputs []*blockchain.Output
 		BootstrapDBConnectionString: fmt.Sprintf("postgresql://%s:%s@localhost:%s/%s?sslmode=disable",
 			in.ContainerName, in.ContainerName, dbMapped.Port(), services.DefaultBootstrapDBName),
 		BootstrapKeys: bootstrapKeys,
+	}
+	for _, name := range in.ExtraDatabases {
+		if out.ExtraDBConnectionStrings == nil {
+			out.ExtraDBConnectionStrings = make(map[string]string, len(in.ExtraDatabases))
+		}
+		out.ExtraDBConnectionStrings[name] = fmt.Sprintf("postgresql://%s:%s@localhost:%s/%s?sslmode=disable",
+			in.ContainerName, in.ContainerName, dbMapped.Port(), name)
 	}
 	if local {
 		out.Container = c
@@ -666,12 +680,8 @@ func getAggregatorSecretEntries(in *Input) ([]vsecrets.AggregatorSecret, error) 
 	return []vsecrets.AggregatorSecret{{APIKey: apiKey, SecretKey: secretKey}}, nil
 }
 
-// InternalDBURL is the URL of the verifier database on the Docker network, as the container sees it.
-func InternalDBURL(in *Input) string {
-	return internalDBURL(in, in.ContainerName)
-}
-
-func internalDBURL(in *Input, database string) string {
+// InternalDBURL is the URL of a database on the verifier's DB server, as containers on the Docker network see it.
+func InternalDBURL(in *Input, database string) string {
 	return fmt.Sprintf("postgresql://%s:%s@%s:5432/%s?sslmode=disable",
 		in.ContainerName, in.ContainerName, dbContainerName(in.DB.Name, in.ChainFamily), database)
 }
@@ -703,6 +713,15 @@ func createDBContainer(ctx context.Context, in *Input, chainFamily string) (*pos
 		return nil, fmt.Errorf("failed to create bootstrap init script file: %w", err)
 	}
 
+	initScripts := []string{bootstrapInitScriptPath}
+	for _, name := range in.ExtraDatabases {
+		path, err := services.CreateDBInitScriptFile(name)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create %s init script file: %w", name, err)
+		}
+		initScripts = append(initScripts, path)
+	}
+
 	containerName := dbContainerName(in.DB.Name, chainFamily)
 	c, err := postgres.Run(ctx,
 		in.DB.Image,
@@ -710,7 +729,7 @@ func createDBContainer(ctx context.Context, in *Input, chainFamily string) (*pos
 		postgres.WithDatabase(in.ContainerName),
 		postgres.WithUsername(in.ContainerName),
 		postgres.WithPassword(in.ContainerName),
-		postgres.WithInitScripts(bootstrapInitScriptPath),
+		postgres.WithInitScripts(initScripts...),
 		testcontainers.CustomizeRequest(testcontainers.GenericContainerRequest{
 			ContainerRequest: testcontainers.ContainerRequest{
 				Name:         containerName,

@@ -51,7 +51,7 @@ func TestEVMConfigIsMountedSeparatelyFromAppConfig(t *testing.T) {
 		require.Empty(t, metadata.Nodes)
 	}
 
-	req, err := addEVMConfig(testcontainers.ContainerRequest{}, []*blockchain.Output{output}, false)
+	req, err := addEVMConfig(testcontainers.ContainerRequest{}, []*blockchain.Output{output})
 	require.NoError(t, err)
 	require.Len(t, req.Files, 1)
 	require.Equal(t, accessorevm.DefaultEVMConfigPath, req.Files[0].ContainerFilePath)
@@ -141,7 +141,7 @@ func TestVerifierModifierLogPollerEnabled(t *testing.T) {
 		_, err = toml.Decode(files[evmconfig.DefaultEVMSecretsPath], &secrets)
 		require.NoError(t, err)
 		require.NotNil(t, secrets.DB)
-		require.Equal(t, committeeverifier.InternalDBURL(in), secrets.DB.URL)
+		require.Equal(t, committeeverifier.InternalDBURL(in, evmDBName), secrets.DB.URL)
 		require.FileExists(t, filepath.Join(util.CCVConfigDir(), "evm-default-secrets-1.toml"))
 	})
 
@@ -157,4 +157,25 @@ func TestVerifierModifierLogPollerEnabled(t *testing.T) {
 		_, err := VerifierModifier(testcontainers.ContainerRequest{}, newInput(util.OpaqueConfig{"log_poller": true}), []*blockchain.Output{output})
 		require.ErrorContains(t, err, "opaque_configs.evm")
 	})
+}
+
+func TestVerifierDatabases(t *testing.T) {
+	newInput := func(opaque util.OpaqueConfig) *committeeverifier.Input {
+		in := &committeeverifier.Input{ContainerName: "default-verifier-1"}
+		if opaque != nil {
+			in.OpaqueConfigs = map[string]util.OpaqueConfig{chainsel.FamilyEVM: opaque}
+		}
+		return in
+	}
+
+	got, err := VerifierDatabases(newInput(util.OpaqueConfig{"log_poller_enabled": true}))
+	require.NoError(t, err)
+	require.Equal(t, []string{evmDBName}, got, "the LogPoller needs evm_db")
+
+	got, err = VerifierDatabases(newInput(nil))
+	require.NoError(t, err)
+	require.Empty(t, got, "the RPC reader needs no extra database")
+
+	_, err = VerifierDatabases(newInput(util.OpaqueConfig{"log_poller": true}))
+	require.ErrorContains(t, err, "invalid opaque_configs.evm")
 }
