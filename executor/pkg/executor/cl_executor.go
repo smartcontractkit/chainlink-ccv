@@ -301,13 +301,13 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 		return true, err
 	}
 
-	// If someone else has already tried to execute this message with the data
-	// that we would execute the message with or deem valid. We won't execute.
+	// Do not transmit over an honest attempt. Recheck successful attempts so reorg removal can
+	// reopen execution; deterministic receiver failures remain terminal.
 	if attemptCheck.Honest {
 		cle.lggr.Debugw("skipping execution due to existing honest attempt", protocol.LogKeyMessageID, messageID)
 		span.AddEvent(monitoring.EventSkippedHonestAttemptExists)
 		metrics.IncrementMessageTransition(ctx, monitoring.MessageTransitionStageExecution, monitoring.MessageTransitionOutcomeSkipped, monitoring.MessageTransitionReasonHonestAttempt)
-		return false, nil
+		return !attemptCheck.HonestAttemptFailed, nil
 	}
 
 	// An attempt that is not honest does not stop the pool, but only the first ranked executor may send after it.
@@ -401,6 +401,13 @@ func (cle *ChainlinkExecutor) getVerifierResultsAndQuorum(ctx context.Context, m
 					"error", err,
 				)
 				// continue here because it's possible to still meet verifier quorum with some invalid verifier results.
+				continue
+			}
+			if r.MessageID != messageID {
+				cle.lggr.Warnw("Verifier Result message ID does not match requested message ID",
+					"verifierResult", r,
+					"expectedMessageID", messageID.String(),
+				)
 				continue
 			}
 			ccvData = append(ccvData, r)

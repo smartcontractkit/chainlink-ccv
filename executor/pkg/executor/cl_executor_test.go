@@ -290,6 +290,7 @@ func Test_ChainlinkExecutor_HandleMessage_VerifierResults(t *testing.T) {
 		name                 string
 		verifierResults      []protocol.VerifierResult
 		verifierResultsErr   error
+		differentMessage     bool
 		ccvInfo              protocol.CCVAddressInfo
 		ccvInfoErr           error
 		expectedRetry        bool
@@ -324,6 +325,17 @@ func Test_ChainlinkExecutor_HandleMessage_VerifierResults(t *testing.T) {
 			verifierResults: []protocol.VerifierResult{
 				{MessageID: protocol.Bytes32{}, Message: generateFakeMessage(1, 2, 1, nil, address1), MessageCCVAddresses: []protocol.UnknownAddress{}, MessageExecutorAddress: address1}, // address1 doesn't match defaultExecutorAddress[2] = address2
 			},
+			ccvInfo:              protocol.CCVAddressInfo{},
+			expectedRetry:        true,
+			expectedError:        true,
+			expectedNoResultsErr: true,
+		},
+		{
+			name: "verifier results filtered out due to message ID mismatch - should retry with error",
+			verifierResults: []protocol.VerifierResult{
+				{MessageID: protocol.Bytes32{}, Message: generateFakeMessage(1, 2, 1, nil, address2), MessageCCVAddresses: []protocol.UnknownAddress{}, MessageExecutorAddress: address2},
+			},
+			differentMessage:     true,
 			ccvInfo:              protocol.CCVAddressInfo{},
 			expectedRetry:        true,
 			expectedError:        true,
@@ -370,6 +382,12 @@ func Test_ChainlinkExecutor_HandleMessage_VerifierResults(t *testing.T) {
 				for i, result := range tc.verifierResults {
 					result.MessageID = messageID
 					result.Message = msg
+					if tc.differentMessage {
+						result.Message = generateFakeMessage(1, 2, 2, nil, address2)
+						result.MessageID = result.Message.MustMessageID()
+						require.NotEqual(t, messageID, result.MessageID)
+						require.NoError(t, result.ValidateFieldsConsistent())
+					}
 					results[i] = result
 				}
 				vr.EXPECT().GetVerifierResults(mock.Anything, mock.Anything).Return(results, nil).Maybe()
@@ -391,6 +409,9 @@ func Test_ChainlinkExecutor_HandleMessage_VerifierResults(t *testing.T) {
 				}
 			} else {
 				assert.NoError(t, err)
+			}
+			if tc.differentMessage {
+				ct[1].AssertNotCalled(t, "ConvertAndWriteMessageToChain", mock.Anything, mock.Anything)
 			}
 		})
 	}
@@ -945,7 +966,8 @@ func Test_ChainlinkExecutor_HandleMessage_AttemptThatIsNotHonest(t *testing.T) {
 		wantErr         bool
 	}{
 		{name: "no attempt: the executor sends without the elector", check: chainaccess.HonestAttemptCheck{}, wantTransmit: true},
-		{name: "honest attempt: the executor skips without the elector", check: chainaccess.HonestAttemptCheck{Honest: true}},
+		{name: "honest attempt: the executor rechecks without the elector", check: chainaccess.HonestAttemptCheck{Honest: true}, wantShouldRetry: true},
+		{name: "failed honest attempt: the executor stops without the elector", check: chainaccess.HonestAttemptCheck{Honest: true, HonestAttemptFailed: true}},
 		{name: "attempt not honest, executor is first ranked: sends", check: notHonest, firstRanked: new(true), wantTransmit: true},
 		{name: "attempt not honest, executor is not first ranked: skips", check: notHonest, firstRanked: new(false)},
 		{name: "attempt not honest, elector fails: retries later", check: notHonest, electorErr: errors.New("elector"), wantShouldRetry: true, wantErr: true},

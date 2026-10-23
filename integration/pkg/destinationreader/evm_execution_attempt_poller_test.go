@@ -604,8 +604,9 @@ func TestProcessExecutionStateChanged_RecordsFailureData(t *testing.T) {
 	attempts, ok := poller.attemptCache.Get(event.MessageId)
 	require.True(t, ok)
 	require.Len(t, attempts, 1)
-	assert.True(t, attempts[0].Failed)
-	assert.Equal(t, failureData, attempts[0].FailureData)
+	assert.Equal(t, eventKey(event), attempts[0].eventKey)
+	assert.True(t, attempts[0].attempt.Failed)
+	assert.Equal(t, failureData, attempts[0].attempt.FailureData)
 }
 
 func TestProcessExecutionStateChanged_RejectsWhenTransactionByHashFails(t *testing.T) {
@@ -700,6 +701,105 @@ func TestProcessExecutionStateChanged_SkipsReplayedEvent(t *testing.T) {
 	attempts, ok = poller.attemptCache.Get(event.MessageId)
 	require.True(t, ok)
 	assert.Len(t, attempts, 2, "a distinct log index must not be deduplicated")
+	mockCli.AssertExpectations(t)
+}
+
+func TestProcessExecutionStateChanged_RemovedLogRemovesAttempt(t *testing.T) {
+	mockCli := new(mockClient)
+	poller := setupTestPoller(t, mockCli, 24*time.Hour)
+	message := buildPollerTestMessage(t)
+	tx := buildExecuteTxForMessage(t, poller.offRampAddress, message)
+	event := &offramp.OffRampExecutionStateChanged{
+		MessageId: message.MustMessageID(),
+		State:     uint8(executor.SUCCESS),
+	}
+	event.Raw.TxHash = common.HexToHash("0xremoved")
+	event.Raw.Index = 7
+	event.Raw.BlockNumber = 100
+	mockCli.On("TransactionByHash", mock.Anything, event.Raw.TxHash).Return(tx, nil).Once()
+
+	require.NoError(t, poller.processExecutionStateChanged(context.Background(), event))
+	removedEvent := *event
+	removedEvent.Raw.Removed = true
+	require.NoError(t, poller.processExecutionStateChanged(context.Background(), &removedEvent))
+
+	attempts, err := poller.GetExecutionAttempts(context.Background(), message)
+	require.NoError(t, err)
+	assert.Empty(t, attempts)
+	_, exists := poller.attemptCache.Get(event.MessageId)
+	assert.False(t, exists, "removing the final attempt must remove the message entry")
+	assert.False(t, poller.seenEvents.Contains(eventKey(event)))
+	mockCli.AssertNumberOfCalls(t, "TransactionByHash", 1)
+	mockCli.AssertExpectations(t)
+}
+
+func TestProcessExecutionStateChanged_RemovedLogPreservesOtherAttempt(t *testing.T) {
+	mockCli := new(mockClient)
+	poller := setupTestPoller(t, mockCli, 24*time.Hour)
+	message := buildPollerTestMessage(t)
+	tx := buildExecuteTxForMessage(t, poller.offRampAddress, message)
+	firstEvent := &offramp.OffRampExecutionStateChanged{
+		MessageId:  message.MustMessageID(),
+		State:      uint8(executor.FAILURE),
+		ReturnData: []byte{1},
+	}
+	firstEvent.Raw.TxHash = common.HexToHash("0xfirst")
+	firstEvent.Raw.Index = 1
+	secondEvent := &offramp.OffRampExecutionStateChanged{
+		MessageId:  message.MustMessageID(),
+		State:      uint8(executor.FAILURE),
+		ReturnData: []byte{2},
+	}
+	secondEvent.Raw.TxHash = common.HexToHash("0xsecond")
+	secondEvent.Raw.Index = 2
+	mockCli.On("TransactionByHash", mock.Anything, firstEvent.Raw.TxHash).Return(tx, nil).Once()
+	mockCli.On("TransactionByHash", mock.Anything, secondEvent.Raw.TxHash).Return(tx, nil).Once()
+
+	require.NoError(t, poller.processExecutionStateChanged(context.Background(), firstEvent))
+	require.NoError(t, poller.processExecutionStateChanged(context.Background(), secondEvent))
+	removedEvent := *firstEvent
+	removedEvent.Raw.Removed = true
+	require.NoError(t, poller.processExecutionStateChanged(context.Background(), &removedEvent))
+
+	attempts, err := poller.GetExecutionAttempts(context.Background(), message)
+	require.NoError(t, err)
+	require.Len(t, attempts, 1)
+	assert.Equal(t, secondEvent.ReturnData, attempts[0].FailureData)
+	cached, exists := poller.attemptCache.Get(firstEvent.MessageId)
+	require.True(t, exists)
+	require.Len(t, cached, 1)
+	assert.Equal(t, eventKey(secondEvent), cached[0].eventKey)
+	assert.False(t, poller.seenEvents.Contains(eventKey(firstEvent)))
+	assert.True(t, poller.seenEvents.Contains(eventKey(secondEvent)))
+	mockCli.AssertExpectations(t)
+}
+
+func TestProcessExecutionStateChanged_RemovedLogCanBeReincluded(t *testing.T) {
+	mockCli := new(mockClient)
+	poller := setupTestPoller(t, mockCli, 24*time.Hour)
+	message := buildPollerTestMessage(t)
+	tx := buildExecuteTxForMessage(t, poller.offRampAddress, message)
+	event := &offramp.OffRampExecutionStateChanged{
+		MessageId: message.MustMessageID(),
+		State:     uint8(executor.SUCCESS),
+	}
+	event.Raw.TxHash = common.HexToHash("0xreincluded")
+	event.Raw.Index = 9
+	mockCli.On("TransactionByHash", mock.Anything, event.Raw.TxHash).Return(tx, nil).Twice()
+
+	require.NoError(t, poller.processExecutionStateChanged(context.Background(), event))
+	removedEvent := *event
+	removedEvent.Raw.Removed = true
+	require.NoError(t, poller.processExecutionStateChanged(context.Background(), &removedEvent))
+	require.False(t, poller.seenEvents.Contains(eventKey(event)))
+	mockCli.AssertNumberOfCalls(t, "TransactionByHash", 1)
+
+	require.NoError(t, poller.processExecutionStateChanged(context.Background(), event))
+	attempts, err := poller.GetExecutionAttempts(context.Background(), message)
+	require.NoError(t, err)
+	assert.Len(t, attempts, 1)
+	assert.True(t, poller.seenEvents.Contains(eventKey(event)))
+	mockCli.AssertNumberOfCalls(t, "TransactionByHash", 2)
 	mockCli.AssertExpectations(t)
 }
 
@@ -1247,77 +1347,89 @@ func TestReady_ReportsStaleWhenPollsStopSucceeding(t *testing.T) {
 	}, 5*time.Second, 20*time.Millisecond, "poller should recover once the RPC answers again")
 }
 
-func TestStart_ContextCancelDuringStartup_NotFatal(t *testing.T) {
+func TestStart_ContextCancelDuringStartup_Stops(t *testing.T) {
 	const lookbackWindow = 1 * time.Hour
 
 	mockCli := new(mockClient)
 	poller := setupTestPoller(t, mockCli, lookbackWindow)
+	poller.pollInterval = time.Hour
 
-	// Block getStartBlock until the cancel channel fires, then return
-	// a context-canceled error.
 	startedCh := make(chan struct{})
+	var rpcCalls atomic.Int32
 	mockCli.dynamicFunc = func(ctx context.Context, number *big.Int) (*types.Header, error) {
+		rpcCalls.Add(1)
 		close(startedCh)
 		<-ctx.Done()
 		return nil, ctx.Err()
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	require.NoError(t, poller.Start(ctx))
 
-	err := poller.Start(ctx)
-	require.NoError(t, err)
-
-	// Wait until getStartBlock is actively running.
 	<-startedCh
+	assert.ErrorIs(t, poller.Ready(), ErrBackfillInProgress)
+	assert.NoError(t, poller.Healthy())
 
-	// Shutdown the service; this cancels the context mid-startup.
 	cancel()
 	require.NoError(t, poller.Close())
-
-	// Context cancel should NOT set a fatal error — Healthy should return nil
-	// (or the not-started error from StateMachine, which is acceptable).
-	// The key invariant: fatalErr must not be set.
-	assert.Nil(t, poller.fatalErr.Load(), "context cancel during startup should not be treated as a fatal error")
+	assert.False(t, poller.backfillComplete.Load())
+	assert.Equal(t, int32(1), rpcCalls.Load(), "cancellation must not trigger another startup RPC")
 }
 
-func TestHealthy_ReturnsFatalError_WhenGetStartBlockFails(t *testing.T) {
+func TestStart_RetriesGetStartBlockUntilRPCRecovers(t *testing.T) {
 	const lookbackWindow = 1 * time.Hour
 
 	mockCli := new(mockClient)
 	poller := setupTestPoller(t, mockCli, lookbackWindow)
+	poller.pollInterval = 10 * time.Millisecond
 
-	// getStartBlock will fail because HeaderByNumber returns an error.
-	mockCli.On("HeaderByNumber", mock.Anything, (*big.Int)(nil)).
-		Return(nil, errors.New("RPC permanently down"))
+	retryStarted := make(chan struct{})
+	allowRecovery := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseRecovery := func() {
+		releaseOnce.Do(func() { close(allowRecovery) })
+	}
+	var rpcCalls atomic.Int32
+	head := &types.Header{
+		Number: big.NewInt(100),
+		Time:   uint64(time.Now().Add(-2 * lookbackWindow).Unix()),
+	}
+	mockCli.dynamicFunc = func(ctx context.Context, number *big.Int) (*types.Header, error) {
+		switch rpcCalls.Add(1) {
+		case 1:
+			return nil, errors.New("transient RPC failure")
+		case 2:
+			close(retryStarted)
+			select {
+			case <-allowRecovery:
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+		return head, nil
+	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
+	require.NoError(t, poller.Start(ctx))
+	defer func() {
+		releaseRecovery()
+		require.NoError(t, poller.Close())
+	}()
 
-	err := poller.Start(ctx)
-	require.NoError(t, err)
+	<-retryStarted
+	assert.ErrorIs(t, poller.Ready(), ErrBackfillInProgress)
+	assert.NoError(t, poller.Healthy())
+	assert.ErrorIs(t, poller.HealthReport()[poller.Name()], ErrBackfillInProgress)
 
-	// Wait for the startup goroutine to record the fatal error.
+	releaseRecovery()
 	require.Eventually(t, func() bool {
-		return poller.Healthy() != nil
+		return poller.Ready() == nil
 	}, 5*time.Second, 10*time.Millisecond)
-
-	// Healthy should persistently return the fatal error.
-	healthErr := poller.Healthy()
-	assert.ErrorContains(t, healthErr, "failed to get start block")
-
-	// Calling Healthy again should still return the error (persistent).
-	healthErr2 := poller.Healthy()
-	assert.ErrorContains(t, healthErr2, "failed to get start block")
-
-	// Ready should surface the fatal error rather than ErrBackfillInProgress.
-	assert.ErrorContains(t, poller.Ready(), "failed to get start block")
-
-	// HealthReport should surface the fatal error.
-	report := poller.HealthReport()
-	assert.ErrorContains(t, report[poller.Name()], "failed to get start block")
-
-	cancel()
-	require.NoError(t, poller.Close())
+	assert.NoError(t, poller.Healthy())
+	assert.True(t, poller.backfillComplete.Load())
+	assert.GreaterOrEqual(t, rpcCalls.Load(), int32(3))
 }
 
 // The staleness threshold defaults to 50 poll intervals and honors an explicit override.

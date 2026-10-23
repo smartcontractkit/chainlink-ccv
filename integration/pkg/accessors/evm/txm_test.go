@@ -2,6 +2,7 @@ package evm
 
 import (
 	"context"
+	"math"
 	"math/big"
 	"testing"
 	"time"
@@ -20,6 +21,7 @@ func TestNonceRangeIdentifiesOrphans(t *testing.T) {
 		name            string
 		latest, pending uint64
 		want            []uint64
+		wantErr         bool
 	}{
 		{
 			name:    "no transactions in flight",
@@ -48,12 +50,25 @@ func TestNonceRangeIdentifiesOrphans(t *testing.T) {
 			pending: 8,
 			want:    nil,
 		},
+		{
+			name:    "extreme uint64 gap returns an error",
+			latest:  0,
+			pending: math.MaxUint64,
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			require.Equal(t, tt.want, nonceRange(tt.latest, tt.pending))
+			got, err := nonceRange(tt.latest, tt.pending)
+			if tt.wantErr {
+				require.Error(t, err)
+				require.Nil(t, got)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
