@@ -9,9 +9,6 @@ import (
 	"github.com/smartcontractkit/chainlink-evm/pkg/logpoller"
 )
 
-// fakeORM embeds the interface and implements nothing: the builder must not call the ORM.
-type fakeORM struct{ logpoller.ORM }
-
 type fakeEnabledLogPoller struct{ logpoller.LogPoller }
 
 // One test for both deployment paths, which build their reader config through NewLogPollerConfig.
@@ -22,11 +19,9 @@ func TestNewLogPollerConfig(t *testing.T) {
 		t.Run(verifierID, func(t *testing.T) {
 			t.Parallel()
 			lp := fakeEnabledLogPoller{}
-			orm := fakeORM{}
-			cfg := NewLogPollerConfig(lp, orm, verifierID)
+			cfg := NewLogPollerConfig(lp, verifierID)
 
 			require.Equal(t, lp, cfg.LogPoller)
-			require.Equal(t, orm, cfg.ORM)
 			require.Equal(t, verifierID, cfg.VerifierID)
 			require.Equal(t, DefaultMessageSentLogRetention, cfg.Retention)
 

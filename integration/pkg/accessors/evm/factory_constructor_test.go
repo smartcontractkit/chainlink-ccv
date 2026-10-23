@@ -1,7 +1,6 @@
 package evm
 
 import (
-	"math/big"
 	"os"
 	"path/filepath"
 	"testing"
@@ -52,7 +51,6 @@ func TestCreateEVMAccessorFactoryPassesLogPollerAndVerifierID(t *testing.T) {
 	require.True(t, f.logPollerEnabled)
 	require.Equal(t, "verifier-1", f.verifierID)
 	require.NotNil(t, f.db, "the database is configured but not connected")
-	require.Equal(t, []*big.Int{big.NewInt(11155111)}, f.chainIDs, "Sepolia's chain ID, from the EVM config")
 }
 
 func TestCreateAccessorFactoryDoesNotDialRPCDuringConstruction(t *testing.T) {

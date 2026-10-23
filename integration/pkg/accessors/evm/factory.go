@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"math/big"
 	"sync"
 	"time"
 
@@ -59,10 +58,7 @@ type factory struct {
 	// logPoller makes source readers read through the chain's LogPoller on db.
 	logPollerEnabled bool
 	// verifierID scopes LogPoller filter names; empty outside the committee verifier.
-	verifierID  string
-	cleanupOnce sync.Once
-	// chainIDs are the configured chains' EVM chain IDs, whose filters the cleanup removes.
-	chainIDs []*big.Int
+	verifierID string
 }
 
 func newFactory(
@@ -267,7 +263,6 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 	acc.db = f.db
 	acc.logPollerEnabled = f.logPollerEnabled
 	acc.verifierID = f.verifierID
-	acc.cleanUnusedFilters = f.cleanUnusedFilters
 	return acc, nil
 }
 
@@ -292,8 +287,6 @@ type accessor struct {
 	logPollerEnabled bool
 	verifierID       string
 	db               *lazy.Lazy[*sql.DB]
-	// cleanUnusedFilters is the factory\'s once-per-process filter cleanup for the LogPoller-off case.
-	cleanUnusedFilters func()
 
 	lggr          logger.Logger
 	chainSelector protocol.ChainSelector
@@ -393,9 +386,6 @@ func (a *accessor) SourceReader() (chainaccess.SourceReader, error) {
 	} else {
 		// The constructor takes a ctx but does no I/O with it.
 		a.sourceReader, a.sourceErr = NewEVMSourceReader(context.Background(), *a.sourceParams)
-		if a.cleanUnusedFilters != nil {
-			a.cleanUnusedFilters()
-		}
 	}
 	if a.sourceErr != nil {
 		a.sourceReader = nil

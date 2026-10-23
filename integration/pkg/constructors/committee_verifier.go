@@ -28,7 +28,6 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 	"github.com/smartcontractkit/chainlink-evm/pkg/chains/legacyevm"
-	"github.com/smartcontractkit/chainlink-evm/pkg/logpoller"
 )
 
 // NewVerificationCoordinator builds a verifier coordinator. aggregatorSecrets maps each
@@ -140,7 +139,7 @@ func NewVerificationCoordinator(
 				chainMetrics.IncrementCriticalSourceInvariantViolations(ctx)
 			},
 		}
-		sourceReader, finalityReporter, err := newChainSourceReader(lggr, chain, params, ds, cfg.VerifierID)
+		sourceReader, finalityReporter, err := newChainSourceReader(chain, params, cfg.VerifierID)
 		if err != nil {
 			// A failure to build one chain's reader must not stop the remaining chains from
 			// starting. Log and skip this chain so the rest of the coordinator can come up.
@@ -343,10 +342,8 @@ func NewVerificationCoordinator(
 // newChainSourceReader builds a chain's source reader. A chain with the node's log poller enabled reads
 // logs from it and uses its finality signal; the reader is the log poller's own violation state.
 func newChainSourceReader(
-	lggr logger.Logger,
 	chain legacyevm.Chain,
 	params evm.SourceReaderParams,
-	ds sqlutil.DataSource,
 	verifierID string,
 ) (chainaccess.SourceReader, chainaccess.FinalityViolationReporter, error) {
 	// This CL entry point has no context parameter (its signature is consumed by the Chainlink
@@ -356,7 +353,7 @@ func newChainSourceReader(
 		reader, err := evm.NewEVMSourceReader(context.Background(), params)
 		return reader, nil, err
 	}
-	reader, err := evm.NewLogPollerSourceReader(context.Background(), params, evm.NewLogPollerConfig(lp, logpoller.NewORM(chain.ID(), ds, lggr), verifierID))
+	reader, err := evm.NewLogPollerSourceReader(context.Background(), params, evm.NewLogPollerConfig(lp, verifierID))
 	if err != nil {
 		return nil, nil, err
 	}

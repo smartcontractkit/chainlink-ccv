@@ -5,7 +5,7 @@
 - The standalone committee verifier can now read `CCIPMessageSent` logs through a LogPoller it runs itself, on its own database. Before this, only the CL-mode verifier did (`2026-10-07_source_reader_log_poller.md`). It is off by default and turned on with `[Feature] LogPoller = true` in the bootstrap config.
 - Each chain's LogPoller runs in the verifier process and stores its data in the verifier database, in a new `evm` schema (migration `00001_evm_logpoller_schema.sql`, owned by the EVM accessor). Only one LogPoller per `evm_chain_id` can run in a process.
 - The LogPoller reader now reports its own finality violations (`chainaccess.FinalityViolationReporter`) and its own health (new `chainaccess.SourceHealthReporter`). `evm.NewLogPollerFinality` is removed. The chain health gauge now has one source, `sourcereader.Service.chainHealth`.
-- The startup load gets three new steps. It removes this verifier's stale filters. It waits until the checkpoint is finalized. If the replay hits a finality violation, it stops retrying and blocks the reader.
+- The startup load gets two new steps. It waits until the checkpoint is finalized. If the replay hits a finality violation, it stops retrying and blocks the reader.
 - New `verifier ccv blocks find-lca` and `remove-blocks` commands mirror the node's commands. The finality-violation runbook now covers both the node and the standalone verifier.
 - `bootstrap` gains a `[Feature]` section, plus two optional factory hooks: `FeatureValidator` and `AccessorsClosedHook`. `chainaccess` gains three optional accessor capabilities. Only one public symbol is removed (`evm.NewLogPollerFinality`), and `RunCCVCLI` gets a trailing variadic.
 
@@ -33,13 +33,11 @@
 | `bootstrap.AccessorsClosedHook` | added | `\bAccessorsClosedHook\b` | `bootstrap/bootstrap.go:121` | [#bootstrap-hooks](#bootstrap-hooks) |
 | `chainaccess.SourceReaderDeps` | added | `\bSourceReaderDeps\b` | `pkg/chainaccess/interfaces.go:84` | [#accessor-reader-selection](#accessor-reader-selection) |
 | `chainaccess.SourceReaderDepsSetter` | added | `\bSourceReaderDepsSetter\b` | `pkg/chainaccess/interfaces.go:92` | [#accessor-reader-selection](#accessor-reader-selection) |
-| `chainaccess.UnusedSourceStateCleaner` | added | `\bUnusedSourceStateCleaner\b` | `pkg/chainaccess/interfaces.go:105` | [#filter-cleanup](#filter-cleanup) |
 | `chainaccess.SourceHealthReporter` | added | `\bSourceHealthReporter\b` | `pkg/chainaccess/interfaces.go:77` | [#finality-and-health-from-the-reader](#finality-and-health-from-the-reader) |
 | `verifier.WithSourceHealthReporters` | added | `\bWithSourceHealthReporters\(` | `verifier/pkg/coordinator.go:87` | [#finality-and-health-from-the-reader](#finality-and-health-from-the-reader) |
 | `sourcereader.WithHealthReporter` | added | `\bWithHealthReporter\(` | `verifier/pkg/sourcereader/service.go:114` | [#finality-and-health-from-the-reader](#finality-and-health-from-the-reader) |
 | `evm.LogPollerSourceReader.FinalityViolated` / `Healthy` | added | `\.(FinalityViolated\|Healthy)\(\)` | `integration/pkg/accessors/evm/evm_logpoller_source_reader.go:146` | [#finality-and-health-from-the-reader](#finality-and-health-from-the-reader) |
 | `evm.NewLogPollerConfig` | added | `\bNewLogPollerConfig\(` | `integration/pkg/accessors/evm/evm_logpoller_source_reader.go:71` | [#finality-and-health-from-the-reader](#finality-and-health-from-the-reader) |
-| `evm.LogPollerConfig.ORM` | added | `\bLogPollerConfig\{` | `integration/pkg/accessors/evm/evm_logpoller_source_reader.go:66` | [#filter-cleanup](#filter-cleanup) |
 | `evm.CheckpointAboveFinalizedError` | added | `\bCheckpointAboveFinalizedError\b` | `integration/pkg/accessors/evm/evm_logpoller_source_reader.go:45` | [#startup-load-changes](#startup-load-changes) |
 | `evm.LCA`, `evm.FindLCA`, `evm.RemoveBlocksFrom` | added | `\bevm\.(LCA\|FindLCA\|RemoveBlocksFrom)\b` | `integration/pkg/accessors/evm/evm_logpoller_operator.go:29` | [#ccv-blocks-cli](#ccv-blocks-cli) |
 | `evm.SelectorFromChainID`, `evm.CheckLogPollerSchema` | added | `\bevm\.(SelectorFromChainID\|CheckLogPollerSchema)\(` | `integration/pkg/accessors/evm/evm_logpoller_operator.go:37` | [#ccv-blocks-cli](#ccv-blocks-cli) |
@@ -78,14 +76,14 @@ No other public signature changes.
 
    ```go
    // After
-   reader, err := evm.NewLogPollerSourceReader(ctx, params, evm.NewLogPollerConfig(lp, logpoller.NewORM(chainID, ds, lggr), id))
+   reader, err := evm.NewLogPollerSourceReader(ctx, params, evm.NewLogPollerConfig(lp, id))
    if err != nil { return err }
    reporter, ok := reader.(chainaccess.FinalityViolationReporter)
    if !ok { return errors.New("log poller source reader does not report finality violations") }
    ```
 
    Do the type assertion on the raw reader, before any instrumentation wrapper. `observedSourceReader` hides these capabilities.
-2. Build `evm.LogPollerConfig` with `evm.NewLogPollerConfig`. If you keep a struct literal, set `ORM`; without it, stale-filter cleanup is skipped.
+2. Build `evm.LogPollerConfig` with `evm.NewLogPollerConfig`.
 3. A `SourceReader` wrapper that must keep the new signals has to forward `FinalityViolated()` and `Healthy()`, or the caller has to resolve them from the raw reader as `selectChainReader` does.
 4. Any `bootstrap.ServiceFactory` started in local mode must tolerate `Stop` after a failed `Start` (see [#bootstrap-hooks](#bootstrap-hooks)).
 5. To turn on the LogPoller reader for a standalone committee verifier, add the section below to the bootstrap config. Also make sure the verifier secrets file has `[db].url` (or `CL_DATABASE_URL` is set):
@@ -157,7 +155,7 @@ Rules for `SetSourceReaderDeps`: call it before the first `SourceReader()` call.
 
 | `Features.LogPoller` | Accessor implements setter | Result |
 |---|---|---|
-| false | — | Best-effort filter cleanup ([#filter-cleanup](#filter-cleanup)), then the RPC reader. Logs `Source reader selected reader=rpc`. |
+| false | — | RPC reader. Logs `Source reader selected reader=rpc`. |
 | true | no | Warns `Accessor cannot read through a LogPoller, using the RPC source reader`; RPC reader. |
 | true | yes, setter fails | Chain skipped (no RPC fallback). |
 | true | yes | LogPoller reader. The finality reporter (unless the chain is in `DisableFinalityCheckers`) and the health reporter are resolved from the raw reader; if either is missing the chain is skipped. Logs `reader=logpoller`. |
@@ -167,7 +165,7 @@ Rules for `SetSourceReaderDeps`: call it before the first `SourceReader()` call.
 - `LogPollerSourceReader.FinalityViolated()` returns true when the startup replay latched a violation or the LogPoller's `Healthy()` is `ErrFinalityViolated`.
 - `LogPollerSourceReader.Healthy()` returns the LogPoller's `Healthy()`, except that `ErrFinalityViolated` becomes `nil`, so a violation is counted only once.
 - `chainaccess.SourceHealthReporter { Healthy() error }` reaches each chain's service through `verifier.WithSourceHealthReporters(map)` and then `sourcereader.WithHealthReporter`. A nil entry adds no health input.
-- CL mode: `constructors.newChainSourceReader` (`committee_verifier.go:345`) now builds the config with `evm.NewLogPollerConfig(lp, logpoller.NewORM(chain.ID(), ds, lggr), verifierID)`, and uses the reader itself as the finality reporter. CL mode does not pass a health reporter.
+- CL mode: `constructors.newChainSourceReader` (`committee_verifier.go:345`) now builds the config with `evm.NewLogPollerConfig(lp, verifierID)`, and uses the reader itself as the finality reporter. CL mode does not pass a health reporter.
 
 **`sourcereader.Service` health** (`verifier/pkg/sourcereader/service.go:326`):
 
@@ -182,10 +180,9 @@ Rules for `SetSourceReaderDeps`: call it before the first `SourceReader()` call.
 These build on the load described in `2026-10-07_source_reader_log_poller.md`. `loadLogPoller` (`evm_logpoller_source_reader.go:251`) now runs:
 
 1. Register the filter.
-2. **Remove stale filters** (new, see [#filter-cleanup](#filter-cleanup)).
-3. **Check the start block is finalized** (new). If the checkpoint (`fromBlock - 1`) is above the head tracker's finalized block, as after a testnet reset, the attempt fails with `evm.CheckpointAboveFinalizedError{Checkpoint, Finalized}` and is retried until finality catches up.
-4. Anchor an empty LogPoller.
-5. Replay. After `Replay`, the LogPoller's `Healthy()` is checked again, because `Replay` hands blocks past its stored finalized block to the poll loop and drops their errors.
+2. **Check the start block is finalized** (new). If the checkpoint (`fromBlock - 1`) is above the head tracker's finalized block, as after a testnet reset, the attempt fails with `evm.CheckpointAboveFinalizedError{Checkpoint, Finalized}` and is retried until finality catches up.
+3. Anchor an empty LogPoller.
+4. Replay. After `Replay`, the LogPoller's `Healthy()` is checked again, because `Replay` hands blocks past its stored finalized block to the poll loop and drops their errors.
 
 Other changes:
 
@@ -194,16 +191,9 @@ Other changes:
 - **Block reads before `LoadFrom`:** `LatestAndFinalizedBlock` and `LatestSafeBlock` read the head tracker until `LoadFrom` is called. A verifier with no checkpoint gets its start block from the chain, not from whatever the LogPoller has stored. Once `LoadFrom` is called, even on a closed reader, they never fall back again.
 - Retry backoff is still 1s to 1m. Unexported per-reader overrides exist for tests.
 
-## Filter cleanup
+## Filter lifecycle
 
-Filter names are unchanged: `ccv-verifier - <verifierID>:<onramp>`. A stored filter counts as this verifier's only if the text after `verifierFilterPrefix(verifierID)` is exactly a 42-character hex address. Verifier IDs can contain `:`, so a prefix match alone is not enough.
-
-| When | What | Failure |
-|---|---|---|
-| LogPoller reader load, `LogPollerConfig.ORM` set (CL and standalone) | Each of this verifier's stored filters on the chain, except the current one, is deleted from the ORM and then unregistered from the LogPoller. Bounded by 10s and by reader close. | Warning; load continues. |
-| Standalone start with `LogPoller = false`, database configured | `accessor.CleanUnusedSourceState` (`chainaccess.UnusedSourceStateCleaner`) deletes all of this verifier's stored filters for the chain. Logs and blocks stay. Bounded by 10s per chain. | Warning; chain still starts. |
-
-Filters of chains that are no longer configured are not cleaned up. A graceful stop already unregisters them, so only a crash leaves one behind.
+Unchanged from `2026-10-07_source_reader_log_poller.md`: the reader registers `ccv-verifier - <verifierID>:<onramp>` on load and unregisters only that filter on `Close`. Nothing deletes other stored filters.
 
 ## ccv blocks CLI
 

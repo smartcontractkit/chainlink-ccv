@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client/clienttest"
 	"github.com/smartcontractkit/chainlink-evm/pkg/heads"
 	"github.com/smartcontractkit/chainlink-evm/pkg/logpoller"
@@ -51,13 +50,6 @@ func (h fixedHeadTracker) LatestSafeBlock(context.Context) (*evmtypes.Head, erro
 	return &evmtypes.Head{Number: h.safe}, nil
 }
 
-// noFiltersDataSource answers the startup's stale-filter query with no rows; any other use panics.
-type noFiltersDataSource struct {
-	sqlutil.DataSource
-}
-
-func (noFiltersDataSource) SelectContext(context.Context, any, string, ...any) error { return nil }
-
 // newInNodeLogPollerReader builds a chain's reader as the in-node coordinator does, inside the observed wrapper.
 func newInNodeLogPollerReader(t *testing.T, lp *lpmocks.LogPoller, ht heads.Tracker) chainaccess.SourceReader {
 	const sel = protocol.ChainSelector(5009297550715157269)
@@ -71,7 +63,7 @@ func newInNodeLogPollerReader(t *testing.T, lp *lpmocks.LogPoller, ht heads.Trac
 		Logger:               logger.Test(t),
 		HeaderFetchBatchSize: 25,
 	}
-	reader, reporter, err := newChainSourceReader(logger.Test(t), chain, params, noFiltersDataSource{}, "test-verifier")
+	reader, reporter, err := newChainSourceReader(chain, params, "test-verifier")
 	require.NoError(t, err)
 	require.IsType(t, &evm.LogPollerSourceReader{}, reader)
 	require.NotNil(t, reporter)

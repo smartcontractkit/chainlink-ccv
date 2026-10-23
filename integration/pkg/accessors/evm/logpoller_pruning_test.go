@@ -42,7 +42,7 @@ func TestLogPollerPrunesItsOwnRows(t *testing.T) {
 		orm := logpoller.NewORM(big.NewInt(chainID), handle, logger.Test(t))
 		if withFilter {
 			require.NoError(t, orm.InsertFilter(ctx, logpoller.Filter{
-				Name:      verifierFilterName("verifier-1", onRamp),
+				Name:      logpoller.FilterName("ccv-verifier", "verifier-1", onRamp.Hex()),
 				Addresses: evmtypes.AddressArray{onRamp},
 				EventSigs: evmtypes.HashArray{topic},
 				Retention: pruneRetention,
