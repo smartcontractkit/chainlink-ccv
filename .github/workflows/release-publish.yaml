@@ -73,6 +73,7 @@ jobs:
   
   build-marketplace-gcp:
     name: Push ${{ matrix.module }} to GCP Marketplace AR
+    if: github.repository == 'smartcontractkit/chainlink-ccv'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -120,6 +121,7 @@ jobs:
 
   build-public:
     name: Build, sign & publish public ${{ matrix.module }} image
+    if: github.repository == 'smartcontractkit/chainlink-ccv'
     needs: compute-tags
     strategy:
       fail-fast: false
@@ -158,6 +160,7 @@ jobs:
 
   dispatch:
     name: Dispatch once images are published
+    if: github.repository == 'smartcontractkit/chainlink-ccv'
     runs-on: ubuntu-latest
     needs: [build, build-marketplace-gcp, build-public, compute-tags]
     permissions:
