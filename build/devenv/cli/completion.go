@@ -60,6 +60,7 @@ func getSubCommands(parent string) []prompt.Suggest {
 			{Text: "smoke", Description: "Send all the example messages between 1337 <> 2337"},
 			{Text: "smoke-v2", Description: "Send an example ArgsV2 message between 1337 <> 2337 local Anvil chains (EVM)"},
 			{Text: "smoke-v3", Description: "Send an example ArgsV3 message between 1337 <> 2337 local Anvil chains (EVM)"},
+			{Text: "smoke-jd-registration", Description: "Verify standalone JD registration, labels, connectivity, and idempotency"},
 			{Text: "load", Description: "Run the default load test (1msg/s) 1337 -> 2337 local Anvil chain (EVM)"},
 			{Text: "rpc-latency", Description: "Default load test + 400ms RPC latency (all chains)"},
 			{Text: "gas-spikes", Description: "Default load test + slow and fast gas spikes"},

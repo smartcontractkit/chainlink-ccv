@@ -7,7 +7,13 @@ import (
 	"time"
 
 	"github.com/smartcontractkit/chainlink-deployments-framework/offchain"
-	nodev1 "github.com/smartcontractkit/chainlink-protos/job-distributor/v1/node"
+
+	"github.com/smartcontractkit/chainlink-ccv/deployment/registration"
+)
+
+const (
+	DefaultRegistrationProduct     = "ccv"
+	DefaultRegistrationEnvironment = "devenv"
 )
 
 // BootstrapJDRegistration holds the information needed to register a bootstrap with JD.
@@ -18,25 +24,21 @@ type BootstrapJDRegistration struct {
 }
 
 // CSAKeyProvider supplies the CSA public key used to register a node with JD.
-// Implementations may obtain the key from a CL node API, a bootstrap info
-// server, or any other node-specific source.
-type CSAKeyProvider interface {
-	CSAKey(context.Context) (string, error)
-}
+type CSAKeyProvider = registration.CSAKeyProvider
 
-// BootstrapCSAKeyProvider provides the CSA key fetched from a standalone
-// service's bootstrap HTTP info server.
-type BootstrapCSAKeyProvider string
+// BootstrapCSAKeyProvider supplies an already resolved bootstrap CSA public key.
+type BootstrapCSAKeyProvider = registration.StaticCSAKeyProvider
 
-func (p BootstrapCSAKeyProvider) CSAKey(context.Context) (string, error) {
-	if p == "" {
-		return "", fmt.Errorf("CSA public key is empty")
+// DevenvNodeSpec returns the common identity used for normal devenv JD registrations.
+func DevenvNodeSpec(name string) registration.NodeSpec {
+	return registration.NodeSpec{
+		Name:        name,
+		Product:     DefaultRegistrationProduct,
+		Environment: DefaultRegistrationEnvironment,
 	}
-	return string(p), nil
 }
 
-// RegisterNodeWithJD registers a node regardless of how its CSA key is
-// obtained and returns the JD node ID.
+// RegisterNodeWithJD reconciles a node registration and returns its JD node ID.
 func RegisterNodeWithJD(ctx context.Context, provider CSAKeyProvider, alias string, jdClient offchain.Client) (string, error) {
 	if provider == nil {
 		return "", fmt.Errorf("CSA key provider is required to register node %s", alias)
@@ -44,28 +46,17 @@ func RegisterNodeWithJD(ctx context.Context, provider CSAKeyProvider, alias stri
 	if jdClient == nil {
 		return "", fmt.Errorf("JD client is required to register node %s", alias)
 	}
-
-	csaKey, err := provider.CSAKey(ctx)
-	if err != nil {
-		return "", fmt.Errorf("failed to get CSA key for node %s: %w", alias, err)
-	}
-
-	resp, err := jdClient.RegisterNode(ctx, &nodev1.RegisterNodeRequest{
-		Name:      alias,
-		PublicKey: csaKey,
-	})
+	result, err := registration.Register(ctx, jdClient, provider, DevenvNodeSpec(alias))
 	if err != nil {
 		return "", fmt.Errorf("failed to register node %s with JD: %w", alias, err)
-	}
-	if resp == nil || resp.Node == nil {
-		return "", fmt.Errorf("JD returned no node when registering %s", alias)
 	}
 
 	Plog.Info().
 		Str("node", alias).
-		Str("nodeID", resp.Node.Id).
-		Msg("Registered node with JD")
-	return resp.Node.Id, nil
+		Str("nodeID", result.NodeID).
+		Str("status", string(result.Status)).
+		Msg("Reconciled node registration with JD")
+	return result.NodeID, nil
 }
 
 // RegisterBootstrapWithJD registers a bootstrap with JD using its CSA public key.
@@ -91,5 +82,5 @@ func RegisterBootstrapWithJD(ctx context.Context, jdClient offchain.Client, reg 
 
 // WaitForBootstrapConnection waits for a bootstrap to connect to JD after registration.
 func WaitForBootstrapConnection(ctx context.Context, jdClient offchain.Client, nodeID string, timeout time.Duration) error {
-	return waitForConnection(ctx, jdClient, nodeID, timeout, "bootstrap")
+	return registration.WaitForConnection(ctx, jdClient, nodeID, registration.WaitConfig{Timeout: timeout})
 }

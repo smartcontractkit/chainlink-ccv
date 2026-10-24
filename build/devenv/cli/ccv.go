@@ -533,7 +533,7 @@ var testCmd = &cobra.Command{
 	Long: `test runs a Go test suite against the devenv.
 
 Named suites (positional argument):
-  smoke, smoke-v2, smoke-v3, load, rpc-latency, gas-spikes, reorg, chaos,
+  smoke, smoke-v2, smoke-v3, smoke-jd-registration, load, rpc-latency, gas-spikes, reorg, chaos,
   indexer-load, multi_chain_load
 
 Without --profile the environment must already be running. With --profile
@@ -564,7 +564,7 @@ Examples:
 		var testPattern, testDir string
 		if patternFlag != "" {
 			testPattern = patternFlag
-			testDir = "tests/e2e"
+			testDir = e2eTestDir
 		} else {
 			if len(args) == 0 {
 				return fmt.Errorf("specify a suite name or --pattern")
@@ -686,32 +686,36 @@ Examples:
 	},
 }
 
+const e2eTestDir = "tests/e2e"
+
 func resolveTestSuite(suite string) (pattern, dir string, err error) {
 	switch suite {
 	case "smoke":
-		return "TestE2ESmoke", "tests/e2e", nil
+		return "TestE2ESmoke", e2eTestDir, nil
 	case "smoke-v2":
-		return "TestE2ESmoke_ExtraArgsV2", "tests/e2e", nil
+		return "TestE2ESmoke_ExtraArgsV2", e2eTestDir, nil
 	case "smoke-v3":
-		return "TestE2ESmoke_Basic/extra_args_v3_messaging", "tests/e2e", nil
+		return "TestE2ESmoke_Basic/extra_args_v3_messaging", e2eTestDir, nil
+	case "smoke-jd-registration":
+		return "TestE2ESmoke_StandaloneJDRegistration", e2eTestDir, nil
 	case "smoke-usdc-lbtc-v3":
-		return "TestE2ESmoke_TokenVerification", "tests/e2e", nil
+		return "TestE2ESmoke_TokenVerification", e2eTestDir, nil
 	case "load":
-		return "TestE2ELoad/clean", "tests/e2e", nil
+		return "TestE2ELoad/clean", e2eTestDir, nil
 	case "rpc-latency":
-		return "TestE2ELoad/rpc_latency", "tests/e2e", nil
+		return "TestE2ELoad/rpc_latency", e2eTestDir, nil
 	case "gas-spikes":
-		return "TestE2ELoad/gas", "tests/e2e", nil
+		return "TestE2ELoad/gas", e2eTestDir, nil
 	case "reorg":
-		return "TestE2ELoad/reorg", "tests/e2e", nil
+		return "TestE2ELoad/reorg", e2eTestDir, nil
 	case "chaos":
-		return "TestE2ELoad/chaos", "tests/e2e", nil
+		return "TestE2ELoad/chaos", e2eTestDir, nil
 	case "indexer-load":
 		return "TestIndexerLoad", "tests/services/load", nil
 	case "multi_chain_load":
-		return "TestStaging/multi_chain_load", "tests/e2e", nil
+		return "TestStaging/multi_chain_load", e2eTestDir, nil
 	default:
-		return "", "", fmt.Errorf("unknown suite %q; valid: smoke, smoke-v2, smoke-v3, load, rpc-latency, gas-spikes, reorg, chaos, indexer-load, multi_chain_load", suite)
+		return "", "", fmt.Errorf("unknown suite %q; valid: smoke, smoke-v2, smoke-v3, smoke-jd-registration, load, rpc-latency, gas-spikes, reorg, chaos, indexer-load, multi_chain_load", suite)
 	}
 }
 
