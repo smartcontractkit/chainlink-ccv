@@ -12,11 +12,13 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/smartcontractkit/chainlink-deployments-framework/offchain"
 	nodev1 "github.com/smartcontractkit/chainlink-protos/job-distributor/v1/node"
 	"github.com/smartcontractkit/chainlink-protos/job-distributor/v1/shared/ptypes"
 )
 
 type fakeJD struct {
+	offchain.Client
 	mu             sync.Mutex
 	nodes          map[string]*nodev1.Node
 	nextID         int

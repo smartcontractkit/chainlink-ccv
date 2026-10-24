@@ -85,6 +85,7 @@ func assertStandaloneJDRegistration(t *testing.T, ctx context.Context, in *ccv.C
 			}
 		})
 	}
+	assertJDRegistrationChangesets(t, ctx, jdClient)
 }
 
 func expectedStandaloneRoles(in *ccv.Cfg) int {

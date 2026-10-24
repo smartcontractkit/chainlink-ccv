@@ -294,3 +294,8 @@ func isJDNotFound(err error) bool {
 	}
 	return st.Code() == codes.Internal && strings.Contains(st.Message(), "code = NotFound desc =")
 }
+
+// IsJDNotFound reports whether err is a direct or production-wrapped JD NotFound response.
+func IsJDNotFound(err error) bool {
+	return isJDNotFound(err)
+}
