@@ -83,8 +83,3 @@ For a CLD or provisioning adapter:
 - `deployment/go.mod` moves `chainlink-common/keystore` from indirect to direct.
 - Unit coverage includes providers, registration, idempotency, conflicts, label updates, production error mapping, invalid responses, and connection deadlines.
 - `TestE2ESmoke_Basic` checks real-JD registration, HTTP key resolution, labels, connectivity, idempotent reruns, and conflict rejection alongside the existing message smoke coverage. `ccv test smoke-jd-registration` selects the same assertions directly; CL-only and no-JD profiles skip only when no standalone services are declared.
-
-## References
-
-- Jira: CCIP-12490, Automate nodes public key registration in JD.
-- Operational example: chainlink-deployments PR #20610.
