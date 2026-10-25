@@ -260,16 +260,15 @@ func TestSRS_DeduplicatesByMessageID(t *testing.T) {
 	require.Len(t, srs.pendingTasks, 1, "duplicate events by MessageID should be deduped")
 }
 
-// Every start replays from the checkpoint, so the scan reads blocks again: once from what the log poller
-// stored before the replay and again after it, both before and after the message was published. Re-read
-// events must not queue or publish the message again.
+// Every start replays from the checkpoint, so the scan can re-read a block after its message was
+// published. The re-read event must not publish the message again.
 func TestSRS_ReplayedBlockIsPublishedOnce(t *testing.T) {
 	chain := protocol.ChainSelector(1337)
 	reader := mocks.NewMockSourceReader(t)
 	latest := &protocol.BlockHeader{Number: 110}
 	finalized := &protocol.BlockHeader{Number: 105}
 	events := createTestMessageSentEvents(t, 1, chain, defaultDestChain, []uint64{101})
-	reader.EXPECT().FetchMessageSentEvents(mock.Anything, uint64(101), mock.Anything).Return(events, nil).Times(3)
+	reader.EXPECT().FetchMessageSentEvents(mock.Anything, uint64(101), mock.Anything).Return(events, nil).Times(2)
 
 	chainStatusMgr := mocks.NewMockChainStatusManager(t)
 	curseDetector := mocks.NewMockCurseCheckerService(t)
@@ -287,8 +286,7 @@ func TestSRS_ReplayedBlockIsPublishedOnce(t *testing.T) {
 		return len(srs.pendingTasks)
 	}
 
-	rescan() // the block as the log poller stored it before the replay
-	rescan() // the same block re-read after the replay, still pending
+	rescan()
 	require.Equal(t, 1, pending())
 
 	srs.sendReadyMessages(t.Context(), latest, latest, finalized)

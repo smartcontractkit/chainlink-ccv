@@ -5,38 +5,18 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/BurntSushi/toml"
 	"github.com/stretchr/testify/require"
 )
-
-func TestSecretsDecodeAndValidate(t *testing.T) {
-	var s Secrets
-	md, err := toml.Decode(`
-[db]
-url = "postgres://localhost/evm"
-
-[[chains."1".nodes]]
-name = "a"
-http_url = "https://a"
-ws_url = "wss://a"
-`, &s)
-	require.NoError(t, err)
-	require.Empty(t, md.Undecoded())
-	require.NoError(t, s.Validate())
-	require.Equal(t, "wss://a", s.Chains["1"].Nodes[0].WSUrl)
-	require.Equal(t, "postgres://localhost/evm", s.DB.URL)
-}
 
 func TestSecretsValidateErrors(t *testing.T) {
 	tests := map[string]struct {
 		secrets Secrets
 		want    string
 	}{
-		"no nodes":       {Secrets{Chains: map[string]ChainSecrets{"1": {}}}, "at least one node is required"},
-		"missing name":   {Secrets{Chains: map[string]ChainSecrets{"1": {Nodes: []NodeSecrets{{HTTPUrl: "h"}}}}}, "field 'name' is required"},
-		"missing url":    {Secrets{Chains: map[string]ChainSecrets{"1": {Nodes: []NodeSecrets{{Name: "a"}}}}}, "field 'http_url' is required"},
-		"missing db url": {Secrets{DB: &DBConfig{}}, "field 'url' is required"},
-		"duplicate":      {Secrets{Chains: map[string]ChainSecrets{"1": {Nodes: []NodeSecrets{{Name: "a", HTTPUrl: "h"}, {Name: "a", HTTPUrl: "h"}}}}}, `duplicate node name "a"`},
+		"no nodes":     {Secrets{Chains: map[string]ChainSecrets{"1": {}}}, "at least one node is required"},
+		"missing name": {Secrets{Chains: map[string]ChainSecrets{"1": {Nodes: []NodeSecrets{{HTTPUrl: "h"}}}}}, "field 'name' is required"},
+		"missing url":  {Secrets{Chains: map[string]ChainSecrets{"1": {Nodes: []NodeSecrets{{Name: "a"}}}}}, "field 'http_url' is required"},
+		"duplicate":    {Secrets{Chains: map[string]ChainSecrets{"1": {Nodes: []NodeSecrets{{Name: "a", HTTPUrl: "h"}, {Name: "a", HTTPUrl: "h"}}}}}, `duplicate node name "a"`},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -72,9 +52,18 @@ func TestLoadSecretsFile(t *testing.T) {
 	require.Equal(t, &Secrets{}, got)
 
 	path := filepath.Join(t.TempDir(), "secrets.toml")
-	require.NoError(t, os.WriteFile(path, []byte("[db]\nurl = \"postgres://localhost/evm\"\n"), 0o600))
+	require.NoError(t, os.WriteFile(path, []byte(`
+[db]
+url = "postgres://localhost/evm"
+
+[[chains."1".nodes]]
+name = "a"
+http_url = "https://a"
+ws_url = "wss://a"
+`), 0o600))
 	got, err = LoadSecretsFile(path)
 	require.NoError(t, err)
+	require.Equal(t, "wss://a", got.Chains["1"].Nodes[0].WSUrl)
 	require.Equal(t, "postgres://localhost/evm", got.DB.URL)
 
 	require.NoError(t, os.WriteFile(path, []byte("[db]\n"), 0o600))

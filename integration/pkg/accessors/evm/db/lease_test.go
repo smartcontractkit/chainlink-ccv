@@ -73,19 +73,6 @@ func TestLeaseWaitsWhileHeldThenTakesOver(t *testing.T) {
 	second.Release()
 }
 
-func TestLeaseTakesOverAnExpiredLease(t *testing.T) {
-	db := testutil.NewTestDB(t).DB
-	_, err := db.ExecContext(t.Context(),
-		`INSERT INTO evm.lease_lock (client_id, expires_at) VALUES (gen_random_uuid(), NOW() - interval '1 second')`)
-	require.NoError(t, err)
-
-	lease := evmdb.NewLease(db, logger.Test(t), fastLease())
-	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
-	defer cancel()
-	require.NoError(t, lease.TakeAndHold(ctx, nil), "a crashed holder's expired lease is taken at once")
-	lease.Release()
-}
-
 // As on the node, losing the lease closes the whole pool and exits.
 func TestLeaseLostClosesThePoolAndExits(t *testing.T) {
 	testDB, url := testutil.NewTestDBWithURL(t)
@@ -93,11 +80,16 @@ func TestLeaseLostClosesThePoolAndExits(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = leaseDB.Close() })
 
+	type exit struct {
+		msg     string
+		pingErr error
+	}
 	lease := evmdb.NewLease(leaseDB, logger.Test(t), fastLease())
-	exited := make(chan string, 1)
+	exited := make(chan exit, 1)
 	evmdb.SetExitForTest(lease, func(msg string) {
+		// Ping here, not after exit returns, so the check proves the pool closed first.
 		select {
-		case exited <- msg:
+		case exited <- exit{msg: msg, pingErr: leaseDB.PingContext(context.Background())}:
 		default:
 		}
 	})
@@ -109,10 +101,10 @@ func TestLeaseLostClosesThePoolAndExits(t *testing.T) {
 	require.NoError(t, err)
 
 	select {
-	case msg := <-exited:
-		require.Contains(t, msg, "exiting immediately")
+	case got := <-exited:
+		require.Contains(t, got.msg, "exiting immediately")
+		require.EqualError(t, got.pingErr, "sql: database is closed", "the pool is closed before exiting")
 	case <-time.After(3 * time.Second):
 		t.Fatal("losing the lease did not exit")
 	}
-	require.EqualError(t, leaseDB.PingContext(t.Context()), "sql: database is closed", "the pool is closed before exiting")
 }

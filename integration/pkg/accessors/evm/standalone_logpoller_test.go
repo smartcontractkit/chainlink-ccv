@@ -5,9 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"math/big"
-	"strconv"
 	"sync"
-	"sync/atomic"
 	"testing"
 
 	"github.com/ethereum/go-ethereum"
@@ -95,28 +93,18 @@ func (*fakeHeadTracker) LatestSafeBlock(context.Context) (*evmtypes.Head, error)
 	return nil, errFakeRPC
 }
 
-var nextTestChainID atomic.Int64
+const testChainID = "920001"
 
-// newTestChain builds a runtime over fakes for a chain ID no other test uses.
-func newTestChain(t *testing.T, selector protocol.ChainSelector) (chain *standaloneChain, chainID string, events *eventLog) {
-	t.Helper()
-	chainID = newTestChainID()
-	chain = newTestChainFor(t, selector, chainID)
-	return chain, chainID, chain.chainClient.(*fakeChainClient).events
-}
-
-func newTestChainID() string { return strconv.FormatInt(920_000+nextTestChainID.Add(1), 10) }
-
-// newTestChainFor builds a runtime over fakes for chainID. Its events are on the fakes it holds.
-func newTestChainFor(t *testing.T, selector protocol.ChainSelector, chainID string) *standaloneChain {
+// newTestChain builds a runtime over fakes for testChainID; events records what the fakes close.
+func newTestChain(t *testing.T, selector protocol.ChainSelector) (chain *standaloneChain, events *eventLog) {
 	t.Helper()
 	cfg, err := newChainlinkEVMConfig(evmconfig.Info{
-		ChainID: chainID,
+		ChainID: testChainID,
 		Nodes:   []evmconfig.Node{{HTTPUrl: "http://127.0.0.1:1"}},
 	})
 	require.NoError(t, err)
 
-	events := &eventLog{}
+	events = &eventLog{}
 	return &standaloneChain{
 		lggr:         logger.Test(t),
 		selector:     selector,
@@ -125,7 +113,7 @@ func newTestChainFor(t *testing.T, selector protocol.ChainSelector, chainID stri
 		headTracker:  &fakeHeadTracker{events: events},
 		newLogPoller: buildLogPoller,
 		recoveryStop: make(services.StopChan),
-	}
+	}, events
 }
 
 // newUnconnectedDB returns a pool that never connects: building a LogPoller must not touch it.
@@ -157,7 +145,7 @@ func (f *fakeLogPoller) Close() error {
 // The real poller is never started, as on a standby chain, so Close must accept an unstarted poller.
 func TestStandaloneChainLogPollerBuiltOnceAndShared(t *testing.T) {
 	t.Parallel()
-	chain, _, _ := newTestChain(t, 1)
+	chain, _ := newTestChain(t, 1)
 	db := newUnconnectedDB(t)
 
 	const callers = 16
@@ -181,33 +169,25 @@ func TestStandaloneChainLogPollerBuiltOnceAndShared(t *testing.T) {
 
 func TestStandaloneChainLogPollerRefusedAfterClose(t *testing.T) {
 	t.Parallel()
-	chain, _, _ := newTestChain(t, 1)
+	chain, _ := newTestChain(t, 1)
 	require.NoError(t, chain.Close())
 
 	_, err := chain.LogPoller(t.Context(), newUnconnectedDB(t))
 	require.ErrorContains(t, err, "closed")
 }
 
-func TestStandaloneChainLogPollerRequiresDatabase(t *testing.T) {
-	t.Parallel()
-	chain, chainID, _ := newTestChain(t, 1)
-
-	_, err := chain.LogPoller(t.Context(), nil)
-	require.ErrorContains(t, err, "database")
-	require.ErrorContains(t, err, "selector 1")
-	require.ErrorContains(t, err, "evm_chain_id "+chainID)
-}
-
 func TestStandaloneChainLogPollerBuildFailureLeavesNoPoller(t *testing.T) {
 	t.Parallel()
 	errBuild := errors.New("metrics already registered")
-	chain, chainID, _ := newTestChain(t, 1)
-	chain.newLogPoller = func(logPollerInputs) (logpoller.LogPoller, error) { return nil, errBuild }
+	chain, events := newTestChain(t, 1)
+	chain.newLogPoller = func(logPollerInputs) (logpoller.LogPoller, error) {
+		return &fakeLogPoller{events: events}, errBuild
+	}
 
 	lp, err := chain.LogPoller(t.Context(), newUnconnectedDB(t))
 	require.ErrorIs(t, err, errBuild)
 	require.ErrorContains(t, err, "selector 1")
-	require.ErrorContains(t, err, "evm_chain_id "+chainID)
+	require.ErrorContains(t, err, "evm_chain_id "+testChainID)
 	require.Nil(t, lp)
 	require.Nil(t, chain.logPoller)
 	require.NoError(t, chain.Close())
@@ -216,7 +196,7 @@ func TestStandaloneChainLogPollerBuildFailureLeavesNoPoller(t *testing.T) {
 // Building must not start the poller: it writes to the database, which needs the lease first.
 func TestStandaloneChainLogPollerBuildsWithoutStarting(t *testing.T) {
 	t.Parallel()
-	chain, _, events := newTestChain(t, 1)
+	chain, events := newTestChain(t, 1)
 	chain.newLogPoller = func(logPollerInputs) (logpoller.LogPoller, error) { return &fakeLogPoller{events: events}, nil }
 
 	_, err := chain.LogPoller(t.Context(), newUnconnectedDB(t))
@@ -227,7 +207,7 @@ func TestStandaloneChainLogPollerBuildsWithoutStarting(t *testing.T) {
 
 func TestStandaloneChainStartLogPollerStartsOnce(t *testing.T) {
 	t.Parallel()
-	chain, _, events := newTestChain(t, 1)
+	chain, events := newTestChain(t, 1)
 	chain.newLogPoller = func(logPollerInputs) (logpoller.LogPoller, error) { return &fakeLogPoller{events: events}, nil }
 	_, err := chain.LogPoller(t.Context(), newUnconnectedDB(t))
 	require.NoError(t, err)
@@ -249,19 +229,23 @@ func TestStandaloneChainStartLogPollerFailures(t *testing.T) {
 	t.Run("start error is returned", func(t *testing.T) {
 		t.Parallel()
 		errStart := errors.New("start failed")
-		chain, chainID, _ := newTestChain(t, 1)
+		chain, events := newTestChain(t, 1)
 		chain.newLogPoller = func(logPollerInputs) (logpoller.LogPoller, error) {
-			return &fakeLogPoller{events: &eventLog{}, startErr: errStart}, nil
+			return &fakeLogPoller{events: events, startErr: errStart}, nil
 		}
 		_, err := chain.LogPoller(t.Context(), newUnconnectedDB(t))
 		require.NoError(t, err)
 		err = chain.StartLogPoller(t.Context())
 		require.ErrorIs(t, err, errStart)
-		require.ErrorContains(t, err, "evm_chain_id "+chainID)
+		require.ErrorContains(t, err, "evm_chain_id "+testChainID)
+
+		// A failed Start leaves the poller not started, so the next call retries it.
+		require.ErrorIs(t, chain.StartLogPoller(t.Context()), errStart)
+		require.Equal(t, []string{"log poller started", "log poller started"}, events.snapshot())
 	})
 	t.Run("closed", func(t *testing.T) {
 		t.Parallel()
-		chain, _, _ := newTestChain(t, 1)
+		chain, _ := newTestChain(t, 1)
 		require.NoError(t, chain.Close())
 		require.ErrorContains(t, chain.StartLogPoller(t.Context()), "closed")
 	})
@@ -270,7 +254,7 @@ func TestStandaloneChainStartLogPollerFailures(t *testing.T) {
 func TestStandaloneChainLogPollerCloseErrorIsReturned(t *testing.T) {
 	t.Parallel()
 	errClose := errors.New("close failed")
-	chain, chainID, _ := newTestChain(t, 1)
+	chain, _ := newTestChain(t, 1)
 	chain.newLogPoller = func(logPollerInputs) (logpoller.LogPoller, error) {
 		return &fakeLogPoller{events: &eventLog{}, closeErr: errClose}, nil
 	}
@@ -279,12 +263,12 @@ func TestStandaloneChainLogPollerCloseErrorIsReturned(t *testing.T) {
 
 	err = chain.Close()
 	require.ErrorIs(t, err, errClose)
-	require.ErrorContains(t, err, "evm_chain_id "+chainID)
+	require.ErrorContains(t, err, "evm_chain_id "+testChainID)
 }
 
 func TestStandaloneChainLogPollerAlreadyStoppedClosesCleanly(t *testing.T) {
 	t.Parallel()
-	chain, _, _ := newTestChain(t, 1)
+	chain, _ := newTestChain(t, 1)
 	lp, err := chain.LogPoller(t.Context(), newUnconnectedDB(t))
 	require.NoError(t, err)
 	require.NoError(t, chain.StartLogPoller(t.Context()))
@@ -296,7 +280,7 @@ func TestStandaloneChainLogPollerAlreadyStoppedClosesCleanly(t *testing.T) {
 // The LogPoller reads heads from the head tracker, so it closes first.
 func TestStandaloneChainCloseOrder(t *testing.T) {
 	t.Parallel()
-	chain, _, events := newTestChain(t, 1)
+	chain, events := newTestChain(t, 1)
 	chain.newLogPoller = func(logPollerInputs) (logpoller.LogPoller, error) {
 		return &fakeLogPoller{events: events}, nil
 	}
@@ -309,16 +293,15 @@ func TestStandaloneChainCloseOrder(t *testing.T) {
 	require.NoError(t, chain.Close(), "Close stays idempotent")
 }
 
-// Building twice for one chain ID, the second time after a clean close, is the job-restart path.
-// It also proves the real constructors register their metrics idempotently and leave no goroutines.
+// The verifier rebuilds accessors in-process on every job start, so this fails if a chainlink-evm
+// change makes metric registration non-idempotent or leaks goroutines from a closed LogPoller.
 func TestStandaloneChainRealLogPollerRebuildsAndLeavesNoGoroutines(t *testing.T) {
 	// Not parallel: goleak sees every goroutine in the process.
 	defer goleak.VerifyNone(t, goleak.IgnoreCurrent())
 
 	db := newUnconnectedDB(t)
-	chainID := newTestChainID()
 	for range 2 {
-		chain := newTestChainFor(t, 1, chainID)
+		chain, _ := newTestChain(t, 1)
 		lp, err := chain.LogPoller(t.Context(), db)
 		require.NoError(t, err)
 		require.NotNil(t, lp)

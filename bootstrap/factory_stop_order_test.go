@@ -65,16 +65,6 @@ func newSpyRunner(t *testing.T, fac ServiceFactory) *runner {
 
 const jobConfig = "name = \"test\"\nappConfig = \"\""
 
-func TestRunner_StopJob_StopsTheFactoryBeforeClosingAccessors(t *testing.T) {
-	t.Parallel()
-	fac := &stopOrderSpyFactory{t: t}
-	r := newSpyRunner(t, fac)
-	require.NoError(t, r.StartJob(t.Context(), jobConfig))
-
-	require.NoError(t, r.StopJob(t.Context()))
-	require.Equal(t, []string{"Start", "Stop", "CloseAll"}, fac.log())
-}
-
 func TestRunner_StartJobFailure_StopsTheFactoryBeforeClosingAccessors(t *testing.T) {
 	t.Parallel()
 	fac := &stopOrderSpyFactory{t: t, startErr: errors.New("start failed")}

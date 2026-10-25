@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math/big"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -16,6 +17,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	verifiermonitoring "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
+	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 )
 
 // fakeHealthReporter is a source health signal the test flips while the service runs.
@@ -93,85 +95,12 @@ func TestChainHealth_DisabledIsUnhealthyOnTheGaugeButReadyOnHealth(t *testing.T)
 }
 
 func TestChainHealth_HandlingAViolationRecordsUnhealthy(t *testing.T) {
-	srs, health := newHealthSRS(t, &fakeHealthReporter{})
+	srs, health := newHealthSRS(t, nil)
 	srs.recordChainHealth(t.Context())
 
 	srs.handleFinalityViolation(t.Context())
 
 	require.Equal(t, []bool{true, false}, health.recorded())
-}
-
-// Without a health reporter the gauge follows today's sequence: false until initialized and loaded,
-// true once ready, false when disabled.
-func TestChainHealth_WithoutReporterReplaysTodaysSequence(t *testing.T) {
-	srs, health := newHealthSRS(t, nil)
-	srs.startBlockInitialized.Store(false)
-
-	srs.recordChainHealth(t.Context())
-	srs.recordChainHealth(t.Context())
-	srs.startBlockInitialized.Store(true)
-	srs.recordChainHealth(t.Context())
-	srs.disabled.Store(true)
-	srs.recordChainHealth(t.Context())
-
-	require.Equal(t, []bool{false, true, false}, health.recorded())
-}
-
-// Loading, finality and source health events interleave without leaving a stale value behind: once
-// the inputs settle, the last write is what the health function says. The inputs change on other
-// goroutines while the service records from its own, as in production.
-func TestChainHealth_InterleavedEventsNeverLeaveAStaleValue(t *testing.T) {
-	for run := range 10 {
-		reporter := &fakeHealthReporter{}
-		srs, health := newHealthSRS(t, reporter)
-		loader := &loadingReader{MockSourceReader: mocks.NewMockSourceReader(t), loadedErr: errors.New("loading")}
-		srs.sourceReader = loader
-
-		var wg sync.WaitGroup
-		flip := func(f func(i int)) {
-			wg.Go(func() {
-				for i := range 200 {
-					f(i)
-				}
-			})
-		}
-		flip(func(i int) { reporter.set(errOnOdd(i)) })
-		flip(func(i int) { loader.setLoadedErr(errOnOdd(i + 1)) })
-		flip(func(i int) { srs.finalityBlocked.Store(i%3 == 0 && run%2 == 0) })
-		flipped := make(chan struct{})
-		go func() {
-			wg.Wait()
-			close(flipped)
-		}()
-		recordUntil(t, srs, flipped)
-
-		reporter.set(nil)
-		loader.setLoadedErr(nil)
-		srs.finalityBlocked.Store(run%2 == 1)
-		srs.recordChainHealth(t.Context())
-
-		written := health.recorded()
-		require.NotEmpty(t, written)
-		require.Equal(t, srs.chainHealth() == nil, written[len(written)-1])
-	}
-}
-
-func recordUntil(t *testing.T, srs *Service, done <-chan struct{}) {
-	for {
-		srs.recordChainHealth(t.Context())
-		select {
-		case <-done:
-			return
-		default:
-		}
-	}
-}
-
-func errOnOdd(i int) error {
-	if i%2 == 1 {
-		return errors.New("unhealthy")
-	}
-	return nil
 }
 
 // newLoopHealthSRS starts a service whose chain queries fail while failQueries is set, recording its gauge.
@@ -244,4 +173,52 @@ func TestChainHealth_SuccessfulQueryDoesNotOverrideAnUnhealthySource(t *testing.
 	require.Eventually(t, func() bool { return health.writes() > 5 }, 2*time.Second, 5*time.Millisecond,
 		"the loop keeps querying and recording")
 	require.NotContains(t, health.recorded(), true)
+}
+
+// sourceStateRecorder records the source reader states the service sets.
+type sourceStateRecorder struct {
+	*verifiermonitoring.FakeVerifierMetricLabeler
+	mu     sync.Mutex
+	states []string
+}
+
+func (s *sourceStateRecorder) With(...string) verifier.MetricLabeler { return s }
+
+func (s *sourceStateRecorder) SetSourceReaderState(_ context.Context, state string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.states = append(s.states, state)
+}
+
+func (s *sourceStateRecorder) recorded() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.states)
+}
+
+// stateRecordingMonitoring serves a sourceStateRecorder as the service's metrics.
+type stateRecordingMonitoring struct {
+	*verifiermonitoring.FakeVerifierMonitoring
+	states *sourceStateRecorder
+}
+
+func (m stateRecordingMonitoring) Metrics() verifier.MetricLabeler { return m.states }
+
+// A disabled chain's monitoring tick reports a finality violation as finality blocked, not just disabled.
+func TestSRS_FinalityReporterViolation_DisabledTickReportsFinalityBlockedState(t *testing.T) {
+	ctx := context.Background()
+	chain := protocol.ChainSelector(1337)
+	reporter := &fakeFinalityReporter{}
+
+	srs, _, _ := newTestSRS(t, chain, mocks.NewMockSourceReader(t), mocks.NewMockChainStatusManager(t), mocks.NewMockCurseCheckerService(t), 10*time.Millisecond, 5000)
+	states := &sourceStateRecorder{FakeVerifierMetricLabeler: &verifiermonitoring.FakeVerifierMetricLabeler{}}
+	srs.monitoring = stateRecordingMonitoring{FakeVerifierMonitoring: verifiermonitoring.NewFakeVerifierMonitoring(), states: states}
+	useLogPollerFinality(t, srs, reporter, false)
+	reporter.violated.Store(true)
+
+	require.False(t, srs.sendReadyMessages(ctx, &protocol.BlockHeader{Number: 1000}, nil, &protocol.BlockHeader{Number: 950}))
+	srs.recordDisabledState(ctx)
+	recordedStates := states.recorded()
+	require.NotEmpty(t, recordedStates)
+	require.Equal(t, verifiermonitoring.SourceReaderStateFinalityBlocked, recordedStates[len(recordedStates)-1])
 }

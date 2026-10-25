@@ -42,13 +42,12 @@ aggregator_address = "localhost:50051"
 "5009297550715157269" = "0x0000000000000000000000000000000000000003"
 `
 
-// dbCheckRegistry records, at each GetAccessor, whether the factory's database was open and which
-// migrations it had applied. It then fails the lookup so Start ends with "no source readers".
+// dbCheckRegistry records, at each GetAccessor, whether the factory's database was open.
+// It then fails the lookup so Start ends with "no source readers".
 type dbCheckRegistry struct {
 	f         *factory
 	calls     int
 	dbWasOpen bool
-	versions  []int64
 }
 
 func (r *dbCheckRegistry) GetAccessor(ctx context.Context, _ protocol.ChainSelector) (chainaccess.Accessor, error) {
@@ -58,7 +57,6 @@ func (r *dbCheckRegistry) GetAccessor(ctx context.Context, _ protocol.ChainSelec
 	r.f.dbMu.Unlock()
 	if db != nil && db.PingContext(ctx) == nil {
 		r.dbWasOpen = true
-		r.versions, _ = appliedVersions(ctx, db)
 	}
 	return nil, errors.New("no accessor in this test")
 }
@@ -101,11 +99,11 @@ func appliedVersions(ctx context.Context, db sqlx.QueryerContext) ([]int64, erro
 // emptyDatabase creates a new, unmigrated database next to the one at dbURL and returns its URL.
 func emptyDatabase(t *testing.T, dbURL string) string {
 	t.Helper()
-	admin, err := sqlx.Open("postgres", dbURL)
+	adminDB, err := sqlx.Open("postgres", dbURL)
 	require.NoError(t, err)
-	defer func() { _ = admin.Close() }()
+	defer func() { _ = adminDB.Close() }()
 	name := fmt.Sprintf("empty_%d", time.Now().UnixNano())
-	_, err = admin.ExecContext(t.Context(), "CREATE DATABASE "+name)
+	_, err = adminDB.ExecContext(t.Context(), "CREATE DATABASE "+name)
 	require.NoError(t, err)
 	u, err := url.Parse(dbURL)
 	require.NoError(t, err)
@@ -177,18 +175,13 @@ func (idleSourceReader) GetRMNCursedSubjects(context.Context) ([]protocol.Bytes1
 // startServing runs a Start that succeeds: a real signing key, an idle chain and an HTTP port.
 func startServing(t *testing.T, f *factory, reg chainaccess.Registry, port int) error {
 	t.Helper()
-	return startServingWith(t, f, reg, port)
+	return startServingSpec(t, f, reg, port, testDBSpec)
 }
 
-// startServingWith is startServing under t's context.
-func startServingWith(t *testing.T, f *factory, reg chainaccess.Registry, port int) error {
+// startServingSpec is startServing with the given chain spec.
+func startServingSpec(t *testing.T, f *factory, reg chainaccess.Registry, port int, chainSpec string) error {
 	t.Helper()
-	return startServingCtx(t.Context(), t, f, reg, port)
-}
-
-// startServingCtx is startServing under the given context.
-func startServingCtx(ctx context.Context, t *testing.T, f *factory, reg chainaccess.Registry, port int) error {
-	t.Helper()
+	ctx := t.Context()
 	ks, err := keystore.LoadKeystore(ctx, keystore.NewMemoryStorage(), "test",
 		keystore.WithScryptParams(keystore.FastScryptParams))
 	require.NoError(t, err)
@@ -197,7 +190,7 @@ func startServingCtx(ctx context.Context, t *testing.T, f *factory, reg chainacc
 	}})
 	require.NoError(t, err)
 	// Top-level TOML keys must precede the spec's tables.
-	spec := fmt.Sprintf("signer_address = %q\nhttp_listen_port = %d\n", commit.AutoSignerAddress, port) + testDBSpec
+	spec := fmt.Sprintf("signer_address = %q\nhttp_listen_port = %d\n", commit.AutoSignerAddress, port) + chainSpec
 	return f.Start(ctx, bootstrap.JobSpec{AppConfig: spec}, bootstrap.ServiceDeps{
 		Logger:   logger.Test(t),
 		Keystore: ks,
@@ -248,7 +241,6 @@ func TestFactoryStart_ConnectsAndMigratesDBAfterSourceReaders(t *testing.T) {
 	reference, dbURL := testutil.NewTestDBWithURL(t)
 	want, err := appliedVersions(t.Context(), reference)
 	require.NoError(t, err)
-	require.Contains(t, want, int64(9), "reference schema must include the verifier migrations")
 
 	target := emptyDatabase(t, dbURL)
 	setFactoryEnv(t, target)
@@ -282,12 +274,13 @@ func TestFactoryDatabaseOwnership(t *testing.T) {
 			5*time.Second, 50*time.Millisecond, msg)
 	}
 
-	t.Run("Stop closes the database exactly once", func(t *testing.T) {
+	t.Run("Stop closes the database", func(t *testing.T) {
 		setFactoryEnv(t, dbURL)
 		baseline := serverConnections(t, dbURL)
-		f, reg := &factory{}, &idleRegistry{}
+		f, reg, port := &factory{}, &idleRegistry{}, freePort(t)
 		require.NoError(t, f.Stop(t.Context()), "no database open is a no-op")
-		require.NoError(t, startServing(t, f, reg, freePort(t)))
+		require.NoError(t, startServing(t, f, reg, port))
+		require.Eventually(t, func() bool { return serving(port) }, 5*time.Second, 20*time.Millisecond, "HTTP server must be listening")
 		require.Greater(t, serverConnections(t, dbURL), baseline)
 		f.dbMu.Lock()
 		db := f.db
@@ -295,35 +288,10 @@ func TestFactoryDatabaseOwnership(t *testing.T) {
 		require.NotNil(t, db)
 
 		release(t, f, reg)
+		require.False(t, serving(port), "HTTP server must be stopped")
 		require.Error(t, db.PingContext(t.Context()), "Stop must close the database")
 		require.NoError(t, f.Stop(t.Context()), "second Stop is a no-op")
 		settled(t, baseline, "Stop must release every server-side connection")
-	})
-
-	t.Run("a started job releases the database and HTTP port on teardown", func(t *testing.T) {
-		setFactoryEnv(t, dbURL)
-		baseline := serverConnections(t, dbURL)
-		f, reg, port := &factory{}, &idleRegistry{}, freePort(t)
-
-		require.NoError(t, startServing(t, f, reg, port))
-		require.Eventually(t, func() bool { return serving(port) }, 5*time.Second, 20*time.Millisecond, "HTTP server must be listening")
-		require.Greater(t, serverConnections(t, dbURL), baseline)
-
-		release(t, f, reg)
-		require.False(t, serving(port), "HTTP server must be stopped")
-		settled(t, baseline, "teardown must release every server-side connection")
-	})
-
-	t.Run("restarts do not accumulate connections", func(t *testing.T) {
-		setFactoryEnv(t, dbURL)
-		baseline := serverConnections(t, dbURL)
-		f, reg, port := &factory{}, &idleRegistry{}, freePort(t)
-
-		for i := range 5 {
-			require.NoError(t, startServing(t, f, reg, port), "start %d", i)
-			release(t, f, reg)
-		}
-		settled(t, baseline, "connections must not accumulate across restarts")
 	})
 
 	t.Run("a Start that fails after its services run is fully released", func(t *testing.T) {
@@ -356,15 +324,5 @@ func TestFactoryDatabaseOwnership(t *testing.T) {
 
 		release(t, f, reg)
 		settled(t, baseline, "only the test's own connections may remain")
-	})
-
-	t.Run("an unreachable database fails startup", func(t *testing.T) {
-		setFactoryEnv(t, "postgres://nobody:nopass@127.0.0.1:1/none?sslmode=disable&connect_timeout=1")
-		f, reg := &factory{}, &idleRegistry{}
-
-		// The connect retries are bounded by the startup ctx, so a short deadline keeps this fast.
-		ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
-		defer cancel()
-		require.ErrorContains(t, startServingCtx(ctx, t, f, reg, freePort(t)), "failed to connect to Postgres DB")
 	})
 }

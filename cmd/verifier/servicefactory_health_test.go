@@ -63,7 +63,7 @@ func TestFactoryStart_SelectedChainIsUnhealthyUntilItsServiceReports(t *testing.
 	setFactoryEnv(t, dbURL)
 	f, reg, port := &factory{}, &stalledRegistry{release: make(chan struct{})}, freePort(t)
 
-	require.NoError(t, startServingWith(t, f, reg, port))
+	require.NoError(t, startServing(t, f, reg, port))
 	t.Cleanup(func() { release(t, f, &reg.idleRegistry) })
 	t.Cleanup(func() { close(reg.release) })
 

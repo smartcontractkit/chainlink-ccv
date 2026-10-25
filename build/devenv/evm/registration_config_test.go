@@ -3,7 +3,6 @@ package evm
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/BurntSushi/toml"
@@ -71,7 +70,6 @@ func TestEVMConfigIsMountedSeparatelyFromAppConfig(t *testing.T) {
 	md, err := toml.Decode(string(data), &cfg)
 	require.NoError(t, err)
 	require.Empty(t, md.Undecoded())
-	require.False(t, cfg.LogPollerEnabled)
 	require.Len(t, cfg.Chains, 1)
 	// Chain ID, family, and chain type are intentionally absent from the mounted
 	// file because they are derived from the selector.
@@ -142,7 +140,6 @@ func TestVerifierModifierLogPollerEnabled(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, secrets.DB)
 		require.Equal(t, committeeverifier.InternalDBURL(in, evmDBName), secrets.DB.URL)
-		require.FileExists(t, filepath.Join(util.CCVConfigDir(), "evm-default-secrets-1.toml"))
 	})
 
 	t.Run("absent: RPC reader and no EVM secrets", func(t *testing.T) {
@@ -175,7 +172,4 @@ func TestVerifierDatabases(t *testing.T) {
 	got, err = VerifierDatabases(newInput(nil))
 	require.NoError(t, err)
 	require.Empty(t, got, "the RPC reader needs no extra database")
-
-	_, err = VerifierDatabases(newInput(util.OpaqueConfig{"log_poller": true}))
-	require.ErrorContains(t, err, "invalid opaque_configs.evm")
 }

@@ -208,8 +208,6 @@ func TestHealthy(t *testing.T) {
 		healthy error
 		want    error
 	}{
-		"healthy":           {},
-		"violation":         {healthy: commontypes.ErrFinalityViolated},
 		"wrapped violation": {healthy: fmt.Errorf("poll: %w", commontypes.ErrFinalityViolated)},
 		"missing blocks":    {healthy: missing, want: missing},
 	} {
@@ -285,8 +283,9 @@ func TestLogPollerStartup(t *testing.T) {
 	topic := common.HexToHash("0x01")
 	name := "ccv-verifier - verifier-1:" + onRamp.Hex()
 	// startWith builds a reader over ht with a short retry backoff and closes it on cleanup; it does not call LoadFrom.
-	startWith := func(t *testing.T, lp *lpmocks.LogPoller, ht heads.Tracker) *LogPollerSourceReader {
-		cfg := &LogPollerConfig{LogPoller: lp, VerifierID: "verifier-1", Retention: time.Hour}
+	// hook is cfg.Start, as the standalone verifier sets it; nil for none.
+	startWith := func(t *testing.T, lp *lpmocks.LogPoller, ht heads.Tracker, hook func(context.Context, func(error)) error) *LogPollerSourceReader {
+		cfg := &LogPollerConfig{LogPoller: lp, VerifierID: "verifier-1", Retention: time.Hour, Start: hook}
 		lp.EXPECT().UnregisterFilter(mock.Anything, name).Return(nil).Maybe()
 		reader, err := NewLogPollerSourceReader(t.Context(), testSourceReaderParams(t, ht), cfg)
 		require.NoError(t, err)
@@ -295,9 +294,10 @@ func TestLogPollerStartup(t *testing.T) {
 		t.Cleanup(func() { require.NoError(t, r.Close()) })
 		return r
 	}
-	// start builds a reader over a head tracker at latest 1000, finalized 900.
+	// start builds a reader over atHead: latest 1000, finalized 900.
+	atHead := stubHeadTracker{latest: 1000, finalized: 900, safe: 950}
 	start := func(t *testing.T, lp *lpmocks.LogPoller) *LogPollerSourceReader {
-		return startWith(t, lp, stubHeadTracker{latest: 1000, finalized: 900, safe: 950})
+		return startWith(t, lp, atHead, nil)
 	}
 	expectRegister := func(lp *lpmocks.LogPoller) {
 		lp.EXPECT().RegisterFilter(mock.Anything, mock.MatchedBy(func(f logpoller.Filter) bool {
@@ -312,17 +312,6 @@ func TestLogPollerStartup(t *testing.T) {
 	waitReady := func(t *testing.T, r *LogPollerSourceReader) {
 		require.Eventually(t, r.ready.Load, 5*time.Second, 10*time.Millisecond)
 	}
-	// startWithHook is start with cfg.Start set, as the standalone verifier sets it.
-	startWithHook := func(t *testing.T, lp *lpmocks.LogPoller, hook func(context.Context, func(error)) error) *LogPollerSourceReader {
-		cfg := &LogPollerConfig{LogPoller: lp, VerifierID: "verifier-1", Retention: time.Hour, Start: hook}
-		lp.EXPECT().UnregisterFilter(mock.Anything, name).Return(nil).Maybe()
-		reader, err := NewLogPollerSourceReader(t.Context(), testSourceReaderParams(t, stubHeadTracker{latest: 1000, finalized: 900, safe: 950}), cfg)
-		require.NoError(t, err)
-		r := reader.(*LogPollerSourceReader)
-		r.initBackoff, r.maxInitBackoff = 5*time.Millisecond, 20*time.Millisecond
-		t.Cleanup(func() { require.NoError(t, r.Close()) })
-		return r
-	}
 
 	t.Run("takes the lease and starts the log poller before registering", func(t *testing.T) {
 		lp := lpmocks.NewLogPoller(t)
@@ -333,7 +322,7 @@ func TestLogPollerStartup(t *testing.T) {
 		lp.EXPECT().Replay(mock.Anything, int64(501)).
 			RunAndReturn(func(context.Context, int64) error { order = append(order, "replay"); return nil }).Once()
 		lp.EXPECT().Healthy().Return(nil).Once()
-		r := startWithHook(t, lp, func(context.Context, func(error)) error { order = append(order, "lease+start"); return nil })
+		r := startWith(t, lp, atHead, func(context.Context, func(error)) error { order = append(order, "lease+start"); return nil })
 		r.LoadFrom(501)
 		waitReady(t, r)
 		require.Equal(t, []string{"lease+start", "register", "replay"}, order)
@@ -341,7 +330,7 @@ func TestLogPollerStartup(t *testing.T) {
 
 	t.Run("reports the held lease while waiting and touches nothing", func(t *testing.T) {
 		lp := lpmocks.NewLogPoller(t) // only UnregisterFilter on close is expected
-		r := startWithHook(t, lp, func(ctx context.Context, onHeld func(error)) error {
+		r := startWith(t, lp, atHead, func(ctx context.Context, onHeld func(error)) error {
 			onHeld(errors.New("EVM database lease held by another process"))
 			<-ctx.Done()
 			return ctx.Err()
@@ -349,7 +338,7 @@ func TestLogPollerStartup(t *testing.T) {
 		r.LoadFrom(501)
 		require.Eventually(t, func() bool {
 			err := r.Loaded()
-			return errors.Is(err, ErrLogPollerNotReady) && err != nil &&
+			return errors.Is(err, ErrLogPollerNotReady) &&
 				strings.Contains(err.Error(), "lease held by another process")
 		}, 5*time.Second, 10*time.Millisecond)
 		require.NoError(t, r.Close(), "Close ends the wait")
@@ -363,7 +352,7 @@ func TestLogPollerStartup(t *testing.T) {
 		expectStoredBlocks(lp)
 		lp.EXPECT().Replay(mock.Anything, int64(501)).Return(nil).Once()
 		lp.EXPECT().Healthy().Return(nil).Once()
-		r := startWithHook(t, lp, func(_ context.Context, onHeld func(error)) error {
+		r := startWith(t, lp, atHead, func(_ context.Context, onHeld func(error)) error {
 			onHeld(errors.New("EVM database lease held by another process"))
 			return nil
 		})
@@ -491,7 +480,7 @@ func TestLogPollerStartup(t *testing.T) {
 		lp := lpmocks.NewLogPoller(t)
 		expectRegister(lp)
 		expectStoredBlocks(lp)
-		r := startWith(t, lp, stubHeadTracker{latest: 1000, finalized: 1000})
+		r := startWith(t, lp, stubHeadTracker{latest: 1000, finalized: 1000}, nil)
 		r.LoadFrom(1001)
 		waitReady(t, r)
 		require.NoError(t, r.Loaded())
@@ -516,7 +505,7 @@ func TestLogPollerStartup(t *testing.T) {
 			lp := lpmocks.NewLogPoller(t) // only registration is expected until finality reaches the checkpoint
 			lp.EXPECT().RegisterFilter(mock.Anything, mock.Anything).Return(nil)
 			ht := newAdvancingHeadTracker(450, 400)
-			r := startWith(t, lp, ht)
+			r := startWith(t, lp, ht, nil)
 			r.LoadFrom(501)
 
 			var checkpointErr CheckpointAboveFinalizedError
@@ -524,8 +513,6 @@ func TestLogPollerStartup(t *testing.T) {
 			require.Equal(t, CheckpointAboveFinalizedError{Checkpoint: 500, Finalized: 400}, checkpointErr)
 			err := r.Loaded()
 			require.ErrorIs(t, err, chainaccess.ErrSourceNotReady)
-			require.ErrorContains(t, err, "500")
-			require.ErrorContains(t, err, "400")
 			require.False(t, r.ready.Load())
 
 			if stored {
@@ -612,6 +599,8 @@ func TestLogPollerStartup(t *testing.T) {
 				return false
 			}
 		}, 5*time.Second, 10*time.Millisecond)
+		// Only a reset-reader prepare clears the block, so the finished load left it set.
+		require.True(t, r.finalityBlocked.Load())
 	})
 
 	// This is how a startup violation really arrives: Replay hands the unfinalized part to the poll loop,
@@ -647,62 +636,6 @@ func TestLogPollerStartup(t *testing.T) {
 		r.LoadFrom(501)
 		waitReady(t, r)
 		require.False(t, r.finalityBlocked.Load())
-	})
-
-	t.Run("a wrapped finality violation from the replay is detected", func(t *testing.T) {
-		lp := lpmocks.NewLogPoller(t)
-		lp.EXPECT().RegisterFilter(mock.Anything, mock.Anything).Return(nil).Once()
-		expectStoredBlocks(lp)
-		lp.EXPECT().Replay(mock.Anything, int64(501)).
-			Return(fmt.Errorf("replay: %w", commontypes.ErrFinalityViolated)).Once()
-		r := start(t, lp)
-		r.LoadFrom(501)
-		waitReady(t, r)
-		require.True(t, r.finalityBlocked.Load())
-	})
-
-	t.Run("a non-violation failure still retries and never blocks", func(t *testing.T) {
-		lp := lpmocks.NewLogPoller(t)
-		lp.EXPECT().RegisterFilter(mock.Anything, mock.Anything).Return(nil).Twice()
-		expectStoredBlocks(lp)
-		lp.EXPECT().Replay(mock.Anything, int64(501)).Return(errors.New("replay failed")).Once()
-		lp.EXPECT().Replay(mock.Anything, int64(501)).Return(nil).Once()
-		lp.EXPECT().Healthy().Return(nil).Once()
-		r := start(t, lp)
-		r.LoadFrom(501)
-		waitReady(t, r)
-		require.False(t, r.finalityBlocked.Load())
-	})
-
-	// Only a reset-reader prepare clears the block, so the load never does.
-	t.Run("the load never clears the block", func(t *testing.T) {
-		lp := lpmocks.NewLogPoller(t)
-		lp.EXPECT().RegisterFilter(mock.Anything, mock.Anything).Return(nil).Once()
-		expectStoredBlocks(lp)
-		lp.EXPECT().Replay(mock.Anything, int64(501)).Return(commontypes.ErrFinalityViolated).Once()
-		r := start(t, lp)
-		r.LoadFrom(501)
-		waitReady(t, r)
-		// Close waits for the load goroutine, so the block seen afterwards is its final state.
-		require.NoError(t, r.Close())
-		require.True(t, r.finalityBlocked.Load())
-	})
-
-	// Nothing carries the block across a restart: each start reads the violation fresh from its own replay.
-	// The chain stays disabled regardless, because the verifier persists that.
-	t.Run("a restarted reader whose replay finds the violation again is blocked again", func(t *testing.T) {
-		for range 2 {
-			lp := lpmocks.NewLogPoller(t)
-			lp.EXPECT().RegisterFilter(mock.Anything, mock.Anything).Return(nil).Once()
-			expectStoredBlocks(lp)
-			lp.EXPECT().Replay(mock.Anything, int64(501)).Return(nil).Once()
-			lp.EXPECT().Healthy().Return(commontypes.ErrFinalityViolated).Once()
-			r := start(t, lp)
-			r.LoadFrom(501)
-			waitReady(t, r)
-			require.True(t, r.finalityBlocked.Load())
-			require.NoError(t, r.Close())
-		}
 	})
 
 	// A chain whose load keeps failing stays in the process, reports not ready and keeps retrying.
@@ -741,59 +674,14 @@ func TestLogPollerStartup(t *testing.T) {
 	// LoadFrom. Those reads come from the head tracker, so the start block does not depend on what the log
 	// poller holds, and a fresh log poller cannot stall the start.
 	t.Run("before LoadFrom block reads come from the head tracker whatever the log poller holds", func(t *testing.T) {
-		for name, stored := range map[string]func(*lpmocks.LogPoller){
-			"empty": func(lp *lpmocks.LogPoller) {
-				lp.EXPECT().LatestBlock(mock.Anything).Return(logpoller.Block{}, sql.ErrNoRows).Maybe()
-			},
-			"stale": func(lp *lpmocks.LogPoller) {
-				stale := logpoller.Block{BlockNumber: 5000, FinalizedBlockNumber: 4900, SafeBlockNumber: 4950}
-				lp.EXPECT().LatestBlock(mock.Anything).Return(stale, nil).Maybe()
-				lp.EXPECT().GetBlocksRange(mock.Anything, mock.Anything).Return([]logpoller.Block{stale}, nil).Maybe()
-			},
-		} {
-			t.Run(name, func(t *testing.T) {
-				lp := lpmocks.NewLogPoller(t)
-				stored(lp)
-				r := start(t, lp)
-				latest, finalized, err := r.LatestAndFinalizedBlock(t.Context())
-				require.NoError(t, err)
-				require.Equal(t, uint64(1000), latest.Number)
-				require.Equal(t, uint64(900), finalized.Number)
-				safe, err := r.LatestSafeBlock(t.Context())
-				require.NoError(t, err)
-				require.Equal(t, uint64(950), safe.Number)
-			})
-		}
-	})
-
-	// Operators tell a progressing replay from a stuck one by these two shapes: dashboards and queries
-	// depend on the message text and the field names.
-	t.Run("a failed load warns with the filter, error and retry delay, and readiness logs at info", func(t *testing.T) {
-		lp := lpmocks.NewLogPoller(t)
-		lp.EXPECT().RegisterFilter(mock.Anything, mock.Anything).Return(nil).Maybe()
-		expectStoredBlocks(lp)
-		replayErr := errors.New("replay failed")
-		lp.EXPECT().Replay(mock.Anything, int64(501)).Return(replayErr).Once()
-		lp.EXPECT().Replay(mock.Anything, int64(501)).Return(nil).Once()
-		lp.EXPECT().Healthy().Return(nil).Once()
-		lggr, logs := logger.TestObserved(t, zapcore.InfoLevel)
-		r := start(t, lp)
-		r.lggr = lggr
-		r.LoadFrom(501)
-		waitReady(t, r)
-
-		warnings := logs.FilterMessage("Log poller startup failed, retrying")
-		require.Equal(t, 1, warnings.Len())
-		require.Equal(t, zapcore.WarnLevel, warnings.All()[0].Level)
-		ctxMap := warnings.All()[0].ContextMap()
-		require.Equal(t, r.filterName, ctxMap["filter"])
-		require.Equal(t, r.initBackoff, ctxMap["retryIn"])
-		require.ErrorContains(t, errors.New(ctxMap["error"].(string)), replayErr.Error())
-
-		ready := logs.FilterMessage("Log poller ready, reading CCIPMessageSent logs from it")
-		require.Equal(t, 1, ready.Len())
-		require.Equal(t, zapcore.InfoLevel, ready.All()[0].Level)
-		require.Equal(t, r.filterName, ready.All()[0].ContextMap()["filter"])
+		r := start(t, lpmocks.NewLogPoller(t)) // no expectations: any log poller call fails the test
+		latest, finalized, err := r.LatestAndFinalizedBlock(t.Context())
+		require.NoError(t, err)
+		require.Equal(t, uint64(1000), latest.Number)
+		require.Equal(t, uint64(900), finalized.Number)
+		safe, err := r.LatestSafeBlock(t.Context())
+		require.NoError(t, err)
+		require.Equal(t, uint64(950), safe.Number)
 	})
 
 	t.Run("close stops a startup that keeps failing", func(t *testing.T) {

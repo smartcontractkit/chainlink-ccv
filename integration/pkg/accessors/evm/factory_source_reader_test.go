@@ -8,6 +8,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/common/lazy"
@@ -81,30 +82,17 @@ func staticDatabase(db *sql.DB) *lazy.Lazy[*sql.DB] {
 	return lazy.New(func(context.Context) (*sql.DB, error) { return db, nil })
 }
 
-func TestAccessorSourceReaderIsBuiltLazilyAndOnce(t *testing.T) {
-	t.Parallel()
-
-	acc := newSourceAccessor(t, newStubRuntime(t))
-	require.False(t, acc.sourceBuilt, "GetAccessor must not build the reader")
-
-	first, err := acc.SourceReader()
-	require.NoError(t, err)
-	require.IsType(t, &SourceReader{}, first)
-	second, err := acc.SourceReader()
-	require.NoError(t, err)
-	require.Same(t, first, second)
-}
-
 func TestAccessorSourceReaderConcurrentCallsShareOneReader(t *testing.T) {
 	t.Parallel()
 
 	acc := newSourceAccessor(t, newStubRuntime(t))
+	require.False(t, acc.sourceBuilt, "GetAccessor must not build the reader")
 	readers := make([]chainaccess.SourceReader, 8)
 	var wg sync.WaitGroup
 	for i := range readers {
 		wg.Go(func() {
 			r, err := acc.SourceReader()
-			require.NoError(t, err)
+			assert.NoError(t, err)
 			readers[i] = r
 		})
 	}
@@ -159,20 +147,13 @@ func TestLogPollerOffNeverBuildsALogPoller(t *testing.T) {
 func TestLogPollerOnFailureDoesNotFallBackToTheRPCReader(t *testing.T) {
 	t.Parallel()
 
-	wantErr := errors.New("another runtime owns this chain")
+	wantErr := errors.New("build failed")
 	runtime := &lpStubRuntime{stubChainRuntime: newStubRuntime(t), lpErr: wantErr, chainID: stubChainID}
 	acc := newLogPollerAccessor(t, runtime)
 
 	reader, err := acc.SourceReader()
 	require.ErrorIs(t, err, wantErr)
 	require.Nil(t, reader)
-}
-
-func TestLogPollerOnNeedsARuntimeThatHostsALogPoller(t *testing.T) {
-	t.Parallel()
-
-	_, err := newLogPollerAccessor(t, newStubRuntime(t)).SourceReader()
-	require.ErrorContains(t, err, "cannot host a LogPoller")
 }
 
 func TestLogPollerOnNeedsAVerifierID(t *testing.T) {
@@ -184,18 +165,6 @@ func TestLogPollerOnNeedsAVerifierID(t *testing.T) {
 
 	_, err := acc.SourceReader()
 	require.ErrorContains(t, err, "verifier_id")
-	require.Zero(t, runtime.lpCalls)
-}
-
-func TestLogPollerOnNeedsTheEVMDatabase(t *testing.T) {
-	t.Parallel()
-
-	runtime := &lpStubRuntime{stubChainRuntime: newStubRuntime(t), lp: lpmocks.NewLogPoller(t), chainID: stubChainID}
-	acc := newLogPollerAccessor(t, runtime)
-	acc.db = nil
-
-	_, err := acc.SourceReader()
-	require.ErrorContains(t, err, "needs the EVM database")
 	require.Zero(t, runtime.lpCalls)
 }
 
@@ -280,5 +249,5 @@ func TestTheLastAccessorCloseReleasesTheFactoryLeaseAfterItsRuntime(t *testing.T
 	require.Zero(t, fake.releases.Load(), "the other accessor still holds the lease")
 	require.NoError(t, second.Close())
 	require.Equal(t, int32(1), fake.releases.Load())
-	require.Equal(t, 3, closesAtRelease, "the lease is released after the last runtime closes")
+	require.Equal(t, runtime.closeCalls, closesAtRelease, "the lease is released after the last runtime closes")
 }

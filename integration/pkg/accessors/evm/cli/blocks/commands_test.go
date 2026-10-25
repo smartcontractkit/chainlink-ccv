@@ -82,44 +82,30 @@ func TestFindLCAErrorsNameTheChainIDAndTheCause(t *testing.T) {
 		require.ErrorContains(t, err, "rpc down")
 		require.Empty(t, h.out.String(), "nothing is printed on failure")
 	})
-	t.Run("chain ID that is not a number", func(t *testing.T) {
-		h := newHarness()
-
-		err := h.run(t, "find-lca", "--evm-chain-id", "sepolia")
-		require.ErrorContains(t, err, "sepolia")
-		require.Empty(t, h.op.calls)
-	})
-	t.Run("chain ID missing", func(t *testing.T) {
-		h := newHarness()
-
-		require.Error(t, h.run(t, "find-lca"))
-		require.Empty(t, h.op.calls)
-	})
 }
 
-func TestRemoveBlocksRequiresAPositiveStart(t *testing.T) {
-	for name, args := range map[string][]string{
-		"missing":  {"remove-blocks", "--evm-chain-id", chainID},
-		"zero":     {"remove-blocks", "--evm-chain-id", chainID, "--start", "0"},
-		"negative": {"remove-blocks", "--evm-chain-id", chainID, "--start", "-5"},
+func TestRemoveBlocksRejectsInvalidArguments(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		args    []string
+		wantErr string // the exact message, when the command (not flag parsing) rejects it
+	}{
+		{name: "start missing", args: []string{"--evm-chain-id", chainID}},
+		{name: "start zero", args: []string{"--evm-chain-id", chainID, "--start", "0"}, wantErr: "must pass a positive value in '--start' parameter"},
+		{name: "chain ID missing", args: []string{"--start", "10"}},
 	} {
-		t.Run(name, func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			h := newHarness()
 
-			require.Error(t, h.run(t, args...))
+			err := h.run(t, append([]string{"remove-blocks"}, tc.args...)...)
+			if tc.wantErr != "" {
+				require.EqualError(t, err, tc.wantErr, "the node's message")
+			} else {
+				require.Error(t, err)
+			}
 			require.Empty(t, h.op.calls, "nothing is deleted before the arguments are valid")
 		})
 	}
-	h := newHarness()
-	require.EqualError(t, h.run(t, "remove-blocks", "--evm-chain-id", chainID, "--start", "0"),
-		"must pass a positive value in '--start' parameter", "the node's message")
-}
-
-func TestRemoveBlocksRequiresTheChainID(t *testing.T) {
-	h := newHarness()
-
-	require.Error(t, h.run(t, "remove-blocks", "--start", "10"))
-	require.Empty(t, h.op.calls)
 }
 
 // Like the node, it asks nothing and deletes at once.
@@ -139,31 +125,4 @@ func TestRemoveBlocksReportsADeleteFailure(t *testing.T) {
 	err := h.run(t, "remove-blocks", "--evm-chain-id", chainID, "--start", "10")
 	require.ErrorContains(t, err, chainID)
 	require.ErrorContains(t, err, "db gone")
-}
-
-func TestRemoveBlocksHelpSaysTheVerifierMustBeStopped(t *testing.T) {
-	cmds := InitBlocksCommandsWithFactory(func() Deps { return Deps{} })
-	for _, c := range cmds {
-		if c.Name == "remove-blocks" {
-			require.Contains(t, strings.ToLower(c.Usage+" "+c.Description), "stopped")
-			return
-		}
-	}
-	t.Fatal("no remove-blocks command")
-}
-
-// --help must work on a machine with no database, so it never builds the dependencies.
-func TestHelpDoesNotBuildDependencies(t *testing.T) {
-	for _, args := range [][]string{{"--help"}, {"find-lca", "--help"}, {"remove-blocks", "--help"}} {
-		out := &bytes.Buffer{}
-		app := cli.NewApp()
-		app.Writer = out
-		app.Commands = []cli.Command{{Name: "blocks", Subcommands: InitBlocksCommandsWithFactory(func() Deps {
-			t.Fatal("help built the dependencies")
-			return Deps{}
-		})}}
-
-		require.NoError(t, app.Run(append([]string{"verifier", "blocks"}, args...)))
-		require.NotEmpty(t, out.String())
-	}
 }

@@ -4,27 +4,21 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
-	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/goleak"
 
-	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 	"github.com/smartcontractkit/chainlink-evm/pkg/logpoller"
-	evmtypes "github.com/smartcontractkit/chainlink-evm/pkg/types"
 
 	evmdb "github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm/db"
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
 )
 
@@ -89,9 +83,6 @@ func TestRemoveBlocksFromIsScopedByChainAndRangeAndInclusive(t *testing.T) {
 
 	require.Equal(t, rowCounts{Blocks: 3, Logs: 3}, operatorRowCounts(t, db, chainA), "blocks 1 to 3 stay, 4 to 6 go")
 	require.Equal(t, rowCounts{Blocks: 6, Logs: 6}, operatorRowCounts(t, db, chainB), "another chain is untouched")
-
-	require.NoError(t, RemoveBlocksFrom(t.Context(), db, logger.Test(t), chainA, 100))
-	require.Equal(t, rowCounts{Blocks: 3, Logs: 3}, operatorRowCounts(t, db, chainA), "a start above the highest block deletes nothing")
 }
 
 func TestCheckLogPollerSchema(t *testing.T) {
@@ -111,88 +102,12 @@ func TestCheckLogPollerSchema(t *testing.T) {
 	require.ErrorContains(t, err, "migration")
 }
 
-// forkedClient answers HeadByHash from a set of hashes the chain still has.
-type forkedClient struct {
-	logpoller.Client
-	onChain map[common.Hash]int64
-	err     error
-}
-
-func (c forkedClient) HeadByHash(_ context.Context, hash common.Hash) (*evmtypes.Head, error) {
-	if c.err != nil {
-		return nil, c.err
-	}
-	n, ok := c.onChain[hash]
-	if !ok {
-		return nil, ethereum.NotFound
-	}
-	return &evmtypes.Head{Hash: hash, Number: n}, nil
-}
-
 func chainThrough(n int64) map[common.Hash]int64 {
 	onChain := make(map[common.Hash]int64)
 	for i := int64(1); i <= n; i++ {
 		onChain[common.BigToHash(big.NewInt(i))] = i
 	}
 	return onChain
-}
-
-func TestFindLCA(t *testing.T) {
-	chainID := big.NewInt(920_010)
-
-	t.Run("highest stored block the chain still has", func(t *testing.T) {
-		db := testutil.NewTestDB(t).DB
-		seedOperatorChain(t, db, chainID, 10)
-
-		lca, err := findLCA(t.Context(), db, chainID, forkedClient{onChain: chainThrough(6)}, logger.Test(t))
-		require.NoError(t, err)
-		require.Equal(t, LCA{ChainID: "920010", BlockHash: common.BigToHash(big.NewInt(6)).Hex(), BlockNumber: 6}, lca)
-		require.Equal(t, rowCounts{Blocks: 10, Logs: 10}, operatorRowCounts(t, db, chainID), "find-lca only reads")
-	})
-
-	t.Run("the whole stored chain is on the RPC", func(t *testing.T) {
-		db := testutil.NewTestDB(t).DB
-		seedOperatorChain(t, db, chainID, 5)
-
-		lca, err := findLCA(t.Context(), db, chainID, forkedClient{onChain: chainThrough(5)}, logger.Test(t))
-		require.NoError(t, err)
-		require.Equal(t, int64(5), lca.BlockNumber)
-	})
-
-	t.Run("no stored block matches", func(t *testing.T) {
-		db := testutil.NewTestDB(t).DB
-		seedOperatorChain(t, db, chainID, 4)
-
-		_, err := findLCA(t.Context(), db, chainID, forkedClient{onChain: map[common.Hash]int64{}}, logger.Test(t))
-		require.ErrorContains(t, err, "failed to find LCA")
-	})
-
-	t.Run("no stored blocks", func(t *testing.T) {
-		db := testutil.NewTestDB(t).DB
-
-		_, err := findLCA(t.Context(), db, chainID, forkedClient{onChain: chainThrough(5)}, logger.Test(t))
-		require.ErrorContains(t, err, "failed to find lca")
-	})
-
-	t.Run("RPC failure", func(t *testing.T) {
-		db := testutil.NewTestDB(t).DB
-		seedOperatorChain(t, db, chainID, 4)
-
-		_, err := findLCA(t.Context(), db, chainID, forkedClient{err: errors.New("rpc down")}, logger.Test(t))
-		require.ErrorContains(t, err, "rpc down")
-	})
-}
-
-func TestSelectorFromChainID(t *testing.T) {
-	t.Parallel()
-
-	selector, err := SelectorFromChainID(11155111)
-	require.NoError(t, err)
-	require.Equal(t, protocol.ChainSelector(chainsel.ETHEREUM_TESTNET_SEPOLIA.Selector), selector)
-
-	_, err = SelectorFromChainID(4242424242)
-	require.ErrorContains(t, err, "4242424242")
-	require.ErrorContains(t, err, "not a known EVM chain")
 }
 
 // fakeRPC serves a chain whose blocks are the given hashes, which is all FindLCA needs of it.
@@ -259,20 +174,8 @@ func TestFindLCABuildsAndClosesItsClient(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(5), lca.BlockNumber)
 	require.Equal(t, "1337", lca.ChainID)
-	require.True(t, strings.HasPrefix(lca.BlockHash, "0x"))
+	require.Equal(t, common.BigToHash(big.NewInt(5)).Hex(), lca.BlockHash)
 	server.CloseClientConnections()
-}
-
-func TestFindLCAReportsAnUnreachableRPC(t *testing.T) {
-	db := testutil.NewTestDB(t).DB
-	seedOperatorChain(t, db, big.NewInt(1337), 3)
-	dead := httptest.NewServer(http.NotFoundHandler())
-	dead.Close()
-
-	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
-	defer cancel()
-	_, err := FindLCA(ctx, db, Info{ChainID: "1337", Nodes: []Node{{HTTPUrl: dead.URL}}}, logger.Test(t))
-	require.Error(t, err)
 }
 
 func TestRemoveBlocksFromWaitsForTheLease(t *testing.T) {

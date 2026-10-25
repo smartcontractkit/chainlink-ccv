@@ -65,7 +65,7 @@ func TestFactoryStart_PassesReaderReportersToCoordinator(t *testing.T) {
 	setFactoryEnv(t, dbURL)
 	f, reg, port := &factory{}, &reporterRegistry{}, freePort(t)
 
-	require.NoError(t, startServingWith(t, f, reg, port))
+	require.NoError(t, startServing(t, f, reg, port))
 	t.Cleanup(func() {
 		require.NoError(t, f.Stop(t.Context()))
 	})
