@@ -232,26 +232,26 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	sourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
 	finalityReporters := make(map[protocol.ChainSelector]chainaccess.FinalityViolationReporter)
 	healthReporters := make(map[protocol.ChainSelector]chainaccess.SourceHealthReporter)
+	skip := func(selector protocol.ChainSelector, msg string, err error) {
+		lggr.Errorw(msg+", skipping chain", "selector", selector, "error", err)
+		startupSkips.SkipChain(selector, err)
+		verifierMonitoring.RecordChainHealthy(ctx, selector, false)
+	}
 	var readersMu sync.Mutex
 	var wg sync.WaitGroup
 	for _, selector := range chainSelectors {
 		wg.Go(func() {
 			chainCtx, cancel := context.WithTimeout(ctx, accessorBuildTimeout)
 			defer cancel()
-			skip := func(msg string, err error) {
-				lggr.Errorw(msg+", skipping chain", "selector", selector, "error", err)
-				startupSkips.SkipChain(selector, err)
-				verifierMonitoring.RecordChainHealthy(ctx, selector, false)
-			}
 			//nolint:noeagerio // accessor construction dials the chain; it runs concurrently per chain with a bounded ctx, and failures are skipped, not fatal
 			accessor, err := deps.Registry.GetAccessor(chainCtx, selector)
 			if err != nil {
-				skip("Failed to get accessor", err)
+				skip(selector, "Failed to get accessor", err)
 				return
 			}
 			reader, err := accessor.SourceReader()
 			if err != nil {
-				skip("Failed to get source reader", err)
+				skip(selector, "Failed to get source reader", err)
 				return
 			}
 			// Take the reader's own reporters, such as the EVM LogPoller reader's, before wrapping hides them.
@@ -263,7 +263,7 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 
 			observedReader, err := instrumentSourceReader(reader, config.VerifierID, selector, verifierMonitoring)
 			if err != nil {
-				skip("Failed to instrument source reader", err)
+				skip(selector, "Failed to instrument source reader", err)
 				return
 			}
 			// Unhealthy until its service says otherwise, so the series exists even if no service ever

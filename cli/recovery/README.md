@@ -25,14 +25,14 @@ An optional `--request-id <UUID>` is an idempotency key. Repeating the same requ
 
 All commands write JSON to stdout and diagnostics to stderr. Operations include their durable ID, owner/source, mode, actor/note, target, next block, state, timestamps, `reset_applied`, counters and latest error. Selectors, block heights and counters are decimal strings to preserve integer precision in browser clients.
 
-| State       | Meaning and action                                                                                                      |
-| ----------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `accepted`  | Persisted and waiting for its reader's turn.                                                                            |
-| `running`   | Processing chunks, or waiting for a source head, admission certainty, finality or queue capacity. Inspect `last_error`. |
-| `completed` | The full range was scanned and its queue admissions/drop evidence committed. Verify final attestations separately.      |
-| `cancelled` | No further chunks run. Already committed work remains. Resume continues at `next_block`.                                |
-| `failed`    | A chunk or reset failed; its uncommitted jobs/evidence/progress rolled back. Resolve `last_error`, then resume.         |
-| `blocked`   | The reader is disabled or a reset was superseded. Ordinary resume does not clear a finality block.                      |
+| State | Meaning and action |
+| --- | --- |
+| `accepted` | Persisted and waiting for its reader's turn. |
+| `running` | Processing chunks, or waiting for a source head, admission certainty, finality or queue capacity. Inspect `last_error`. |
+| `completed` | The full range was scanned and its queue admissions/drop evidence committed. Verify final attestations separately. |
+| `cancelled` | No further chunks run. Already committed work remains. Resume continues at `next_block`. |
+| `failed` | A chunk or reset failed; its uncommitted jobs/evidence/progress rolled back. Resolve `last_error`, then resume. |
+| `blocked` | The reader is disabled or a reset was superseded. Ordinary resume does not clear a finality block. |
 
 Cancellation waits for a currently executing chunk transaction; once the command returns, further work for that request is stopped. Repeated cancel/resume is safe while applicable. Completed operations cannot resume. A process failure leaves the last committed next-block cursor; the same operation resumes when its configured reader starts again.
 

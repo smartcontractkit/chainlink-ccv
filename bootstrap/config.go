@@ -339,8 +339,8 @@ type NonSecretConfig struct {
 	// It is a pointer to distinguish "operator did not configure monitoring here" (nil) from "operator
 	// explicitly configured it, possibly with Enabled=false" (non-nil). The apps that consume it (commit
 	// verifier, executor) read only this value; their deprecated app-config Monitoring sections are
-	// ignored (retained so older job specs still decode). The token verifier is the exception: it does
-	// not read this value and keeps monitoring in its (already operator-provided) mounted app config.
+	// ignored (retained so older job specs still decode). The token verifier is the exception: it loads
+	// no bootstrap config and keeps monitoring in its (already operator-provided) mounted app config.
 	Monitoring *monitoring.Config `toml:"Monitoring"`
 }
 

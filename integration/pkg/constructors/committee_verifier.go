@@ -139,7 +139,17 @@ func NewVerificationCoordinator(
 				chainMetrics.IncrementCriticalSourceInvariantViolations(ctx)
 			},
 		}
-		sourceReader, finalityReporter, err := newChainSourceReader(chain, params, cfg.VerifierID)
+		// This CL entry point has no context parameter (its signature is consumed by the Chainlink
+		// node repo and must stay unchanged), so the readers get a background context.
+		// A chain with the node's log poller enabled reads logs from it and uses its finality signal.
+		var sourceReader chainaccess.SourceReader
+		var finalityReporter chainaccess.FinalityViolationReporter
+		if lp := chain.LogPoller(); evm.LogPollerEnabled(lp) {
+			sourceReader, err = evm.NewLogPollerSourceReader(context.Background(), params, evm.NewLogPollerConfig(lp, cfg.VerifierID))
+			finalityReporter, _ = sourceReader.(chainaccess.FinalityViolationReporter)
+		} else {
+			sourceReader, err = evm.NewEVMSourceReader(context.Background(), params)
+		}
 		if err != nil {
 			// A failure to build one chain's reader must not stop the remaining chains from
 			// starting. Log and skip this chain so the rest of the coordinator can come up.
@@ -337,29 +347,4 @@ func NewVerificationCoordinator(
 	}
 
 	return verifierCoordinator, nil
-}
-
-// newChainSourceReader builds a chain's source reader. A chain with the node's log poller enabled reads
-// logs from it and uses its finality signal; the reader is the log poller's own violation state.
-func newChainSourceReader(
-	chain legacyevm.Chain,
-	params evm.SourceReaderParams,
-	verifierID string,
-) (chainaccess.SourceReader, chainaccess.FinalityViolationReporter, error) {
-	// This CL entry point has no context parameter (its signature is consumed by the Chainlink
-	// node repo and must stay unchanged), so the readers get a background context.
-	lp := chain.LogPoller()
-	if !evm.LogPollerEnabled(lp) {
-		reader, err := evm.NewEVMSourceReader(context.Background(), params)
-		return reader, nil, err
-	}
-	reader, err := evm.NewLogPollerSourceReader(context.Background(), params, evm.NewLogPollerConfig(lp, verifierID))
-	if err != nil {
-		return nil, nil, err
-	}
-	reporter, ok := reader.(chainaccess.FinalityViolationReporter)
-	if !ok {
-		return nil, nil, errors.New("log poller source reader does not report finality violations")
-	}
-	return reader, reporter, nil
 }
