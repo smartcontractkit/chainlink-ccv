@@ -200,11 +200,6 @@ func (r *LogPollerSourceReader) serveErr() error {
 	return nil
 }
 
-// clearFinalityBlock lifts the block for a reset-reader prepare. Nothing else may call it.
-func (r *LogPollerSourceReader) clearFinalityBlock() {
-	r.finalityBlocked.Store(false)
-}
-
 // initLogPoller retries loading the log poller from the start block with backoff until it succeeds or
 // the reader closes.
 func (r *LogPollerSourceReader) initLogPoller(from uint64) {

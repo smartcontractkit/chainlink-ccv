@@ -194,14 +194,6 @@ func TestLogPollerEnabled(t *testing.T) {
 	}
 }
 
-func TestFinalityBlocked(t *testing.T) {
-	r := readyLogPollerReader(sourceReaderCore{}, lpmocks.NewLogPoller(t))
-	r.finalityBlocked.Store(true)
-	require.True(t, r.FinalityViolated(), "the block alone reports the violation")
-	r.clearFinalityBlock()
-	require.False(t, r.finalityBlocked.Load())
-}
-
 func TestHealthy(t *testing.T) {
 	missing := errors.New("rpc servers reported missing blocks 3 times in a row")
 	for name, tc := range map[string]struct {

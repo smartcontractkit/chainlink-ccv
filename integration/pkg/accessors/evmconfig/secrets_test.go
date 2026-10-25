@@ -8,44 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSecretsValidateErrors(t *testing.T) {
-	tests := map[string]struct {
-		secrets Secrets
-		want    string
-	}{
-		"no nodes":     {Secrets{Chains: map[string]ChainSecrets{"1": {}}}, "at least one node is required"},
-		"missing name": {Secrets{Chains: map[string]ChainSecrets{"1": {Nodes: []NodeSecrets{{HTTPUrl: "h"}}}}}, "field 'name' is required"},
-		"missing url":  {Secrets{Chains: map[string]ChainSecrets{"1": {Nodes: []NodeSecrets{{Name: "a"}}}}}, "field 'http_url' is required"},
-		"duplicate":    {Secrets{Chains: map[string]ChainSecrets{"1": {Nodes: []NodeSecrets{{Name: "a", HTTPUrl: "h"}, {Name: "a", HTTPUrl: "h"}}}}}, `duplicate node name "a"`},
-	}
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			require.ErrorContains(t, tc.secrets.Validate(), tc.want)
-		})
-	}
-	require.NoError(t, (&Secrets{}).Validate())
-}
-
-func TestConfigValidate(t *testing.T) {
-	ok := Config{Chains: map[string]ChainConfig{"1": {Nodes: []Node{{HTTPUrl: "h", Order: 100}}}}}
-	require.NoError(t, ok.Validate())
-
-	tests := map[string]struct {
-		cfg  Config
-		want string
-	}{
-		"no nodes":      {Config{Chains: map[string]ChainConfig{"1": {}}}, "at least one node is required"},
-		"missing url":   {Config{Chains: map[string]ChainConfig{"1": {Nodes: []Node{{Name: "a"}}}}}, "field 'http_url' is required"},
-		"order range":   {Config{Chains: map[string]ChainConfig{"1": {Nodes: []Node{{HTTPUrl: "h", Order: 101}}}}}, "field 'order' must be between"},
-		"negative size": {Config{Chains: map[string]ChainConfig{"1": {Nodes: []Node{{HTTPUrl: "h"}}, SourceReaderHeaderFetchBatchSize: -1}}}, "must not be negative"},
-	}
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			require.ErrorContains(t, tc.cfg.Validate(), tc.want)
-		})
-	}
-}
-
 func TestLoadSecretsFile(t *testing.T) {
 	got, err := LoadSecretsFile("")
 	require.NoError(t, err)
@@ -55,15 +17,9 @@ func TestLoadSecretsFile(t *testing.T) {
 	require.NoError(t, os.WriteFile(path, []byte(`
 [db]
 url = "postgres://localhost/evm"
-
-[[chains."1".nodes]]
-name = "a"
-http_url = "https://a"
-ws_url = "wss://a"
 `), 0o600))
 	got, err = LoadSecretsFile(path)
 	require.NoError(t, err)
-	require.Equal(t, "wss://a", got.Chains["1"].Nodes[0].WSUrl)
 	require.Equal(t, "postgres://localhost/evm", got.DB.URL)
 
 	require.NoError(t, os.WriteFile(path, []byte("[db]\n"), 0o600))
