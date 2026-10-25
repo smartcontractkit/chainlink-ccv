@@ -55,6 +55,8 @@ type factory struct {
 	newRuntime               runtimeBuilder
 	// db is the EVM database shared by every accessor; nil when none is configured.
 	db *lazy.Lazy[*sql.DB]
+	// lease is the one lease on db for this factory; nil when no database is configured.
+	lease *evmLease
 	// logPoller makes source readers read through the chain's LogPoller on db.
 	logPollerEnabled bool
 	// verifierID scopes LogPoller filter names; empty outside the committee verifier.
@@ -263,6 +265,10 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 	acc.db = f.db
 	acc.logPollerEnabled = f.logPollerEnabled
 	acc.verifierID = f.verifierID
+	if f.lease != nil {
+		f.lease.retain()
+		acc.lease = f.lease
+	}
 	return acc, nil
 }
 
@@ -287,6 +293,8 @@ type accessor struct {
 	logPollerEnabled bool
 	verifierID       string
 	db               *lazy.Lazy[*sql.DB]
+	lease            *evmLease
+	leaseDropped     sync.Once
 
 	lggr          logger.Logger
 	chainSelector protocol.ChainSelector
@@ -462,9 +470,18 @@ func (a *accessor) GasPriceReader() (chainaccess.GasPriceReader, error) {
 }
 
 // Close releases the production services owned by this accessor.
+// The runtime closes first, stopping this chain's LogPoller, and bootstrap stops the readers before any
+// accessor closes, so the last accessor's drop releases the lease only once nothing can write.
 func (a *accessor) Close() error {
-	if a == nil || a.runtime == nil {
+	if a == nil {
 		return nil
 	}
-	return a.runtime.Close()
+	var err error
+	if a.runtime != nil {
+		err = a.runtime.Close()
+	}
+	if a.lease != nil {
+		a.leaseDropped.Do(func() { err = errors.Join(err, a.lease.drop()) })
+	}
+	return err
 }

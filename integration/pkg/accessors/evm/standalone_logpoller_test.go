@@ -145,12 +145,16 @@ type fakeLogPoller struct {
 	closeErr error
 }
 
-func (f *fakeLogPoller) Start(context.Context) error { return f.startErr }
+func (f *fakeLogPoller) Start(context.Context) error {
+	f.events.add("log poller started")
+	return f.startErr
+}
 func (f *fakeLogPoller) Close() error {
 	f.events.add("log poller closed")
 	return f.closeErr
 }
 
+// The real poller is never started, as on a standby chain, so Close must accept an unstarted poller.
 func TestStandaloneChainLogPollerBuiltOnceAndShared(t *testing.T) {
 	t.Parallel()
 	chain, _, _ := newTestChain(t, 1)
@@ -194,43 +198,73 @@ func TestStandaloneChainLogPollerRequiresDatabase(t *testing.T) {
 	require.ErrorContains(t, err, "evm_chain_id "+chainID)
 }
 
-func TestStandaloneChainLogPollerFailuresLeaveNoPoller(t *testing.T) {
+func TestStandaloneChainLogPollerBuildFailureLeavesNoPoller(t *testing.T) {
 	t.Parallel()
 	errBuild := errors.New("metrics already registered")
-	errStart := errors.New("start failed")
+	chain, chainID, _ := newTestChain(t, 1)
+	chain.newLogPoller = func(logPollerInputs) (logpoller.LogPoller, error) { return nil, errBuild }
 
-	for _, tc := range []struct {
-		name  string
-		build logPollerBuilder
-		want  error
-	}{
-		{
-			name:  "build",
-			build: func(logPollerInputs) (logpoller.LogPoller, error) { return nil, errBuild },
-			want:  errBuild,
-		},
-		{
-			name: "start",
-			build: func(logPollerInputs) (logpoller.LogPoller, error) {
-				return &fakeLogPoller{events: &eventLog{}, startErr: errStart}, nil
-			},
-			want: errStart,
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			chain, chainID, _ := newTestChain(t, 1)
-			chain.newLogPoller = tc.build
+	lp, err := chain.LogPoller(t.Context(), newUnconnectedDB(t))
+	require.ErrorIs(t, err, errBuild)
+	require.ErrorContains(t, err, "selector 1")
+	require.ErrorContains(t, err, "evm_chain_id "+chainID)
+	require.Nil(t, lp)
+	require.Nil(t, chain.logPoller)
+	require.NoError(t, chain.Close())
+}
 
-			lp, err := chain.LogPoller(t.Context(), newUnconnectedDB(t))
-			require.ErrorIs(t, err, tc.want)
-			require.ErrorContains(t, err, "selector 1")
-			require.ErrorContains(t, err, "evm_chain_id "+chainID)
-			require.Nil(t, lp)
-			require.Nil(t, chain.logPoller)
-			require.NoError(t, chain.Close())
-		})
+// Building must not start the poller: it writes to the database, which needs the lease first.
+func TestStandaloneChainLogPollerBuildsWithoutStarting(t *testing.T) {
+	t.Parallel()
+	chain, _, events := newTestChain(t, 1)
+	chain.newLogPoller = func(logPollerInputs) (logpoller.LogPoller, error) { return &fakeLogPoller{events: events}, nil }
+
+	_, err := chain.LogPoller(t.Context(), newUnconnectedDB(t))
+	require.NoError(t, err)
+	require.NotContains(t, events.snapshot(), "log poller started")
+	require.NoError(t, chain.Close())
+}
+
+func TestStandaloneChainStartLogPollerStartsOnce(t *testing.T) {
+	t.Parallel()
+	chain, _, events := newTestChain(t, 1)
+	chain.newLogPoller = func(logPollerInputs) (logpoller.LogPoller, error) { return &fakeLogPoller{events: events}, nil }
+	_, err := chain.LogPoller(t.Context(), newUnconnectedDB(t))
+	require.NoError(t, err)
+
+	require.NoError(t, chain.StartLogPoller(t.Context()))
+	require.NoError(t, chain.StartLogPoller(t.Context()))
+	started := 0
+	for _, e := range events.snapshot() {
+		if e == "log poller started" {
+			started++
+		}
 	}
+	require.Equal(t, 1, started)
+	require.NoError(t, chain.Close())
+}
+
+func TestStandaloneChainStartLogPollerFailures(t *testing.T) {
+	t.Parallel()
+	t.Run("start error is returned", func(t *testing.T) {
+		t.Parallel()
+		errStart := errors.New("start failed")
+		chain, chainID, _ := newTestChain(t, 1)
+		chain.newLogPoller = func(logPollerInputs) (logpoller.LogPoller, error) {
+			return &fakeLogPoller{events: &eventLog{}, startErr: errStart}, nil
+		}
+		_, err := chain.LogPoller(t.Context(), newUnconnectedDB(t))
+		require.NoError(t, err)
+		err = chain.StartLogPoller(t.Context())
+		require.ErrorIs(t, err, errStart)
+		require.ErrorContains(t, err, "evm_chain_id "+chainID)
+	})
+	t.Run("closed", func(t *testing.T) {
+		t.Parallel()
+		chain, _, _ := newTestChain(t, 1)
+		require.NoError(t, chain.Close())
+		require.ErrorContains(t, chain.StartLogPoller(t.Context()), "closed")
+	})
 }
 
 func TestStandaloneChainLogPollerCloseErrorIsReturned(t *testing.T) {
@@ -253,6 +287,7 @@ func TestStandaloneChainLogPollerAlreadyStoppedClosesCleanly(t *testing.T) {
 	chain, _, _ := newTestChain(t, 1)
 	lp, err := chain.LogPoller(t.Context(), newUnconnectedDB(t))
 	require.NoError(t, err)
+	require.NoError(t, chain.StartLogPoller(t.Context()))
 	require.NoError(t, lp.Close(), "something other than the runtime stops the poller")
 
 	require.NoError(t, chain.Close())
@@ -287,6 +322,7 @@ func TestStandaloneChainRealLogPollerRebuildsAndLeavesNoGoroutines(t *testing.T)
 		lp, err := chain.LogPoller(t.Context(), db)
 		require.NoError(t, err)
 		require.NotNil(t, lp)
+		require.NoError(t, chain.StartLogPoller(t.Context()))
 		require.NoError(t, chain.Close())
 	}
 	require.NoError(t, db.Close())

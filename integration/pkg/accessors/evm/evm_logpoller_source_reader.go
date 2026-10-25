@@ -62,6 +62,9 @@ type LogPollerConfig struct {
 	LogPoller  logpoller.LogPoller
 	VerifierID string
 	Retention  time.Duration
+	// Start takes the EVM database lease and starts LogPoller, calling onHeld while the lease is held.
+	// Nil means the LogPoller is already running, as in CL mode, where the node holds its own lease.
+	Start func(ctx context.Context, onHeld func(error)) error
 }
 
 // NewLogPollerConfig is the one place both deployment paths build a reader config, so the
@@ -180,6 +183,11 @@ func (r *LogPollerSourceReader) Loaded() error {
 	return ErrLogPollerNotReady
 }
 
+// reportWaiting makes Loaded explain a load that is waiting, such as one waiting for the lease.
+func (r *LogPollerSourceReader) reportWaiting(err error) {
+	r.loadErr.Store(&err)
+}
+
 // serveErr returns why reads cannot be served from the log poller, or nil when they can.
 func (r *LogPollerSourceReader) serveErr() error {
 	if err := r.Loaded(); err != nil {
@@ -243,11 +251,20 @@ func (r *LogPollerSourceReader) retryBackoffs() (initial, maxBackoff time.Durati
 	return initial, max(initial, maxBackoff)
 }
 
-// loadLogPoller registers the filter, anchors an empty log poller, and replays from fromBlock.
-// It never deletes log poller data; stale blocks are removed explicitly with remove-blocks.
+// loadLogPoller takes the lease and starts the log poller, then registers the filter, anchors an
+// empty log poller, and replays from fromBlock. It never deletes log poller data; stale blocks are
+// removed explicitly with remove-blocks.
 func (r *LogPollerSourceReader) loadLogPoller(ctx context.Context, fromBlock uint64) error {
 	if fromBlock > math.MaxInt64 {
 		return fmt.Errorf("replay block %d is out of range for the log poller", fromBlock)
+	}
+	// Every step below writes to the database, so the lease comes first; Replay also needs the poll loop.
+	if r.cfg.Start != nil {
+		if err := r.cfg.Start(ctx, r.reportWaiting); err != nil {
+			return err
+		}
+		// The lease is held now, so Loaded no longer reports waiting for it.
+		r.loadErr.Store(nil)
 	}
 	if err := r.registerLogPollerFilter(ctx); err != nil {
 		return err

@@ -72,6 +72,9 @@ func CreateEVMAccessorFactory(lggr logger.Logger, genericConfig chainaccess.Gene
 
 	f := newAccessorFactory(lggr, genericConfig, infos)
 	f.db = newLazyDB(lggr, secrets.DB)
+	if f.db != nil {
+		f.lease = newEVMLease(lggr, f.db)
+	}
 	f.logPollerEnabled = evmCfg.LogPollerEnabled
 	f.verifierID = genericConfig.VerifierID
 	return f, nil

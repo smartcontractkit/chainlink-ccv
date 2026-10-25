@@ -7,7 +7,7 @@ The standalone verifier's version of the Chainlink node's `find-lca` and `remove
 | Command | Description |
 |---------|-------------|
 | `find-lca` | Prints the highest stored block whose hash the chain RPC also has, in the node's format: a "Last Common Ancestor" title, then ChainID, Block Hash and Block Number as a list. Only reads, so it works with the verifier running or stopped. |
-| `remove-blocks` | Deletes the chain's `evm.logs` and `evm.log_poller_blocks` rows with block number `>= --start` (inclusive). **The verifier must be stopped.** |
+| `remove-blocks` | Deletes the chain's `evm.logs` and `evm.log_poller_blocks` rows with block number `>= --start` (inclusive). Waits for the EVM database lease, which a running verifier holds, so it runs only once the verifier has stopped; it logs while it waits, and Ctrl-C stops the wait. |
 
 Both take `--evm-chain-id`, as on the node. Neither takes a verifier ID: the LogPoller tables are scoped by EVM chain ID. The chain ID is mapped to its chain selector with chain-selectors, so an unknown chain ID is rejected.
 

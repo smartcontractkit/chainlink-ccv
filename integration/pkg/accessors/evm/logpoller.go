@@ -7,8 +7,8 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 )
 
-// newLogPollerSourceReader starts the chain's LogPoller on the EVM database and builds its reader.
-// The caller holds sourceMu.
+// newLogPollerSourceReader builds the chain's LogPoller on the EVM database and its reader, which takes
+// the database lease and starts the LogPoller in its background load. The caller holds sourceMu.
 func (a *accessor) newLogPollerSourceReader() (chainaccess.SourceReader, error) {
 	if a.verifierID == "" {
 		return nil, fmt.Errorf("log_poller_enabled for chain %d needs the committee verifier's verifier_id", a.chainSelector)
@@ -26,9 +26,20 @@ func (a *accessor) newLogPollerSourceReader() (chainaccess.SourceReader, error) 
 	if db == nil {
 		return nil, fmt.Errorf("log_poller_enabled for chain %d needs the EVM database ([db] in the EVM secrets file)", a.chainSelector)
 	}
+	if a.lease == nil {
+		return nil, fmt.Errorf("log_poller_enabled for chain %d needs the EVM database lease", a.chainSelector)
+	}
 	lp, err := lpRuntime.LogPoller(ctx, db)
 	if err != nil {
 		return nil, err
 	}
-	return NewLogPollerSourceReader(ctx, *a.sourceParams, NewLogPollerConfig(lp, a.verifierID))
+	cfg := NewLogPollerConfig(lp, a.verifierID)
+	lease := a.lease
+	cfg.Start = func(ctx context.Context, onHeld func(error)) error {
+		if err := lease.Acquire(ctx, onHeld); err != nil {
+			return err
+		}
+		return lpRuntime.StartLogPoller(ctx)
+	}
+	return NewLogPollerSourceReader(ctx, *a.sourceParams, cfg)
 }

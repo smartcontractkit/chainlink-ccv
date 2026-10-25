@@ -52,6 +52,14 @@ func CheckLogPollerSchema(ctx context.Context, db *sql.DB) error {
 	if !exists {
 		return errors.New("the LogPoller schema is missing (evm.log_poller_blocks or evm.logs): the EVM accessor migration creates it when a verifier with the LogPoller enabled starts")
 	}
+	var lease sql.NullString
+	if err := db.QueryRowContext(ctx, `SELECT to_regclass('evm.lease_lock')::text`).Scan(&lease); err != nil {
+		return fmt.Errorf("failed to check for the lease table: %w", err)
+	}
+	// Without it, an older verifier that takes no lease may be writing: refuse rather than delete unguarded.
+	if !lease.Valid {
+		return errors.New("the lease table evm.lease_lock is missing: start a verifier on this version once so it migrates the EVM database")
+	}
 	return nil
 }
 
@@ -92,9 +100,19 @@ func findLCA(ctx context.Context, db *sql.DB, chainID *big.Int, chainClient logp
 	return LCA{ChainID: chainID.String(), BlockHash: block.BlockHash.Hex(), BlockNumber: block.BlockNumber}, nil
 }
 
-// RemoveBlocksFrom deletes the chain's stored blocks and logs from start up, start included. The
-// verifier must be stopped: this does not stop a running LogPoller from storing again.
+// RemoveBlocksFrom deletes the chain's stored blocks and logs from start up, start included. Like the
+// node's remove-blocks it first waits for the EVM database lease, so it never runs beside a verifier.
+// Losing the lease mid-delete exits the process, as the node's command does.
 func RemoveBlocksFrom(ctx context.Context, db *sql.DB, lggr logger.Logger, chainID *big.Int, start int64) error {
+	lease := evmdb.NewLease(db, lggr, evmdb.DefaultLeaseConfig())
+	if err := lease.TakeAndHold(ctx, func(error) {
+		logger.Sugared(lggr).Infow("Waiting for the running verifier to release the EVM database lease; stop the verifier to continue",
+			"evmChainID", chainID.String())
+	}); err != nil {
+		return err
+	}
+	defer lease.Release()
+
 	orm := logpoller.NewORM(chainID, evmdb.NewLogPollerDB(db), lggr)
 	if err := orm.DeleteLogsAndBlocksAfter(ctx, start); err != nil {
 		return fmt.Errorf("failed to delete log poller data after block %d for chain ID %s: %w", start, chainID, err)

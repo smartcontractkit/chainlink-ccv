@@ -17,8 +17,10 @@ import (
 // logPollerRuntime is the optional capability of a chain runtime that can host a LogPoller. It is
 // separate from chainRuntime so runtimes that never read logs, the executor's among them, are unaffected.
 type logPollerRuntime interface {
-	// LogPoller returns the chain's LogPoller, building and starting it on the first call.
+	// LogPoller returns the chain's LogPoller, building it on the first call. It does not start it.
 	LogPoller(ctx context.Context, db *sql.DB) (logpoller.LogPoller, error)
+	// StartLogPoller starts the built LogPoller once; the caller must hold the EVM database lease.
+	StartLogPoller(ctx context.Context) error
 	// EVMChainID is the chain's EVM chain ID, which scopes its rows in the LogPoller tables.
 	EVMChainID() *big.Int
 }

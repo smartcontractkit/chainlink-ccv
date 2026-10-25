@@ -39,9 +39,10 @@ The standalone commands run in the verifier's container or host, not inside a no
 - `find-lca` needs the chain's RPC from the mounted EVM config (`EVM_CONFIG_PATH`, default `/etc/evm/config.toml`).
 - The commands read `log_poller_enabled` from the same EVM config and refuse to run when it is off.
 
-On a node the commands use the node's own configuration and take the node's database lock. A
-standalone verifier has no such lock, so nothing but this runbook keeps the verifier stopped while
-you run steps 4 to 6.
+On a node the commands use the node's own configuration and take the node's database lock. On a
+standalone verifier, `remove-blocks` takes the EVM database lease, which the running verifier holds,
+and logs that it is waiting until the verifier stops; Ctrl-C stops the wait. The `chain-statuses`
+commands in steps 5 and 6 take no lease, so keep the verifier stopped until step 6 is done.
 
 ## 1. Confirm the violation
 

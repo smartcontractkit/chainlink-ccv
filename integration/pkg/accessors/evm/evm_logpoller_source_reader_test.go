@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -311,6 +312,69 @@ func TestLogPollerStartup(t *testing.T) {
 	waitReady := func(t *testing.T, r *LogPollerSourceReader) {
 		require.Eventually(t, r.ready.Load, 5*time.Second, 10*time.Millisecond)
 	}
+	// startWithHook is start with cfg.Start set, as the standalone verifier sets it.
+	startWithHook := func(t *testing.T, lp *lpmocks.LogPoller, hook func(context.Context, func(error)) error) *LogPollerSourceReader {
+		cfg := &LogPollerConfig{LogPoller: lp, VerifierID: "verifier-1", Retention: time.Hour, Start: hook}
+		lp.EXPECT().UnregisterFilter(mock.Anything, name).Return(nil).Maybe()
+		reader, err := NewLogPollerSourceReader(t.Context(), testSourceReaderParams(t, stubHeadTracker{latest: 1000, finalized: 900, safe: 950}), cfg)
+		require.NoError(t, err)
+		r := reader.(*LogPollerSourceReader)
+		r.initBackoff, r.maxInitBackoff = 5*time.Millisecond, 20*time.Millisecond
+		t.Cleanup(func() { require.NoError(t, r.Close()) })
+		return r
+	}
+
+	t.Run("takes the lease and starts the log poller before registering", func(t *testing.T) {
+		lp := lpmocks.NewLogPoller(t)
+		var order []string
+		lp.EXPECT().RegisterFilter(mock.Anything, mock.Anything).
+			RunAndReturn(func(context.Context, logpoller.Filter) error { order = append(order, "register"); return nil }).Once()
+		expectStoredBlocks(lp)
+		lp.EXPECT().Replay(mock.Anything, int64(501)).
+			RunAndReturn(func(context.Context, int64) error { order = append(order, "replay"); return nil }).Once()
+		lp.EXPECT().Healthy().Return(nil).Once()
+		r := startWithHook(t, lp, func(context.Context, func(error)) error { order = append(order, "lease+start"); return nil })
+		r.LoadFrom(501)
+		waitReady(t, r)
+		require.Equal(t, []string{"lease+start", "register", "replay"}, order)
+	})
+
+	t.Run("reports the held lease while waiting and touches nothing", func(t *testing.T) {
+		lp := lpmocks.NewLogPoller(t) // only UnregisterFilter on close is expected
+		r := startWithHook(t, lp, func(ctx context.Context, onHeld func(error)) error {
+			onHeld(errors.New("EVM database lease held by another process"))
+			<-ctx.Done()
+			return ctx.Err()
+		})
+		r.LoadFrom(501)
+		require.Eventually(t, func() bool {
+			err := r.Loaded()
+			return errors.Is(err, ErrLogPollerNotReady) && err != nil &&
+				strings.Contains(err.Error(), "lease held by another process")
+		}, 5*time.Second, 10*time.Millisecond)
+		require.NoError(t, r.Close(), "Close ends the wait")
+	})
+
+	t.Run("stops reporting the held lease once it is taken", func(t *testing.T) {
+		lp := lpmocks.NewLogPoller(t)
+		registering, unblock := make(chan struct{}), make(chan struct{})
+		lp.EXPECT().RegisterFilter(mock.Anything, mock.Anything).
+			RunAndReturn(func(context.Context, logpoller.Filter) error { close(registering); <-unblock; return nil }).Once()
+		expectStoredBlocks(lp)
+		lp.EXPECT().Replay(mock.Anything, int64(501)).Return(nil).Once()
+		lp.EXPECT().Healthy().Return(nil).Once()
+		r := startWithHook(t, lp, func(_ context.Context, onHeld func(error)) error {
+			onHeld(errors.New("EVM database lease held by another process"))
+			return nil
+		})
+		r.LoadFrom(501)
+		<-registering
+		err := r.Loaded()
+		require.ErrorIs(t, err, ErrLogPollerNotReady)
+		require.NotContains(t, err.Error(), "lease held")
+		close(unblock)
+		waitReady(t, r)
+	})
 
 	t.Run("starts nothing before LoadFrom", func(t *testing.T) {
 		r := start(t, lpmocks.NewLogPoller(t)) // no expectations: any log poller call fails the test

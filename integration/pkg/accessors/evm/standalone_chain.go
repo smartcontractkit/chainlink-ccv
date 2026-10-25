@@ -125,6 +125,8 @@ type standaloneChain struct {
 	// logPoller is built by the first LogPoller call, through newLogPoller.
 	newLogPoller logPollerBuilder
 	logPoller    logpoller.LogPoller
+	// logPollerStarted is set once StartLogPoller has started logPoller.
+	logPollerStarted bool
 
 	// recoveryStop cancels the orphan recovery goroutine, which spends most of its life in a grace
 	// period sleep and must not outlive the accessor. recoveryWG lets Close wait for it, so the
@@ -411,8 +413,8 @@ func (c *standaloneChain) EVMChainID() *big.Int {
 	return c.chainConfig.EVM().ChainID()
 }
 
-// LogPoller builds and starts this chain's LogPoller on the first call and returns the same one
-// afterwards.
+// LogPoller builds this chain's LogPoller on the first call and returns the same one afterwards. It
+// does not start it: StartLogPoller does, once the caller holds the EVM database lease.
 func (c *standaloneChain) LogPoller(ctx context.Context, db *sql.DB) (logpoller.LogPoller, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -440,12 +442,30 @@ func (c *standaloneChain) LogPoller(ctx context.Context, db *sql.DB) (logpoller.
 	if err != nil {
 		return nil, fmt.Errorf("failed to build log poller for chain selector %d (evm_chain_id %s): %w", c.selector, chainID, err)
 	}
-	if err := lp.Start(ctx); err != nil {
-		return nil, fmt.Errorf("failed to start log poller for chain selector %d (evm_chain_id %s): %w", c.selector, chainID, err)
-	}
-
 	c.logPoller = lp
 	return lp, nil
+}
+
+// StartLogPoller starts the built LogPoller; later calls do nothing.
+func (c *standaloneChain) StartLogPoller(ctx context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.closed {
+		return errors.New("EVM chain runtime is closed")
+	}
+	if c.logPoller == nil {
+		return fmt.Errorf("log poller for chain selector %d is not built", c.selector)
+	}
+	if c.logPollerStarted {
+		return nil
+	}
+	if err := c.logPoller.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start log poller for chain selector %d (evm_chain_id %s): %w",
+			c.selector, c.chainConfig.EVM().ChainID(), err)
+	}
+	c.logPollerStarted = true
+	return nil
 }
 
 // startOrphanRecovery drives transactions left in the mempool by a previous run of this process to
@@ -562,9 +582,10 @@ func (c *standaloneChain) Close() error {
 	c.recoveryWG.Wait()
 
 	// The LogPoller reads heads from the head tracker, so it stops first. A poller something else
-	// already stopped is not an error.
+	// stopped, or one that never started because this chain never got the lease, is not an error.
 	if lp != nil {
-		if closeErr := lp.Close(); closeErr != nil && !errors.Is(closeErr, services.ErrAlreadyStopped) {
+		if closeErr := lp.Close(); closeErr != nil &&
+			!errors.Is(closeErr, services.ErrAlreadyStopped) && !errors.Is(closeErr, services.ErrCannotStopUnstarted) {
 			chainID := c.chainConfig.EVM().ChainID().String()
 			err = errors.Join(err, fmt.Errorf("failed to close log poller for chain selector %d (evm_chain_id %s): %w", c.selector, chainID, closeErr))
 		}

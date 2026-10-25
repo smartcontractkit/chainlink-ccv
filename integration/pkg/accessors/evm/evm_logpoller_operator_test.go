@@ -98,7 +98,13 @@ func TestCheckLogPollerSchema(t *testing.T) {
 	db := testutil.NewTestDB(t).DB
 	require.NoError(t, CheckLogPollerSchema(t.Context(), db))
 
-	_, err := db.ExecContext(t.Context(), `DROP SCHEMA evm CASCADE`)
+	_, err := db.ExecContext(t.Context(), `DROP TABLE evm.lease_lock`)
+	require.NoError(t, err)
+	err = CheckLogPollerSchema(t.Context(), db)
+	require.ErrorContains(t, err, "evm.lease_lock")
+	require.ErrorContains(t, err, "start a verifier on this version once")
+
+	_, err = db.ExecContext(t.Context(), `DROP SCHEMA evm CASCADE`)
 	require.NoError(t, err)
 	err = CheckLogPollerSchema(t.Context(), db)
 	require.ErrorContains(t, err, "evm.log_poller_blocks")
@@ -267,4 +273,44 @@ func TestFindLCAReportsAnUnreachableRPC(t *testing.T) {
 	defer cancel()
 	_, err := FindLCA(ctx, db, Info{ChainID: "1337", Nodes: []Node{{HTTPUrl: dead.URL}}}, logger.Test(t))
 	require.Error(t, err)
+}
+
+func TestRemoveBlocksFromWaitsForTheLease(t *testing.T) {
+	db := testutil.NewTestDB(t).DB
+	chainID := big.NewInt(920_020)
+	seedOperatorChain(t, db, chainID, 10)
+
+	verifier := evmdb.NewLease(db, logger.Test(t), evmdb.DefaultLeaseConfig())
+	require.NoError(t, verifier.TakeAndHold(t.Context(), nil))
+
+	done := make(chan error, 1)
+	go func() { done <- RemoveBlocksFrom(t.Context(), db, logger.Test(t), chainID, 5) }()
+	require.Never(t, func() bool { return len(done) > 0 }, time.Second, 50*time.Millisecond,
+		"remove-blocks must not delete while the verifier holds the lease")
+	require.Equal(t, rowCounts{Blocks: 10, Logs: 10}, operatorRowCounts(t, db, chainID))
+
+	verifier.Release()
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("remove-blocks did not run after the verifier released the lease")
+	}
+	require.Equal(t, rowCounts{Blocks: 4, Logs: 4}, operatorRowCounts(t, db, chainID))
+}
+
+func TestRemoveBlocksFromStopsWaitingWithTheContext(t *testing.T) {
+	db := testutil.NewTestDB(t).DB
+	chainID := big.NewInt(920_021)
+	seedOperatorChain(t, db, chainID, 10)
+	verifier := evmdb.NewLease(db, logger.Test(t), evmdb.DefaultLeaseConfig())
+	require.NoError(t, verifier.TakeAndHold(t.Context(), nil))
+	t.Cleanup(verifier.Release)
+
+	ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
+	defer cancel()
+	err := RemoveBlocksFrom(ctx, db, logger.Test(t), chainID, 5)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.ErrorContains(t, err, "stopped waiting for the EVM database lease")
+	require.Equal(t, rowCounts{Blocks: 10, Logs: 10}, operatorRowCounts(t, db, chainID), "nothing is deleted when the wait is cut short")
 }

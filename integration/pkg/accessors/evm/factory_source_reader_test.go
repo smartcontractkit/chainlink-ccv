@@ -4,13 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"github.com/smartcontractkit/chainlink-ccv/common/lazy"
 	"math/big"
 	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-ccv/common/lazy"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -42,6 +42,8 @@ func (r *lpStubRuntime) LogPoller(_ context.Context, db *sql.DB) (logpoller.LogP
 	r.gotDB = db
 	return r.lp, r.lpErr
 }
+
+func (*lpStubRuntime) StartLogPoller(context.Context) error { return nil }
 
 func newSourceFactory(t *testing.T, runtime chainRuntime) chainaccess.AccessorFactory {
 	t.Helper()
@@ -118,6 +120,7 @@ func newLogPollerAccessor(t *testing.T, runtime chainRuntime) *accessor {
 	acc := newSourceAccessor(t, runtime)
 	acc.logPollerEnabled = true
 	acc.verifierID = "verifier-1"
+	acc.lease = newEVMLease(logger.Test(t), acc.db)
 	return acc
 }
 
@@ -207,4 +210,75 @@ func TestExecutorStyleAccessorNeverBuildsALogPoller(t *testing.T) {
 	_, err := acc.SourceReader()
 	require.ErrorContains(t, err, "source reader not available")
 	require.Zero(t, runtime.lpCalls)
+}
+
+// startRecordingRuntime records StartLogPoller into events.
+type startRecordingRuntime struct {
+	*lpStubRuntime
+	events *[]string
+}
+
+func (r startRecordingRuntime) StartLogPoller(context.Context) error {
+	*r.events = append(*r.events, "start")
+	return nil
+}
+
+func TestLogPollerReaderStartTakesTheLeaseBeforeStartingTheLogPoller(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name    string
+		takeErr error
+		want    []string
+	}{
+		{name: "lease taken", want: []string{"acquire", "start"}},
+		{name: "lease not taken", takeErr: errors.New("lease lost"), want: []string{"acquire"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var events []string
+			runtime := startRecordingRuntime{
+				lpStubRuntime: &lpStubRuntime{stubChainRuntime: newStubRuntime(t), lp: lpmocks.NewLogPoller(t), chainID: stubChainID},
+				events:        &events,
+			}
+			acc := newLogPollerAccessor(t, runtime)
+			acc.lease.newLease = func(*sql.DB) dbLease {
+				return &fakeDBLease{take: func(context.Context, func(error)) error {
+					events = append(events, "acquire")
+					return tt.takeErr
+				}}
+			}
+
+			reader, err := acc.SourceReader()
+			require.NoError(t, err)
+			start := reader.(*LogPollerSourceReader).cfg.Start
+			require.NotNil(t, start)
+			require.Empty(t, events, "building the reader takes no lease and starts nothing")
+
+			require.ErrorIs(t, start(t.Context(), nil), tt.takeErr)
+			require.Equal(t, tt.want, events)
+		})
+	}
+}
+
+func TestTheLastAccessorCloseReleasesTheFactoryLeaseAfterItsRuntime(t *testing.T) {
+	t.Parallel()
+	runtime := newStubRuntime(t)
+	f := newSourceFactory(t, runtime).(*factory)
+	fake := &fakeDBLease{}
+	f.lease, _ = newTestEVMLease(t, fake)
+	var closesAtRelease int
+	fake.onRelease = func() { closesAtRelease = runtime.closeCalls }
+	first, err := f.GetAccessor(t.Context(), testSourceSelector)
+	require.NoError(t, err)
+	second, err := f.GetAccessor(t.Context(), testSourceSelector)
+	require.NoError(t, err)
+	require.NoError(t, f.lease.Acquire(t.Context(), nil))
+
+	require.NoError(t, first.Close())
+	require.NoError(t, first.Close(), "a second Close drops nothing more")
+	require.Zero(t, fake.releases.Load(), "the other accessor still holds the lease")
+	require.NoError(t, second.Close())
+	require.Equal(t, int32(1), fake.releases.Load())
+	require.Equal(t, 3, closesAtRelease, "the lease is released after the last runtime closes")
 }

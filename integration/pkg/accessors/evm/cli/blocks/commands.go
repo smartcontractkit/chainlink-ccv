@@ -8,8 +8,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/urfave/cli"
 
@@ -53,11 +56,11 @@ func InitBlocksCommandsWithFactory(getDeps func() Deps) []cli.Command {
 		},
 		{
 			Name:  "remove-blocks",
-			Usage: "Deletes block range and all associated data. The verifier must be stopped.",
+			Usage: "Deletes block range and all associated data. Waits until the verifier is stopped.",
 			Description: "Deletes evm.log_poller_blocks and evm.logs rows of the chain with block number >= --start, " +
-				"--start included. The verifier must be stopped: this does not stop a running LogPoller from " +
-				"storing again. Choose one more than the block find-lca prints, so only data that left the chain " +
-				"is deleted; deleting data older than the filter retention cannot be re-indexed cheaply. " +
+				"--start included. It waits for the EVM database lease, which a running verifier holds, so it runs " +
+				"only once the verifier has stopped; Ctrl-C stops the wait. Choose one more than the block " +
+				"find-lca prints, so only data that left the chain is deleted; deleting data older than the filter retention cannot be re-indexed cheaply. " +
 				"Takes no verifier ID: the LogPoller tables are scoped by EVM chain ID, not by verifier.",
 			Action: removeBlocksAction(getDeps),
 			Flags: []cli.Flag{
@@ -104,7 +107,10 @@ func removeBlocksAction(getDeps func() Deps) func(*cli.Context) error {
 		}
 		deps := getDeps()
 
-		if err := deps.Operator.RemoveFrom(context.Background(), chainID, start); err != nil {
+		// Ctrl-C ends the wait for the lease, as on the node.
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		if err := deps.Operator.RemoveFrom(ctx, chainID, start); err != nil {
 			deps.Logger.Errorw("remove-blocks failed", "evm_chain_id", chainID, "start", start, "error", err)
 			return fmt.Errorf("remove-blocks for EVM chain ID %d failed: %w", chainID, err)
 		}
