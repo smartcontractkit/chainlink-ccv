@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	mcmsutil "github.com/smartcontractkit/chainlink-ccip/deployment/utils/mcms"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
@@ -27,6 +28,9 @@ type RemoveNOPFromCommitteeInput struct {
 	// NewThreshold is the desired threshold after the NOP is removed. Zero keeps the current threshold.
 	// Must not exceed the remaining signer count.
 	NewThreshold uint8
+	// MCMS, when set, packages the onchain writes into an MCMS timelock proposal
+	// instead of submitting them with the deployer key.
+	MCMS *mcmsutil.Input
 }
 
 // RemoveNOPOffchainInput is the input for step-2 of the RemoveNOP two-entry product.
@@ -70,11 +74,12 @@ func RemoveNOPFromCommittee() deployment.ChangeSetV2[RemoveNOPFromCommitteeInput
 		if err != nil {
 			return deployment.ChangesetOutput{}, err
 		}
+		writes := committeeWrites{mcms: cfg.MCMS}
 		if err := applySignerChangesOnchain(e, cfg.CommitteeQualifier, cfg.NOPAlias, signerFamily,
-			cfg.SourceChainSelectors, cfg.NewThreshold, buildRemoveSignerChange); err != nil {
+			cfg.SourceChainSelectors, cfg.NewThreshold, buildRemoveSignerChange, &writes); err != nil {
 			return deployment.ChangesetOutput{}, err
 		}
-		return deployment.ChangesetOutput{}, nil
+		return writes.output(e)
 	}
 
 	return deployment.CreateChangeSet(apply, validate)

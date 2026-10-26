@@ -3,6 +3,8 @@ package adapters
 import (
 	"context"
 
+	mcmstypes "github.com/smartcontractkit/mcms/types"
+
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 )
 
@@ -18,27 +20,26 @@ type SignatureConfigChange struct {
 
 // CommitteeVerifierOnchainAdapter handles all onchain interactions with the CommitteeVerifier
 // contract. Implementations are chain-family-specific and registered via Registry.
+// Writes the deployer key may execute are mined directly; others return as MCMS batch ops.
 type CommitteeVerifierOnchainAdapter interface {
 	// ScanCommitteeStates reads all CommitteeVerifier contracts on chainSelector from the
 	// deployment environment and returns their current onchain state.
 	ScanCommitteeStates(ctx context.Context, env deployment.Environment, chainSelector uint64) ([]*CommitteeState, error)
 
 	// ApplySignatureConfigs applies the given change to the CommitteeVerifier at
-	// destChainSelector for the given committee qualifier. In deployer-key mode it
-	// submits the transaction directly and blocks until mined.
+	// destChainSelector for the given committee qualifier.
 	ApplySignatureConfigs(
 		ctx context.Context,
 		env deployment.Environment,
 		destChainSelector uint64,
 		qualifier string,
 		change SignatureConfigChange,
-	) error
+	) ([]mcmstypes.BatchOperation, error)
 
 	// SetAllowedFinalityConfig sets the allowed-finality config on the CommitteeVerifier
 	// at chainSelector for the committee qualifier. Finality is passed as primitives
 	// (waitForFinality / waitForSafe / blockDepth) so this package stays free of
-	// chain-family finality encodings; the adapter encodes them for its family. In
-	// deployer-key mode it submits the transaction directly and blocks until mined.
+	// chain-family finality encodings; the adapter encodes them for its family.
 	SetAllowedFinalityConfig(
 		ctx context.Context,
 		env deployment.Environment,
@@ -47,13 +48,12 @@ type CommitteeVerifierOnchainAdapter interface {
 		waitForFinality bool,
 		waitForSafe bool,
 		blockDepth uint16,
-	) error
+	) ([]mcmstypes.BatchOperation, error)
 
 	// ApplyAllowlistUpdates updates the per-destination-chain sender allowlist on the
 	// CommitteeVerifier at chainSelector for the committee qualifier. The allowlist is
 	// keyed by destChainSelector; added/removed senders are hex address strings the
-	// adapter interprets for its family. In deployer-key mode it submits the
-	// transaction directly and blocks until mined.
+	// adapter interprets for its family.
 	ApplyAllowlistUpdates(
 		ctx context.Context,
 		env deployment.Environment,
@@ -63,5 +63,5 @@ type CommitteeVerifierOnchainAdapter interface {
 		allowlistEnabled bool,
 		addedSenders []string,
 		removedSenders []string,
-	) error
+	) ([]mcmstypes.BatchOperation, error)
 }
