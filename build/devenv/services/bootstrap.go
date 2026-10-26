@@ -15,8 +15,8 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
+	"github.com/smartcontractkit/chainlink-ccv/bootstrap/info"
 	"github.com/smartcontractkit/chainlink-ccv/common/monitoring"
-	"github.com/smartcontractkit/chainlink-ccv/deployment/registration"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
 )
 
@@ -151,7 +151,7 @@ func (k BootstrapKeys) PublicKeyHex(keyName string) string {
 // FetchBootstrapKeys queries the bootstrap HTTP info server for public key material by name.
 // Devenv calls this after a container starts to retrieve keys needed for JD registration and on-chain funding.
 func FetchBootstrapKeys(bootstrapURL string, keyNames ...string) (BootstrapKeys, error) {
-	keyMap, err := registration.FetchPublicKeys(context.Background(), nil, bootstrapURL, keyNames...)
+	keyMap, err := info.FetchPublicKeys(context.Background(), nil, bootstrapURL, keyNames...)
 	if err != nil {
 		return BootstrapKeys{}, err
 	}

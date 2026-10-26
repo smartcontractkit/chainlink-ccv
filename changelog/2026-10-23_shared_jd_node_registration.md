@@ -12,10 +12,10 @@
 
 | Symbol | Kind | Search | Location | Section |
 |---|---|---|---|---|
-| `registration.CSAKeyProvider` | added | `CSAKeyProvider` | `deployment/registration/key_provider.go:24` | [#bootstrap-key-providers](#bootstrap-key-providers) |
-| `registration.InfoServerCSAKeyProvider` | added | `InfoServerCSAKeyProvider` | `deployment/registration/key_provider.go:40` | [#bootstrap-key-providers](#bootstrap-key-providers) |
-| `registration.FetchPublicKeys` | added | `FetchPublicKeys\(` | `deployment/registration/key_provider.go:54` | [#bootstrap-key-providers](#bootstrap-key-providers) |
-| `registration.DefaultCSAKeyName`, `registration.GetKeysEndpoint` | added | `registration\.(DefaultCSAKeyName|GetKeysEndpoint)` | `deployment/registration/api.go:4` | [#bootstrap-key-providers](#bootstrap-key-providers) |
+| `registration.CSAKeyProvider` | added | `CSAKeyProvider` | `deployment/registration/key_provider.go:13` | [#bootstrap-key-providers](#bootstrap-key-providers) |
+| `registration.InfoServerCSAKeyProvider` | added | `InfoServerCSAKeyProvider` | `deployment/registration/key_provider.go:29` | [#bootstrap-key-providers](#bootstrap-key-providers) |
+| `info.FetchPublicKeys` | added | `FetchPublicKeys\(` | `bootstrap/info/client.go:28` | [#bootstrap-key-providers](#bootstrap-key-providers) |
+| `info.DefaultCSAKeyName`, `info.GetKeysEndpoint` | added | `info\.(DefaultCSAKeyName|GetKeysEndpoint)` | `bootstrap/info/client.go:18` | [#bootstrap-key-providers](#bootstrap-key-providers) |
 | `registration.NodeSpec` | added | `registration\.NodeSpec` | `deployment/registration/types.go:25` | [#shared-registration-package](#shared-registration-package) |
 | `registration.Register` | added | `registration\.Register\(` | `deployment/registration/register.go:25` | [#shared-registration-package](#shared-registration-package) |
 | `registration.RegisterAndWait` | added | `RegisterAndWait\(` | `deployment/registration/register.go:133` | [#shared-registration-package](#shared-registration-package) |
@@ -54,11 +54,11 @@ Operation IDs, versions, YAML/JSON input fields, and report output schemas remai
 
 ## Bootstrap key providers
 
-`StaticCSAKeyProvider` adapts an already resolved public key. `InfoServerCSAKeyProvider` resolves the CSA key through the bootstrap info server. `FetchPublicKeys` returns raw public-key bytes by requested key name and does not interpret chain-specific key types.
+`StaticCSAKeyProvider` adapts an already resolved public key. `InfoServerCSAKeyProvider` resolves the CSA key through the bootstrap info server. `info.FetchPublicKeys` returns raw public-key bytes by requested key name and does not interpret chain-specific key types.
 
 The HTTP implementation uses caller context, an injectable client, URL/status/JSON validation, a default timeout, and a bounded response body. It never requests or logs private key material.
 
-The registration package exports matching `DefaultCSAKeyName` and `GetKeysEndpoint` constants so deployment-module consumers do not need a newer root module. Existing `bootstrap` constants remain unchanged, and a devenv contract test keeps the two API declarations synchronized without introducing a module dependency cycle or the full bootstrap runtime dependency graph.
+`bootstrap/info` owns the shared key name, endpoint, and HTTP client. Existing `bootstrap` constants alias the shared declarations, while deployment consumers use the lightweight client package without importing the full bootstrap runtime.
 
 ## Devenv adapters
 
@@ -71,7 +71,7 @@ Normal registration is now idempotent and label-aware across:
 - New standalone executor registration during CL-to-standalone migration.
 - Shared JD connection waits.
 
-`services.FetchBootstrapKeys` retains its API and chain-specific output derivations but delegates HTTP retrieval to `registration.FetchPublicKeys`.
+`services.FetchBootstrapKeys` retains its API and chain-specific output derivations but delegates HTTP retrieval to `info.FetchPublicKeys`.
 
 The deliberate `AdoptJDIdentity` verifier CSA handoff is unchanged. It is a migration-specific key adoption, not normal idempotent registration.
 
