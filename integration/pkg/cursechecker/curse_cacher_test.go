@@ -628,3 +628,79 @@ func TestIsChainSelectorCursed(t *testing.T) {
 		})
 	}
 }
+
+// TestCachedCurseChecker_ZeroCacheExpiry tests that a zero CacheExpiry falls
+// back to the default TTL and still caches results.
+func TestCachedCurseChecker_ZeroCacheExpiry(t *testing.T) {
+	ctx := t.Context()
+	lggr := logger.Test(t)
+
+	mockReader := mocks.NewMockRMNCurseReader(t)
+	mockReader.EXPECT().
+		GetRMNCursedSubjects(mock.Anything).
+		Return([]protocol.Bytes16{ChainSelectorToBytes16(2)}, nil).
+		Once()
+
+	metrics := monitoring.NewNoopExecutorMetricLabeler()
+
+	checker := NewCachedCurseChecker(Params{
+		Lggr:    lggr,
+		Metrics: metrics,
+		RmnReaders: map[protocol.ChainSelector]chainaccess.RMNCurseReader{
+			1: mockReader,
+		},
+		CacheExpiry: 0,
+	})
+
+	cursed, err := checker.IsRemoteChainCursed(ctx, 1, 2)
+	require.NoError(t, err)
+	assert.True(t, cursed)
+
+	// The default TTL keeps the entry cached, so the reader is not called again.
+	cursed, err = checker.IsRemoteChainCursed(ctx, 1, 2)
+	require.NoError(t, err)
+	assert.True(t, cursed)
+
+	// Mock assertions will verify GetRMNCursedSubjects was only called once
+}
+
+// TestResolveCacheExpiry pins the finite default for non-positive configured
+// expiries and passthrough of positive ones; the LRU TTL itself is not
+// observable without sleeping for minutes.
+func TestResolveCacheExpiry(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		in   time.Duration
+		want time.Duration
+	}{
+		{"zero selects the default", 0, defaultCurseCacheExpiry},
+		{"negative selects the default", -time.Minute, defaultCurseCacheExpiry},
+		{"positive passes through", time.Minute, time.Minute},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.want, resolveCacheExpiry(tc.in))
+		})
+	}
+}
+
+// TestCachedCurseChecker_MissingReader tests that a chain with no configured
+// RMN reader blocks the lane with ErrCurseStateUnknown.
+func TestCachedCurseChecker_MissingReader(t *testing.T) {
+	ctx := t.Context()
+	lggr := logger.Test(t)
+
+	metrics := monitoring.NewNoopExecutorMetricLabeler()
+
+	checker := NewCachedCurseChecker(Params{
+		Lggr:        lggr,
+		Metrics:     metrics,
+		RmnReaders:  map[protocol.ChainSelector]chainaccess.RMNCurseReader{},
+		CacheExpiry: time.Second,
+	})
+
+	cursed, err := checker.IsRemoteChainCursed(ctx, 1, 2)
+	assert.True(t, cursed)
+	assert.ErrorIs(t, err, common.ErrCurseStateUnknown)
+}

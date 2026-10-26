@@ -252,5 +252,5 @@ func (l *Lease) transactConn(ctx context.Context, fn func(tx *sql.Tx) error) (er
 		err = tx.Commit()
 	}()
 	err = fn(tx)
-	return
+	return err
 }

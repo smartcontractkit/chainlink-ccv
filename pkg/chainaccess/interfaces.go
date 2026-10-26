@@ -82,6 +82,10 @@ type SourceHealthReporter interface {
 // later and must not treat the range as scanned.
 var ErrSourceNotReady = errors.New("source not ready")
 
+// ErrSourceReaderDisabled is returned by SourceReader reads after a critical source-chain invariant
+// violation permanently disabled the reader; the chain stays down until an operator intervenes.
+var ErrSourceReaderDisabled = errors.New("source reader disabled after critical invariant violation")
+
 // SourceLoader is an optional SourceReader capability for readers that must load a local index, such as
 // the EVM log poller, before serving reads.
 type SourceLoader interface {

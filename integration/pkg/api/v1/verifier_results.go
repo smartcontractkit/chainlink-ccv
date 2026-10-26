@@ -97,11 +97,15 @@ func (r *VerifierResultsResponse) MarshalJSON() ([]byte, error) {
 
 	results := make([]*VerifierResult, len(r.Results))
 	for i, res := range r.Results {
-		results[i] = &VerifierResult{res}
+		if res != nil {
+			results[i] = &VerifierResult{res}
+		}
 	}
 	errors := make([]string, len(r.Errors))
 	for i, errStatus := range r.Errors {
-		errors[i] = errStatus.Message
+		if errStatus != nil {
+			errors[i] = errStatus.Message
+		}
 	}
 
 	return json.Marshal(
@@ -119,7 +123,9 @@ func (r *VerifierResultsResponse) UnmarshalJSON(data []byte) error {
 
 	results := make([]*v1.VerifierResult, len(aux.Results))
 	for i, res := range aux.Results {
-		results[i] = res.VerifierResult
+		if res != nil {
+			results[i] = res.VerifierResult
+		}
 	}
 
 	errors := make([]*status.Status, len(aux.Errors))
@@ -390,7 +396,14 @@ func (r *VerifierResultMessage) ToMessage() (protocol.Message, error) {
 
 	ccvAndExecutorHash := protocol.Bytes32{}
 
-	if r.CcvAndExecutorHash != nil {
+	if len(r.CcvAndExecutorHash) > 0 {
+		if len(r.CcvAndExecutorHash) != len(ccvAndExecutorHash) {
+			return protocol.Message{}, fmt.Errorf(
+				"invalid CcvAndExecutorHash length: got %d, expected %d",
+				len(r.CcvAndExecutorHash),
+				len(ccvAndExecutorHash),
+			)
+		}
 		ccvAndExecutorHash = protocol.Bytes32(r.CcvAndExecutorHash)
 	}
 

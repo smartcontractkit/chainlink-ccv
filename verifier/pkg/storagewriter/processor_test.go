@@ -704,6 +704,76 @@ func TestConfigWithDefaults(t *testing.T) {
 	}
 }
 
+type spyResultQueue struct {
+	jobqueue.JobQueue[protocol.VerifierNodeResult]
+	retriedIDs []string
+	failedIDs  []string
+}
+
+func (q *spyResultQueue) Retry(_ context.Context, _ time.Duration, _ map[string]error, jobIDs ...string) error {
+	q.retriedIDs = append(q.retriedIDs, jobIDs...)
+	return nil
+}
+
+func (q *spyResultQueue) Fail(_ context.Context, _ map[string]error, jobIDs ...string) error {
+	q.failedIDs = append(q.failedIDs, jobIDs...)
+	return nil
+}
+
+func (q *spyResultQueue) Complete(_ context.Context, _ ...string) error {
+	return nil
+}
+
+type cannedDataWriter struct {
+	results []protocol.WriteResult
+}
+
+func (w *cannedDataWriter) WriteCCVNodeData(_ context.Context, _ []protocol.VerifierNodeResult) ([]protocol.WriteResult, error) {
+	return w.results, nil
+}
+
+// TestProcessor_MixedRetryableAndNonRetryableFailures verifies that non-retryable failures in a
+// mixed batch are only passed to Fail (never scheduled for Retry), and a WriteFailure with a nil
+// Error does not panic.
+func TestProcessor_MixedRetryableAndNonRetryableFailures(t *testing.T) {
+	r1 := createTestVerifierNodeResult(1)
+	r2 := createTestVerifierNodeResult(2)
+	r3 := createTestVerifierNodeResult(3)
+
+	writer := &cannedDataWriter{
+		results: []protocol.WriteResult{
+			{Input: r1, Status: protocol.WriteFailure, Error: errors.New("transient"), Retryable: true},
+			{Input: r2, Status: protocol.WriteFailure, Error: errors.New("permanent"), Retryable: false},
+			{Input: r3, Status: protocol.WriteFailure, Error: nil, Retryable: false},
+		},
+	}
+	queue := &spyResultQueue{}
+
+	p, err := NewProcessor(
+		logger.Test(t),
+		"test-verifier",
+		verifiermonitoring.NewFakeVerifierMonitoring(),
+		testutil.NoopLatencyTracker{},
+		writer,
+		queue,
+		verifier.CoordinatorConfig{
+			StorageBatchSize:  10,
+			StorageRetryDelay: 10 * time.Millisecond,
+		},
+	)
+	require.NoError(t, err)
+
+	jobs := []jobqueue.Job[protocol.VerifierNodeResult]{
+		{ID: "job-retryable", Payload: r1, AttemptCount: 1},
+		{ID: "job-permanent", Payload: r2, AttemptCount: 1},
+		{ID: "job-nil-err", Payload: r3, AttemptCount: 1},
+	}
+
+	require.NoError(t, p.processJobs(t.Context(), jobs))
+	require.Equal(t, []string{"job-retryable"}, queue.retriedIDs, "only retryable jobs must be scheduled for retry")
+	require.Equal(t, []string{"job-permanent", "job-nil-err"}, queue.failedIDs, "non-retryable jobs must be marked failed")
+}
+
 // FakeCCVNodeDataWriter is a fake implementation that stores data in memory for testing.
 type FakeCCVNodeDataWriter struct {
 	mu            sync.RWMutex

@@ -6,6 +6,7 @@ import (
 	"database/sql/driver"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -75,7 +76,7 @@ func newTestServer(t *testing.T, cfgBody string, auth *BasicAuth) *Server {
 func TestServerHealthz(t *testing.T) {
 	srv := newTestServer(t, "", nil)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	req := httptest.NewRequest(http.MethodGet, "http://localhost:8105/healthz", nil)
 	srv.router.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
 }
@@ -83,7 +84,7 @@ func TestServerHealthz(t *testing.T) {
 func TestServerRootRedirectsToSearch(t *testing.T) {
 	srv := newTestServer(t, "", nil)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := httptest.NewRequest(http.MethodGet, "http://localhost:8105/", nil)
 	srv.router.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusFound, rec.Code)
 	require.Equal(t, "/search", rec.Header().Get("Location"))
@@ -101,14 +102,14 @@ func TestServerCSRFFlow(t *testing.T) {
 
 	// Unsafe method without a token: forbidden.
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/search", strings.NewReader("message_ids=0x00"))
+	req := httptest.NewRequest(http.MethodPost, "http://localhost:8105/search", strings.NewReader("message_ids=0x00"))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	srv.router.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusForbidden, rec.Code)
 
 	// A GET sets the cookie; echoing it as the form field lets the POST through.
 	rec = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodGet, "/search", nil)
+	req = httptest.NewRequest(http.MethodGet, "http://localhost:8105/search", nil)
 	srv.router.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
 	var token string
@@ -121,7 +122,7 @@ func TestServerCSRFFlow(t *testing.T) {
 
 	form := url.Values{"csrf_token": {token}, "message_ids": {"0x0000000000000000000000000000000000000000000000000000000000000000"}}
 	rec = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodPost, "/search", strings.NewReader(form.Encode()))
+	req = httptest.NewRequest(http.MethodPost, "http://localhost:8105/search", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: token})
 	srv.router.ServeHTTP(rec, req)
@@ -158,4 +159,152 @@ func TestServerActorResolution(t *testing.T) {
 	actor, ok = c.Get("actor")
 	require.True(t, ok)
 	require.Equal(t, "operator", actor)
+}
+
+func TestServerHostAllowlist(t *testing.T) {
+	t.Run("no basic auth: only loopback hosts are served", func(t *testing.T) {
+		srv := newTestServer(t, "", nil)
+
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+		req.Host = "evil.example.com"
+		srv.router.ServeHTTP(rec, req)
+		require.Equal(t, http.StatusForbidden, rec.Code)
+
+		for _, host := range []string{"localhost", "localhost:8105", "127.0.0.1:8105", "::1", "[::1]:8105"} {
+			rec = httptest.NewRecorder()
+			req = httptest.NewRequest(http.MethodGet, "/healthz", nil)
+			req.Host = host
+			srv.router.ServeHTTP(rec, req)
+			require.Equal(t, http.StatusOK, rec.Code, host)
+		}
+	})
+
+	t.Run("with basic auth any host reaches the credential gate", func(t *testing.T) {
+		srv := newTestServer(t, "", &BasicAuth{Username: "operator", Password: "s3cret"})
+
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/search", nil)
+		req.Host = "evil.example.com"
+		srv.router.ServeHTTP(rec, req)
+		require.Equal(t, http.StatusUnauthorized, rec.Code)
+
+		rec = httptest.NewRecorder()
+		req = httptest.NewRequest(http.MethodGet, "/", nil)
+		req.Host = "evil.example.com"
+		req.SetBasicAuth("operator", "s3cret")
+		srv.router.ServeHTTP(rec, req)
+		require.Equal(t, http.StatusFound, rec.Code)
+	})
+}
+
+func csrfCookieFrom(t *testing.T, rec *httptest.ResponseRecorder) *http.Cookie {
+	t.Helper()
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == csrfCookieName {
+			return c
+		}
+	}
+	t.Fatal("no CSRF cookie set")
+	return nil
+}
+
+func TestServerCSRFCookieSecureFlag(t *testing.T) {
+	srv := newTestServer(t, "", nil)
+
+	// A forwarded-proto header does not mark the cookie Secure on a plain-HTTP request.
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "http://localhost:8105/search", nil)
+	req.Header.Set("X-Forwarded-Proto", "https")
+	srv.router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.False(t, csrfCookieFrom(t, rec).Secure)
+
+	// A TLS request does.
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "https://localhost:8105/search", nil)
+	srv.router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.True(t, csrfCookieFrom(t, rec).Secure)
+}
+
+// With secure_cookies configured (a fronting proxy terminates TLS), the cookie is
+// Secure even though the console itself serves plain HTTP.
+func TestServerCSRFCookieSecureFlag_SecureCookiesConfig(t *testing.T) {
+	srv := newTestServer(t, "secure_cookies = true\n", nil)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "http://localhost:8105/search", nil)
+	srv.router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.True(t, csrfCookieFrom(t, rec).Secure)
+}
+
+func TestServerBodySizeLimit(t *testing.T) {
+	srv := newTestServer(t, "", nil)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "http://localhost:8105/search", nil)
+	srv.router.ServeHTTP(rec, req)
+	token := csrfCookieFrom(t, rec).Value
+
+	post := func(body string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "http://localhost:8105/recovery/preview", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("X-CSRF-Token", token)
+		req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: token})
+		srv.router.ServeHTTP(rec, req)
+		return rec
+	}
+
+	// A well-formed small form parses and reaches the handler (the fake DB degrades
+	// the lookup, but the request itself succeeds).
+	small := url.Values{"owner": {"owner-1"}, "chain": {"1"}, "from_block": {"1"}, "mode": {"replay"}}
+	require.Equal(t, http.StatusOK, post(small.Encode()).Code)
+
+	// A body past the 1 MiB cap is rejected with 413 before dispatch.
+	oversized := "owner=" + strings.Repeat("a", 1<<20)
+	require.Equal(t, http.StatusRequestEntityTooLarge, post(oversized).Code)
+}
+
+// An oversized body must be rejected before the handler runs, even on routes that
+// mutate using only the URL id and never read the body.
+func TestServerBodySizeLimit_MutationRouteNotReached(t *testing.T) {
+	srv := newTestServer(t, "", nil)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "http://localhost:8105/search", nil)
+	srv.router.ServeHTTP(rec, req)
+	token := csrfCookieFrom(t, rec).Value
+
+	post := func(target, body string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, target, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("X-CSRF-Token", token)
+		req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: token})
+		srv.router.ServeHTTP(rec, req)
+		return rec
+	}
+
+	cancelURL := "http://localhost:8105/recovery/operations/1f7e3b2a-9b2a-4b0e-9f3a-2b3c4d5e6f70/cancel"
+
+	// Control: a small body dispatches to the handler, which fails the state change
+	// against the fake DB (anything but a pre-dispatch 413).
+	require.NotEqual(t, http.StatusRequestEntityTooLarge, post(cancelURL, "").Code)
+
+	// Oversized bodies are rejected with 413 before dispatch, so no state change occurs.
+	oversized := strings.Repeat("a", 1<<20+1)
+	require.Equal(t, http.StatusRequestEntityTooLarge, post(cancelURL, oversized).Code)
+
+	// Same for a chunked request with no Content-Length to fast-path on.
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, cancelURL, nil)
+	req.Body = io.NopCloser(strings.NewReader(oversized))
+	req.ContentLength = -1
+	req.Header.Set("X-CSRF-Token", token)
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: token})
+	srv.router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
 }

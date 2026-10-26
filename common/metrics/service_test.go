@@ -11,6 +11,14 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/metrics"
 )
 
+// The new label is namespaced so it cannot be shadowed by the OTel resource attribute
+// "service.name", which telemetry pipelines export as the "service_name" label.
+func TestServiceNameLabels(t *testing.T) {
+	require.Equal(t, "ccip_service_name", commonmetrics.ServiceNameLabel)
+	require.Equal(t, "service_name", commonmetrics.DeprecatedServiceNameLabel)
+	require.NotEqual(t, commonmetrics.ServiceNameLabel, commonmetrics.DeprecatedServiceNameLabel)
+}
+
 func TestServiceMetrics_RecordServiceStartedAndChainHealthy(t *testing.T) {
 	protocol.InitChainSelectorCache()
 

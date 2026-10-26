@@ -454,3 +454,53 @@ func Test_HTTPClient_QueryStringHandling(t *testing.T) {
 		})
 	}
 }
+
+func Test_HTTPClient_SetCoolDownPeriod_IgnoresNonPositiveAndOverflowRetryAfter(t *testing.T) {
+	defaultCoolDown := 30 * time.Second
+	for _, tc := range []struct {
+		name       string
+		retryAfter string
+		wantMin    time.Duration
+		wantMax    time.Duration
+	}{
+		{
+			name:       "negative seconds falls back to configured coolDownDuration",
+			retryAfter: "-10",
+			wantMin:    defaultCoolDown - 5*time.Second,
+			wantMax:    defaultCoolDown + 5*time.Second,
+		},
+		{
+			name:       "zero seconds falls back to configured coolDownDuration",
+			retryAfter: "0",
+			wantMin:    defaultCoolDown - 5*time.Second,
+			wantMax:    defaultCoolDown + 5*time.Second,
+		},
+		{
+			name:       "past HTTP date falls back to configured coolDownDuration",
+			retryAfter: time.Now().Add(-1 * time.Hour).UTC().Format(time.RFC1123),
+			wantMin:    defaultCoolDown - 5*time.Second,
+			wantMax:    defaultCoolDown + 5*time.Second,
+		},
+		{
+			name:       "huge seconds value caps at maxCoolDownDuration without overflowing",
+			retryAfter: "9223372036854775807",
+			wantMin:    maxCoolDownDuration - 5*time.Second,
+			wantMax:    maxCoolDownDuration + 5*time.Second,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client, err := newHTTPClient(logger.Nop(), testMetricLabeler(), "cctp", "http://localhost:8080", time.Millisecond, longTimeout, defaultCoolDown)
+			require.NoError(t, err)
+			hc := client.(*httpClient)
+
+			headers := make(http.Header)
+			headers.Set("Retry-After", tc.retryAfter)
+			hc.setCoolDownPeriod(logger.Nop(), headers)
+
+			inCoolDown, remaining := hc.inCoolDownPeriod()
+			require.True(t, inCoolDown)
+			require.GreaterOrEqual(t, remaining, tc.wantMin)
+			require.LessOrEqual(t, remaining, tc.wantMax)
+		})
+	}
+}

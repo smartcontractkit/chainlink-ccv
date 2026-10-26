@@ -137,6 +137,7 @@ func (f *fakeLogPoller) Start(context.Context) error {
 	f.events.add("log poller started")
 	return f.startErr
 }
+
 func (f *fakeLogPoller) Close() error {
 	f.events.add("log poller closed")
 	return f.closeErr

@@ -94,6 +94,7 @@ type Service struct {
 	reorgTracker                *ReorgTracker
 	disabled                    atomic.Bool
 	finalityBlocked             atomic.Bool
+	invariantBlocked            atomic.Bool
 
 	// ChainStatus management
 	chainStatusManager protocol.ChainStatusManager
@@ -338,6 +339,9 @@ func (r *Service) readiness() error {
 	if r.finalityBlocked.Load() {
 		return errors.New("finality blocked")
 	}
+	if r.invariantBlocked.Load() {
+		return errors.New("source invariant violation")
+	}
 	// A disabled chain is intentionally idle, so staleness does not apply to it.
 	if last := r.lastSuccessfulQuery.Load(); !r.disabled.Load() && last > 0 {
 		if since := time.Since(time.Unix(last, 0)); since > r.stalenessThreshold {
@@ -507,6 +511,12 @@ func (r *Service) processEventCycle(ctx context.Context, latest, finalized *prot
 	r.logger.Debugw("Querying from block", "fromBlock", fromBlock)
 	events, lastQueriedBlock, err := r.loadEvents(logsCtx, fromBlock, latest)
 	if err != nil {
+		// A disabled source reported a critical invariant violation: disable the chain durably
+		// like a finality violation instead of retrying.
+		if errors.Is(err, chainaccess.ErrSourceReaderDisabled) {
+			r.handleSourceInvariantViolation(ctx)
+			return false
+		}
 		// A source still loading is expected on startup, so it is logged at info; the loop still records poll_error.
 		if errors.Is(err, chainaccess.ErrSourceNotReady) {
 			r.logger.Infow("Source not ready yet, waiting", "fromBlock", fromBlock, "error", err)
@@ -1261,29 +1271,66 @@ func (r *Service) disableForFinalityViolation(ctx context.Context) {
 	r.finalityBlocked.Store(true)
 	r.disabled.Store(true)
 	r.recordFinalityIncident(ctx)
+	r.flushTasksLocked(ctx,
+		monitoring.MessageTransitionOutcomeFinalityBlocked,
+		monitoring.MessageTransitionReasonFinalityViolation,
+		monitoring.EventFinalityBlocked,
+		"finality violation")
+	r.metrics().SetSourceReaderState(ctx, monitoring.SourceReaderStateFinalityBlocked)
+	r.persistDisabledLocked(ctx, "finality violation")
+}
+
+// handleSourceInvariantViolation disables the chain after the source reader reports a critical
+// invariant violation, with the same durability as a finality violation: pending and sent tasks
+// are dropped and the disabled chainStatus persists until an operator resets the reader.
+func (r *Service) handleSourceInvariantViolation(ctx context.Context) {
+	r.logger.Errorw("CRITICAL SOURCE INVARIANT VIOLATION - disabling chain")
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.disabled.Load() {
+		return
+	}
+	r.invariantBlocked.Store(true)
+	r.disabled.Store(true)
+	r.flushTasksLocked(ctx,
+		monitoring.MessageTransitionOutcomeSourceDisabled,
+		monitoring.MessageTransitionReasonSourceInvariantViolation,
+		monitoring.EventDisabledDropped,
+		"source invariant violation")
+	r.metrics().SetSourceReaderState(ctx, monitoring.SourceReaderStateDisabled)
+	r.persistDisabledLocked(ctx, "source invariant violation")
+}
+
+// flushTasksLocked drops every pending and sent task, recording the drop on each task's metrics
+// and span. The caller must hold r.mu and have already set r.disabled.
+func (r *Service) flushTasksLocked(ctx context.Context, outcome, reason, spanEvent, cause string) {
 	flushed := len(r.pendingTasks)
 	sentFlushed := len(r.sentTasks)
 	for _, task := range r.pendingTasks {
 		r.messageMetrics(task.Message).IncrementMessageTransition(
 			ctx,
 			monitoring.MessageTransitionStagePendingFinality,
-			monitoring.MessageTransitionOutcomeFinalityBlocked,
-			monitoring.MessageTransitionReasonFinalityViolation)
+			outcome,
+			reason)
 
 		// task's span has been open since discovery
 		span := tracing.SpanFromContext(task.TraceContext)
-		span.AddEvent(monitoring.EventFinalityBlocked)
+		span.AddEvent(spanEvent)
 		span.End()
 	}
 	r.pendingTasks = make(map[string]verifier.VerificationTask)
 	r.pendingSince = make(map[string]time.Time)
 	r.sentTasks = make(map[string]verifier.VerificationTask)
-	r.metrics().SetSourceReaderState(ctx, monitoring.SourceReaderStateFinalityBlocked)
 
-	r.logger.Errorw("Flushed all tasks due to finality violation",
+	r.logger.Errorw("Flushed all tasks due to "+cause,
 		"pendingFlushed", flushed,
 		"sentFlushed", sentFlushed)
+}
 
+// persistDisabledLocked writes the disabled chainStatus so the chain stays disabled across
+// restarts until an operator resets it. The caller must hold r.mu.
+func (r *Service) persistDisabledLocked(ctx context.Context, cause string) {
 	err := r.chainStatusManager.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{
 		{
 			ChainSelector:        r.chainSelector,
@@ -1292,7 +1339,7 @@ func (r *Service) disableForFinalityViolation(ctx context.Context) {
 		},
 	})
 	if err != nil {
-		r.logger.Errorw("Failed to write disabled chainStatus after finality violation", "error", err)
+		r.logger.Errorw("Failed to write disabled chainStatus after "+cause, "error", err)
 	}
 }
 

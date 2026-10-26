@@ -19,6 +19,9 @@ const (
 	// DEFAULT_RPC_TIMEOUT is the maximum time allowed for a single chain's RMN query.
 	// This prevents a hanging RPC call from blocking all chains' polling.
 	DEFAULT_RPC_TIMEOUT = 5 * time.Second
+	// stalenessMultiplier bounds how many poll intervals may pass without a
+	// successful poll before a chain's cached state is treated as unknown.
+	stalenessMultiplier = 10
 )
 
 // GlobalCurseSubject is the constant from RMN specification representing a global curse.
@@ -29,6 +32,9 @@ var GlobalCurseSubject = [16]byte{0: 0x01, 15: 0x01}
 type ChainCurseState struct {
 	CursedRemoteChains map[protocol.ChainSelector]bool
 	HasGlobalCurse     bool
+	// UpdatedAt is set when a poll succeeds; IsRemoteChainCursed treats state
+	// older than stalenessMultiplier*pollInterval as unknown.
+	UpdatedAt time.Time
 }
 
 // PollerService monitors RMN Remote contracts for curse status.
@@ -39,11 +45,13 @@ type PollerService struct {
 	wg               sync.WaitGroup
 	rmnReaders       map[protocol.ChainSelector]chainaccess.RMNCurseReader
 	chainCurseStates map[protocol.ChainSelector]*ChainCurseState
-	mutex            sync.RWMutex
-	pollInterval     time.Duration
-	curseRPCTimeout  time.Duration
-	lggr             logger.Logger
-	metrics          common.CurseCheckerMetrics
+	// staleLogged tracks chains already warned about stale state, reset on success.
+	staleLogged     map[protocol.ChainSelector]bool
+	mutex           sync.RWMutex
+	pollInterval    time.Duration
+	curseRPCTimeout time.Duration
+	lggr            logger.Logger
+	metrics         common.CurseCheckerMetrics
 }
 
 // NewCurseDetectorService creates a new curse detector service.
@@ -77,6 +85,7 @@ func NewCurseDetectorService(
 	return &PollerService{
 		rmnReaders:       rmnReaders,
 		chainCurseStates: make(map[protocol.ChainSelector]*ChainCurseState),
+		staleLogged:      make(map[protocol.ChainSelector]bool),
 		pollInterval:     pollInterval,
 		curseRPCTimeout:  curseRPCTimeout,
 		lggr:             lggr,
@@ -117,7 +126,8 @@ func (s *PollerService) Close() error {
 
 // IsRemoteChainCursed checks if remoteChain is cursed according to localChain's RMN Remote.
 // Returns (true, nil) if cursed, (false, nil) if not cursed.
-// Returns (true, ErrCurseStateUnknown) when state is unknown (no successful poll yet).
+// Returns (true, ErrCurseStateUnknown) when state is unknown: never polled, or
+// the last successful poll is older than stalenessMultiplier*pollInterval.
 func (s *PollerService) IsRemoteChainCursed(_ context.Context, localChain, remoteChain protocol.ChainSelector) (bool, error) {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
@@ -130,6 +140,9 @@ func (s *PollerService) IsRemoteChainCursed(_ context.Context, localChain, remot
 				"localChain", localChain,
 				"remoteChain", remoteChain)
 		}
+		return true, common.ErrCurseStateUnknown
+	}
+	if time.Since(state.UpdatedAt) > stalenessMultiplier*s.pollInterval {
 		return true, common.ErrCurseStateUnknown
 	}
 
@@ -178,12 +191,14 @@ func (s *PollerService) pollAllChains(ctx context.Context) {
 				s.lggr.Errorw("Failed to get cursed subjects",
 					"chain", chain,
 					"error", err)
+				s.notePollFailure(chain)
 				return
 			}
 
 			state := &ChainCurseState{
 				CursedRemoteChains: make(map[protocol.ChainSelector]bool),
 				HasGlobalCurse:     false,
+				UpdatedAt:          time.Now(),
 			}
 
 			for _, subject := range subjects {
@@ -201,6 +216,7 @@ func (s *PollerService) pollAllChains(ctx context.Context) {
 			s.mutex.Lock()
 			s.updateMetrics(ctx, chain, s.chainCurseStates[chain], state)
 			s.chainCurseStates[chain] = state
+			s.staleLogged[chain] = false
 			s.mutex.Unlock()
 
 			s.lggr.Debugw("Updated curse state",
@@ -211,6 +227,23 @@ func (s *PollerService) pollAllChains(ctx context.Context) {
 	}
 
 	wg.Wait()
+}
+
+// notePollFailure warns once per failure streak when chain's cached state has
+// aged past the staleness threshold; staleLogged resets on the next success.
+func (s *PollerService) notePollFailure(chain protocol.ChainSelector) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	state := s.chainCurseStates[chain]
+	if state == nil || s.staleLogged[chain] {
+		return
+	}
+	if age := time.Since(state.UpdatedAt); age > stalenessMultiplier*s.pollInterval {
+		s.lggr.Warnw("Curse state is stale, treating it as unknown",
+			"chain", chain,
+			"lastSuccessfulPollAge", age.Round(time.Second))
+		s.staleLogged[chain] = true
+	}
 }
 
 func (s *PollerService) updateMetrics(ctx context.Context, localChain protocol.ChainSelector, oldState, newState *ChainCurseState) {

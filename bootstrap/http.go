@@ -26,6 +26,9 @@ const (
 	// common/health, so JD-mode pods can use the same probes as the app server.
 	LivenessEndpoint  = "/health/live"
 	ReadinessEndpoint = "/health/ready"
+
+	// maxKeystoreRequestBodyBytes caps request bodies on the keystore reader endpoints.
+	maxKeystoreRequestBodyBytes = 1 << 20 // 1 MiB
 )
 
 type infoServer struct {
@@ -66,6 +69,9 @@ func (s *infoServer) Start(ctx context.Context) error {
 			Addr:              fmt.Sprintf(":%d", s.listenPort),
 			Handler:           mux,
 			ReadHeaderTimeout: 5 * time.Second,
+			ReadTimeout:       15 * time.Second,
+			WriteTimeout:      30 * time.Second,
+			IdleTimeout:       60 * time.Second,
 		}
 
 		s.wg.Go(func() {
@@ -117,13 +123,20 @@ func (s *infoServer) handleApplicationReady(w http.ResponseWriter, _ *http.Reque
 func (s *infoServer) handleGetKeys(w http.ResponseWriter, r *http.Request) {
 	s.lggr.Debugw("get keys request received")
 
+	r.Body = http.MaxBytesReader(w, r.Body, maxKeystoreRequestBodyBytes)
+	defer r.Body.Close() //nolint:errcheck
+
 	// Parse body, should be JSON with KeyNames field.
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	defer r.Body.Close() //nolint:errcheck
 
 	var req keystore.GetKeysRequest
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -144,8 +157,7 @@ func (s *infoServer) handleGetKeys(w http.ResponseWriter, r *http.Request) {
 	// Return the keys in the response.
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(keysResponse); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		s.lggr.Errorw("failed to encode get keys response", "error", err)
 	}
 }
 
@@ -156,12 +168,19 @@ func (s *infoServer) handleGetKeys(w http.ResponseWriter, r *http.Request) {
 func (s *infoServer) handleGetKeyAddresses(w http.ResponseWriter, r *http.Request) {
 	s.lggr.Debugw("get key addresses request received")
 
+	r.Body = http.MaxBytesReader(w, r.Body, maxKeystoreRequestBodyBytes)
+	defer r.Body.Close() //nolint:errcheck
+
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	defer r.Body.Close() //nolint:errcheck
 
 	var req keystore.GetKeysRequest
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -195,8 +214,7 @@ func (s *infoServer) handleGetKeyAddresses(w http.ResponseWriter, r *http.Reques
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(addresses); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		s.lggr.Errorw("failed to encode get key addresses response", "error", err)
 	}
 }
 

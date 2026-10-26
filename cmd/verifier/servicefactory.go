@@ -86,6 +86,25 @@ func validateJobSpec(spec bootstrap.JobSpec) (commit.Config, error) {
 	return config, nil
 }
 
+func attachCriticalSourceInvariantCallback(
+	reader chainaccess.SourceReader,
+	selector protocol.ChainSelector,
+	verifierMonitoring verifier.Monitoring,
+) {
+	if verifierMonitoring == nil {
+		return
+	}
+	if setter, ok := reader.(chainaccess.CriticalSourceInvariantCallbackSetter); ok {
+		chainMetrics := verifierMonitoring.Metrics().With(
+			"chain_selector", selector.String(),
+			"chain_name", selector.ChainName(),
+		)
+		setter.SetCriticalSourceInvariantCallback(func(ctx context.Context) {
+			chainMetrics.IncrementCriticalSourceInvariantViolations(ctx)
+		})
+	}
+}
+
 func instrumentSourceReader(
 	reader chainaccess.SourceReader,
 	verifierID string,
@@ -96,15 +115,7 @@ func instrumentSourceReader(
 		return nil, fmt.Errorf("cannot instrument source reader for chain %d: monitoring is nil", selector)
 	}
 
-	if setter, ok := reader.(chainaccess.CriticalSourceInvariantCallbackSetter); ok {
-		chainMetrics := verifierMonitoring.Metrics().With(
-			"chain_selector", selector.String(),
-			"chain_name", selector.ChainName(),
-		)
-		setter.SetCriticalSourceInvariantCallback(func(ctx context.Context) {
-			chainMetrics.IncrementCriticalSourceInvariantViolations(ctx)
-		})
-	}
+	attachCriticalSourceInvariantCallback(reader, selector, verifierMonitoring)
 
 	observedReader, err := sourcereader.NewObservedSourceReader(reader, verifierID, selector, verifierMonitoring)
 	if err != nil {

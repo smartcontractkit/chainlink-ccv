@@ -17,7 +17,7 @@ VERIFIER_DB=verifier_demo
 
 # tool-versions.env pins the Go toolchain; a bare `go` with GOTOOLCHAIN=local may
 # be older than go.mod requires.
-export GOTOOLCHAIN="${GOTOOLCHAIN:-go1.26.9}"
+export GOTOOLCHAIN="${GOTOOLCHAIN:-go1.26.10}"
 
 ATTESTED_ID=deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef
 
