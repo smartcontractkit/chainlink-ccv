@@ -71,8 +71,8 @@ type FinalityViolationReporter interface {
 	FinalityViolated() bool
 }
 
-// SourceHealthReporter is a chain's own health signal, such as the EVM log poller's. Finality
-// violations are not part of it: they are reported only through FinalityViolationReporter.
+// SourceHealthReporter is an optional SourceReader capability for a chain's own health signal, such as the
+// EVM log poller's. Finality violations are not part of it: they are reported only through FinalityViolationReporter.
 type SourceHealthReporter interface {
 	// Healthy returns nil when the data source is healthy, otherwise the reason it is not.
 	Healthy() error
