@@ -3,6 +3,8 @@ name: Repo Hygiene Checks
 on:
   merge_group:
   pull_request:
+    # labeled/unlabeled re-run the metrics check when metrics-breaking-change changes.
+    types: [opened, synchronize, reopened, labeled, unlabeled]
   push:
     branches:
       - main
@@ -50,3 +52,14 @@ jobs:
 
       - name: Run repo hygiene checks
         run: tools/bin/check_repo_clean.sh tidy mock generate shellcheck
+
+      - name: Check metrics golden files are up to date
+        run: just metrics-golden-verify
+
+      # Fails if a PR removes or changes a metric or label. The metrics-breaking-change label allows it.
+      - name: Check metrics are add-only
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          ALLOW_BREAKING: ${{ contains(github.event.pull_request.labels.*.name, 'metrics-breaking-change') }}
+        run: just metrics-golden-check "${BASE_SHA}" "${ALLOW_BREAKING}"

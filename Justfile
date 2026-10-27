@@ -94,6 +94,31 @@ test-coverage coverage_file="coverage.out" short="":
     { head -n1 {{coverage_file}}; tail -n +2 {{coverage_file}} | grep -v -E '{{COVERAGE_EXCLUDE_REGEX}}' || true; } > {{coverage_file}}.filtered
     mv {{coverage_file}}.filtered {{coverage_file}}
 
+METRICS_GOLDEN := "tools/metricsgolden/registry/testdata/metrics.golden.json"
+
+# Regenerate the metrics golden file. Review the diff before you commit.
+metrics-golden-update: ensure-go
+    UPDATE_METRICS_GOLDEN=1 go test -count=1 -run '^TestMetricsGolden$' ./tools/metricsgolden/registry
+
+# Fail if the committed metrics golden file does not match the code.
+metrics-golden-verify: metrics-golden-update
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ -n "$(git status --porcelain -- {{METRICS_GOLDEN}})" ]; then
+        git diff -- {{METRICS_GOLDEN}}
+        echo "The metrics golden file is out of date: run 'just metrics-golden-update' and commit the result."
+        exit 1
+    fi
+
+# Fail if a metric or label is removed or changed since base (the CI check).
+metrics-golden-check base="origin/main" allow_breaking="false": ensure-go
+    #!/usr/bin/env bash
+    set -euo pipefail
+    base_file="$(mktemp)"
+    trap 'rm -f "$base_file"' EXIT
+    git show "{{base}}:{{METRICS_GOLDEN}}" > "$base_file" 2>/dev/null || rm -f "$base_file"
+    go run ./tools/metricsgolden/cmd/metricsgolden -base "$base_file" -head {{METRICS_GOLDEN}} -allow-breaking="{{allow_breaking}}"
+
 bump-chainlink-ccip sha:
     @echo "Bumping chainlink-ccip dependencies in root..."
     go get github.com/smartcontractkit/chainlink-ccip/chains/evm@{{sha}}
