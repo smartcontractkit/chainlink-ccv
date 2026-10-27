@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -47,8 +48,8 @@ const (
 	localAppConfigContainerPath = "/etc/committee-verifier-app.toml"
 )
 
-var DefaultVerifierDBConnectionString = fmt.Sprintf("postgresql://%s:%s@localhost:%d/%s?sslmode=disable",
-	DefaultVerifierName, DefaultVerifierName, DefaultVerifierDBPort, DefaultVerifierName)
+var DefaultVerifierDBConnectionString = services.PostgresURL(DefaultVerifierName, DefaultVerifierName, "localhost",
+	strconv.Itoa(DefaultVerifierDBPort), DefaultVerifierName)
 
 // ReqModifier modifies a committee verifier testcontainers.ContainerRequest.
 type ReqModifier func(
@@ -465,23 +466,20 @@ func launchVerifier(ctx context.Context, in *Input, outputs []*blockchain.Output
 
 	containerName := strings.TrimPrefix(inspect.Name, "/")
 	out := &Output{
-		ContainerName:   inspect.Name,
-		ExternalHTTPURL: fmt.Sprintf("http://%s:%s", host, verifierMapped.Port()),
-		InternalHTTPURL: fmt.Sprintf("http://%s:%d", containerName, DefaultVerifierPort),
-		AdminUIURL:      fmt.Sprintf("http://%s:%s", host, adminMapped.Port()),
-		DBConnectionString: fmt.Sprintf("postgresql://%s:%s@localhost:%s/%s?sslmode=disable",
-			in.ContainerName, in.ContainerName, dbMapped.Port(), in.ContainerName),
-		BootstrapDBURL: fmt.Sprintf("http://%s:%s", host, bootstrapMapped.Port()),
-		BootstrapDBConnectionString: fmt.Sprintf("postgresql://%s:%s@localhost:%s/%s?sslmode=disable",
-			in.ContainerName, in.ContainerName, dbMapped.Port(), services.DefaultBootstrapDBName),
-		BootstrapKeys: bootstrapKeys,
+		ContainerName:               inspect.Name,
+		ExternalHTTPURL:             fmt.Sprintf("http://%s:%s", host, verifierMapped.Port()),
+		InternalHTTPURL:             fmt.Sprintf("http://%s:%d", containerName, DefaultVerifierPort),
+		AdminUIURL:                  fmt.Sprintf("http://%s:%s", host, adminMapped.Port()),
+		DBConnectionString:          hostDBURL(in, dbMapped.Port(), in.ContainerName),
+		BootstrapDBURL:              fmt.Sprintf("http://%s:%s", host, bootstrapMapped.Port()),
+		BootstrapDBConnectionString: hostDBURL(in, dbMapped.Port(), services.DefaultBootstrapDBName),
+		BootstrapKeys:               bootstrapKeys,
 	}
 	for _, name := range in.ExtraDatabases {
 		if out.ExtraDBConnectionStrings == nil {
 			out.ExtraDBConnectionStrings = make(map[string]string, len(in.ExtraDatabases))
 		}
-		out.ExtraDBConnectionStrings[name] = fmt.Sprintf("postgresql://%s:%s@localhost:%s/%s?sslmode=disable",
-			in.ContainerName, in.ContainerName, dbMapped.Port(), name)
+		out.ExtraDBConnectionStrings[name] = hostDBURL(in, dbMapped.Port(), name)
 	}
 	if local {
 		out.Container = c
@@ -682,8 +680,12 @@ func getAggregatorSecretEntries(in *Input) ([]vsecrets.AggregatorSecret, error) 
 
 // InternalDBURL is the URL of a database on the verifier's DB server, as containers on the Docker network see it.
 func InternalDBURL(in *Input, database string) string {
-	return fmt.Sprintf("postgresql://%s:%s@%s:5432/%s?sslmode=disable",
-		in.ContainerName, in.ContainerName, dbContainerName(in.DB.Name, in.ChainFamily), database)
+	return services.PostgresURL(in.ContainerName, in.ContainerName, dbContainerName(in.DB.Name, in.ChainFamily), "5432", database)
+}
+
+// hostDBURL is the URL of a database on the verifier's DB server, as the host sees it through mappedPort.
+func hostDBURL(in *Input, mappedPort, database string) string {
+	return services.PostgresURL(in.ContainerName, in.ContainerName, "localhost", mappedPort, database)
 }
 
 func dbContainerName(inDBName, chainFamily string) string {
