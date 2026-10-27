@@ -55,6 +55,10 @@ func TestE2EUpgrade_HappyPath(t *testing.T) {
 		runHappyPath(t, lib, src, dest)
 	}
 
+	in, err := ccv.LoadOutput[ccv.Cfg](GetSmokeTestConfig())
+	require.NoError(t, err)
+	nginxOf := aggregatorProxies(in)
+
 	type upgrade struct{ name, repo, image string }
 	var upgrades []upgrade
 	for _, repo := range rolloutOrder {
@@ -83,6 +87,9 @@ func TestE2EUpgrade_HappyPath(t *testing.T) {
 		ok := t.Run("after upgrading "+u.name, func(t *testing.T) {
 			require.NoError(t, services.UpgradeContainer(ctx, u.name, u.image, services.UpgradeFiles(u.repo)))
 			requireStaysRunning(t, ctx, u.name, upgradeSettleTime)
+			if proxy, ok := nginxOf[u.name]; ok {
+				reloadProxy(t, ctx, proxy)
+			}
 			happyPath(t)
 		})
 		require.True(t, ok, "rollout stopped at %s", u.name)
@@ -116,4 +123,24 @@ func requireStaysRunning(t *testing.T, ctx context.Context, name string, d time.
 		require.True(t, running, "%s stopped after the upgrade; see its logs", name)
 		time.Sleep(time.Second)
 	}
+}
+
+// aggregatorProxies maps each aggregator container to its nginx TLS proxy container.
+func aggregatorProxies(in *ccv.Cfg) map[string]string {
+	proxies := make(map[string]string)
+	for _, agg := range in.Aggregator {
+		if agg != nil && agg.Out != nil && agg.Out.NginxContainerName != "" {
+			proxies[agg.Out.AggregatorContainerName] = agg.Out.NginxContainerName
+		}
+	}
+	return proxies
+}
+
+// reloadProxy makes nginx resolve the aggregator host again: it resolves grpc_pass only at load, and the upgraded
+// aggregator can have a new IP.
+func reloadProxy(t *testing.T, ctx context.Context, proxy string) {
+	t.Helper()
+	code, out, err := services.Exec(ctx, proxy, "nginx", "-s", "reload")
+	require.NoError(t, err)
+	require.Equal(t, 0, code, "reload %s: %s", proxy, out)
 }

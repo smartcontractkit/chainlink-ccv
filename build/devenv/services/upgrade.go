@@ -124,6 +124,7 @@ type carriedFile struct {
 
 // carriedFiles returns the files of the list to copy into the new container, as tar archives.
 // It fails if devenv copied a file in before start that the list does not name, or if a required file is missing.
+// A listed file is carried even if devenv copied it in after start.
 func carriedFiles(ctx context.Context, cli *client.Client, old container.InspectResponse, list []UpgradeFile) ([]carriedFile, error) {
 	startedAt, err := time.Parse(time.RFC3339Nano, old.State.StartedAt)
 	if err != nil {
@@ -155,13 +156,15 @@ func carriedFiles(ctx context.Context, cli *client.Client, old container.Inspect
 		if err != nil {
 			return nil, fmt.Errorf("stat %s: %w", change.Path, err)
 		}
-		// Files written after start are run-time state, which a real upgrade also loses.
-		if !st.Stat.Mode.IsRegular() || !st.Stat.Mtime.Before(startedAt) {
+		if !st.Stat.Mode.IsRegular() {
 			continue
 		}
 		entry, ok := matchUpgradeFile(list, change.Path)
 		if !ok {
-			unlisted = append(unlisted, change.Path)
+			// Unlisted files written after start are run-time state, which a real upgrade also loses.
+			if st.Stat.Mtime.Before(startedAt) {
+				unlisted = append(unlisted, change.Path)
+			}
 			continue
 		}
 		matched[entry.Pattern] = true
@@ -313,4 +316,31 @@ func SameImage(ctx context.Context, a, b string) (bool, error) {
 		return false, fmt.Errorf("inspect %s: %w", b, err)
 	}
 	return imgA.ID == imgB.ID, nil
+}
+
+// Exec runs cmd in the container and returns its exit code and combined output.
+func Exec(ctx context.Context, name string, cmd ...string) (int, string, error) {
+	cli, err := testcontainers.NewDockerClientWithOpts(ctx)
+	if err != nil {
+		return 0, "", fmt.Errorf("docker client: %w", err)
+	}
+	defer cli.Close()
+	created, err := cli.ExecCreate(ctx, name, client.ExecCreateOptions{Cmd: cmd, TTY: true, AttachStdout: true, AttachStderr: true})
+	if err != nil {
+		return 0, "", err
+	}
+	att, err := cli.ExecAttach(ctx, created.ID, client.ExecAttachOptions{TTY: true})
+	if err != nil {
+		return 0, "", err
+	}
+	out, err := io.ReadAll(att.Reader)
+	att.Close()
+	if err != nil {
+		return 0, "", err
+	}
+	res, err := cli.ExecInspect(ctx, created.ID, client.ExecInspectOptions{})
+	if err != nil {
+		return 0, "", err
+	}
+	return res.ExitCode, strings.ReplaceAll(string(out), "\r\n", "\n"), nil
 }

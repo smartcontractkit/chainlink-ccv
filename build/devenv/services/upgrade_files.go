@@ -42,6 +42,12 @@ func UpgradeFiles(repo string) []UpgradeFile {
 	}
 
 	switch repo {
+	case "verifier":
+		// local.profile copies the app config in after start (committeeverifier.DeliverLocalAppConfig).
+		files = append(files, UpgradeFile{Pattern: "/etc/committee-verifier-app.toml", Policy: Optional})
+	case "executor":
+		// local.profile copies the app config in after start (executorsvc.DeliverLocalAppConfig).
+		files = append(files, UpgradeFile{Pattern: "/etc/executor-app.toml", Policy: Optional})
 	case "indexer":
 		files = append(files,
 			UpgradeFile{Pattern: path.Join(IndexerConfigDirContainer, "config.toml"), Policy: Required},

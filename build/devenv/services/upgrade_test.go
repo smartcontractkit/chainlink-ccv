@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,6 +19,9 @@ func TestUpgradeContainer(t *testing.T) {
 	}
 	ctx := t.Context()
 	name := "upgrade-test-" + strings.ToLower(strings.ReplaceAll(t.Name(), "/", "-"))
+
+	pullImage(ctx, t, "redis:7-alpine")
+	pullImage(ctx, t, "nginx:alpine")
 
 	cfgPath := filepath.Join(t.TempDir(), "config.toml")
 	require.NoError(t, os.WriteFile(cfgPath, []byte("key = 1\n"), 0o600))
@@ -50,6 +52,9 @@ func TestUpgradeContainer(t *testing.T) {
 	// A file that the service writes at run time must not be carried over.
 	code, _ := execIn(ctx, t, c.GetContainerID(), "touch", "/tmp/runtime-file")
 	require.Equal(t, 0, code)
+	// A listed file that devenv copies in after start, as local.profile does, must be carried over.
+	code, _ = execIn(ctx, t, c.GetContainerID(), "sh", "-c", "echo 'app = 1' > /etc/upgrade-test/app.toml")
+	require.Equal(t, 0, code)
 
 	same, err := RunsImage(ctx, name, "nginx:alpine")
 	require.NoError(t, err)
@@ -69,7 +74,10 @@ func TestUpgradeContainer(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, running, "a failed check leaves the old container running")
 
-	list := []UpgradeFile{{Pattern: "/etc/upgrade-test/config.toml", Policy: Required}}
+	list := []UpgradeFile{
+		{Pattern: "/etc/upgrade-test/config.toml", Policy: Required},
+		{Pattern: "/etc/upgrade-test/app.toml", Policy: Optional},
+	}
 	require.NoError(t, UpgradeContainer(ctx, name, "nginx:alpine", list))
 
 	same, err = RunsImage(ctx, name, "nginx:alpine")
@@ -96,6 +104,9 @@ func TestUpgradeContainer(t *testing.T) {
 	code, out := execIn(ctx, t, upgraded.Container.ID, "cat", "/etc/upgrade-test/config.toml")
 	require.Equal(t, 0, code)
 	require.Equal(t, "key = 1\n", out, "devenv-copied file is carried over")
+	code, out = execIn(ctx, t, upgraded.Container.ID, "cat", "/etc/upgrade-test/app.toml")
+	require.Equal(t, 0, code)
+	require.Equal(t, "app = 1\n", out, "listed file copied in after start is carried over")
 	code, out = execIn(ctx, t, upgraded.Container.ID, "cat", "/etc/upgrade-test/mounted.toml")
 	require.Equal(t, 0, code)
 	require.Equal(t, "mounted = true\n", out, "bind mount is kept")
@@ -106,19 +117,21 @@ func TestUpgradeContainer(t *testing.T) {
 // execIn runs cmd in the container and returns its exit code and output.
 func execIn(ctx context.Context, t *testing.T, id string, cmd ...string) (int, string) {
 	t.Helper()
+	code, out, err := Exec(ctx, id, cmd...)
+	require.NoError(t, err)
+	return code, out
+}
+
+// pullImage pulls the image, so that the test also works on a Docker daemon that does not have it.
+func pullImage(ctx context.Context, t *testing.T, image string) {
+	t.Helper()
 	cli, err := testcontainers.NewDockerClientWithOpts(ctx)
 	require.NoError(t, err)
 	defer cli.Close()
-	created, err := cli.ExecCreate(ctx, id, client.ExecCreateOptions{Cmd: cmd, TTY: true, AttachStdout: true, AttachStderr: true})
+	resp, err := cli.ImagePull(ctx, image, client.ImagePullOptions{})
 	require.NoError(t, err)
-	att, err := cli.ExecAttach(ctx, created.ID, client.ExecAttachOptions{TTY: true})
-	require.NoError(t, err)
-	out, err := io.ReadAll(att.Reader)
-	att.Close()
-	require.NoError(t, err)
-	res, err := cli.ExecInspect(ctx, created.ID, client.ExecInspectOptions{})
-	require.NoError(t, err)
-	return res.ExitCode, strings.ReplaceAll(string(out), "\r\n", "\n")
+	defer resp.Close()
+	require.NoError(t, resp.Wait(ctx))
 }
 
 func removeContainer(name string) {
