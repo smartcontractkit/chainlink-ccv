@@ -17,6 +17,9 @@ import (
 // UpgradeImageTagEnv is the tag of the images to upgrade to. The environment must run the images to upgrade from.
 const UpgradeImageTagEnv = "CCV_UPGRADE_IMAGE_TAG"
 
+// UpgradeFromImageTagEnv is the tag of the images that the environment must run before the upgrade. Default: latest.
+const UpgradeFromImageTagEnv = "CCV_UPGRADE_FROM_IMAGE_TAG"
+
 // rolloutOrder is the order in which a deployment upgrades the services, by image repository.
 var rolloutOrder = []string{"indexer", "aggregator", "verifier", "token-verifier", "executor"}
 
@@ -33,6 +36,10 @@ func TestE2EUpgrade_HappyPath(t *testing.T) {
 	tag := os.Getenv(UpgradeImageTagEnv)
 	if tag == "" {
 		t.Skipf("%s is not set", UpgradeImageTagEnv)
+	}
+	fromTag := os.Getenv(UpgradeFromImageTagEnv)
+	if fromTag == "" {
+		fromTag = "latest"
 	}
 	ctx := ccv.Plog.WithContext(t.Context())
 
@@ -55,9 +62,15 @@ func TestE2EUpgrade_HappyPath(t *testing.T) {
 		require.NoError(t, err)
 		for _, name := range names {
 			image := services.ImageWithTag(repo, tag)
-			same, err := services.RunsImage(ctx, name, image)
+			fromImage := services.ImageWithTag(repo, fromTag)
+			runsFrom, err := services.RunsImage(ctx, name, fromImage)
 			require.NoError(t, err)
-			require.False(t, same, "%s already runs %s: start the environment on the images to upgrade from (see 'just upgrade-test')", name, image)
+			require.True(t, runsFrom, "%s does not run %s: start the environment on the images to upgrade from (see 'just upgrade-test')", name, fromImage)
+			unchanged, err := services.SameImage(ctx, fromImage, image)
+			require.NoError(t, err)
+			if unchanged {
+				t.Logf("%s: %s and %s are the same image, so its upgrade is a restart on the existing data", name, fromImage, image)
+			}
 			require.NoError(t, services.CheckUpgradeFiles(ctx, name, services.UpgradeFiles(repo)))
 			upgrades = append(upgrades, upgrade{name: name, repo: repo, image: image})
 		}

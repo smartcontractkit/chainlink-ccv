@@ -93,7 +93,7 @@ upgrade-test from to="HEAD" profile="standard.profile" timeout="30m":
     just build-images-at "{{ from }}" upgrade-from
     just build-images-at "{{ to }}" upgrade-to
     for svc in verifier token-verifier executor indexer aggregator; do docker tag "$svc:upgrade-from" "$svc:latest"; done
-    CCV_UPGRADE_IMAGE_TAG=upgrade-to ccv test --profile {{ profile }} --pattern TestE2EUpgrade_HappyPath --timeout {{ timeout }} --build=false
+    CCV_UPGRADE_FROM_IMAGE_TAG=upgrade-from CCV_UPGRADE_IMAGE_TAG=upgrade-to ccv test --profile {{ profile }} --pattern TestE2EUpgrade_HappyPath --timeout {{ timeout }} --build=false
 
 # Rebuild CLI
 cli:

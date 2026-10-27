@@ -296,3 +296,21 @@ func CheckUpgradeFiles(ctx context.Context, name string, list []UpgradeFile) err
 	}
 	return nil
 }
+
+// SameImage reports whether two image references have the same image ID.
+func SameImage(ctx context.Context, a, b string) (bool, error) {
+	cli, err := testcontainers.NewDockerClientWithOpts(ctx)
+	if err != nil {
+		return false, fmt.Errorf("docker client: %w", err)
+	}
+	defer cli.Close()
+	imgA, err := cli.ImageInspect(ctx, a)
+	if err != nil {
+		return false, fmt.Errorf("inspect %s: %w", a, err)
+	}
+	imgB, err := cli.ImageInspect(ctx, b)
+	if err != nil {
+		return false, fmt.Errorf("inspect %s: %w", b, err)
+	}
+	return imgA.ID == imgB.ID, nil
+}
