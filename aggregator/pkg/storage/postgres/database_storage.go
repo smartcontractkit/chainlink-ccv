@@ -110,10 +110,9 @@ func (d *DatabaseStorage) Name() string {
 	return "postgres_storage"
 }
 
-// SaveCommitVerification persists verification records in a single multi-row insert. The operation is
-// append-only and idempotent: a duplicate (message_id, signer_identifier, aggregation_key) is silently
-// ignored, but a new aggregation key for the same (message_id, signer_identifier) creates a separate
-// row, supporting CCV version changes.
+// SaveCommitVerification persists verification records in a single multi-row insert. Append-only and
+// idempotent: a duplicate (message_id, signer_identifier, aggregation_key) is ignored, but a new
+// aggregation key for the same (message_id, signer_identifier) creates a separate row (CCV version changes).
 func (d *DatabaseStorage) SaveCommitVerification(ctx context.Context, writes []model.CommitVerificationWrite) error {
 	ctx, cancel := d.withTimeout(ctx)
 	defer cancel()
