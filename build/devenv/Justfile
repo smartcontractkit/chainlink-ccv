@@ -74,6 +74,27 @@ build-docker-ci:
     @just ../../indexer/build
     @just ../../aggregator/build
 
+# Build the service images of a git ref with its own Dockerfiles, and tag them <service>:<tag>.
+build-images-at ref tag:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    dir="$(mktemp -d)"
+    trap 'git worktree remove --force "$dir"' EXIT
+    git worktree add --detach "$dir" "{{ ref }}" >/dev/null
+    echo "Building service images of $(git -C "$dir" rev-parse --short HEAD) as :{{ tag }}"
+    for svc in verifier executor indexer aggregator; do
+        docker build -f "$dir/$svc/Dockerfile" -t "$svc:{{ tag }}" "$dir"
+    done
+    docker build -f "$dir/verifier/Dockerfile" --build-arg VERIFIER_TYPE=token -t "token-verifier:{{ tag }}" "$dir"
+
+# NOTE: the `from` images replace the local :latest service images, because devenv starts :latest.
+# Rolling upgrade test: start devenv on the images of `from`, then upgrade each service to the images of `to`.
+upgrade-test from to="HEAD" profile="standard.profile" timeout="30m":
+    just build-images-at "{{ from }}" upgrade-from
+    just build-images-at "{{ to }}" upgrade-to
+    for svc in verifier token-verifier executor indexer aggregator; do docker tag "$svc:upgrade-from" "$svc:latest"; done
+    CCV_UPGRADE_IMAGE_TAG=upgrade-to ccv test --profile {{ profile }} --pattern TestE2EUpgrade_HappyPath --timeout {{ timeout }} --build=false
+
 # Rebuild CLI
 cli:
     cd cmd/ccv && go install -ldflags="-X main.Version=1.0.0" . && cd ../..
