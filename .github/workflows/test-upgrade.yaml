@@ -2,8 +2,13 @@ name: E2E Upgrade Test
 
 # Starts devenv on the service images of one commit, then upgrades each service to the images of another commit,
 # one at a time, and sends a message after each step. On a PR: from the target branch commit to the PR code.
+# On the Release Please PR of the services: from the latest release tag to the PR code, which becomes the release.
+# On a release tag vX.Y.Z: from the previous release tag to the new tag.
 on:
   pull_request:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
   workflow_dispatch:
     inputs:
       from:
@@ -51,12 +56,35 @@ jobs:
         id: refs
         env:
           PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
           INPUT_FROM: ${{ inputs.from }}
           INPUT_TO: ${{ inputs.to }}
         run: |
           set -euo pipefail
-          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+          # Highest vX.Y.Z tag: the latest release of the services.
+          latest_release() { git tag --list 'v[0-9]*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1; }
+          # The services release PR; module release PRs use release-please--branches--main--components--<module>.
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ] && [ "${PR_HEAD_REF}" = "release-please--branches--main" ]; then
+            prev="$(latest_release)"
+            if [ -z "${prev}" ]; then
+              echo "No release tag found" >&2
+              exit 1
+            fi
+            echo "Release PR: upgrade from ${prev} to the release candidate" >> "$GITHUB_STEP_SUMMARY"
+            from="$(git rev-parse --verify "${prev}^{commit}")"
+            to="$(git rev-parse HEAD)"
+          elif [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
             from="${PR_BASE}"
+            to="$(git rev-parse HEAD)"
+          elif [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            # The previous release is the highest vX.Y.Z tag below the new one, so a patch of an older line compares to its own line.
+            prev="$(git tag --list 'v[0-9]*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | grep -B1 -x "${GITHUB_REF_NAME}" | grep -vx "${GITHUB_REF_NAME}" || true)"
+            if [ -z "${prev}" ]; then
+              echo "No release tag before ${GITHUB_REF_NAME}" >&2
+              exit 1
+            fi
+            echo "Release upgrade from ${prev} to ${GITHUB_REF_NAME}" >> "$GITHUB_STEP_SUMMARY"
+            from="$(git rev-parse --verify "${prev}^{commit}")"
             to="$(git rev-parse HEAD)"
           else
             from="$(git rev-parse --verify "${INPUT_FROM}^{commit}" 2>/dev/null || git rev-parse --verify "origin/${INPUT_FROM}^{commit}")"
