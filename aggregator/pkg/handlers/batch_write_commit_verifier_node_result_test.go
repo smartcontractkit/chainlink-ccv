@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/auth"
+	aggcommon "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/testutil"
 	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
@@ -86,7 +88,7 @@ func TestBatchWriteCommitCCVNodeDataHandler_BatchSizeValidation(t *testing.T) {
 				}, nil).Maybe()
 				sig.EXPECT().DeriveAggregationKey(mock.Anything, mock.Anything).Return("messageId", nil).Maybe()
 				agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, mock.Anything, testChannelKey).Return(nil).Maybe()
-				store.EXPECT().SaveCommitVerification(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+				store.EXPECT().SaveCommitVerification(mock.Anything, mock.Anything).Return(nil).Maybe()
 			}
 
 			mon := mocks.NewMockAggregatorMonitoring(t)
@@ -144,7 +146,7 @@ func TestBatchWriteCommitCCVNodeDataHandler_MixedSuccessAndInvalidArgument(t *te
 
 	agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, mock.Anything, testChannelKey).Return(nil).Maybe()
 
-	store.EXPECT().SaveCommitVerification(mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	store.EXPECT().SaveCommitVerification(mock.Anything, mock.Anything).Return(nil)
 
 	mon := mocks.NewMockAggregatorMonitoring(t)
 	testutil.StubTracing(mon)
@@ -196,7 +198,7 @@ func TestBatchWriteCommitCCVNodeDataHandler_NilRequestAtIndexReturnsInvalidArgum
 	}, nil)
 	sig.EXPECT().DeriveAggregationKey(mock.Anything, mock.Anything).Return("messageId", nil)
 	agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, mock.Anything, testChannelKey).Return(nil)
-	store.EXPECT().SaveCommitVerification(mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	store.EXPECT().SaveCommitVerification(mock.Anything, mock.Anything).Return(nil)
 
 	mon := mocks.NewMockAggregatorMonitoring(t)
 	testutil.StubTracing(mon)
@@ -250,7 +252,7 @@ func TestBatchWriteCommitCCVNodeDataHandler_CancelledContextReturnsImmediately(t
 		Signer: signer,
 	}, nil).Maybe()
 	sig.EXPECT().DeriveAggregationKey(mock.Anything, mock.Anything).Return("messageId", nil).Maybe()
-	store.EXPECT().SaveCommitVerification(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	store.EXPECT().SaveCommitVerification(mock.Anything, mock.Anything).Return(nil).Maybe()
 
 	agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, mock.Anything, testChannelKey).
 		RunAndReturn(func(ctx context.Context, _ model.MessageID, _ model.AggregationKey, _ model.ChannelKey) error {
@@ -381,7 +383,7 @@ func TestBatchWriteCommitCCVNodeDataHandler_PerItemTraceParents(t *testing.T) {
 	sig.EXPECT().ValidateSignature(mock.Anything, mock.Anything).Return(&model.SignatureValidationResult{Signer: signer}, nil)
 	sig.EXPECT().DeriveAggregationKey(mock.Anything, mock.Anything).Return("messageId", nil)
 	agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, mock.Anything, testChannelKey).Return(nil)
-	store.EXPECT().SaveCommitVerification(mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	store.EXPECT().SaveCommitVerification(mock.Anything, mock.Anything).Return(nil)
 
 	tracing := newCapturingTracing()
 	mon := mocks.NewMockAggregatorMonitoring(t)
@@ -424,4 +426,104 @@ func TestBatchWriteCommitCCVNodeDataHandler_PerItemTraceParents(t *testing.T) {
 	require.Equal(t, wantSC1.TraceID(), gotSC1.TraceID(), "item 1 must parent off its own traceparent")
 	require.Equal(t, wantSC1.SpanID(), gotSC1.SpanID(), "item 1 must parent off its own traceparent")
 	require.NotEqual(t, gotSC0.TraceID(), gotSC1.TraceID(), "item 0 and item 1 must not share a parent")
+}
+
+func TestBatchWriteCommitVerifierNodeResultHandler_StorageFailureFailsEveryValidItem(t *testing.T) {
+	t.Parallel()
+
+	const testCallerID = "test-caller"
+
+	lggr := logger.Sugared(logger.Nop())
+	store := mocks.NewMockCommitVerificationStore(t)
+	agg := mocks.NewMockAggregationTriggerer(t)
+	sig := mocks.NewMockSignatureValidator(t)
+
+	sig.EXPECT().ValidateSignature(mock.Anything, mock.Anything).Return(&model.SignatureValidationResult{
+		Signer: &model.SignerIdentifier{Identifier: []byte{0xAA}},
+	}, nil)
+	sig.EXPECT().DeriveAggregationKey(mock.Anything, mock.Anything).Return("agg-key", nil)
+
+	savedCalls := 0
+	store.EXPECT().SaveCommitVerification(mock.Anything, mock.Anything).
+		Run(func(_ context.Context, writes []model.CommitVerificationWrite) {
+			savedCalls++
+			require.Len(t, writes, 3)
+		}).
+		Return(errors.New("insert failed"))
+
+	mon := mocks.NewMockAggregatorMonitoring(t)
+	testutil.StubTracing(mon)
+
+	writeHandler := NewWriteCommitCCVNodeDataHandler(store, agg, mon, lggr, sig, messagerules.NoopChecker{})
+	batchHandler := NewBatchWriteCommitVerifierNodeResultHandler(writeHandler, 10)
+
+	requests := make([]*committeepb.WriteCommitteeVerifierNodeResultRequest, 3)
+	for i := range requests {
+		requests[i], _ = makeValidProtoRequestWithSeq(t, protocol.SequenceNumber(i+1))
+	}
+
+	ctx := auth.ToContext(context.Background(), auth.CreateCallerIdentity(testCallerID, false))
+	resp, err := batchHandler.Handle(ctx, &committeepb.BatchWriteCommitteeVerifierNodeResultRequest{
+		Requests: requests,
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, savedCalls, "valid records must be inserted in a single statement")
+
+	require.Len(t, resp.Responses, 3)
+	require.Len(t, resp.Errors, 3)
+	for i := range requests {
+		require.Equal(t, committeepb.WriteStatus_FAILED, resp.Responses[i].Status, "index %d", i)
+		require.Equal(t, codes.Internal, codes.Code(resp.Errors[i].Code), "index %d", i)
+	}
+	agg.AssertNotCalled(t, "CheckAggregation")
+}
+
+func TestBatchWriteCommitVerifierNodeResultHandler_AggregationTriggerDedupedPerKey(t *testing.T) {
+	t.Parallel()
+
+	const testCallerID = "test-caller"
+	const testChannelKey model.ChannelKey = "test-caller"
+
+	lggr := logger.Sugared(logger.Nop())
+	store := mocks.NewMockCommitVerificationStore(t)
+	agg := mocks.NewMockAggregationTriggerer(t)
+	sig := mocks.NewMockSignatureValidator(t)
+
+	sig.EXPECT().ValidateSignature(mock.Anything, mock.Anything).Return(&model.SignatureValidationResult{
+		Signer: &model.SignerIdentifier{Identifier: []byte{0xAA}},
+	}, nil)
+	// Same aggregation key for both items puts them in one trigger group.
+	sig.EXPECT().DeriveAggregationKey(mock.Anything, mock.Anything).Return("agg-key", nil)
+	store.EXPECT().SaveCommitVerification(mock.Anything, mock.Anything).Return(nil)
+
+	checkCalls := 0
+	agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, model.AggregationKey("agg-key"), testChannelKey).
+		Run(func(context.Context, []byte, string, model.ChannelKey) { checkCalls++ }).
+		Return(aggcommon.ErrAggregationChannelFull)
+
+	mon := mocks.NewMockAggregatorMonitoring(t)
+	testutil.StubTracing(mon)
+	labeler := mocks.NewMockAggregatorMetricLabeler(t)
+	mon.EXPECT().Metrics().Return(labeler)
+	labeler.EXPECT().With(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(labeler)
+	labeler.EXPECT().IncrementVerificationsTotal(mock.Anything)
+
+	writeHandler := NewWriteCommitCCVNodeDataHandler(store, agg, mon, lggr, sig, messagerules.NoopChecker{})
+	batchHandler := NewBatchWriteCommitVerifierNodeResultHandler(writeHandler, 10)
+
+	// Two requests for the same message produce the same (messageID, aggregationKey) -
+	// one trigger group.
+	requests := []*committeepb.WriteCommitteeVerifierNodeResultRequest{makeValidProtoRequest(), makeValidProtoRequest()}
+
+	ctx := auth.ToContext(context.Background(), auth.CreateCallerIdentity(testCallerID, false))
+	resp, err := batchHandler.Handle(ctx, &committeepb.BatchWriteCommitteeVerifierNodeResultRequest{
+		Requests: requests,
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, checkCalls, "one trigger group must produce exactly one CheckAggregation call")
+
+	for i := range requests {
+		require.Equal(t, committeepb.WriteStatus_FAILED, resp.Responses[i].Status, "index %d", i)
+		require.Equal(t, codes.ResourceExhausted, codes.Code(resp.Errors[i].Code), "a trigger failure must fail every item in its group, index %d", i)
+	}
 }

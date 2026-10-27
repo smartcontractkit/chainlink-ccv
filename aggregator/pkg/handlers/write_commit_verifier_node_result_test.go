@@ -69,7 +69,7 @@ func TestWriteCommitCCVNodeDataHandler_MessageDisablementGate(t *testing.T) {
 	mon := mocks.NewMockAggregatorMonitoring(t)
 	testutil.StubTracing(mon)
 	// None of these should be called when the message is disabled
-	store.EXPECT().SaveCommitVerification(mock.Anything, mock.Anything, mock.Anything).Maybe()
+	store.EXPECT().SaveCommitVerification(mock.Anything, mock.Anything).Maybe()
 	agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Maybe()
 	sig.EXPECT().ValidateSignature(mock.Anything, mock.Anything).Maybe()
 	sig.EXPECT().DeriveAggregationKey(mock.Anything, mock.Anything).Maybe()
@@ -204,11 +204,11 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 			// Save expectations with counter
 			savedCount := 0
 			if tc.expectStoreCalls > 0 {
-				store.EXPECT().SaveCommitVerification(mock.Anything, mock.Anything, mock.Anything).Run(func(ctx context.Context, r *model.CommitVerificationRecord, key model.AggregationKey) {
+				store.EXPECT().SaveCommitVerification(mock.Anything, mock.Anything).Run(func(ctx context.Context, writes []model.CommitVerificationWrite) {
 					savedCount++
 				}).Return(tc.saveErr).Times(tc.expectStoreCalls)
 			} else {
-				store.EXPECT().SaveCommitVerification(mock.Anything, mock.Anything, mock.Anything).Maybe()
+				store.EXPECT().SaveCommitVerification(mock.Anything, mock.Anything).Maybe()
 			}
 
 			// Aggregator expectations and capture

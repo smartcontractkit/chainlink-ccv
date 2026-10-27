@@ -10,9 +10,10 @@ import (
 
 // CommitVerificationStore defines an interface for storing and retrieving commit verification records.
 type CommitVerificationStore interface {
-	// SaveCommitVerification persists a verification record. Idempotent on (message_id, signer_identifier,
-	// aggregation_key); a new aggregation key for the same signer creates a separate row.
-	SaveCommitVerification(ctx context.Context, record *model.CommitVerificationRecord, aggregationKey model.AggregationKey) error
+	// SaveCommitVerification persists verification records in a single statement. Idempotent on
+	// (message_id, signer_identifier, aggregation_key); a new aggregation key for the same signer
+	// creates a separate row.
+	SaveCommitVerification(ctx context.Context, writes []model.CommitVerificationWrite) error
 	// GetCommitVerification returns the latest verification record for a (message_id, signer_identifier)
 	// pair across all aggregation keys.
 	GetCommitVerification(ctx context.Context, id model.CommitVerificationRecordIdentifier) (*model.CommitVerificationRecord, error)

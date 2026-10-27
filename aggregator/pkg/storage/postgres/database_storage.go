@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"errors"
@@ -109,46 +110,79 @@ func (d *DatabaseStorage) Name() string {
 	return "postgres_storage"
 }
 
-// SaveCommitVerification persists a verification record. The operation is append-only and idempotent:
-// a duplicate (message_id, signer_identifier, aggregation_key) is silently ignored, but a new
-// aggregation key for the same (message_id, signer_identifier) creates a separate row, supporting CCV version changes.
-func (d *DatabaseStorage) SaveCommitVerification(ctx context.Context, record *model.CommitVerificationRecord, aggregationKey model.AggregationKey) error {
+// SaveCommitVerification persists verification records in a single multi-row insert. The operation is
+// append-only and idempotent: a duplicate (message_id, signer_identifier, aggregation_key) is silently
+// ignored, but a new aggregation key for the same (message_id, signer_identifier) creates a separate
+// row, supporting CCV version changes.
+func (d *DatabaseStorage) SaveCommitVerification(ctx context.Context, writes []model.CommitVerificationWrite) error {
 	ctx, cancel := d.withTimeout(ctx)
 	defer cancel()
 
-	if record == nil {
-		return fmt.Errorf("commit verification record cannot be nil")
+	if len(writes) == 0 {
+		return nil
 	}
 
-	params, err := recordToInsertParams(record, aggregationKey)
-	if err != nil {
-		return fmt.Errorf("failed to prepare insert parameters: %w", err)
+	type insertRow struct {
+		messageID        string
+		signerIdentifier string
+		aggregationKey   string
+		values           []any
 	}
 
-	stmt := `INSERT INTO commit_verification_records 
-		(message_id, signer_identifier, aggregation_key,
-		 ccv_version, signature, message_ccv_addresses, message_executor_address, message_data) 
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		ON CONFLICT (message_id, signer_identifier, aggregation_key) 
-		DO NOTHING
-		RETURNING id`
-
-	var recordID int64
-	err = d.ds.GetContext(ctx, &recordID, stmt,
-		params["message_id"],
-		params["signer_identifier"],
-		params["aggregation_key"],
-		params["ccv_version"],
-		params["signature"],
-		params["message_ccv_addresses"],
-		params["message_executor_address"],
-		params["message_data"],
-	)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil
+	rows := make([]insertRow, 0, len(writes))
+	for _, w := range writes {
+		if w.Record == nil {
+			return fmt.Errorf("commit verification record cannot be nil")
 		}
-		return fmt.Errorf("failed to save commit verification record: %w", err)
+		params, err := recordToInsertParams(w.Record, w.AggregationKey)
+		if err != nil {
+			return fmt.Errorf("failed to prepare insert parameters: %w", err)
+		}
+		rows = append(rows, insertRow{
+			messageID:        protocol.ByteSlice(w.Record.MessageID).String(),
+			signerIdentifier: w.Record.SignerIdentifier.Identifier.String(),
+			aggregationKey:   w.AggregationKey,
+			values: []any{
+				params["message_id"],
+				params["signer_identifier"],
+				params["aggregation_key"],
+				params["ccv_version"],
+				params["signature"],
+				params["message_ccv_addresses"],
+				params["message_executor_address"],
+				params["message_data"],
+			},
+		})
+	}
+
+	// A deterministic row order keeps concurrent multi-row inserts with overlapping keys from deadlocking.
+	slices.SortFunc(rows, func(a, b insertRow) int {
+		return cmp.Or(
+			strings.Compare(a.messageID, b.messageID),
+			strings.Compare(a.signerIdentifier, b.signerIdentifier),
+			strings.Compare(a.aggregationKey, b.aggregationKey),
+		)
+	})
+
+	const columnsPerRow = 8
+	valueGroups := make([]string, 0, len(rows))
+	args := make([]any, 0, len(rows)*columnsPerRow)
+	for i, row := range rows {
+		base := i * columnsPerRow
+		valueGroups = append(valueGroups, fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
+			base+1, base+2, base+3, base+4, base+5, base+6, base+7, base+8))
+		args = append(args, row.values...)
+	}
+
+	stmt := `INSERT INTO commit_verification_records
+		(message_id, signer_identifier, aggregation_key,
+		 ccv_version, signature, message_ccv_addresses, message_executor_address, message_data)
+		VALUES ` + strings.Join(valueGroups, ", ") + `
+		ON CONFLICT (message_id, signer_identifier, aggregation_key)
+		DO NOTHING`
+
+	if _, err := d.ds.ExecContext(ctx, stmt, args...); err != nil {
+		return fmt.Errorf("failed to save commit verification records: %w", err)
 	}
 
 	return nil

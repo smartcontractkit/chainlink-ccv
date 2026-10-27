@@ -85,9 +85,9 @@ func WrapWithMetrics(inner CommitVerificationStorage, m common.AggregatorMonitor
 	return NewMetricsAwareStorage(inner, m, l, opts...)
 }
 
-func (s *MetricsAwareStorage) SaveCommitVerification(ctx context.Context, record *model.CommitVerificationRecord, aggregationKey model.AggregationKey) error {
+func (s *MetricsAwareStorage) SaveCommitVerification(ctx context.Context, writes []model.CommitVerificationWrite) error {
 	return captureMetricsNoReturn(ctx, s.metrics(ctx), s.logger(ctx), s.slowQueryThreshold, saveOp, func() error {
-		return s.inner.SaveCommitVerification(ctx, record, aggregationKey)
+		return s.inner.SaveCommitVerification(ctx, writes)
 	})
 }
 

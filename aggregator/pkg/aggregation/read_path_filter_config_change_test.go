@@ -162,7 +162,7 @@ func TestConfigChange_ReadPathFiltering(t *testing.T) {
 				aggKey, err := validator.DeriveAggregationKey(ctx, record)
 				require.NoError(t, err)
 
-				err = storage.SaveCommitVerification(ctx, record, aggKey)
+				err = storage.SaveCommitVerification(ctx, []model.CommitVerificationWrite{{Record: record, AggregationKey: aggKey}})
 				require.NoError(t, err)
 
 				records = append(records, record)
@@ -350,7 +350,7 @@ func TestConfigChange_MultipleReportRows_UsesLatestReport(t *testing.T) {
 				aggKey, err := validator.DeriveAggregationKey(ctx, record)
 				require.NoError(t, err)
 
-				err = storage.SaveCommitVerification(ctx, record, aggKey)
+				err = storage.SaveCommitVerification(ctx, []model.CommitVerificationWrite{{Record: record, AggregationKey: aggKey}})
 				require.NoError(t, err)
 
 				allRecordsByName[name] = record
