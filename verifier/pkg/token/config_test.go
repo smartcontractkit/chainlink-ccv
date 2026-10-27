@@ -41,7 +41,7 @@ func Test_Config_Deserialization(t *testing.T) {
 		version = "1.0"
 		attestation_api = "https://lombard-api.example.com"
 		attestation_api_timeout = "10s"
-		attestation_api_interval = 20
+		attestation_api_interval = "20ms"
 
 		[token_verifiers.verifier_resolver_addresses]
 		1 = "0x2222222222222222222222222222222222222222"
@@ -74,7 +74,7 @@ func Test_Config_Deserialization(t *testing.T) {
 		assert.Equal(t, "lombard", lombardVerifier.Type)
 		assert.Equal(t, "1.0", lombardVerifier.Version)
 		assert.Equal(t, 10*time.Second, lombardVerifier.LombardConfig.AttestationAPITimeout)
-		assert.Equal(t, 100*time.Millisecond, lombardVerifier.LombardConfig.AttestationAPIInterval)
+		assert.Equal(t, 20*time.Millisecond, lombardVerifier.LombardConfig.AttestationAPIInterval)
 		assert.Equal(t, "https://lombard-api.example.com", lombardVerifier.LombardConfig.AttestationAPI)
 		expectedAddr3, err := protocol.NewUnknownAddressFromHex("0x2222222222222222222222222222222222222222")
 		require.NoError(t, err)
@@ -307,6 +307,58 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Test_VerifierConfig_BadValueNamesTheField pins that a bad value inside a
+// supported verifier type is reported as that field's error. The type probing in
+// UnmarshalTOML used to swallow it and report "unsupported verifier type", which
+// points operators at the wrong field entirely.
+func Test_VerifierConfig_BadValueNamesTheField(t *testing.T) {
+	tests := []struct {
+		name string
+		toml string
+	}{
+		{
+			name: "cctp bare-integer duration",
+			toml: `
+				verifier_id = "cctp-x"
+				type = "cctp"
+				version = "2.0"
+				attestation_api = "https://iris-api.circle.com"
+				attestation_api_timeout = 3000000000
+			`,
+		},
+		{
+			name: "lombard bare-integer duration",
+			toml: `
+				verifier_id = "lombard-x"
+				type = "lombard"
+				version = "1.0"
+				attestation_api = "https://lombard-api.example.com"
+				attestation_api_interval = 3000000000
+			`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var result VerifierConfig
+			err := toml.Unmarshal([]byte(tt.toml), &result)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "must be a quoted string")
+			require.NotContains(t, err.Error(), "unsupported verifier type")
+		})
+	}
+
+	t.Run("unknown type still reports unsupported", func(t *testing.T) {
+		var result VerifierConfig
+		err := toml.Unmarshal([]byte(`
+			verifier_id = "zk-x"
+			type = "zk"
+			version = "1.0"
+		`), &result)
+		require.ErrorContains(t, err, "unsupported verifier type zk and version 1.0")
+	})
 }
 
 func Test_Config_Validate_DuplicateVerifierID(t *testing.T) {

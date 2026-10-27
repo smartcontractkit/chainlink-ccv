@@ -1,6 +1,7 @@
 package lombard
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -8,6 +9,11 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
+
+// ErrUnsupported marks a type/version pair this package does not handle, so a
+// caller probing multiple verifier types can fall through without masking a real
+// config error as "unsupported type".
+var ErrUnsupported = errors.New("unsupported verifier type")
 
 //nolint:revive // type has to be prefixed to avoid name clash in VerifierConfig
 type LombardConfig struct {
@@ -29,7 +35,7 @@ type LombardConfig struct {
 
 func TryParsing(t, v string, data map[string]any) (*LombardConfig, error) {
 	if t != "lombard" || v != "1.0" {
-		return nil, fmt.Errorf("unsupported verifier type %s and version %s", t, v)
+		return nil, fmt.Errorf("%w %s and version %s", ErrUnsupported, t, v)
 	}
 
 	var ok bool

@@ -160,6 +160,20 @@ func Test_TryParsing(t *testing.T) {
 			errMsg:  "invalid attestation_api_interval",
 		},
 		{
+			// Regression: prod configs had a bare-nanosecond duration here, which
+			// used to fall back to the default instead of failing.
+			name: "bare integer attestation_api_timeout is rejected",
+			t:    "lombard",
+			v:    "1.0",
+			data: map[string]any{
+				"attestation_api":         "https://lombard-api.example.com",
+				"attestation_api_timeout": int64(3000000000),
+			},
+			want:    nil,
+			wantErr: true,
+			errMsg:  "invalid attestation_api_timeout",
+		},
+		{
 			name: "invalid attestation_api_batch_size",
 			t:    "lombard",
 			v:    "1.0",
