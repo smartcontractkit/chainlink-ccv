@@ -12,7 +12,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-// dbLease is what evmLease needs from evmdb.Lease; tests replace it.
+// dbLease is what evmLease needs from dblease.Lease; tests replace it.
 type dbLease interface {
 	TakeAndHold(ctx context.Context, onHeld func(error)) error
 	Release()
@@ -44,7 +44,7 @@ func newEVMLease(lggr logger.Logger, db *lazy.Lazy[*sql.DB]) *evmLease {
 	return &evmLease{
 		lggr:     lggr,
 		db:       db,
-		newLease: func(d *sql.DB) dbLease { return evmdb.NewLease(d, lggr, evmdb.DefaultLeaseConfig()) },
+		newLease: func(d *sql.DB) dbLease { return evmdb.NewLease(d, lggr) },
 		gate:     make(chan struct{}, 1),
 		waiters:  make(map[uint64]func(error)),
 	}

@@ -104,7 +104,7 @@ func findLCA(ctx context.Context, db *sql.DB, chainID *big.Int, chainClient logp
 // node's remove-blocks it first waits for the EVM database lease, so it never runs beside a verifier.
 // Losing the lease mid-delete exits the process, as the node's command does.
 func RemoveBlocksFrom(ctx context.Context, db *sql.DB, lggr logger.Logger, chainID *big.Int, start int64) error {
-	lease := evmdb.NewLease(db, lggr, evmdb.DefaultLeaseConfig())
+	lease := evmdb.NewLease(db, lggr)
 	if err := lease.TakeAndHold(ctx, func(error) {
 		logger.Sugared(lggr).Infow("Waiting for the running verifier to release the EVM database lease; stop the verifier to continue",
 			"evmChainID", chainID.String())

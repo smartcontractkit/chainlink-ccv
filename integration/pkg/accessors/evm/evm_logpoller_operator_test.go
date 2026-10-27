@@ -183,7 +183,7 @@ func TestRemoveBlocksFromWaitsForTheLease(t *testing.T) {
 	chainID := big.NewInt(920_020)
 	seedOperatorChain(t, db, chainID, 10)
 
-	verifier := evmdb.NewLease(db, logger.Test(t), evmdb.DefaultLeaseConfig())
+	verifier := evmdb.NewLease(db, logger.Test(t))
 	require.NoError(t, verifier.TakeAndHold(t.Context(), nil))
 
 	done := make(chan error, 1)
@@ -206,7 +206,7 @@ func TestRemoveBlocksFromStopsWaitingWithTheContext(t *testing.T) {
 	db := testutil.NewTestDB(t).DB
 	chainID := big.NewInt(920_021)
 	seedOperatorChain(t, db, chainID, 10)
-	verifier := evmdb.NewLease(db, logger.Test(t), evmdb.DefaultLeaseConfig())
+	verifier := evmdb.NewLease(db, logger.Test(t))
 	require.NoError(t, verifier.TakeAndHold(t.Context(), nil))
 	t.Cleanup(verifier.Release)
 
@@ -214,6 +214,6 @@ func TestRemoveBlocksFromStopsWaitingWithTheContext(t *testing.T) {
 	defer cancel()
 	err := RemoveBlocksFrom(ctx, db, logger.Test(t), chainID, 5)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
-	require.ErrorContains(t, err, "stopped waiting for the EVM database lease")
+	require.ErrorContains(t, err, "stopped waiting for the database lease on evm.lease_lock")
 	require.Equal(t, rowCounts{Blocks: 10, Logs: 10}, operatorRowCounts(t, db, chainID), "nothing is deleted when the wait is cut short")
 }
