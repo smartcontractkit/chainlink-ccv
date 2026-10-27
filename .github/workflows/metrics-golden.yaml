@@ -1,6 +1,6 @@
 name: metrics-golden
 
-# Fails when a PR removes or changes a metric or label in a testdata/metrics.golden.json file.
+# Fails when the golden files do not match the code, or when a PR removes or changes a metric or label.
 # Add the metrics-breaking-change label to allow an intended removal.
 on:
   pull_request:
@@ -28,6 +28,9 @@ jobs:
         uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # v3
         with:
           just-version: '1.40.0'
+
+      - name: Check golden files are up to date
+        run: just metrics-golden-verify
 
       - name: Compare golden files
         env:

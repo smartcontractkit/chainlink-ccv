@@ -98,6 +98,18 @@ test-coverage coverage_file="coverage.out" short="":
 metrics-golden-update: ensure-go
     UPDATE_METRICS_GOLDEN=1 go test -run '^TestMetricsGolden$' $(find . -name metrics_golden_test.go -not -path './build/*' -exec dirname {} \; | sort -u)
 
+# Fail if the committed golden files do not match the code.
+metrics-golden-verify: metrics-golden-update
+    #!/usr/bin/env bash
+    set -euo pipefail
+    stale="$(git status --porcelain -- '*/testdata/metrics.golden.json')"
+    if [ -n "$stale" ]; then
+        echo "$stale"
+        git diff -- '*/testdata/metrics.golden.json'
+        echo "Golden files are out of date: run 'just metrics-golden-update' and commit the result."
+        exit 1
+    fi
+
 # Fail if a metric or label in a golden file is removed or changed since base (the CI check).
 metrics-golden-check base="origin/main" allow_breaking="false": ensure-go
     #!/usr/bin/env bash
