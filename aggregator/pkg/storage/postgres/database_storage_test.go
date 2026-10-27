@@ -305,6 +305,49 @@ func TestSaveCommitVerification_Idempotency(t *testing.T) {
 	require.Len(t, records, 1, "Should have exactly 1 record after multiple saves")
 }
 
+func TestSaveCommitVerification_MultiRowBatchWithDuplicateKey(t *testing.T) {
+	storage, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	message := createTestProtocolMessage()
+
+	signers := []*testFixture{newTestSigner(t), newTestSigner(t), newTestSigner(t)}
+	writes := make([]model.CommitVerificationWrite, 0, len(signers))
+	records := make([]*model.CommitVerificationRecord, 0, len(signers))
+	var messageID []byte
+	for _, signer := range signers {
+		msgWithCCV := createTestMessageWithCCV(t, message, signer)
+		messageID = getMessageIDFromProto(t, msgWithCCV)
+		record := createTestCommitVerificationRecord(t, msgWithCCV, signer)
+		records = append(records, record)
+		writes = append(writes, model.CommitVerificationWrite{Record: record, AggregationKey: protocol.ByteSlice(messageID).String()})
+	}
+	// A duplicate of the first write in the same call exercises ON CONFLICT DO NOTHING
+	// within a single multi-row statement, not just across separate calls.
+	writes = append(writes, writes[0])
+
+	err := storage.SaveCommitVerification(ctx, writes)
+	require.NoError(t, err)
+
+	aggregationKey := protocol.ByteSlice(messageID).String()
+	stored, err := storage.ListCommitVerificationByAggregationKey(ctx, messageID, aggregationKey)
+	require.NoError(t, err)
+	require.Len(t, stored, len(signers), "duplicate in the same batch must not create an extra row")
+
+	for i, expected := range records {
+		found := false
+		for _, actual := range stored {
+			if bytes.Equal(actual.SignerIdentifier.Identifier, expected.SignerIdentifier.Identifier) {
+				assertCommitVerificationRecordEqual(t, expected, actual, fmt.Sprintf("MultiRowBatch_Signer%d", i))
+				found = true
+				break
+			}
+		}
+		require.True(t, found, "should find stored record for signer %d", i)
+	}
+}
+
 func TestGetCommitVerification_NotFound(t *testing.T) {
 	storage, cleanup := setupTestDB(t)
 	defer cleanup()
