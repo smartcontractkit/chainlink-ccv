@@ -129,7 +129,7 @@ func Test_TryParsing(t *testing.T) {
 			t:    "cctp",
 			v:    "2.0",
 			data: map[string]any{
-				"addresses": map[string]any{
+				"verifier_resolver_addresses": map[string]any{
 					"1": testAddr1Hex,
 				},
 			},
@@ -174,6 +174,20 @@ func Test_TryParsing(t *testing.T) {
 			want:    nil,
 			wantErr: true,
 			errMsg:  "invalid attestation_api_timeout",
+		},
+		{
+			// Regression: an entry's keys are consumed by a custom UnmarshalTOML, so
+			// the TOML decoder reports no drift and an unknown key used to be dropped.
+			name: "unknown key is rejected",
+			t:    "cctp",
+			v:    "2.0",
+			data: map[string]any{
+				"attestation_api":      "https://iris-api.circle.com",
+				"attestation_api_timo": "1s",
+			},
+			want:    nil,
+			wantErr: true,
+			errMsg:  "unknown keys for cctp verifier",
 		},
 		{
 			name: "bare integer attestation_concurrent_fetchers is rejected",

@@ -61,6 +61,31 @@ func TestParseDurationOrDefault(t *testing.T) {
 	})
 }
 
+func TestUnknownKeys(t *testing.T) {
+	t.Parallel()
+
+	allowed := []string{"known", "also_known"}
+
+	t.Run("returns unknown keys sorted", func(t *testing.T) {
+		t.Parallel()
+
+		got := UnknownKeys(map[string]any{"zzz": 1, "known": 2, "aaa": 3, "also_known": 4}, allowed)
+		assert.Equal(t, []string{"aaa", "zzz"}, got)
+	})
+
+	t.Run("returns nil when every key is allowed", func(t *testing.T) {
+		t.Parallel()
+
+		assert.Empty(t, UnknownKeys(map[string]any{"known": 1}, allowed))
+	})
+
+	t.Run("returns nil for an empty map", func(t *testing.T) {
+		t.Parallel()
+
+		assert.Empty(t, UnknownKeys(map[string]any{}, allowed))
+	})
+}
+
 func TestParseIntOrDefault(t *testing.T) {
 	t.Parallel()
 

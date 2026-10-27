@@ -33,9 +33,33 @@ type LombardConfig struct {
 	ParsedVerifierResolvers map[protocol.ChainSelector]protocol.UnknownAddress `json:"-"                           toml:"-"`
 }
 
+// ConfigKeys are the keys TryParsing reads from a [[token_verifiers]] entry for
+// this verifier type. Entries are decoded through VerifierConfig.UnmarshalTOML,
+// which consumes the whole table, so the TOML decoder reports no undecoded keys
+// inside an entry — TryParsing rejects anything outside this list instead of
+// letting it silently do nothing.
+//
+// verifier_id, type and version are read by UnmarshalTOML rather than TryParsing;
+// they are listed so they are not reported as unknown.
+var ConfigKeys = []string{
+	"verifier_id",
+	"type",
+	"version",
+	"verifier_version",
+	"attestation_api",
+	"attestation_api_timeout",
+	"attestation_api_interval",
+	"attestation_api_batch_size",
+	"verifier_resolver_addresses",
+}
+
 func TryParsing(t, v string, data map[string]any) (*LombardConfig, error) {
 	if t != "lombard" || v != "1.0" {
 		return nil, fmt.Errorf("%w %s and version %s", ErrUnsupported, t, v)
+	}
+
+	if unknown := common.UnknownKeys(data, ConfigKeys); len(unknown) > 0 {
+		return nil, fmt.Errorf("unknown keys for lombard verifier: %v", unknown)
 	}
 
 	var ok bool

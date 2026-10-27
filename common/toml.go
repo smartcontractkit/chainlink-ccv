@@ -2,6 +2,7 @@ package common
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"time"
 
@@ -90,6 +91,28 @@ func ParseDurationOrDefault(val any, defaultVal time.Duration) (time.Duration, e
 		return 0, fmt.Errorf("invalid duration format: %w", err)
 	}
 	return duration, nil
+}
+
+// UnknownKeys returns the sorted names of keys in data that are not in allowed.
+//
+// A config decoded through a custom UnmarshalTOML consumes its whole TOML table,
+// so the decoder reports no undecoded keys for it and otherwise-dropped keys
+// would go unnoticed. Callers use this to reject keys that silently do nothing.
+func UnknownKeys(data map[string]any, allowed []string) []string {
+	allowedSet := make(map[string]struct{}, len(allowed))
+	for _, key := range allowed {
+		allowedSet[key] = struct{}{}
+	}
+
+	var unknown []string
+	for key := range data {
+		if _, ok := allowedSet[key]; !ok {
+			unknown = append(unknown, key)
+		}
+	}
+	slices.Sort(unknown)
+
+	return unknown
 }
 
 func ParseAddressesMap(val any) (map[protocol.ChainSelector]protocol.UnknownAddress, map[string]any, error) {
