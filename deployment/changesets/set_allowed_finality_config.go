@@ -132,7 +132,8 @@ func validateCommitteeOnchainTargets(e deployment.Environment, qualifier string,
 }
 
 // committeeWrites collects committee verifier writes the deployer key could not execute.
-// Without MCMS input it refuses the first such write, before later chains are written directly.
+// Without MCMS input it refuses the first such write and stops later chains;
+// chains earlier in the list were already written by the deployer key.
 type committeeWrites struct {
 	mcms *mcmsutil.Input
 	ops  []mcmstypes.BatchOperation
