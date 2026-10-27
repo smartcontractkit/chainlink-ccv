@@ -113,6 +113,7 @@ jobs:
   compute-tags:
     name: Compute bare version tag (without the `v` prefix)
     runs-on: ubuntu-latest
+    permissions: {}
     outputs:
       bare-version: ${{ steps.out.outputs.bare-version }}
     steps:
