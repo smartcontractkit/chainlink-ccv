@@ -20,7 +20,7 @@ const (
 	url = "postgres://localhost:5432/evm"
 */
 type Secrets struct {
-	// DB is the database for the EVM accessor's own tables. Required only when log_poller_enabled is on.
+	// DB is the database for the EVM accessor's own tables. Required when any chain sets log_poller_source_reader_enabled.
 	DB *DBConfig `toml:"db,omitempty"`
 }
 

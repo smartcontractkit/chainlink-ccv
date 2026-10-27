@@ -11,7 +11,7 @@ import (
 // the database lease and starts the LogPoller in its background load. The caller holds sourceMu.
 func (a *accessor) newLogPollerSourceReader() (chainaccess.SourceReader, error) {
 	if a.verifierID == "" {
-		return nil, fmt.Errorf("log_poller_enabled for chain %d needs the committee verifier's verifier_id", a.chainSelector)
+		return nil, fmt.Errorf("log_poller_source_reader_enabled for chain %d needs the committee verifier's verifier_id", a.chainSelector)
 	}
 	lpRuntime, ok := a.runtime.(logPollerRuntime)
 	if !ok {
@@ -24,10 +24,10 @@ func (a *accessor) newLogPollerSourceReader() (chainaccess.SourceReader, error) 
 		return nil, fmt.Errorf("failed to connect the EVM database for chain %d: %w", a.chainSelector, err)
 	}
 	if db == nil {
-		return nil, fmt.Errorf("log_poller_enabled for chain %d needs the EVM database ([db] in the EVM secrets file)", a.chainSelector)
+		return nil, fmt.Errorf("log_poller_source_reader_enabled for chain %d needs the EVM database ([db] in the EVM secrets file)", a.chainSelector)
 	}
 	if a.lease == nil {
-		return nil, fmt.Errorf("log_poller_enabled for chain %d needs the EVM database lease", a.chainSelector)
+		return nil, fmt.Errorf("log_poller_source_reader_enabled for chain %d needs the EVM database lease", a.chainSelector)
 	}
 	lp, err := lpRuntime.LogPoller(ctx, db)
 	if err != nil {

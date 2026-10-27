@@ -45,7 +45,7 @@ func newOperatorHarness(t *testing.T, logPollerOn bool, db *sql.DB) *operatorHar
 	h := &operatorHarness{db: db}
 	h.op = &blocksOperator{
 		lggr:        logger.Test(t),
-		logPollerOn: func() (bool, error) { return logPollerOn, nil },
+		logPollerOn: func(protocol.ChainSelector) (bool, error) { return logPollerOn, nil },
 		evmInfo: func(s protocol.ChainSelector) (evm.Info, error) {
 			h.infoCalls++
 			return evm.Info{ChainID: "11155111"}, nil
@@ -76,9 +76,18 @@ func TestBlocksOperatorFailsSafeBeforeTouchingAnything(t *testing.T) {
 		require.Zero(t, h.dbOpens, "no database is opened when the chain reads through RPC")
 		require.Zero(t, h.infoCalls, "no RPC config is read either")
 	})
+	t.Run("flag is read for the requested chain", func(t *testing.T) {
+		h := newOperatorHarness(t, false, nil)
+		var asked protocol.ChainSelector
+		h.op.logPollerOn = func(s protocol.ChainSelector) (bool, error) { asked = s; return false, nil }
+
+		err := h.op.RemoveFrom(t.Context(), sepolia, 5)
+		require.ErrorContains(t, err, "set log_poller_source_reader_enabled on chain 16015286601757825753")
+		require.Equal(t, protocol.ChainSelector(16015286601757825753), asked)
+	})
 	t.Run("EVM config unreadable", func(t *testing.T) {
 		h := newOperatorHarness(t, true, nil)
-		h.op.logPollerOn = func() (bool, error) { return false, errors.New("no EVM config") }
+		h.op.logPollerOn = func(protocol.ChainSelector) (bool, error) { return false, errors.New("no EVM config") }
 
 		err := h.op.RemoveFrom(t.Context(), sepolia, 5)
 		require.ErrorContains(t, err, "no EVM config")
@@ -163,4 +172,28 @@ func TestBlocksOperatorAgainstTheEVMDatabase(t *testing.T) {
 		err = h.op.RemoveFrom(t.Context(), sepolia, 4)
 		require.ErrorContains(t, err, "evm.log_poller_blocks")
 	})
+}
+
+func TestLogPollerOnInMountedConfigIsPerChain(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "evm.toml")
+	require.NoError(t, os.WriteFile(path, []byte(`[chains.16015286601757825753]
+log_poller_source_reader_enabled = true
+[[chains.16015286601757825753.nodes]]
+name = "primary"
+http_url = "http://localhost:8545"
+[chains.5009297550715157269]
+[[chains.5009297550715157269.nodes]]
+name = "primary"
+http_url = "http://localhost:8546"
+`), 0o600))
+	t.Setenv(evmconfig.EVMConfigPathEnv, path)
+
+	on, err := logPollerOnInMountedConfig(16015286601757825753)
+	require.NoError(t, err)
+	require.True(t, on)
+	on, err = logPollerOnInMountedConfig(5009297550715157269)
+	require.NoError(t, err)
+	require.False(t, on, "a chain without the flag reads through RPC")
+	_, err = logPollerOnInMountedConfig(3478487238524512106)
+	require.ErrorContains(t, err, "not configured in the EVM config")
 }

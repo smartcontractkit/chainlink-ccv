@@ -57,8 +57,8 @@ type factory struct {
 	db *lazy.Lazy[*sql.DB]
 	// lease is the one lease on db for this factory; nil when no database is configured.
 	lease *evmLease
-	// logPoller makes source readers read through the chain's LogPoller on db.
-	logPollerEnabled bool
+	// logPollerChains are the selectors whose source readers read through the chain's LogPoller on db.
+	logPollerChains map[protocol.ChainSelector]bool
 	// verifierID scopes LogPoller filter names; empty outside the committee verifier.
 	verifierID string
 }
@@ -263,7 +263,7 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 	)
 	acc.sourceParams = sourceParams
 	acc.db = f.db
-	acc.logPollerEnabled = f.logPollerEnabled
+	acc.logPollerEnabled = f.logPollerChains[chainSelector]
 	acc.verifierID = f.verifierID
 	if f.lease != nil {
 		f.lease.retain()
@@ -374,7 +374,7 @@ func (a *accessor) SetKeystore(ctx context.Context, ks keystore.Keystore) error 
 }
 
 // SourceReader builds the reader on the first call and returns the same result afterwards: the
-// LogPoller reader when log_poller_enabled is on, the RPC reader otherwise.
+// LogPoller reader when the chain sets log_poller_source_reader_enabled, the RPC reader otherwise.
 func (a *accessor) SourceReader() (chainaccess.SourceReader, error) {
 	if a == nil {
 		return nil, errors.New("source reader not available")

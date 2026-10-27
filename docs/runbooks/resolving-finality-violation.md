@@ -8,8 +8,8 @@ already saved as finalized no longer matches the chain. The verifier disables th
 verifying that source until an operator resolves it.
 
 This runbook applies to committee verifiers that read through the log poller
-(`Feature.LogPoller = true` on a Chainlink node, `log_poller_enabled = true` in a standalone verifier's EVM
-config), whether they run inside a Chainlink node or as a standalone verifier.
+(`Feature.LogPoller = true` on a Chainlink node, `log_poller_source_reader_enabled = true` on the chain in a standalone
+verifier's EVM config), whether they run inside a Chainlink node or as a standalone verifier.
 The steps are the same on both. Only the command prefix differs:
 
 | | Chainlink node | Standalone verifier |
@@ -37,7 +37,7 @@ The standalone commands run in the verifier's container or host, not inside a no
 - `ccv blocks` uses the EVM database, where the LogPoller keeps its tables: `[db].url` in the EVM secrets file
   (`EVM_SECRETS_PATH`, default `/etc/evm/secrets.toml`).
 - `find-lca` needs the chain's RPC from the mounted EVM config (`EVM_CONFIG_PATH`, default `/etc/evm/config.toml`).
-- The commands read `log_poller_enabled` from the same EVM config and refuse to run when it is off.
+- The commands read the chain's `log_poller_source_reader_enabled` from the same EVM config and refuse to run when it is off.
 
 On a node the commands use the node's own configuration and take the node's database lock. On a
 standalone verifier, `remove-blocks` takes the EVM database lease, which the running verifier holds,

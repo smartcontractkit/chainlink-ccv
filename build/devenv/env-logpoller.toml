@@ -1,5 +1,6 @@
-# Overlay that runs every committee verifier with log_poller_enabled = true in its EVM config, so each
-# reads its EVM source chains through the LogPoller reader instead of the RPC reader. The EVM secrets
+# Overlay that sets log_poller_source_reader_chains = ["*"] on every committee verifier, so each reads all
+# its EVM source chains through the LogPoller reader instead of the RPC reader. List chain IDs instead of
+# "*" to turn it on for only those chains. The EVM secrets
 # point [db] at evm_db, a separate database on the verifier's DB server. The token verifier is not listed:
 # it has no LogPoller.
 #
@@ -25,7 +26,7 @@
     name = "default-verifier-1-db"
     port = 8432
   [verifier.opaque_configs.evm]
-    log_poller_enabled = true
+    log_poller_source_reader_chains = ["*"]
 
 [[verifier]]
   image = "verifier:latest"
@@ -41,7 +42,7 @@
     name = "default-verifier-2-db"
     port = 8433
   [verifier.opaque_configs.evm]
-    log_poller_enabled = true
+    log_poller_source_reader_chains = ["*"]
 
 [[verifier]]
   image = "verifier:latest"
@@ -57,7 +58,7 @@
     name = "secondary-verifier-1-db"
     port = 8434
   [verifier.opaque_configs.evm]
-    log_poller_enabled = true
+    log_poller_source_reader_chains = ["*"]
 
 [[verifier]]
   image = "verifier:latest"
@@ -73,7 +74,7 @@
     name = "secondary-verifier-2-db"
     port = 8435
   [verifier.opaque_configs.evm]
-    log_poller_enabled = true
+    log_poller_source_reader_chains = ["*"]
 
 [[verifier]]
   image = "verifier:latest"
@@ -89,7 +90,7 @@
     name = "tertiary-verifier-1-db"
     port = 8436
   [verifier.opaque_configs.evm]
-    log_poller_enabled = true
+    log_poller_source_reader_chains = ["*"]
 
 [[verifier]]
   image = "verifier:latest"
@@ -105,4 +106,4 @@
     name = "tertiary-verifier-2-db"
     port = 8437
   [verifier.opaque_configs.evm]
-    log_poller_enabled = true
+    log_poller_source_reader_chains = ["*"]

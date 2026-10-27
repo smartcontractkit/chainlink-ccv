@@ -1,6 +1,6 @@
 # CCV blocks CLI
 
-The standalone verifier's version of the Chainlink node's `find-lca` and `remove-blocks` commands. They work on the LogPoller's stored blocks and logs (`evm.log_poller_blocks`, `evm.logs`) when the verifier reads EVM chains through the LogPoller (`log_poller_enabled = true` in the EVM config).
+The standalone verifier's version of the Chainlink node's `find-lca` and `remove-blocks` commands. They work on the LogPoller's stored blocks and logs (`evm.log_poller_blocks`, `evm.logs`) for a chain the verifier reads through the LogPoller (`log_poller_source_reader_enabled = true` on that chain in the EVM config).
 
 ## Commands
 
@@ -26,7 +26,7 @@ verifier ccv blocks remove-blocks --evm-chain-id <chain id> --start <lca+1>
 
 | Needs | From |
 |-------|------|
-| The LogPoller switch | `log_poller_enabled` in the mounted EVM config (`EVM_CONFIG_PATH`, default `/etc/evm/config.toml`) |
+| The LogPoller switch | the chain's `log_poller_source_reader_enabled` in the mounted EVM config (`EVM_CONFIG_PATH`, default `/etc/evm/config.toml`) |
 | The chain's RPC (`find-lca` only) | The mounted EVM config (`EVM_CONFIG_PATH`, default `/etc/evm/config.toml`) |
 | The database | `[db].url` in the EVM secrets file (`EVM_SECRETS_PATH`, default `/etc/evm/secrets.toml`) |
 

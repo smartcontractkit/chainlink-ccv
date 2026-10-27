@@ -7,6 +7,7 @@ import "github.com/smartcontractkit/chainlink-common/x/config/commentparsing"
 func (ChainConfig) DocComments() map[string]commentparsing.FieldDoc {
 	return map[string]commentparsing.FieldDoc{
 		"FinalityDepth":                    {Comment: "FinalityDepth is the number of blocks required before a head is considered final.\nZero enables finality-tag mode; a positive value uses confirmation-depth mode."},
+		"LogPollerSourceReaderEnabled":     {Comment: "LogPollerSourceReaderEnabled makes the committee verifier read this source chain through a LogPoller\ninstead of RPC. It requires [db] in the EVM secrets file. Defaults to false."},
 		"Nodes":                            {Comment: "Nodes are the RPC endpoints used to reach this chain."},
 		"SourceReaderHeaderFetchBatchSize": {Comment: "SourceReaderHeaderFetchBatchSize caps how many eth_getBlockByNumber requests\nare sent in a single JSON-RPC batch when the source reader fetches block\nheaders. Zero uses [DefaultSourceReaderHeaderFetchBatchSize], which is 25."},
 		"TXMBlockTime":                     {Comment: "TXMBlockTime controls TXM v2's retry cadence: a transaction rebroadcasts once it is\nRetryBlockThreshold times this value old, so it should track the chain's real block\ninterval. It is not used outside the transaction manager. Zero takes the chain's curated\ndefault block interval when one exists and DefaultTXMBlockTime otherwise; upstream\nvalidation rejects values below two seconds."},
@@ -15,8 +16,7 @@ func (ChainConfig) DocComments() map[string]commentparsing.FieldDoc {
 
 func (Config) DocComments() map[string]commentparsing.FieldDoc {
 	return map[string]commentparsing.FieldDoc{
-		"Chains":           {Comment: "Chains maps EVM chain selector (decimal string) to its operator-local settings."},
-		"LogPollerEnabled": {Comment: "LogPollerEnabled makes the committee verifier read source chains through a LogPoller instead of RPC.\nIt requires [db] in the EVM secrets file. Defaults to false."},
+		"Chains": {Comment: "Chains maps EVM chain selector (decimal string) to its operator-local settings."},
 	}
 }
 
@@ -37,6 +37,6 @@ func (Node) DocComments() map[string]commentparsing.FieldDoc {
 
 func (Secrets) DocComments() map[string]commentparsing.FieldDoc {
 	return map[string]commentparsing.FieldDoc{
-		"DB": {Comment: "DB is the database for the EVM accessor's own tables. Required only when log_poller_enabled is on."},
+		"DB": {Comment: "DB is the database for the EVM accessor's own tables. Required when any chain sets log_poller_source_reader_enabled."},
 	}
 }

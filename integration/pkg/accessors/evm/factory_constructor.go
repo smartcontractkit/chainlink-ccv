@@ -3,6 +3,7 @@ package evm
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
@@ -66,8 +67,10 @@ func CreateEVMAccessorFactory(lggr logger.Logger, genericConfig chainaccess.Gene
 		return nil, fmt.Errorf("failed to load EVM secrets: %w", err)
 	}
 
-	if evmCfg.LogPollerEnabled && secrets.DB == nil {
-		return nil, fmt.Errorf("log_poller_enabled in the EVM config %s requires [db] in the EVM secrets file", configPath)
+	logPollerChains := evmCfg.LogPollerSourceReaderChains()
+	if len(logPollerChains) > 0 && secrets.DB == nil {
+		return nil, fmt.Errorf("log_poller_source_reader_enabled on chain %s in the EVM config %s requires [db] in the EVM secrets file",
+			logPollerChains[0], configPath)
 	}
 
 	f := newAccessorFactory(lggr, genericConfig, infos)
@@ -75,7 +78,14 @@ func CreateEVMAccessorFactory(lggr logger.Logger, genericConfig chainaccess.Gene
 	if f.db != nil {
 		f.lease = newEVMLease(lggr, f.db)
 	}
-	f.logPollerEnabled = evmCfg.LogPollerEnabled
+	f.logPollerChains = make(map[protocol.ChainSelector]bool, len(logPollerChains))
+	for _, selector := range logPollerChains {
+		sel, err := strconv.ParseUint(selector, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid chain selector %q: %w", selector, err)
+		}
+		f.logPollerChains[protocol.ChainSelector(sel)] = true
+	}
 	f.verifierID = genericConfig.VerifierID
 	return f, nil
 }

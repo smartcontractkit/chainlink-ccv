@@ -33,8 +33,8 @@ func Command(lggr logger.Logger) cli.Command {
 // functions. Each call checks the chain's mode and the RPC config before it opens the database.
 type blocksOperator struct {
 	lggr logger.Logger
-	// logPollerOn reports whether the mounted EVM config turns the LogPoller on.
-	logPollerOn func() (bool, error)
+	// logPollerOn reports whether the mounted EVM config turns the LogPoller reader on for the chain.
+	logPollerOn func(protocol.ChainSelector) (bool, error)
 	// evmInfo is the chain's RPC settings from the mounted EVM config.
 	evmInfo func(protocol.ChainSelector) (evm.Info, error)
 	// openDB opens the EVM database and returns what closes it.
@@ -68,12 +68,17 @@ func openEVMDB(ctx context.Context, lggr logger.Logger) (*sql.DB, func(), error)
 	return db, func() { _ = db.Close() }, nil
 }
 
-func logPollerOnInMountedConfig() (bool, error) {
-	cfg, _, err := evmconfig.LoadConfigFile(evmconfig.ResolveConfigPath())
+func logPollerOnInMountedConfig(selector protocol.ChainSelector) (bool, error) {
+	path := evmconfig.ResolveConfigPath()
+	cfg, _, err := evmconfig.LoadConfigFile(path)
 	if err != nil {
 		return false, fmt.Errorf("the EVM config is needed (set %s): %w", evmconfig.EVMConfigPathEnv, err)
 	}
-	return cfg.LogPollerEnabled, nil
+	chain, ok := cfg.Chains[selector.String()]
+	if !ok {
+		return false, fmt.Errorf("chain selector %d is not configured in the EVM config %s (set %s)", selector, path, evmconfig.EVMConfigPathEnv)
+	}
+	return chain.LogPollerSourceReaderEnabled, nil
 }
 
 func evmInfoFromMountedConfig(selector protocol.ChainSelector) (evm.Info, error) {
@@ -97,15 +102,19 @@ func evmInfoFromMountedConfig(selector protocol.ChainSelector) (evm.Info, error)
 // returns the chain's selector. It reads the EVM config and does no I/O beyond that.
 // operation is the node's name for what is being run, which its flag-off error uses.
 func (o *blocksOperator) check(evmChainID int64, operation string) (protocol.ChainSelector, error) {
-	on, err := o.logPollerOn()
+	selector, err := evm.SelectorFromChainID(evmChainID)
+	if err != nil {
+		return 0, err
+	}
+	on, err := o.logPollerOn(selector)
 	if err != nil {
 		return 0, fmt.Errorf("EVM chain ID %d: cannot tell whether the LogPoller is on: %w", evmChainID, err)
 	}
 	if !on {
-		return 0, fmt.Errorf("EVM chain ID %d reads through the RPC source reader: %s is only available if LogPoller is enabled (set log_poller_enabled in the EVM config from %s)",
-			evmChainID, operation, evmconfig.EVMConfigPathEnv)
+		return 0, fmt.Errorf("EVM chain ID %d reads through the RPC source reader: %s is only available if LogPoller is enabled (set log_poller_source_reader_enabled on chain %d in the EVM config from %s)",
+			evmChainID, operation, selector, evmconfig.EVMConfigPathEnv)
 	}
-	return evm.SelectorFromChainID(evmChainID)
+	return selector, nil
 }
 
 // open opens the database and checks that it has the LogPoller schema.

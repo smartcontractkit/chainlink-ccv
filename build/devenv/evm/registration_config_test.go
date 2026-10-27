@@ -3,6 +3,8 @@ package evm
 import (
 	"fmt"
 	"os"
+	"slices"
+	"strconv"
 	"testing"
 
 	"github.com/BurntSushi/toml"
@@ -87,12 +89,18 @@ func TestEVMConfigIsMountedSeparatelyFromAppConfig(t *testing.T) {
 	require.NotContains(t, string(data), "external_http_url")
 }
 
-func TestVerifierModifierLogPollerEnabled(t *testing.T) {
+func TestVerifierModifierLogPollerSourceReaderChains(t *testing.T) {
 	output := &blockchain.Output{
 		Family:  chainsel.FamilyEVM,
 		ChainID: "1337",
 		Nodes:   []*blockchain.Node{{InternalHTTPUrl: "http://evm-node:8545"}},
 	}
+	second := &blockchain.Output{
+		Family:  chainsel.FamilyEVM,
+		ChainID: "2337",
+		Nodes:   []*blockchain.Node{{InternalHTTPUrl: "http://evm-node-2:8545"}},
+	}
+	outputs := []*blockchain.Output{output, second}
 	// The secrets file is written to the devenv config dir, which util creates under HOME at init.
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", "")
@@ -123,17 +131,30 @@ func TestVerifierModifierLogPollerEnabled(t *testing.T) {
 		return files
 	}
 
-	t.Run("on: the EVM config enables it and the EVM secrets point at the verifier database", func(t *testing.T) {
-		in := newInput(util.OpaqueConfig{"log_poller_enabled": true})
-		req, err := VerifierModifier(testcontainers.ContainerRequest{}, in, []*blockchain.Output{output})
+	// enabledChainIDs decodes the generated EVM config and returns the chain IDs that read through the LogPoller.
+	enabledChainIDs := func(t *testing.T, config string) []string {
+		var cfg accessorevm.Config
+		_, err := toml.Decode(config, &cfg)
+		require.NoError(t, err)
+		var ids []string
+		for _, selector := range cfg.LogPollerSourceReaderChains() {
+			sel, err := strconv.ParseUint(selector, 10, 64)
+			require.NoError(t, err)
+			id, err := chainsel.GetChainIDFromSelector(sel)
+			require.NoError(t, err)
+			ids = append(ids, id)
+		}
+		slices.Sort(ids)
+		return ids
+	}
+
+	t.Run("*: every chain reads through the LogPoller and the EVM secrets point at the verifier database", func(t *testing.T) {
+		in := newInput(util.OpaqueConfig{"log_poller_source_reader_chains": []any{"*"}})
+		req, err := VerifierModifier(testcontainers.ContainerRequest{}, in, outputs)
 		require.NoError(t, err)
 		files := mounted(t, req)
 		require.Len(t, files, 2)
-
-		var cfg accessorevm.Config
-		_, err = toml.Decode(files[accessorevm.DefaultEVMConfigPath], &cfg)
-		require.NoError(t, err)
-		require.True(t, cfg.LogPollerEnabled)
+		require.Equal(t, []string{"1337", "2337"}, enabledChainIDs(t, files[accessorevm.DefaultEVMConfigPath]))
 
 		var secrets evmconfig.Secrets
 		_, err = toml.Decode(files[evmconfig.DefaultEVMSecretsPath], &secrets)
@@ -142,16 +163,31 @@ func TestVerifierModifierLogPollerEnabled(t *testing.T) {
 		require.Equal(t, committeeverifier.InternalDBURL(in, evmDBName), secrets.DB.URL)
 	})
 
+	t.Run("listed chains: only those read through the LogPoller", func(t *testing.T) {
+		in := newInput(util.OpaqueConfig{"log_poller_source_reader_chains": []any{"2337"}})
+		req, err := VerifierModifier(testcontainers.ContainerRequest{}, in, outputs)
+		require.NoError(t, err)
+		files := mounted(t, req)
+		require.Len(t, files, 2)
+		require.Equal(t, []string{"2337"}, enabledChainIDs(t, files[accessorevm.DefaultEVMConfigPath]))
+	})
+
+	t.Run("a chain ID the verifier does not have is rejected", func(t *testing.T) {
+		in := newInput(util.OpaqueConfig{"log_poller_source_reader_chains": []any{"1337", "9999"}})
+		_, err := VerifierModifier(testcontainers.ContainerRequest{}, in, outputs)
+		require.ErrorContains(t, err, "chain IDs [9999]")
+	})
+
 	t.Run("absent: RPC reader and no EVM secrets", func(t *testing.T) {
-		req, err := VerifierModifier(testcontainers.ContainerRequest{}, newInput(nil), []*blockchain.Output{output})
+		req, err := VerifierModifier(testcontainers.ContainerRequest{}, newInput(nil), outputs)
 		require.NoError(t, err)
 		files := mounted(t, req)
 		require.Len(t, files, 1)
-		require.NotContains(t, files[accessorevm.DefaultEVMConfigPath], "log_poller_enabled")
+		require.NotContains(t, files[accessorevm.DefaultEVMConfigPath], "log_poller_source_reader_enabled")
 	})
 
 	t.Run("an unknown key is rejected", func(t *testing.T) {
-		_, err := VerifierModifier(testcontainers.ContainerRequest{}, newInput(util.OpaqueConfig{"log_poller": true}), []*blockchain.Output{output})
+		_, err := VerifierModifier(testcontainers.ContainerRequest{}, newInput(util.OpaqueConfig{"log_poller_enabled": true}), outputs)
 		require.ErrorContains(t, err, "opaque_configs.evm")
 	})
 }
@@ -165,7 +201,7 @@ func TestVerifierDatabases(t *testing.T) {
 		return in
 	}
 
-	got, err := VerifierDatabases(newInput(util.OpaqueConfig{"log_poller_enabled": true}))
+	got, err := VerifierDatabases(newInput(util.OpaqueConfig{"log_poller_source_reader_chains": []any{"*"}}))
 	require.NoError(t, err)
 	require.Equal(t, []string{evmDBName}, got, "the LogPoller needs evm_db")
 

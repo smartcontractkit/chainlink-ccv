@@ -102,7 +102,7 @@ func TestAccessorSourceReaderConcurrentCallsShareOneReader(t *testing.T) {
 	}
 }
 
-// newLogPollerAccessor is a source accessor with log_poller_enabled on for verifier-1.
+// newLogPollerAccessor is a source accessor whose chain sets log_poller_source_reader_enabled, for verifier-1.
 func newLogPollerAccessor(t *testing.T, runtime chainRuntime) *accessor {
 	t.Helper()
 	acc := newSourceAccessor(t, runtime)

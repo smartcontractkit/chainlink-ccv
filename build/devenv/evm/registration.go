@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -99,8 +102,14 @@ func init() {
 
 // verifierEVMConfig is a committee verifier's [verifier.opaque_configs.evm] section.
 type verifierEVMConfig struct {
-	LogPollerEnabled bool `toml:"log_poller_enabled"`
+	// LogPollerSourceReaderChains are the chain IDs that read through the LogPoller; "*" is every chain.
+	LogPollerSourceReaderChains []string `toml:"log_poller_source_reader_chains"`
 }
+
+// allChains in log_poller_source_reader_chains turns the LogPoller reader on for every chain.
+const allChains = "*"
+
+func (c verifierEVMConfig) logPollerOn() bool { return len(c.LogPollerSourceReaderChains) > 0 }
 
 // evmDBName is the EVM accessor's own database, created on the verifier's DB server when the LogPoller is on.
 const evmDBName = "evm_db"
@@ -121,7 +130,7 @@ func parseVerifierEVMConfig(in *committeeverifier.Input) (verifierEVMConfig, err
 // VerifierDatabases asks for evm_db only when the verifier reads through the LogPoller.
 func VerifierDatabases(in *committeeverifier.Input) ([]string, error) {
 	cfg, err := parseVerifierEVMConfig(in)
-	if err != nil || !cfg.LogPollerEnabled {
+	if err != nil || !cfg.logPollerOn() {
 		return nil, err
 	}
 	return []string{evmDBName}, nil
@@ -134,8 +143,8 @@ func VerifierModifier(req testcontainers.ContainerRequest, verifierInput *commit
 	if err != nil {
 		return req, err
 	}
-	req, err = addEVMConfig(req, outputs, withLogPoller(cfg.LogPollerEnabled))
-	if err != nil || !cfg.LogPollerEnabled {
+	req, err = addEVMConfig(req, outputs, withLogPoller(cfg.LogPollerSourceReaderChains))
+	if err != nil || !cfg.logPollerOn() {
 		return req, err
 	}
 	return addEVMSecrets(req, verifierInput)
@@ -153,11 +162,37 @@ func TokenVerifierModifier(req testcontainers.ContainerRequest, _ *services.Toke
 }
 
 // evmConfigOption adjusts the EVM config generated from the blockchain outputs for one container.
-type evmConfigOption func(*evm.Config)
+type evmConfigOption func(*evm.Config) error
 
-// withLogPoller sets log_poller_enabled in the generated EVM config.
-func withLogPoller(enabled bool) evmConfigOption {
-	return func(c *evm.Config) { c.LogPollerEnabled = enabled }
+// withLogPoller sets log_poller_source_reader_enabled on the listed chain IDs, or on every chain for "*".
+func withLogPoller(chainIDs []string) evmConfigOption {
+	return func(c *evm.Config) error {
+		want := make(map[string]bool, len(chainIDs))
+		for _, id := range chainIDs {
+			want[id] = true
+		}
+		for selector, chain := range c.Chains {
+			sel, err := strconv.ParseUint(selector, 10, 64)
+			if err != nil {
+				return fmt.Errorf("invalid chain selector %q: %w", selector, err)
+			}
+			chainID, err := chainsel.GetChainIDFromSelector(sel)
+			if err != nil {
+				return fmt.Errorf("chain selector %s: %w", selector, err)
+			}
+			if want[allChains] || want[chainID] {
+				chain.LogPollerSourceReaderEnabled = true
+				c.Chains[selector] = chain
+				delete(want, chainID)
+			}
+		}
+		delete(want, allChains)
+		if len(want) > 0 {
+			return fmt.Errorf("log_poller_source_reader_chains names chain IDs %v, which are not among the verifier's chains",
+				slices.Sorted(maps.Keys(want)))
+		}
+		return nil
+	}
 }
 
 func addEVMConfig(req testcontainers.ContainerRequest, outputs []*blockchain.Output, opts ...evmConfigOption) (testcontainers.ContainerRequest, error) {
@@ -404,7 +439,9 @@ func marshalEVMConfig(outputs []*blockchain.Output, opts ...evmConfigOption) ([]
 
 	cfg := evm.NewConfigFromInfos(infos)
 	for _, opt := range opts {
-		opt(&cfg)
+		if err := opt(&cfg); err != nil {
+			return nil, err
+		}
 	}
 	config, err := toml.Marshal(cfg)
 	if err != nil {

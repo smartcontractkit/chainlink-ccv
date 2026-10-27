@@ -10,6 +10,7 @@ import (
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -36,19 +37,30 @@ func writeEVMFiles(t *testing.T, config, secrets string) {
 }
 
 func TestCreateEVMAccessorFactoryLogPollerNeedsTheEVMDatabase(t *testing.T) {
-	writeEVMFiles(t, "log_poller_enabled = true\n[chains]\n", "")
+	writeEVMFiles(t, logPollerOnOneChain, "")
 	_, err := CreateEVMAccessorFactory(logger.Test(t), chainaccess.GenericConfig{})
+	require.ErrorContains(t, err, "log_poller_source_reader_enabled on chain 16015286601757825753")
 	require.ErrorContains(t, err, "requires [db]")
 }
 
+// logPollerOnOneChain turns the LogPoller reader on for the first chain only.
+const logPollerOnOneChain = `[chains.16015286601757825753]
+log_poller_source_reader_enabled = true
+[[chains.16015286601757825753.nodes]]
+name = "primary"
+http_url = "http://localhost:8545"
+[chains.5009297550715157269]
+[[chains.5009297550715157269.nodes]]
+name = "primary"
+http_url = "http://localhost:8546"
+`
+
 func TestCreateEVMAccessorFactoryPassesLogPollerAndVerifierID(t *testing.T) {
-	writeEVMFiles(t,
-		"log_poller_enabled = true\n[chains.16015286601757825753]\n[[chains.16015286601757825753.nodes]]\nname = \"primary\"\nhttp_url = \"http://localhost:8545\"\n",
-		"[db]\nurl = \"postgres://localhost:5432/evm\"\n")
+	writeEVMFiles(t, logPollerOnOneChain, "[db]\nurl = \"postgres://localhost:5432/evm\"\n")
 	got, err := CreateEVMAccessorFactory(logger.Test(t), chainaccess.GenericConfig{VerifierID: "verifier-1"})
 	require.NoError(t, err)
 	f := got.(*factory)
-	require.True(t, f.logPollerEnabled)
+	require.Equal(t, map[protocol.ChainSelector]bool{16015286601757825753: true}, f.logPollerChains)
 	require.Equal(t, "verifier-1", f.verifierID)
 	require.NotNil(t, f.db, "the database is configured but not connected")
 }
