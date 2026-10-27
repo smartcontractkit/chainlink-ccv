@@ -316,3 +316,49 @@ func Test_Config_Validate_DuplicateVerifierID(t *testing.T) {
 	cfg.TokenVerifiers = append(cfg.TokenVerifiers, VerifierConfig{VerifierID: "a"})
 	require.ErrorContains(t, cfg.Validate(), `duplicate verifier_id "a"`)
 }
+
+// Integer TOML durations fall back to defaults; quoted duration strings are honored.
+func Test_Config_DurationParsing(t *testing.T) {
+	tests := []struct {
+		name        string
+		durations   string
+		wantTimeout time.Duration
+	}{
+		{
+			name: "integer form silently uses defaults",
+			durations: `attestation_api_timeout = 3000000000
+attestation_api_interval = 100000000
+attestation_api_cooldown = 300000000000`,
+			wantTimeout: 1 * time.Second,
+		},
+		{
+			name: "string form is honored",
+			durations: `attestation_api_timeout = "3s"
+attestation_api_interval = "100ms"
+attestation_api_cooldown = "5m0s"`,
+			wantTimeout: 3 * time.Second,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var cfg Config
+			src := `
+[[token_verifiers]]
+verifier_id = "cctp-CCTPVerifier"
+type = "cctp"
+version = "2.0"
+attestation_api = "https://iris-api.circle.com"
+` + tt.durations + "\n"
+			require.NoError(t, toml.Unmarshal([]byte(src), &cfg))
+			require.Len(t, cfg.TokenVerifiers, 1)
+			cc := cfg.TokenVerifiers[0].CCTPConfig
+			require.NotNil(t, cc)
+			require.Equal(t, tt.wantTimeout, cc.AttestationAPITimeout)
+			// Same either way: the integer form's 100ms/5m fall back to
+			// defaults of coincidentally the same value.
+			require.Equal(t, 100*time.Millisecond, cc.AttestationAPIInterval)
+			require.Equal(t, 5*time.Minute, cc.AttestationAPICooldown)
+		})
+	}
+}
