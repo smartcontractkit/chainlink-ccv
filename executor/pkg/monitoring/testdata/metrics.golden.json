@@ -1,0 +1,225 @@
+[
+  {
+    "name": "executor_all_indexers_failed_total",
+    "kind": "Int64Counter",
+    "unit": "",
+    "description": "Total number of times all indexers failed",
+    "labels": []
+  },
+  {
+    "name": "executor_already_executed_messages_total",
+    "kind": "Int64Counter",
+    "unit": "",
+    "description": "Total number of times an executor skips a message due to it being already executed by a different executor",
+    "labels": []
+  },
+  {
+    "name": "executor_destination_reader_critical_failure_total",
+    "kind": "Int64Counter",
+    "unit": "",
+    "description": "Total number of messages rejected due to the destination reader being in an unrecoverable failure state",
+    "labels": [
+      "destChainName",
+      "destChainSelector"
+    ]
+  },
+  {
+    "name": "executor_get_ccv_info_errors",
+    "kind": "Int64Counter",
+    "unit": "",
+    "description": "Number of errored CCV info onchain calls",
+    "labels": [
+      "destChainName",
+      "destChainSelector"
+    ]
+  },
+  {
+    "name": "executor_get_ccv_info_latency_seconds",
+    "kind": "Float64Histogram",
+    "unit": "seconds",
+    "description": "Duration of the GetCCVSForMessage onchain call",
+    "buckets": [
+      0,
+      5,
+      10,
+      25,
+      50,
+      75,
+      100,
+      250,
+      500,
+      750,
+      1000,
+      2500,
+      5000,
+      7500,
+      10000
+    ],
+    "labels": [
+      "destChainName",
+      "destChainSelector"
+    ]
+  },
+  {
+    "name": "executor_get_ccv_info_total",
+    "kind": "Int64Counter",
+    "unit": "",
+    "description": "Total number of CCV info onchain calls",
+    "labels": []
+  },
+  {
+    "name": "executor_indexer_heartbeat_failure_total",
+    "kind": "Int64Counter",
+    "unit": "",
+    "description": "Total number of failed heartbeats to indexer",
+    "labels": []
+  },
+  {
+    "name": "executor_indexer_heartbeat_success_total",
+    "kind": "Int64Counter",
+    "unit": "",
+    "description": "Total number of successful heartbeats sent to indexer",
+    "labels": []
+  },
+  {
+    "name": "executor_indexer_last_heartbeat_timestamp",
+    "kind": "Int64Gauge",
+    "unit": "",
+    "description": "Timestamp of the last successful heartbeat sent to indexer",
+    "labels": []
+  },
+  {
+    "name": "executor_indexer_switch_total",
+    "kind": "Int64Counter",
+    "unit": "",
+    "description": "Total number of times we switch between indexers",
+    "labels": []
+  },
+  {
+    "name": "executor_local_chain_global_cursed",
+    "kind": "Int64Gauge",
+    "unit": "",
+    "description": "Specifies if local chain has global curse",
+    "labels": [
+      "localChainName",
+      "localSelector"
+    ]
+  },
+  {
+    "name": "executor_message_execution_duration_seconds",
+    "kind": "Float64Histogram",
+    "unit": "seconds",
+    "description": "Full message lifecycle latency from source read to storage write",
+    "buckets": [
+      1,
+      2,
+      5,
+      10,
+      15,
+      30,
+      60,
+      120,
+      180,
+      300,
+      600,
+      900,
+      1200
+    ],
+    "labels": [
+      "destChainName",
+      "destChainSelector"
+    ]
+  },
+  {
+    "name": "executor_message_expiry_total",
+    "kind": "Int64Counter",
+    "unit": "",
+    "description": "Total number of messages expired and not attempted due to being too old",
+    "labels": []
+  },
+  {
+    "name": "executor_message_failures_total",
+    "kind": "Int64Counter",
+    "unit": "",
+    "description": "Message failures by stage, retryability, and classified cause",
+    "labels": [
+      "error_class",
+      "retryable",
+      "stage"
+    ]
+  },
+  {
+    "name": "executor_message_heap_size",
+    "kind": "Int64Gauge",
+    "unit": "",
+    "description": "Current size of the heap of messages to potentially attempt",
+    "labels": []
+  },
+  {
+    "name": "executor_message_processing_total",
+    "kind": "Int64Counter",
+    "unit": "",
+    "description": "Total number of processed messages",
+    "labels": []
+  },
+  {
+    "name": "executor_message_transitions_total",
+    "kind": "Int64Counter",
+    "unit": "",
+    "description": "Message pipeline transitions by stage and outcome",
+    "labels": [
+      "outcome",
+      "reason",
+      "stage"
+    ]
+  },
+  {
+    "name": "executor_messages_in_flight",
+    "kind": "Int64Gauge",
+    "unit": "",
+    "description": "Current messages being processed by workers",
+    "labels": []
+  },
+  {
+    "name": "executor_messages_pending",
+    "kind": "Int64Gauge",
+    "unit": "",
+    "description": "Current messages pending in the delayed execution heap",
+    "labels": []
+  },
+  {
+    "name": "executor_messages_processing_errors",
+    "kind": "Int64Counter",
+    "unit": "",
+    "description": "Number of messages failed to process",
+    "labels": [
+      "retry"
+    ]
+  },
+  {
+    "name": "executor_oldest_pending_message_age_seconds",
+    "kind": "Float64Gauge",
+    "unit": "seconds",
+    "description": "Age of the oldest message pending in the delayed execution heap",
+    "labels": []
+  },
+  {
+    "name": "executor_remote_chain_cursed",
+    "kind": "Int64Gauge",
+    "unit": "",
+    "description": "Specifies if local chain considers remote chain as cursed",
+    "labels": [
+      "localChainName",
+      "localSelector",
+      "remoteChainName",
+      "remoteSelector"
+    ]
+  },
+  {
+    "name": "executor_unrecoverable_message_failure_total",
+    "kind": "Int64Counter",
+    "unit": "",
+    "description": "Total number of unrecoverable message failures",
+    "labels": []
+  }
+]

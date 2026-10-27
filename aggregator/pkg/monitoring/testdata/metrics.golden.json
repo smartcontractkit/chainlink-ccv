@@ -1,0 +1,272 @@
+[
+  {
+    "name": "aggregator_active_requests",
+    "kind": "Int64UpDownCounter",
+    "unit": "",
+    "description": "Total number of active requests",
+    "labels": []
+  },
+  {
+    "name": "aggregator_aggregations_blocked_unexportable",
+    "kind": "Int64Counter",
+    "unit": "",
+    "description": "Aggregations that met quorum but could not be mapped for export",
+    "labels": []
+  },
+  {
+    "name": "aggregator_api_request_duration_seconds",
+    "kind": "Float64Histogram",
+    "unit": "",
+    "description": "Duration of API requests",
+    "buckets": [
+      0,
+      0.001,
+      0.005,
+      0.01,
+      0.025,
+      0.05,
+      0.1,
+      0.25,
+      0.5,
+      1,
+      2.5,
+      5,
+      10
+    ],
+    "labels": []
+  },
+  {
+    "name": "aggregator_api_request_errors",
+    "kind": "Int64Counter",
+    "unit": "",
+    "description": "Total number of API request errors",
+    "labels": [
+      "method"
+    ]
+  },
+  {
+    "name": "aggregator_completed_aggregations",
+    "kind": "Int64Counter",
+    "unit": "",
+    "description": "Total number of completed aggregations",
+    "labels": []
+  },
+  {
+    "name": "aggregator_get_message_since_number_of_records_returns",
+    "kind": "Int64Histogram",
+    "unit": "",
+    "description": "Number of records returned by GetMessagesSince",
+    "buckets": [
+      0,
+      1,
+      5,
+      10,
+      25,
+      50,
+      100,
+      250,
+      500,
+      1000
+    ],
+    "labels": []
+  },
+  {
+    "name": "aggregator_grpc_errors_total",
+    "kind": "Int64Counter",
+    "unit": "",
+    "description": "Total number of gRPC errors by status code",
+    "labels": [
+      "code",
+      "method"
+    ]
+  },
+  {
+    "name": "aggregator_grpc_payload_size_bytes",
+    "kind": "Int64Histogram",
+    "unit": "bytes",
+    "description": "Wire-level gRPC payload size in bytes",
+    "buckets": [
+      512,
+      1024,
+      4096,
+      16384,
+      65536,
+      262144,
+      1048576,
+      4194304,
+      16777216
+    ],
+    "labels": [
+      "direction",
+      "method"
+    ]
+  },
+  {
+    "name": "aggregator_heartbeat_verifier_current_max_chain_head",
+    "kind": "Int64Gauge",
+    "unit": "",
+    "description": "Maximum block height across all verifiers on a specific chain",
+    "labels": []
+  },
+  {
+    "name": "aggregator_heartbeat_verifier_heartbeat_timestamp",
+    "kind": "Float64Gauge",
+    "unit": "",
+    "description": "Timestamp of the last heartbeat received from verifiers",
+    "labels": []
+  },
+  {
+    "name": "aggregator_heartbeat_verifier_heartbeats_total",
+    "kind": "Int64Counter",
+    "unit": "",
+    "description": "Total number of verifier heartbeats received",
+    "labels": []
+  },
+  {
+    "name": "aggregator_heartbeat_verifier_reported_chain_heads",
+    "kind": "Int64Gauge",
+    "unit": "",
+    "description": "Latest chain head reported by verifiers",
+    "labels": []
+  },
+  {
+    "name": "aggregator_heartbeat_verifier_score",
+    "kind": "Float64Gauge",
+    "unit": "",
+    "description": "Health score of verifiers based on heartbeats",
+    "labels": []
+  },
+  {
+    "name": "aggregator_message_disablement_rule_active",
+    "kind": "Int64Gauge",
+    "unit": "1",
+    "description": "Whether a message disablement rule is active (1) or inactive (0)",
+    "labels": []
+  },
+  {
+    "name": "aggregator_message_disablement_rules_refresh_failure",
+    "kind": "Int64Gauge",
+    "unit": "1",
+    "description": "Whether the latest message disablement rules refresh failed (1) or succeeded (0)",
+    "labels": []
+  },
+  {
+    "name": "aggregator_orphan_backlog",
+    "kind": "Int64Gauge",
+    "unit": "",
+    "description": "Current count of non-expired orphan records (recovery queue)",
+    "labels": []
+  },
+  {
+    "name": "aggregator_orphan_expired_backlog",
+    "kind": "Int64Gauge",
+    "unit": "",
+    "description": "Current count of expired orphan records (pending cleanup)",
+    "labels": []
+  },
+  {
+    "name": "aggregator_orphan_recovery_duration_seconds",
+    "kind": "Float64Histogram",
+    "unit": "",
+    "description": "Duration of orphan recovery scans in seconds",
+    "buckets": [
+      0.1,
+      0.5,
+      1,
+      2.5,
+      5,
+      10,
+      30,
+      60,
+      120,
+      300
+    ],
+    "labels": []
+  },
+  {
+    "name": "aggregator_orphan_recovery_errors",
+    "kind": "Int64Counter",
+    "unit": "",
+    "description": "Total number of errors during orphan recovery",
+    "labels": []
+  },
+  {
+    "name": "aggregator_panics",
+    "kind": "Int64Counter",
+    "unit": "",
+    "description": "Total number of panics recovered by background workers",
+    "labels": []
+  },
+  {
+    "name": "aggregator_pending_aggregations_channel_buffer",
+    "kind": "Int64UpDownCounter",
+    "unit": "",
+    "description": "Current size of the pending aggregations channel buffer",
+    "labels": []
+  },
+  {
+    "name": "aggregator_storage_duration_seconds",
+    "kind": "Float64Histogram",
+    "unit": "",
+    "description": "Latency of storage operations",
+    "buckets": [
+      0,
+      0.001,
+      0.005,
+      0.01,
+      0.025,
+      0.05,
+      0.1,
+      0.25,
+      0.5,
+      1,
+      2.5,
+      5,
+      10
+    ],
+    "labels": [
+      "errored",
+      "operation"
+    ]
+  },
+  {
+    "name": "aggregator_storage_errors",
+    "kind": "Int64Counter",
+    "unit": "",
+    "description": "Total number of storage errors",
+    "labels": [
+      "operation"
+    ]
+  },
+  {
+    "name": "aggregator_time_to_aggregation_seconds",
+    "kind": "Float64Histogram",
+    "unit": "",
+    "description": "Time taken to complete an aggregation",
+    "buckets": [
+      0,
+      5,
+      10,
+      25,
+      50,
+      75,
+      100,
+      250,
+      500,
+      750,
+      1000,
+      2500,
+      5000,
+      7500,
+      10000
+    ],
+    "labels": []
+  },
+  {
+    "name": "aggregator_verifications_total",
+    "kind": "Int64Counter",
+    "unit": "",
+    "description": "Total number of verification records processed",
+    "labels": []
+  }
+]

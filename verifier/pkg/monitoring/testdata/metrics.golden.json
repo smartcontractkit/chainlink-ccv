@@ -1,0 +1,549 @@
+[
+  {
+    "name": "verifier_critical_source_invariant_violations_total",
+    "kind": "Int64Counter",
+    "unit": "",
+    "description": "Encoded CCIP message disagrees with configured source chain observation (e.g. onRamp address or message id vs log)",
+    "labels": []
+  },
+  {
+    "name": "verifier_heartbeat_chain_heads",
+    "kind": "Int64Gauge",
+    "unit": "",
+    "description": "Block height for a chain from the heartbeat response",
+    "labels": []
+  },
+  {
+    "name": "verifier_heartbeat_duration_seconds",
+    "kind": "Float64Histogram",
+    "unit": "seconds",
+    "description": "Duration of heartbeat requests",
+    "buckets": [
+      0,
+      5,
+      10,
+      25,
+      50,
+      75,
+      100,
+      250,
+      500,
+      750,
+      1000,
+      2500,
+      5000,
+      7500,
+      10000
+    ],
+    "labels": []
+  },
+  {
+    "name": "verifier_heartbeat_score",
+    "kind": "Float64Gauge",
+    "unit": "",
+    "description": "Score for a chain from the heartbeat response",
+    "labels": []
+  },
+  {
+    "name": "verifier_heartbeat_sent_chain_heads",
+    "kind": "Int64Gauge",
+    "unit": "",
+    "description": "Block height sent in the heartbeat request for a chain",
+    "labels": []
+  },
+  {
+    "name": "verifier_heartbeat_timestamp",
+    "kind": "Float64Gauge",
+    "unit": "",
+    "description": "Timestamp from the heartbeat response",
+    "labels": []
+  },
+  {
+    "name": "verifier_heartbeats_failed_total",
+    "kind": "Int64Counter",
+    "unit": "",
+    "description": "Total number of failed heartbeat attempts",
+    "labels": []
+  },
+  {
+    "name": "verifier_heartbeats_sent_total",
+    "kind": "Int64Counter",
+    "unit": "",
+    "description": "Total number of successfully sent heartbeats",
+    "labels": []
+  },
+  {
+    "name": "verifier_http_active_requests",
+    "kind": "Int64UpDownCounter",
+    "unit": "",
+    "description": "Number of currently active HTTP requests",
+    "labels": []
+  },
+  {
+    "name": "verifier_http_request_duration_seconds",
+    "kind": "Float64Histogram",
+    "unit": "seconds",
+    "description": "Duration of HTTP requests",
+    "buckets": [
+      0.001,
+      0.005,
+      0.01,
+      0.025,
+      0.05,
+      0.1,
+      0.25,
+      0.5,
+      1,
+      2.5,
+      5,
+      10
+    ],
+    "labels": [
+      "method",
+      "path",
+      "status"
+    ]
+  },
+  {
+    "name": "verifier_http_requests_total",
+    "kind": "Int64Counter",
+    "unit": "",
+    "description": "Total number of HTTP requests",
+    "labels": []
+  },
+  {
+    "name": "verifier_local_chain_global_cursed",
+    "kind": "Int64Gauge",
+    "unit": "",
+    "description": "Specifies if local chain has global curse",
+    "labels": [
+      "localChainName",
+      "localSelector"
+    ]
+  },
+  {
+    "name": "verifier_message_disablement_rules_mismatch",
+    "kind": "Int64Counter",
+    "unit": "1",
+    "description": "Count of messages for which aggregators disagreed on disablement (rules assumed identical)",
+    "labels": []
+  },
+  {
+    "name": "verifier_message_disablement_rules_refresh_failure",
+    "kind": "Int64Gauge",
+    "unit": "1",
+    "description": "Whether the latest message disablement rules refresh failed (1) or succeeded (0)",
+    "labels": []
+  },
+  {
+    "name": "verifier_message_e2e_latency_seconds",
+    "kind": "Float64Histogram",
+    "unit": "seconds",
+    "description": "Full message lifecycle latency from source read to storage write",
+    "buckets": [
+      0.1,
+      0.5,
+      1,
+      2,
+      5,
+      10,
+      20,
+      30,
+      60,
+      90,
+      120,
+      180,
+      240,
+      300,
+      360,
+      420,
+      480,
+      540,
+      600,
+      900,
+      1200,
+      1800,
+      2400,
+      3000,
+      3600,
+      4200,
+      4800,
+      5400,
+      6000
+    ],
+    "labels": []
+  },
+  {
+    "name": "verifier_message_failures_total",
+    "kind": "Int64Counter",
+    "unit": "",
+    "description": "Message failures by stage, retryability, and classified cause",
+    "labels": [
+      "error_class",
+      "retryable",
+      "stage"
+    ]
+  },
+  {
+    "name": "verifier_message_transitions_total",
+    "kind": "Int64Counter",
+    "unit": "",
+    "description": "Message pipeline transitions by stage and outcome",
+    "labels": [
+      "outcome",
+      "reason",
+      "stage"
+    ]
+  },
+  {
+    "name": "verifier_messages_in_flight",
+    "kind": "Int64Gauge",
+    "unit": "",
+    "description": "Current in-flight messages by pipeline state",
+    "labels": [
+      "state"
+    ]
+  },
+  {
+    "name": "verifier_messages_verification_errors",
+    "kind": "Int64Counter",
+    "unit": "",
+    "description": "Total number of messages that failed verification",
+    "labels": []
+  },
+  {
+    "name": "verifier_messages_verification_total",
+    "kind": "Int64Counter",
+    "unit": "",
+    "description": "Total number of successfully processed and stored messages",
+    "labels": []
+  },
+  {
+    "name": "verifier_oldest_message_age_seconds",
+    "kind": "Float64Gauge",
+    "unit": "seconds",
+    "description": "Age of the oldest in-flight message by pipeline state",
+    "labels": [
+      "state"
+    ]
+  },
+  {
+    "name": "verifier_policy_http_request_duration_seconds",
+    "kind": "Float64Histogram",
+    "unit": "seconds",
+    "description": "Duration of outbound policy hook HTTP requests",
+    "buckets": [
+      0.001,
+      0.005,
+      0.01,
+      0.025,
+      0.05,
+      0.1,
+      0.25,
+      0.5,
+      1,
+      2.5,
+      5,
+      10,
+      15
+    ],
+    "labels": [
+      "outcome"
+    ]
+  },
+  {
+    "name": "verifier_remote_chain_cursed",
+    "kind": "Int64Gauge",
+    "unit": "",
+    "description": "Specifies if local chain considers remote chain as cursed",
+    "labels": [
+      "localChainName",
+      "localSelector",
+      "remoteChainName",
+      "remoteSelector"
+    ]
+  },
+  {
+    "name": "verifier_reorg_tracked_seqnums",
+    "kind": "Int64Gauge",
+    "unit": "",
+    "description": "Number of sequence numbers being tracked due to reorg per destination chain",
+    "labels": []
+  },
+  {
+    "name": "verifier_source_chain_finality_violated",
+    "kind": "Int64Gauge",
+    "unit": "",
+    "description": "Specifies if source chain finality was violated",
+    "labels": [
+      "sourceChainName",
+      "sourceChainSelector"
+    ]
+  },
+  {
+    "name": "verifier_source_chain_finalized_block",
+    "kind": "Int64Gauge",
+    "unit": "",
+    "description": "Latest finalized block number for a source chain",
+    "labels": []
+  },
+  {
+    "name": "verifier_source_chain_latest_block",
+    "kind": "Int64Gauge",
+    "unit": "",
+    "description": "Latest block number for a source chain",
+    "labels": []
+  },
+  {
+    "name": "verifier_source_chain_safe_block",
+    "kind": "Int64Gauge",
+    "unit": "",
+    "description": "Latest safe block number for a source chain",
+    "labels": []
+  },
+  {
+    "name": "verifier_source_reader_last_processed_finalized_block",
+    "kind": "Int64Gauge",
+    "unit": "",
+    "description": "Last finalized block processed by the source reader",
+    "labels": []
+  },
+  {
+    "name": "verifier_source_reader_last_successful_poll_timestamp",
+    "kind": "Float64Gauge",
+    "unit": "",
+    "description": "Unix timestamp of the last successful source reader poll",
+    "labels": []
+  },
+  {
+    "name": "verifier_source_reader_state",
+    "kind": "Int64Gauge",
+    "unit": "",
+    "description": "One-hot source reader state",
+    "labels": [
+      "state"
+    ]
+  },
+  {
+    "name": "verifier_storage_query_duration_seconds",
+    "kind": "Float64Histogram",
+    "unit": "seconds",
+    "description": "Duration of storage query operations",
+    "buckets": [
+      0.001,
+      0.005,
+      0.01,
+      0.025,
+      0.05,
+      0.1,
+      0.25,
+      0.5,
+      1,
+      2.5,
+      5,
+      10
+    ],
+    "labels": [
+      "method"
+    ]
+  },
+  {
+    "name": "verifier_storage_write_duration_seconds",
+    "kind": "Float64Histogram",
+    "unit": "seconds",
+    "description": "Duration of writing to offchain storage",
+    "buckets": [
+      0.01,
+      0.025,
+      0.05,
+      0.1,
+      0.25,
+      0.5,
+      1,
+      2.5,
+      5,
+      10,
+      25,
+      50,
+      100,
+      250,
+      500,
+      1000
+    ],
+    "labels": []
+  },
+  {
+    "name": "verifier_storage_write_errors",
+    "kind": "Int64Counter",
+    "unit": "",
+    "description": "Total number of errors when writing to offchain storage",
+    "labels": []
+  },
+  {
+    "name": "verifier_storage_write_queue_size",
+    "kind": "Int64Gauge",
+    "unit": "",
+    "description": "Current size of the storage write queue (pending + processing jobs)",
+    "labels": []
+  },
+  {
+    "name": "verifier_task_verification_duration_seconds",
+    "kind": "Float64Histogram",
+    "unit": "seconds",
+    "description": "Duration of the full VerifyMessage operation",
+    "buckets": [
+      0,
+      5,
+      10,
+      25,
+      50,
+      75,
+      100,
+      250,
+      500,
+      750,
+      1000,
+      2500,
+      5000,
+      7500,
+      10000
+    ],
+    "labels": []
+  },
+  {
+    "name": "verifier_task_verification_permanent_errors_total",
+    "kind": "Int64Counter",
+    "unit": "",
+    "description": "Total number of non-retryable errors during task verification",
+    "labels": []
+  },
+  {
+    "name": "verifier_task_verification_queue_size",
+    "kind": "Int64Gauge",
+    "unit": "",
+    "description": "Current size of the task verification queue (pending + processing jobs)",
+    "labels": []
+  },
+  {
+    "name": "verifier_token_attestation_fetch_duration_seconds",
+    "kind": "Float64Histogram",
+    "unit": "seconds",
+    "description": "Duration of fetching and decoding an attestation for a single message",
+    "buckets": [
+      0.001,
+      0.005,
+      0.01,
+      0.025,
+      0.05,
+      0.1,
+      0.25,
+      0.5,
+      1,
+      2.5,
+      5
+    ],
+    "labels": [
+      "provider"
+    ]
+  },
+  {
+    "name": "verifier_token_attestation_fetch_total",
+    "kind": "Int64Counter",
+    "unit": "",
+    "description": "Attestation fetch attempts by token provider and outcome",
+    "labels": [
+      "outcome",
+      "provider"
+    ]
+  },
+  {
+    "name": "verifier_token_http_active_requests",
+    "kind": "Int64UpDownCounter",
+    "unit": "",
+    "description": "Number of currently active outbound attestation HTTP requests",
+    "labels": [
+      "provider"
+    ]
+  },
+  {
+    "name": "verifier_token_http_cooldown_seconds",
+    "kind": "Float64Gauge",
+    "unit": "seconds",
+    "description": "Seconds until an outbound attestation API cools down (0 when not cooling down)",
+    "labels": [
+      "provider"
+    ]
+  },
+  {
+    "name": "verifier_token_http_rate_limited_total",
+    "kind": "Int64Counter",
+    "unit": "",
+    "description": "Total number of outbound attestation HTTP requests dropped or delayed due to API rate limiting",
+    "labels": [
+      "method",
+      "provider"
+    ]
+  },
+  {
+    "name": "verifier_token_http_request_duration_seconds",
+    "kind": "Float64Histogram",
+    "unit": "seconds",
+    "description": "Duration of outbound attestation HTTP requests",
+    "buckets": [
+      0.001,
+      0.005,
+      0.01,
+      0.025,
+      0.05,
+      0.1,
+      0.25,
+      0.5,
+      1,
+      2.5,
+      5,
+      10
+    ],
+    "labels": [
+      "method",
+      "outcome",
+      "provider",
+      "status"
+    ]
+  },
+  {
+    "name": "verifier_token_http_requests_total",
+    "kind": "Int64Counter",
+    "unit": "",
+    "description": "Total number of outbound attestation HTTP requests by provider, method and outcome",
+    "labels": [
+      "method",
+      "outcome",
+      "provider",
+      "status"
+    ]
+  },
+  {
+    "name": "verifier_verification_queue_latency_seconds",
+    "kind": "Float64Histogram",
+    "unit": "seconds",
+    "description": "Time a message spent in the verification queue from push to poll",
+    "buckets": [
+      0,
+      5,
+      10,
+      25,
+      50,
+      75,
+      100,
+      250,
+      500,
+      750,
+      1000,
+      2500,
+      5000,
+      7500,
+      10000
+    ],
+    "labels": []
+  }
+]

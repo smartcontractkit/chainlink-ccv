@@ -1,0 +1,36 @@
+name: metrics-golden
+
+# Fails when a PR removes or changes a metric or label in a testdata/metrics.golden.json file.
+# Add the metrics-breaking-change label to allow an intended removal.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+jobs:
+  compare:
+    name: metrics add-only check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v6 # v6
+        with:
+          cache: true
+          go-version-file: 'go.mod'
+
+      - name: Install just
+        uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # v3
+        with:
+          just-version: '1.40.0'
+
+      - name: Compare golden files
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          ALLOW_BREAKING: ${{ contains(github.event.pull_request.labels.*.name, 'metrics-breaking-change') }}
+        run: just metrics-golden-check "${BASE_SHA}" "${ALLOW_BREAKING}"

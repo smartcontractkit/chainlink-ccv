@@ -94,6 +94,19 @@ test-coverage coverage_file="coverage.out" short="":
     { head -n1 {{coverage_file}}; tail -n +2 {{coverage_file}} | grep -v -E '{{COVERAGE_EXCLUDE_REGEX}}' || true; } > {{coverage_file}}.filtered
     mv {{coverage_file}}.filtered {{coverage_file}}
 
+# Regenerate the testdata/metrics.golden.json files. Review the diff before you commit.
+metrics-golden-update: ensure-go
+    UPDATE_METRICS_GOLDEN=1 go test -run '^TestMetricsGolden$' $(find . -name metrics_golden_test.go -not -path './build/*' -exec dirname {} \; | sort -u)
+
+# Fail if a metric or label in a golden file is removed or changed since base (the CI check).
+metrics-golden-check base="origin/main" allow_breaking="false": ensure-go
+    #!/usr/bin/env bash
+    set -euo pipefail
+    dir="$(mktemp -d)"
+    trap 'git worktree remove --force "$dir"' EXIT
+    git worktree add --detach "$dir" "{{base}}" >/dev/null
+    go run ./tools/metricsgolden/cmd/metricsgolden -base "$dir" -head . -allow-breaking="{{allow_breaking}}"
+
 bump-chainlink-ccip sha:
     @echo "Bumping chainlink-ccip dependencies in root..."
     go get github.com/smartcontractkit/chainlink-ccip/chains/evm@{{sha}}
