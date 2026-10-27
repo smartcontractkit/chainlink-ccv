@@ -29,8 +29,9 @@ func DefaultLeaseConfig() LeaseConfig {
 	return LeaseConfig{DefaultQueryTimeout: 10 * time.Second, LeaseDuration: 10 * time.Second, LeaseRefreshInterval: time.Second}
 }
 
-// Lease is the node's leaseLock (core/services/pg/lease_lock.go) on database/sql, over evm.lease_lock.
-// It is voluntary: it only excludes processes that also take it.
+// Lease is the node's leaseLock on database/sql, over evm.lease_lock. It is voluntary: it only excludes
+// processes that also take it. Ported from smartcontractkit/chainlink@6fff28e0c59ef1cc90119953a06adadd395074ca
+// core/services/pg/lease_lock.go; the table comes from migration 00002 instead of initialSQL.
 type Lease struct {
 	id         uuid.UUID
 	db         *sql.DB
