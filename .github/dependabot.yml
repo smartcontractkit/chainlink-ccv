@@ -1,5 +1,33 @@
 version: 2
 updates:
+  # Alerts only: dependabump opens the fix PRs because it tidies every module.
+  - package-ecosystem: gomod
+    directories:
+      - /
+      - /deployment
+      - /integration/evm
+      - /build/devenv
+      - /build/devenv/fakes
+      - /indexer/cmd/oapigen
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+
+  - package-ecosystem: github-actions
+    directories:
+      - /
+      - /.github/actions/*
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    groups:
+      github-actions-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "chore(ci)"
+
   # Keeps the digest-pinned base images in the production Dockerfiles current;
   # dependabot proposes the new tag/digest as a PR.
   - package-ecosystem: docker
@@ -15,5 +43,12 @@ updates:
     # One weekly PR for all base-image digest bumps instead of six.
     groups:
       docker-base-images:
+        applies-to: version-updates
         patterns:
           - "*"
+      docker-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "chore(deps)"
