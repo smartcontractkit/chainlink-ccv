@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/contracttransmitter"
@@ -217,7 +218,7 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 	var feeQuoterWriter chainaccess.FeeQuoterWriter
 	var gasPriceReader chainaccess.GasPriceReader
 	if hasPricerConfig {
-		feeQuoterWriter = pricereader.NewLoggingFeeQuoterWriter(chainLggr, common.HexToAddress(feeQuoterAddress))
+		feeQuoterWriter = pricereader.NewLoggingFeeQuoterWriter(chainLggr, chainClient, common.HexToAddress(feeQuoterAddress))
 		daOracle := func(ctx context.Context) (pricereader.DAGasPriceOracle, error) {
 			oracle, err := runtime.DAGasPriceOracle(ctx)
 			// A nil L1Oracle must become a plain nil, so that the reader sees no oracle.
