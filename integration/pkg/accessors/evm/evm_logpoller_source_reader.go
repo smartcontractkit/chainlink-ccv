@@ -98,7 +98,7 @@ type LogPollerSourceReader struct {
 	// loadErr is the last failed load attempt, so Loaded can say why the reader is not ready.
 	loadErr atomic.Pointer[error]
 	// finalityBlocked is set when the startup replay hit a finality violation. The reader then counts as
-	// loaded so recovery can run on it, and only a reset-reader prepare clears it.
+	// loaded so recovery can run on it. Nothing clears it, so it lasts until the reader is rebuilt on restart.
 	finalityBlocked atomic.Bool
 	// initBackoff and maxInitBackoff bound the retry of a failed load; zero uses the defaults.
 	initBackoff, maxInitBackoff time.Duration

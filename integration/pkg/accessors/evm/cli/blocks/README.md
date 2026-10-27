@@ -32,8 +32,8 @@ verifier ccv blocks remove-blocks --evm-chain-id <chain id> --start <lca+1>
 
 The commands check the switch and the chain before they open the database, and open it without running migrations. They exit non-zero and change nothing when the switch is off (the chain reads through the RPC source reader), the chain ID is not a known EVM chain, or its chain is missing from the EVM config (`find-lca`), or the `evm` schema is missing. `--help` needs none of this.
 
-The token verifier binary has the same commands and fails with a message that it has no LogPoller.
+The token verifier binary does not have these commands: it has no LogPoller.
 
 ## Operator note
 
-These commands are one step of the finality violation runbook, [Resolving a Finality Violation](../../docs/runbooks/resolving-finality-violation.md).
+These commands are one step of the finality violation runbook, [Resolving a Finality Violation](../../../../../../docs/runbooks/resolving-finality-violation.md).
