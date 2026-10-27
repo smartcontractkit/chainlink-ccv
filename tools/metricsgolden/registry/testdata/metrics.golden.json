@@ -1,0 +1,1311 @@
+{
+  "aggregator": [
+    {
+      "name": "aggregator_active_requests",
+      "kind": "Int64UpDownCounter",
+      "unit": "",
+      "description": "Total number of active requests",
+      "labels": []
+    },
+    {
+      "name": "aggregator_aggregations_blocked_unexportable",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "Aggregations that met quorum but could not be mapped for export",
+      "labels": []
+    },
+    {
+      "name": "aggregator_api_request_duration_seconds",
+      "kind": "Float64Histogram",
+      "unit": "",
+      "description": "Duration of API requests",
+      "buckets": [
+        0,
+        0.001,
+        0.005,
+        0.01,
+        0.025,
+        0.05,
+        0.1,
+        0.25,
+        0.5,
+        1,
+        2.5,
+        5,
+        10
+      ],
+      "labels": []
+    },
+    {
+      "name": "aggregator_api_request_errors",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "Total number of API request errors",
+      "labels": [
+        "method"
+      ]
+    },
+    {
+      "name": "aggregator_completed_aggregations",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "Total number of completed aggregations",
+      "labels": []
+    },
+    {
+      "name": "aggregator_get_message_since_number_of_records_returns",
+      "kind": "Int64Histogram",
+      "unit": "",
+      "description": "Number of records returned by GetMessagesSince",
+      "buckets": [
+        0,
+        1,
+        5,
+        10,
+        25,
+        50,
+        100,
+        250,
+        500,
+        1000
+      ],
+      "labels": []
+    },
+    {
+      "name": "aggregator_grpc_errors_total",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "Total number of gRPC errors by status code",
+      "labels": [
+        "code",
+        "method"
+      ]
+    },
+    {
+      "name": "aggregator_grpc_payload_size_bytes",
+      "kind": "Int64Histogram",
+      "unit": "bytes",
+      "description": "Wire-level gRPC payload size in bytes",
+      "buckets": [
+        512,
+        1024,
+        4096,
+        16384,
+        65536,
+        262144,
+        1048576,
+        4194304,
+        16777216
+      ],
+      "labels": [
+        "direction",
+        "method"
+      ]
+    },
+    {
+      "name": "aggregator_heartbeat_verifier_current_max_chain_head",
+      "kind": "Int64Gauge",
+      "unit": "",
+      "description": "Maximum block height across all verifiers on a specific chain",
+      "labels": []
+    },
+    {
+      "name": "aggregator_heartbeat_verifier_heartbeat_timestamp",
+      "kind": "Float64Gauge",
+      "unit": "",
+      "description": "Timestamp of the last heartbeat received from verifiers",
+      "labels": []
+    },
+    {
+      "name": "aggregator_heartbeat_verifier_heartbeats_total",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "Total number of verifier heartbeats received",
+      "labels": []
+    },
+    {
+      "name": "aggregator_heartbeat_verifier_reported_chain_heads",
+      "kind": "Int64Gauge",
+      "unit": "",
+      "description": "Latest chain head reported by verifiers",
+      "labels": []
+    },
+    {
+      "name": "aggregator_heartbeat_verifier_score",
+      "kind": "Float64Gauge",
+      "unit": "",
+      "description": "Health score of verifiers based on heartbeats",
+      "labels": []
+    },
+    {
+      "name": "aggregator_message_disablement_rule_active",
+      "kind": "Int64Gauge",
+      "unit": "1",
+      "description": "Whether a message disablement rule is active (1) or inactive (0)",
+      "labels": []
+    },
+    {
+      "name": "aggregator_message_disablement_rules_refresh_failure",
+      "kind": "Int64Gauge",
+      "unit": "1",
+      "description": "Whether the latest message disablement rules refresh failed (1) or succeeded (0)",
+      "labels": []
+    },
+    {
+      "name": "aggregator_orphan_backlog",
+      "kind": "Int64Gauge",
+      "unit": "",
+      "description": "Current count of non-expired orphan records (recovery queue)",
+      "labels": []
+    },
+    {
+      "name": "aggregator_orphan_expired_backlog",
+      "kind": "Int64Gauge",
+      "unit": "",
+      "description": "Current count of expired orphan records (pending cleanup)",
+      "labels": []
+    },
+    {
+      "name": "aggregator_orphan_recovery_duration_seconds",
+      "kind": "Float64Histogram",
+      "unit": "",
+      "description": "Duration of orphan recovery scans in seconds",
+      "buckets": [
+        0.1,
+        0.5,
+        1,
+        2.5,
+        5,
+        10,
+        30,
+        60,
+        120,
+        300
+      ],
+      "labels": []
+    },
+    {
+      "name": "aggregator_orphan_recovery_errors",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "Total number of errors during orphan recovery",
+      "labels": []
+    },
+    {
+      "name": "aggregator_panics",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "Total number of panics recovered by background workers",
+      "labels": []
+    },
+    {
+      "name": "aggregator_pending_aggregations_channel_buffer",
+      "kind": "Int64UpDownCounter",
+      "unit": "",
+      "description": "Current size of the pending aggregations channel buffer",
+      "labels": []
+    },
+    {
+      "name": "aggregator_storage_duration_seconds",
+      "kind": "Float64Histogram",
+      "unit": "",
+      "description": "Latency of storage operations",
+      "buckets": [
+        0,
+        0.001,
+        0.005,
+        0.01,
+        0.025,
+        0.05,
+        0.1,
+        0.25,
+        0.5,
+        1,
+        2.5,
+        5,
+        10
+      ],
+      "labels": [
+        "errored",
+        "operation"
+      ]
+    },
+    {
+      "name": "aggregator_storage_errors",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "Total number of storage errors",
+      "labels": [
+        "operation"
+      ]
+    },
+    {
+      "name": "aggregator_time_to_aggregation_seconds",
+      "kind": "Float64Histogram",
+      "unit": "",
+      "description": "Time taken to complete an aggregation",
+      "buckets": [
+        1,
+        5,
+        10,
+        60,
+        300,
+        720,
+        1200,
+        3600,
+        7200,
+        10800,
+        21600,
+        43200,
+        86400
+      ],
+      "labels": []
+    },
+    {
+      "name": "aggregator_verifications_total",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "Total number of verification records processed",
+      "labels": []
+    }
+  ],
+  "common_service": [
+    {
+      "name": "ccip_chain_healthy",
+      "kind": "Int64Gauge",
+      "unit": "",
+      "description": "Health status of configured chain (1 = healthy, 0 = degraded/failed)",
+      "labels": [
+        "ccip_service_name",
+        "chainName",
+        "chainSelector",
+        "chain_name",
+        "chain_selector",
+        "service",
+        "service_name"
+      ]
+    },
+    {
+      "name": "ccip_service_started",
+      "kind": "Int64Gauge",
+      "unit": "",
+      "description": "Indicates when the service is started (1 = started)",
+      "labels": [
+        "ccip_service_name",
+        "service_name"
+      ]
+    }
+  ],
+  "executor": [
+    {
+      "name": "executor_all_indexers_failed_total",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "Total number of times all indexers failed",
+      "labels": []
+    },
+    {
+      "name": "executor_already_executed_messages_total",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "Total number of times an executor skips a message due to it being already executed by a different executor",
+      "labels": []
+    },
+    {
+      "name": "executor_destination_reader_critical_failure_total",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "Total number of messages rejected due to the destination reader being in an unrecoverable failure state",
+      "labels": [
+        "destChainName",
+        "destChainSelector"
+      ]
+    },
+    {
+      "name": "executor_get_ccv_info_errors",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "Number of errored CCV info onchain calls",
+      "labels": [
+        "destChainName",
+        "destChainSelector"
+      ]
+    },
+    {
+      "name": "executor_get_ccv_info_latency_seconds",
+      "kind": "Float64Histogram",
+      "unit": "seconds",
+      "description": "Duration of the GetCCVSForMessage onchain call",
+      "buckets": [
+        0,
+        5,
+        10,
+        25,
+        50,
+        75,
+        100,
+        250,
+        500,
+        750,
+        1000,
+        2500,
+        5000,
+        7500,
+        10000
+      ],
+      "labels": [
+        "destChainName",
+        "destChainSelector"
+      ]
+    },
+    {
+      "name": "executor_get_ccv_info_total",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "Total number of CCV info onchain calls",
+      "labels": []
+    },
+    {
+      "name": "executor_indexer_heartbeat_failure_total",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "Total number of failed heartbeats to indexer",
+      "labels": []
+    },
+    {
+      "name": "executor_indexer_heartbeat_success_total",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "Total number of successful heartbeats sent to indexer",
+      "labels": []
+    },
+    {
+      "name": "executor_indexer_last_heartbeat_timestamp",
+      "kind": "Int64Gauge",
+      "unit": "",
+      "description": "Timestamp of the last successful heartbeat sent to indexer",
+      "labels": []
+    },
+    {
+      "name": "executor_indexer_switch_total",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "Total number of times we switch between indexers",
+      "labels": []
+    },
+    {
+      "name": "executor_local_chain_global_cursed",
+      "kind": "Int64Gauge",
+      "unit": "",
+      "description": "Specifies if local chain has global curse",
+      "labels": [
+        "localChainName",
+        "localSelector"
+      ]
+    },
+    {
+      "name": "executor_message_execution_duration_seconds",
+      "kind": "Float64Histogram",
+      "unit": "seconds",
+      "description": "Full message lifecycle latency from source read to storage write",
+      "buckets": [
+        1,
+        2,
+        5,
+        10,
+        15,
+        30,
+        60,
+        120,
+        180,
+        300,
+        600,
+        900,
+        1200
+      ],
+      "labels": [
+        "destChainName",
+        "destChainSelector"
+      ]
+    },
+    {
+      "name": "executor_message_expiry_total",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "Total number of messages expired and not attempted due to being too old",
+      "labels": []
+    },
+    {
+      "name": "executor_message_failures_total",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "Message failures by stage, retryability, and classified cause",
+      "labels": [
+        "error_class",
+        "retryable",
+        "stage"
+      ]
+    },
+    {
+      "name": "executor_message_heap_size",
+      "kind": "Int64Gauge",
+      "unit": "",
+      "description": "Current size of the heap of messages to potentially attempt",
+      "labels": []
+    },
+    {
+      "name": "executor_message_processing_total",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "Total number of processed messages",
+      "labels": []
+    },
+    {
+      "name": "executor_message_transitions_total",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "Message pipeline transitions by stage and outcome",
+      "labels": [
+        "outcome",
+        "reason",
+        "stage"
+      ]
+    },
+    {
+      "name": "executor_messages_in_flight",
+      "kind": "Int64Gauge",
+      "unit": "",
+      "description": "Current messages being processed by workers",
+      "labels": []
+    },
+    {
+      "name": "executor_messages_pending",
+      "kind": "Int64Gauge",
+      "unit": "",
+      "description": "Current messages pending in the delayed execution heap",
+      "labels": []
+    },
+    {
+      "name": "executor_messages_processing_errors",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "Number of messages failed to process",
+      "labels": [
+        "retry"
+      ]
+    },
+    {
+      "name": "executor_oldest_pending_message_age_seconds",
+      "kind": "Float64Gauge",
+      "unit": "seconds",
+      "description": "Age of the oldest message pending in the delayed execution heap",
+      "labels": []
+    },
+    {
+      "name": "executor_remote_chain_cursed",
+      "kind": "Int64Gauge",
+      "unit": "",
+      "description": "Specifies if local chain considers remote chain as cursed",
+      "labels": [
+        "localChainName",
+        "localSelector",
+        "remoteChainName",
+        "remoteSelector"
+      ]
+    },
+    {
+      "name": "executor_unrecoverable_message_failure_total",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "Total number of unrecoverable message failures",
+      "labels": []
+    }
+  ],
+  "indexer": [
+    {
+      "name": "indexer_active_readers",
+      "kind": "Int64Gauge",
+      "unit": "",
+      "description": "Total number of active readers",
+      "labels": []
+    },
+    {
+      "name": "indexer_active_requests",
+      "kind": "Int64UpDownCounter",
+      "unit": "",
+      "description": "Total number of active requests",
+      "labels": []
+    },
+    {
+      "name": "indexer_circuit_breaker_status_bool",
+      "kind": "Int64Gauge",
+      "unit": "",
+      "description": "Circuit breaker status",
+      "labels": []
+    },
+    {
+      "name": "indexer_grpc_errors_total",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "Total number of gRPC errors by status code for aggregator client calls",
+      "labels": [
+        "code",
+        "method"
+      ]
+    },
+    {
+      "name": "indexer_grpc_payload_size_bytes",
+      "kind": "Int64Histogram",
+      "unit": "bytes",
+      "description": "Wire-level gRPC payload size in bytes for aggregator client calls",
+      "buckets": [
+        512,
+        1024,
+        4096,
+        16384,
+        65536,
+        262144,
+        1048576,
+        4194304,
+        16777216
+      ],
+      "labels": [
+        "direction",
+        "method"
+      ]
+    },
+    {
+      "name": "indexer_http_request_duration_seconds",
+      "kind": "Float64Histogram",
+      "unit": "seconds",
+      "description": "Total duration of requesting the HTTP request",
+      "buckets": [
+        0.001,
+        0.005,
+        0.01,
+        0.025,
+        0.05,
+        0.1,
+        0.25,
+        0.5,
+        1,
+        2.5,
+        5,
+        10
+      ],
+      "labels": [
+        "method",
+        "path",
+        "status"
+      ]
+    },
+    {
+      "name": "indexer_message_discovery_latency_seconds",
+      "kind": "Float64Histogram",
+      "unit": "seconds",
+      "description": "Latency between message discovery and processing (seconds)",
+      "buckets": [
+        0.001,
+        0.005,
+        0.01,
+        0.025,
+        0.05,
+        0.1,
+        0.25,
+        0.5,
+        1,
+        2.5,
+        5,
+        10,
+        60,
+        300,
+        720
+      ],
+      "labels": []
+    },
+    {
+      "name": "indexer_offchain_read_duration",
+      "kind": "Float64Histogram",
+      "unit": "seconds",
+      "description": "Duration of offchain read operations",
+      "buckets": [
+        0,
+        5,
+        10,
+        25,
+        50,
+        75,
+        100,
+        250,
+        500,
+        750,
+        1000,
+        2500,
+        5000,
+        7500,
+        10000
+      ],
+      "labels": [
+        "errored"
+      ]
+    },
+    {
+      "name": "indexer_offchain_read_errors",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "Total number of offchain read errors",
+      "labels": []
+    },
+    {
+      "name": "indexer_scanner_polling_errors_total",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "Total number of errors when polling the scanner",
+      "labels": []
+    },
+    {
+      "name": "indexer_storage_errors_total",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "Total number of storage errors in the Indexer",
+      "labels": [
+        "operation"
+      ]
+    },
+    {
+      "name": "indexer_storage_operation_duration_seconds",
+      "kind": "Float64Histogram",
+      "unit": "seconds",
+      "description": "Duration of storage operations in the Indexer",
+      "buckets": [
+        0.001,
+        0.005,
+        0.01,
+        0.025,
+        0.05,
+        0.1,
+        0.25,
+        0.5,
+        1,
+        2.5,
+        5,
+        10,
+        60,
+        300,
+        720
+      ],
+      "labels": [
+        "errored",
+        "operation"
+      ]
+    },
+    {
+      "name": "indexer_time_to_index_seconds",
+      "kind": "Float64Histogram",
+      "unit": "seconds",
+      "description": "Total duration between aggregation and indexing",
+      "buckets": [
+        0.001,
+        0.005,
+        0.01,
+        0.025,
+        0.05,
+        0.1,
+        0.25,
+        0.5,
+        1,
+        2.5,
+        5,
+        10
+      ],
+      "labels": [
+        "query"
+      ]
+    },
+    {
+      "name": "indexer_verification_record_channel_size",
+      "kind": "Int64Gauge",
+      "unit": "",
+      "description": "Total number of verification records in the channel",
+      "labels": []
+    },
+    {
+      "name": "indexer_verification_records_total",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "Total number of verification records",
+      "labels": []
+    }
+  ],
+  "jd_lifecycle": [
+    {
+      "name": "jd_lifecycle_proposal_step_errors_total",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "JD lifecycle proposal step failures",
+      "labels": [
+        "replacement",
+        "step"
+      ]
+    },
+    {
+      "name": "jd_lifecycle_proposal_total",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "JD lifecycle job proposal outcomes",
+      "labels": [
+        "replacement",
+        "result"
+      ]
+    }
+  ],
+  "verifier": [
+    {
+      "name": "verifier_critical_source_invariant_violations_total",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "Encoded CCIP message disagrees with configured source chain observation (e.g. onRamp address or message id vs log)",
+      "labels": []
+    },
+    {
+      "name": "verifier_heartbeat_chain_heads",
+      "kind": "Int64Gauge",
+      "unit": "",
+      "description": "Block height for a chain from the heartbeat response",
+      "labels": []
+    },
+    {
+      "name": "verifier_heartbeat_duration_seconds",
+      "kind": "Float64Histogram",
+      "unit": "seconds",
+      "description": "Duration of heartbeat requests",
+      "buckets": [
+        0,
+        5,
+        10,
+        25,
+        50,
+        75,
+        100,
+        250,
+        500,
+        750,
+        1000,
+        2500,
+        5000,
+        7500,
+        10000
+      ],
+      "labels": []
+    },
+    {
+      "name": "verifier_heartbeat_score",
+      "kind": "Float64Gauge",
+      "unit": "",
+      "description": "Score for a chain from the heartbeat response",
+      "labels": []
+    },
+    {
+      "name": "verifier_heartbeat_sent_chain_heads",
+      "kind": "Int64Gauge",
+      "unit": "",
+      "description": "Block height sent in the heartbeat request for a chain",
+      "labels": []
+    },
+    {
+      "name": "verifier_heartbeat_timestamp",
+      "kind": "Float64Gauge",
+      "unit": "",
+      "description": "Timestamp from the heartbeat response",
+      "labels": []
+    },
+    {
+      "name": "verifier_heartbeats_failed_total",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "Total number of failed heartbeat attempts",
+      "labels": []
+    },
+    {
+      "name": "verifier_heartbeats_sent_total",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "Total number of successfully sent heartbeats",
+      "labels": []
+    },
+    {
+      "name": "verifier_http_active_requests",
+      "kind": "Int64UpDownCounter",
+      "unit": "",
+      "description": "Number of currently active HTTP requests",
+      "labels": []
+    },
+    {
+      "name": "verifier_http_request_duration_seconds",
+      "kind": "Float64Histogram",
+      "unit": "seconds",
+      "description": "Duration of HTTP requests",
+      "buckets": [
+        0.001,
+        0.005,
+        0.01,
+        0.025,
+        0.05,
+        0.1,
+        0.25,
+        0.5,
+        1,
+        2.5,
+        5,
+        10
+      ],
+      "labels": [
+        "method",
+        "path",
+        "status"
+      ]
+    },
+    {
+      "name": "verifier_http_requests_total",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "Total number of HTTP requests",
+      "labels": []
+    },
+    {
+      "name": "verifier_local_chain_global_cursed",
+      "kind": "Int64Gauge",
+      "unit": "",
+      "description": "Specifies if local chain has global curse",
+      "labels": [
+        "localChainName",
+        "localSelector"
+      ]
+    },
+    {
+      "name": "verifier_message_disablement_rules_mismatch",
+      "kind": "Int64Counter",
+      "unit": "1",
+      "description": "Count of messages for which aggregators disagreed on disablement (rules assumed identical)",
+      "labels": []
+    },
+    {
+      "name": "verifier_message_disablement_rules_refresh_failure",
+      "kind": "Int64Gauge",
+      "unit": "1",
+      "description": "Whether the latest message disablement rules refresh failed (1) or succeeded (0)",
+      "labels": []
+    },
+    {
+      "name": "verifier_message_e2e_latency_seconds",
+      "kind": "Float64Histogram",
+      "unit": "seconds",
+      "description": "Full message lifecycle latency from source read to storage write",
+      "buckets": [
+        0.1,
+        0.5,
+        1,
+        2,
+        5,
+        10,
+        20,
+        30,
+        60,
+        90,
+        120,
+        180,
+        240,
+        300,
+        360,
+        420,
+        480,
+        540,
+        600,
+        900,
+        1200,
+        1800,
+        2400,
+        3000,
+        3600,
+        4200,
+        4800,
+        5400,
+        6000
+      ],
+      "labels": []
+    },
+    {
+      "name": "verifier_message_failures_total",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "Message failures by stage, retryability, and classified cause",
+      "labels": [
+        "error_class",
+        "retryable",
+        "stage"
+      ]
+    },
+    {
+      "name": "verifier_message_transitions_total",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "Message pipeline transitions by stage and outcome",
+      "labels": [
+        "outcome",
+        "reason",
+        "stage"
+      ]
+    },
+    {
+      "name": "verifier_messages_in_flight",
+      "kind": "Int64Gauge",
+      "unit": "",
+      "description": "Current in-flight messages by pipeline state",
+      "labels": [
+        "state"
+      ]
+    },
+    {
+      "name": "verifier_messages_verification_errors",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "Total number of messages that failed verification",
+      "labels": []
+    },
+    {
+      "name": "verifier_messages_verification_total",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "Total number of successfully processed and stored messages",
+      "labels": []
+    },
+    {
+      "name": "verifier_oldest_message_age_seconds",
+      "kind": "Float64Gauge",
+      "unit": "seconds",
+      "description": "Age of the oldest in-flight message by pipeline state",
+      "labels": [
+        "state"
+      ]
+    },
+    {
+      "name": "verifier_policy_http_request_duration_seconds",
+      "kind": "Float64Histogram",
+      "unit": "seconds",
+      "description": "Duration of outbound policy hook HTTP requests",
+      "buckets": [
+        0.001,
+        0.005,
+        0.01,
+        0.025,
+        0.05,
+        0.1,
+        0.25,
+        0.5,
+        1,
+        2.5,
+        5,
+        10,
+        15
+      ],
+      "labels": [
+        "outcome"
+      ]
+    },
+    {
+      "name": "verifier_remote_chain_cursed",
+      "kind": "Int64Gauge",
+      "unit": "",
+      "description": "Specifies if local chain considers remote chain as cursed",
+      "labels": [
+        "localChainName",
+        "localSelector",
+        "remoteChainName",
+        "remoteSelector"
+      ]
+    },
+    {
+      "name": "verifier_reorg_tracked_seqnums",
+      "kind": "Int64Gauge",
+      "unit": "",
+      "description": "Number of sequence numbers being tracked due to reorg per destination chain",
+      "labels": []
+    },
+    {
+      "name": "verifier_source_chain_finality_violated",
+      "kind": "Int64Gauge",
+      "unit": "",
+      "description": "Specifies if source chain finality was violated",
+      "labels": [
+        "sourceChainName",
+        "sourceChainSelector"
+      ]
+    },
+    {
+      "name": "verifier_source_chain_finalized_block",
+      "kind": "Int64Gauge",
+      "unit": "",
+      "description": "Latest finalized block number for a source chain",
+      "labels": []
+    },
+    {
+      "name": "verifier_source_chain_latest_block",
+      "kind": "Int64Gauge",
+      "unit": "",
+      "description": "Latest block number for a source chain",
+      "labels": []
+    },
+    {
+      "name": "verifier_source_chain_safe_block",
+      "kind": "Int64Gauge",
+      "unit": "",
+      "description": "Latest safe block number for a source chain",
+      "labels": []
+    },
+    {
+      "name": "verifier_source_reader_last_processed_finalized_block",
+      "kind": "Int64Gauge",
+      "unit": "",
+      "description": "Last finalized block processed by the source reader",
+      "labels": []
+    },
+    {
+      "name": "verifier_source_reader_last_successful_poll_timestamp",
+      "kind": "Float64Gauge",
+      "unit": "",
+      "description": "Unix timestamp of the last successful source reader poll",
+      "labels": []
+    },
+    {
+      "name": "verifier_source_reader_state",
+      "kind": "Int64Gauge",
+      "unit": "",
+      "description": "One-hot source reader state",
+      "labels": [
+        "state"
+      ]
+    },
+    {
+      "name": "verifier_storage_query_duration_seconds",
+      "kind": "Float64Histogram",
+      "unit": "seconds",
+      "description": "Duration of storage query operations",
+      "buckets": [
+        0.001,
+        0.005,
+        0.01,
+        0.025,
+        0.05,
+        0.1,
+        0.25,
+        0.5,
+        1,
+        2.5,
+        5,
+        10
+      ],
+      "labels": [
+        "method"
+      ]
+    },
+    {
+      "name": "verifier_storage_write_duration_seconds",
+      "kind": "Float64Histogram",
+      "unit": "seconds",
+      "description": "Duration of writing to offchain storage",
+      "buckets": [
+        0.01,
+        0.025,
+        0.05,
+        0.1,
+        0.25,
+        0.5,
+        1,
+        2.5,
+        5,
+        10,
+        25,
+        50,
+        100,
+        250,
+        500,
+        1000
+      ],
+      "labels": []
+    },
+    {
+      "name": "verifier_storage_write_errors",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "Total number of errors when writing to offchain storage",
+      "labels": []
+    },
+    {
+      "name": "verifier_storage_write_queue_size",
+      "kind": "Int64Gauge",
+      "unit": "",
+      "description": "Current size of the storage write queue (pending + processing jobs)",
+      "labels": []
+    },
+    {
+      "name": "verifier_task_verification_duration_seconds",
+      "kind": "Float64Histogram",
+      "unit": "seconds",
+      "description": "Duration of the full VerifyMessage operation",
+      "buckets": [
+        0,
+        5,
+        10,
+        25,
+        50,
+        75,
+        100,
+        250,
+        500,
+        750,
+        1000,
+        2500,
+        5000,
+        7500,
+        10000
+      ],
+      "labels": []
+    },
+    {
+      "name": "verifier_task_verification_permanent_errors_total",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "Total number of non-retryable errors during task verification",
+      "labels": []
+    },
+    {
+      "name": "verifier_task_verification_queue_size",
+      "kind": "Int64Gauge",
+      "unit": "",
+      "description": "Current size of the task verification queue (pending + processing jobs)",
+      "labels": []
+    },
+    {
+      "name": "verifier_token_attestation_fetch_duration_seconds",
+      "kind": "Float64Histogram",
+      "unit": "seconds",
+      "description": "Duration of fetching and decoding an attestation for a single message",
+      "buckets": [
+        0.001,
+        0.005,
+        0.01,
+        0.025,
+        0.05,
+        0.1,
+        0.25,
+        0.5,
+        1,
+        2.5,
+        5
+      ],
+      "labels": [
+        "provider"
+      ]
+    },
+    {
+      "name": "verifier_token_attestation_fetch_total",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "Attestation fetch attempts by token provider and outcome",
+      "labels": [
+        "outcome",
+        "provider"
+      ]
+    },
+    {
+      "name": "verifier_token_http_active_requests",
+      "kind": "Int64UpDownCounter",
+      "unit": "",
+      "description": "Number of currently active outbound attestation HTTP requests",
+      "labels": [
+        "provider"
+      ]
+    },
+    {
+      "name": "verifier_token_http_cooldown_seconds",
+      "kind": "Float64Gauge",
+      "unit": "seconds",
+      "description": "Seconds until an outbound attestation API cools down (0 when not cooling down)",
+      "labels": [
+        "provider"
+      ]
+    },
+    {
+      "name": "verifier_token_http_rate_limited_total",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "Total number of outbound attestation HTTP requests dropped or delayed due to API rate limiting",
+      "labels": [
+        "method",
+        "provider"
+      ]
+    },
+    {
+      "name": "verifier_token_http_request_duration_seconds",
+      "kind": "Float64Histogram",
+      "unit": "seconds",
+      "description": "Duration of outbound attestation HTTP requests",
+      "buckets": [
+        0.001,
+        0.005,
+        0.01,
+        0.025,
+        0.05,
+        0.1,
+        0.25,
+        0.5,
+        1,
+        2.5,
+        5,
+        10
+      ],
+      "labels": [
+        "method",
+        "outcome",
+        "provider",
+        "status"
+      ]
+    },
+    {
+      "name": "verifier_token_http_requests_total",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "Total number of outbound attestation HTTP requests by provider, method and outcome",
+      "labels": [
+        "method",
+        "outcome",
+        "provider",
+        "status"
+      ]
+    },
+    {
+      "name": "verifier_verification_queue_latency_seconds",
+      "kind": "Float64Histogram",
+      "unit": "seconds",
+      "description": "Time a message spent in the verification queue from push to poll",
+      "buckets": [
+        0,
+        5,
+        10,
+        25,
+        50,
+        75,
+        100,
+        250,
+        500,
+        750,
+        1000,
+        2500,
+        5000,
+        7500,
+        10000
+      ],
+      "labels": []
+    }
+  ]
+}

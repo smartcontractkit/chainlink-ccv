@@ -1,5 +1,5 @@
-// Package metricstest snapshots the OTel instruments of a package and compares them with
-// testdata/metrics.golden.json. Set UPDATE_METRICS_GOLDEN=1 to write the file.
+// Package metricstest snapshots the OTel instruments that code creates and compares them with a golden file.
+// The registry in tools/metricsgolden/registry uses it for all services.
 package metricstest
 
 import (
@@ -68,16 +68,15 @@ func Snapshot(t *testing.T, views []sdkmetric.View, exercise func(), unrecorded 
 	return metricsgolden.Normalize(out)
 }
 
-// AssertGolden compares the metrics with testdata/metrics.golden.json of the calling package.
-func AssertGolden(t *testing.T, got []metricsgolden.Metric) {
+// AssertGolden compares got with the golden file at path. With UPDATE_METRICS_GOLDEN=1, it writes the file.
+func AssertGolden(t *testing.T, path string, got metricsgolden.File) {
 	t.Helper()
 
-	path := filepath.Join("testdata", metricsgolden.FileName)
 	b, err := metricsgolden.Marshal(got)
 	require.NoError(t, err)
 
 	if os.Getenv(UpdateEnv) != "" {
-		require.NoError(t, os.MkdirAll("testdata", 0o750))
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
 		require.NoError(t, os.WriteFile(path, b, 0o600))
 		return
 	}
@@ -87,12 +86,12 @@ func AssertGolden(t *testing.T, got []metricsgolden.Metric) {
 	if string(want) == string(b) {
 		return
 	}
-	wantMetrics, err := metricsgolden.Load(path)
+	wantFile, err := metricsgolden.Parse(want)
 	require.NoError(t, err)
-	for _, v := range metricsgolden.Compare(wantMetrics, got) {
+	for _, v := range metricsgolden.Compare(wantFile, got) {
 		t.Errorf("breaking change: %s", v)
 	}
-	t.Errorf("metrics differ from %s: run the test with %s=1 and review the diff", path, UpdateEnv)
+	t.Errorf("metrics differ from %s: run 'just metrics-golden-update' and review the diff", path)
 }
 
 // CallAll calls each exported method of target one time with zero-value arguments and t.Context() for a context.

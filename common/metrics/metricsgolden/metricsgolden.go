@@ -11,8 +11,8 @@ import (
 	"sort"
 )
 
-// FileName is the name of a golden file in a testdata directory.
-const FileName = "metrics.golden.json"
+// File is the content of a golden file: the metrics of each target, by target name.
+type File map[string][]Metric
 
 // Metric describes one OTel instrument and the attribute keys it records.
 type Metric struct {
@@ -24,8 +24,7 @@ type Metric struct {
 	Labels      []string  `json:"labels"`
 }
 
-// Normalize sorts the metrics by name and the labels of each metric, so that
-// the file content is stable.
+// Normalize sorts the metrics by name and the labels of each metric, so that the file content is stable.
 func Normalize(metrics []Metric) []Metric {
 	out := slices.Clone(metrics)
 	for i := range out {
@@ -40,41 +39,72 @@ func Normalize(metrics []Metric) []Metric {
 	return out
 }
 
-// Marshal returns the golden file content for the metrics.
-func Marshal(metrics []Metric) ([]byte, error) {
-	b, err := json.MarshalIndent(Normalize(metrics), "", "  ")
+// Marshal returns the golden file content. JSON object keys are sorted, so the output is stable.
+func Marshal(f File) ([]byte, error) {
+	normalized := make(File, len(f))
+	for target, metrics := range f {
+		normalized[target] = Normalize(metrics)
+	}
+	b, err := json.MarshalIndent(normalized, "", "  ")
 	if err != nil {
 		return nil, err
 	}
 	return append(b, '\n'), nil
 }
 
+// Parse decodes golden file content.
+func Parse(b []byte) (File, error) {
+	var f File
+	if err := json.Unmarshal(b, &f); err != nil {
+		return nil, err
+	}
+	return f, nil
+}
+
 // Load reads a golden file.
-func Load(path string) ([]Metric, error) {
+func Load(path string) (File, error) {
 	b, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		return nil, err
 	}
-	var metrics []Metric
-	if err := json.Unmarshal(b, &metrics); err != nil {
+	f, err := Parse(b)
+	if err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
-	return metrics, nil
+	return f, nil
 }
 
 // Violation is a change from base to head that can break a consumer of the metric.
 type Violation struct {
+	Target string
 	Metric string
 	Reason string
 }
 
 func (v Violation) String() string {
-	return fmt.Sprintf("%s: %s", v.Metric, v.Reason)
+	return fmt.Sprintf("%s: %s: %s", v.Target, v.Metric, v.Reason)
 }
 
 // Compare returns the changes from base to head that remove or change a metric.
-// New metrics, new labels and description changes are allowed.
-func Compare(base, head []Metric) []Violation {
+// New targets, new metrics, new labels and description changes are allowed.
+func Compare(base, head File) []Violation {
+	targets := make([]string, 0, len(base))
+	for target := range base {
+		targets = append(targets, target)
+	}
+	sort.Strings(targets)
+
+	var violations []Violation
+	for _, target := range targets {
+		for _, v := range compareMetrics(base[target], head[target]) {
+			v.Target = target
+			violations = append(violations, v)
+		}
+	}
+	return violations
+}
+
+func compareMetrics(base, head []Metric) []Violation {
 	headByName := make(map[string]Metric, len(head))
 	for _, m := range head {
 		headByName[m.Name] = m
