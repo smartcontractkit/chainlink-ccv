@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
 	"github.com/rs/zerolog"
@@ -722,12 +723,21 @@ func TestE2EReorg(t *testing.T) {
 		logSentMessage(event2, "Sending toBeDropped message")
 		toBeDroppedMessageID := event2.MessageID
 
+		committee := newVerifierCommitteeClientForSmoke(t, in)
+		logPoller := committeeReadsThroughLogPoller(t, in, committee.VerifierID(), srcSelector)
+		headBeforeRevert := sourceChainHead(t, ctx, in, srcSelector)
+
 		l.Info().Msg("⚠️  Triggering finality violation by reverting to initial snapshot")
 		revert(snapshotID)
 		l.Info().Msg("✅ Reverted to initial snapshot (deep reorg past finalized blocks)")
 		// Mine some blocks to give system opportunity to process (if it were working)
 		l.Info().Int("blocks", verifier.ConfirmationDepth+5).Msg("⛏️  Mining blocks after revert")
 		advanceBlocks(verifier.ConfirmationDepth + 5)
+		// The LogPoller only looks for a reorg once the chain is taller than the last block it processed.
+		if head := sourceChainHead(t, ctx, in, srcSelector); logPoller && head <= headBeforeRevert {
+			l.Info().Uint64("head", head).Uint64("headBeforeRevert", headBeforeRevert).Msg("⛏️  Mining past the pre-revert head for the LogPoller")
+			advanceBlocks(int(headBeforeRevert-head) + 1)
+		}
 		verifyMessageNotExists(toBeDroppedMessageID, "Post-violation message")
 
 		l.Info().Msg("🔍 Verifying chain status in verifier's local storage...")
@@ -741,11 +751,9 @@ func TestE2EReorg(t *testing.T) {
 			chainStatus := statuses[protocol.ChainSelector(srcSelector)]
 			return chainStatus != nil && chainStatus.Disabled &&
 				chainStatus.FinalizedBlockHeight != nil && chainStatus.FinalizedBlockHeight.Uint64() == 0
-		}, 30*time.Second, 100*time.Millisecond, "chain should be disabled with checkpoint 0 after finality violation")
+		}, time.Minute, 100*time.Millisecond, "chain should be disabled with checkpoint 0 after finality violation")
 		l.Info().Msg("✅ Chain status verified in verifier's local storage: chain is disabled with checkpoint 0")
 
-		committee := newVerifierCommitteeClientForSmoke(t, in)
-		logPoller := committeeReadsThroughLogPoller(t, in, committee.VerifierID(), srcSelector)
 		for _, member := range committee.Members() {
 			require.Eventually(t, func() bool {
 				page, err := member.Recovery().Events(ctx, committee.VerifierID(), fmt.Sprint(srcSelector), "finality_violation")
@@ -880,6 +888,26 @@ func uncurseSelector(t *testing.T, env *deployment.Environment, adapter fastcurs
 // implements both ProgressableChain and ReorgableChain, and for which
 // SupportManualBlockProgress(ctx) and SupportReorgs(ctx) are true.
 // Slice order does not matter (e.g. lib.Chains order is not guaranteed).
+// sourceChainHead returns the latest block number of the chain with the given selector.
+func sourceChainHead(t *testing.T, ctx context.Context, in *ccv.Cfg, chainSelector uint64) uint64 {
+	t.Helper()
+	chainID, err := chain_selectors.GetChainIDFromSelector(chainSelector)
+	require.NoError(t, err)
+	for _, bc := range in.Blockchains {
+		if bc == nil || bc.ChainID != chainID || bc.Out == nil || len(bc.Out.Nodes) == 0 {
+			continue
+		}
+		client, err := ethclient.DialContext(ctx, bc.Out.Nodes[0].ExternalHTTPUrl)
+		require.NoError(t, err)
+		defer client.Close()
+		head, err := client.BlockNumber(ctx)
+		require.NoError(t, err)
+		return head
+	}
+	require.FailNow(t, "no blockchain output for chain", "chain ID %s", chainID)
+	return 0
+}
+
 func chainSupportingReorgs(ctx context.Context, chains []ccv.ChainImpl) (
 	src ccv.ChainImpl,
 	progress cciptestinterfaces.ProgressableChain,
