@@ -39,7 +39,8 @@ import (
 // TestE2EReorg tests that messages sent in different orders
 // before and after a reorg are correctly verified after finality is reached.
 // IMPORTANT: Need to run this test against an env that has source chain with auto mining.
-// Run `just rebuild-all "env.toml,env-src-auto-mine.toml"` before running this test.
+// Run `just rebuild-all "env.toml,env-src-auto-mine.toml"` before running this test, or
+// standard.logpoller.src-auto-mine.profile for verifiers that read through the LogPoller.
 func TestE2EReorg(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping e2e test in short mode; requires a running devenv environment")
@@ -731,22 +732,20 @@ func TestE2EReorg(t *testing.T) {
 
 		l.Info().Msg("🔍 Verifying chain status in verifier's local storage...")
 
+		// Polled, not asserted once: the LogPoller reports the violation on its own poll, after the RPC reader would.
 		require.Eventually(t, func() bool {
 			statuses, err := chainStatusManager.ReadChainStatuses(ctx, []protocol.ChainSelector{protocol.ChainSelector(srcSelector)})
-			require.NoError(t, err, "should be able to read chain status from verifier's database")
-			require.Len(t, statuses, 1, "should have one chain status for source chain")
-
+			if err != nil || len(statuses) != 1 {
+				return false
+			}
 			chainStatus := statuses[protocol.ChainSelector(srcSelector)]
-			require.NotNil(t, chainStatus, "chain status should exist")
-			require.True(t, chainStatus.Disabled, "chain should be marked as disabled after finality violation")
-			require.Equal(t, uint64(0), chainStatus.FinalizedBlockHeight.Uint64(), "finalized block height should be 0 after finality violation")
-
-			l.Info().Msg("✅ Chain status verified in verifier's local storage: chain is disabled with checkpoint 0")
-
-			return true
-		}, 3*time.Second, 100*time.Millisecond, "chain status should reflect disabled state after finality violation")
+			return chainStatus != nil && chainStatus.Disabled &&
+				chainStatus.FinalizedBlockHeight != nil && chainStatus.FinalizedBlockHeight.Uint64() == 0
+		}, 30*time.Second, 100*time.Millisecond, "chain should be disabled with checkpoint 0 after finality violation")
+		l.Info().Msg("✅ Chain status verified in verifier's local storage: chain is disabled with checkpoint 0")
 
 		committee := newVerifierCommitteeClientForSmoke(t, in)
+		logPoller := committeeReadsThroughLogPoller(t, in, committee.VerifierID(), srcSelector)
 		for _, member := range committee.Members() {
 			require.Eventually(t, func() bool {
 				page, err := member.Recovery().Events(ctx, committee.VerifierID(), fmt.Sprint(srcSelector), "finality_violation")
@@ -754,7 +753,8 @@ func TestE2EReorg(t *testing.T) {
 					return false
 				}
 				for _, event := range page.Events {
-					if event.Kind == "finality_incident" && event.SourceBlock != nil {
+					// The LogPoller reports no evidence block, so its incident has no source block.
+					if event.Kind == "finality_incident" && (logPoller || event.SourceBlock != nil) {
 						return true
 					}
 				}
@@ -762,7 +762,11 @@ func TestE2EReorg(t *testing.T) {
 			}, time.Minute, time.Second, "finality incident must be durable on %s", member.Container())
 		}
 
-		requireLiveRangeRecovery(t, ctx, committee, srcSelector, 1, nil, "reset-reader")
+		if logPoller {
+			requireLogPollerFinalityRecovery(t, ctx, committee, srcSelector)
+		} else {
+			requireLiveRangeRecovery(t, ctx, committee, srcSelector, 1, nil, "reset-reader")
+		}
 		afterReset, err := srcImpl.SendMessage(ctx, destSelector, newMessageFields(receiver, "after live finality recovery"), defaultMessageOptions, defaultMessageVersion)
 		require.NoError(t, err)
 		advanceBlocks(verifier.ConfirmationDepth + 5)

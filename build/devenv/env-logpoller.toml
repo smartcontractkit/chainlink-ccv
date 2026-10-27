@@ -1,11 +1,10 @@
 # Overlay that sets log_poller_source_reader_chains = ["*"] on every committee verifier, so each reads all
 # its EVM source chains through the LogPoller reader instead of the RPC reader. List chain IDs instead of
-# "*" to turn it on for only those chains. The EVM secrets
-# point [db] at evm_db, a separate database on the verifier's DB server. The token verifier is not listed:
-# it has no LogPoller.
+# "*" to turn it on for only those chains. The EVM secrets point [db] at evm_db, a separate database on the
+# verifier's DB server. The token verifier is not listed: it has no LogPoller.
 #
-# Use it with env-src-auto-mine.toml (see standard.logpoller.profile): the finality-violation and
-# reorg flows for the ccv blocks commands need manual control of source-chain block progress.
+# standard.logpoller.profile runs it with normal block production. standard.logpoller.src-auto-mine.profile adds
+# env-src-auto-mine.toml for TestE2EReorg, which mines, snapshots and reverts the source chain itself.
 #
 # The whole verifier array is restated below because an overlay replaces an array of tables rather
 # than merging into it. A verifier added to env.toml must be added here too or it disappears from

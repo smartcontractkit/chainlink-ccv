@@ -160,7 +160,7 @@ func TestVerifierModifierLogPollerSourceReaderChains(t *testing.T) {
 		_, err = toml.Decode(files[evmconfig.DefaultEVMSecretsPath], &secrets)
 		require.NoError(t, err)
 		require.NotNil(t, secrets.DB)
-		require.Equal(t, committeeverifier.InternalDBURL(in, evmDBName), secrets.DB.URL)
+		require.Equal(t, committeeverifier.InternalDBURL(in, EVMDBName), secrets.DB.URL)
 	})
 
 	t.Run("listed chains: only those read through the LogPoller", func(t *testing.T) {
@@ -203,9 +203,35 @@ func TestVerifierDatabases(t *testing.T) {
 
 	got, err := VerifierDatabases(newInput(util.OpaqueConfig{"log_poller_source_reader_chains": []any{"*"}}))
 	require.NoError(t, err)
-	require.Equal(t, []string{evmDBName}, got, "the LogPoller needs evm_db")
+	require.Equal(t, []string{EVMDBName}, got, "the LogPoller needs evm_db")
 
 	got, err = VerifierDatabases(newInput(nil))
 	require.NoError(t, err)
 	require.Empty(t, got, "the RPC reader needs no extra database")
+}
+
+func TestLogPollerSourceReaderOn(t *testing.T) {
+	newInput := func(chains ...any) *committeeverifier.Input {
+		in := &committeeverifier.Input{ContainerName: "default-verifier-1"}
+		if chains != nil {
+			in.OpaqueConfigs = map[string]util.OpaqueConfig{chainsel.FamilyEVM: {"log_poller_source_reader_chains": chains}}
+		}
+		return in
+	}
+	for _, tc := range []struct {
+		name string
+		in   *committeeverifier.Input
+		want bool
+	}{
+		{"all chains", newInput("*"), true},
+		{"listed chain", newInput("1337"), true},
+		{"other chain", newInput("2337"), false},
+		{"no opaque config", newInput(), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := LogPollerSourceReaderOn(tc.in, "1337")
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+		})
+	}
 }

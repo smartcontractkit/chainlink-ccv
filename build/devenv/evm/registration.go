@@ -111,8 +111,17 @@ const allChains = "*"
 
 func (c verifierEVMConfig) logPollerOn() bool { return len(c.LogPollerSourceReaderChains) > 0 }
 
-// evmDBName is the EVM accessor's own database, created on the verifier's DB server when the LogPoller is on.
-const evmDBName = "evm_db"
+// EVMDBName is the EVM accessor's own database, created on the verifier's DB server when the LogPoller is on.
+const EVMDBName = "evm_db"
+
+// LogPollerSourceReaderOn reports whether the verifier reads chainID through the LogPoller.
+func LogPollerSourceReaderOn(in *committeeverifier.Input, chainID string) (bool, error) {
+	cfg, err := parseVerifierEVMConfig(in)
+	if err != nil {
+		return false, err
+	}
+	return slices.Contains(cfg.LogPollerSourceReaderChains, allChains) || slices.Contains(cfg.LogPollerSourceReaderChains, chainID), nil
+}
 
 // parseVerifierEVMConfig reads the verifier's opaque_configs.evm; absent means all defaults.
 func parseVerifierEVMConfig(in *committeeverifier.Input) (verifierEVMConfig, error) {
@@ -133,7 +142,7 @@ func VerifierDatabases(in *committeeverifier.Input) ([]string, error) {
 	if err != nil || !cfg.logPollerOn() {
 		return nil, err
 	}
-	return []string{evmDBName}, nil
+	return []string{EVMDBName}, nil
 }
 
 // VerifierModifier adjusts committee verifier container requests for EVM.
@@ -236,7 +245,7 @@ func addEVMConfig(req testcontainers.ContainerRequest, outputs []*blockchain.Out
 // addEVMSecrets writes the verifier's EVM secrets beside its other secrets files and bind-mounts them at
 // the default path. [db] is the EVM accessor's own database.
 func addEVMSecrets(req testcontainers.ContainerRequest, in *committeeverifier.Input) (testcontainers.ContainerRequest, error) {
-	secrets, err := toml.Marshal(evmconfig.Secrets{DB: &evmconfig.DBConfig{URL: committeeverifier.InternalDBURL(in, evmDBName)}})
+	secrets, err := toml.Marshal(evmconfig.Secrets{DB: &evmconfig.DBConfig{URL: committeeverifier.InternalDBURL(in, EVMDBName)}})
 	if err != nil {
 		return req, fmt.Errorf("failed to marshal EVM secrets: %w", err)
 	}
