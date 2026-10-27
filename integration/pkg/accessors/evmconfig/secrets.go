@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	EVMSecretsPathEnv     = "EVM_SECRETS_PATH"
+	EVMSecretsPathEnv     = "EVM_SECRETS_PATH"      //nolint:gosec // G101: this is an env var name, not a credential
 	DefaultEVMSecretsPath = "/etc/evm/secrets.toml" //nolint:gosec // G101: this is a file path, not a credential
 )
 

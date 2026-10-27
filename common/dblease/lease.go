@@ -122,7 +122,7 @@ func (l *Lease) TakeAndHold(ctx context.Context, onHeld func(error)) error {
 
 	l.wgReleased.Add(1)
 	// Release alone ends the lease, so the loop runs on its own context, as on the node.
-	go l.loop(lctx)
+	go l.loop(lctx) //nolint:gosec // G118: the lease outlives Acquire's ctx; Release cancels lctx
 
 	return nil
 }
@@ -172,7 +172,7 @@ func (l *Lease) loop(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			qctx, cancel := context.WithTimeout(context.Background(), l.cfg.DefaultQueryTimeout)
-			_, execErr := l.conn.ExecContext(qctx, `UPDATE `+l.table+` SET expires_at=NOW() WHERE client_id = $1 AND expires_at > NOW()`, l.id)
+			_, execErr := l.conn.ExecContext(qctx, `UPDATE `+l.table+` SET expires_at=NOW() WHERE client_id = $1 AND expires_at > NOW()`, l.id) //nolint:gosec // G202: table is a code-supplied identifier, not input
 			err := errors.Join(execErr, l.conn.Close())
 			cancel()
 			if err != nil {
@@ -211,6 +211,7 @@ func (l *Lease) getLease(ctx context.Context) (gotLease bool, err error) {
 	err = l.transactConn(ctx, func(tx *sql.Tx) error {
 		// Upsert the lease_lock, only overwriting an existing one if the existing one has expired
 		var res sql.Result
+		//nolint:gosec // G202: table is a code-supplied identifier, not input
 		res, err = tx.ExecContext(ctx, `
 INSERT INTO `+l.table+` (client_id, expires_at) VALUES ($1, NOW()+$2::interval) ON CONFLICT ((client_id IS NOT NULL)) DO UPDATE SET
 client_id = EXCLUDED.client_id,

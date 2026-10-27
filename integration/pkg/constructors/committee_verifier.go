@@ -146,7 +146,9 @@ func NewVerificationCoordinator(
 		var finalityReporter chainaccess.FinalityViolationReporter
 		if lp := chain.LogPoller(); evm.LogPollerEnabled(lp) {
 			sourceReader, err = evm.NewLogPollerSourceReader(context.Background(), params, evm.NewLogPollerConfig(lp, cfg.VerifierID))
-			finalityReporter, _ = sourceReader.(chainaccess.FinalityViolationReporter)
+			if r, ok := sourceReader.(chainaccess.FinalityViolationReporter); ok {
+				finalityReporter = r
+			}
 		} else {
 			sourceReader, err = evm.NewEVMSourceReader(context.Background(), params)
 		}

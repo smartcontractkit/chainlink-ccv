@@ -267,8 +267,14 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 			}
 			// Take the reader's own reporters, such as the EVM LogPoller reader's, before wrapping hides them.
 			// A chain in disable_finality_checkers ignores its finality reporter in newFinalityChecker.
-			finalityReporter, _ := reader.(chainaccess.FinalityViolationReporter)
-			healthReporter, _ := reader.(chainaccess.SourceHealthReporter)
+			var finalityReporter chainaccess.FinalityViolationReporter
+			if r, ok := reader.(chainaccess.FinalityViolationReporter); ok {
+				finalityReporter = r
+			}
+			var healthReporter chainaccess.SourceHealthReporter
+			if r, ok := reader.(chainaccess.SourceHealthReporter); ok {
+				healthReporter = r
+			}
 			lggr.Infow("Source reader selected", "chainSelector", selector,
 				"reportsFinality", finalityReporter != nil, "reportsHealth", healthReporter != nil)
 

@@ -26,7 +26,7 @@ type evmLease struct {
 	lggr     logger.Logger
 	db       *lazy.Lazy[*sql.DB]
 	newLease func(*sql.DB) dbLease
-	// gate serialises Acquire; it is a channel so a waiting Acquire still honours its ctx.
+	// gate serializes Acquire; it is a channel so a waiting Acquire still honors its ctx.
 	gate chan struct{}
 
 	mu       sync.Mutex
@@ -75,7 +75,8 @@ func (l *evmLease) drop() error {
 // Acquire returns once this process holds the lease, waiting while another process holds it. onHeld,
 // when set, is called under the lease's lock, so it must not call back into the lease.
 func (l *evmLease) Acquire(ctx context.Context, onHeld func(error)) error {
-	defer l.watchHeld(onHeld)()
+	unwatch := l.watchHeld(onHeld)
+	defer unwatch()
 	select {
 	case l.gate <- struct{}{}:
 	case <-ctx.Done():

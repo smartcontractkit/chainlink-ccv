@@ -140,7 +140,7 @@ func TestBlocksOperatorAgainstTheEVMDatabase(t *testing.T) {
 	// must not be used.
 	t.Run("openEVMDB opens the database from the EVM secrets file", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "secrets.toml")
-		require.NoError(t, os.WriteFile(path, []byte(fmt.Sprintf("[db]\nurl = %q\n", dbURL)), 0o600))
+		require.NoError(t, os.WriteFile(path, fmt.Appendf(nil, "[db]\nurl = %q\n", dbURL), 0o600))
 		t.Setenv(evmconfig.EVMSecretsPathEnv, path)
 		t.Setenv(vsecrets.DatabaseURLEnvVar, "postgres://nobody@127.0.0.1:1/not-the-evm-db")
 

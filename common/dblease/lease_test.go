@@ -63,7 +63,7 @@ func leaseExpiresIn(t *testing.T, db *sql.DB) time.Duration {
 
 func TestLeaseTakesAnEmptyTableAndReleaseExpiresIt(t *testing.T) {
 	db, _ := newTestDB(t)
-	// No renewal before Release: as on the node, Release cancelling a renewal in flight breaks the
+	// No renewal before Release: as on the node, Release canceling a renewal in flight breaks the
 	// connection, and the lease is then left to expire.
 	lease := dblease.New(db, logger.Test(t), table, dblease.Config{DefaultQueryTimeout: 5 * time.Second, LeaseDuration: time.Minute, LeaseRefreshInterval: 30 * time.Second})
 

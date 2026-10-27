@@ -122,7 +122,7 @@ func TestVerifierModifierLogPollerSourceReaderChains(t *testing.T) {
 			files[f.ContainerFilePath] = string(data)
 		}
 		for _, m := range req.Mounts {
-			source, ok := m.Source.(testcontainers.GenericBindMountSource)
+			source, ok := m.Source.(testcontainers.GenericBindMountSource) //nolint:staticcheck // SA1019: the source type testcontainers.BindMount builds
 			require.True(t, ok)
 			data, err := os.ReadFile(source.HostPath)
 			require.NoError(t, err)
@@ -136,8 +136,9 @@ func TestVerifierModifierLogPollerSourceReaderChains(t *testing.T) {
 		var cfg accessorevm.Config
 		_, err := toml.Decode(config, &cfg)
 		require.NoError(t, err)
-		var ids []string
-		for _, selector := range cfg.LogPollerSourceReaderChains() {
+		selectors := cfg.LogPollerSourceReaderChains()
+		ids := make([]string, 0, len(selectors))
+		for _, selector := range selectors {
 			sel, err := strconv.ParseUint(selector, 10, 64)
 			require.NoError(t, err)
 			id, err := chainsel.GetChainIDFromSelector(sel)
