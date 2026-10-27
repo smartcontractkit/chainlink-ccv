@@ -317,10 +317,7 @@ func Test_Config_Validate_DuplicateVerifierID(t *testing.T) {
 	require.ErrorContains(t, cfg.Validate(), `duplicate verifier_id "a"`)
 }
 
-// Duration keys behave by TOML type: bare integers (int64 after decode) are
-// silently replaced by defaults, quoted strings are honored. The integer form
-// is what deploy/config/prod-{mainnet,testnet}/token-verifier uses, so those
-// configs run on the defaults despite appearing to set 3s/100ms/5m.
+// Integer TOML durations fall back to defaults; quoted duration strings are honored.
 func Test_Config_DurationParsing(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -328,14 +325,14 @@ func Test_Config_DurationParsing(t *testing.T) {
 		wantTimeout time.Duration
 	}{
 		{
-			name:        "integer form silently uses defaults",
+			name: "integer form silently uses defaults",
 			durations: `attestation_api_timeout = 3000000000
 attestation_api_interval = 100000000
 attestation_api_cooldown = 300000000000`,
 			wantTimeout: 1 * time.Second,
 		},
 		{
-			name:        "string form is honored",
+			name: "string form is honored",
 			durations: `attestation_api_timeout = "3s"
 attestation_api_interval = "100ms"
 attestation_api_cooldown = "5m0s"`,
