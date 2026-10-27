@@ -16,7 +16,7 @@
 | `TestMetricsGolden` in each metrics package | added | `TestMetricsGolden` | `aggregator/pkg/monitoring/metrics_golden_test.go` | [#test-helpers](#test-helpers) |
 | `tools/metricsgolden/cmd/metricsgolden` | added | `metricsgolden -base` | `tools/metricsgolden/cmd/metricsgolden/main.go` | [#ci-check](#ci-check) |
 | `just metrics-golden-update`, `metrics-golden-verify`, `metrics-golden-check` | added | `metrics-golden-` | `Justfile:98` | [#ci-check](#ci-check) |
-| `.github/workflows/metrics-golden.yaml` | added | `metrics-golden.yaml` | `.github/workflows/metrics-golden.yaml` | [#ci-check](#ci-check) |
+| `Repo Hygiene Checks` metrics steps | added | `metrics-golden-` | `.github/workflows/repo-hygiene.yaml` | [#ci-check](#ci-check) |
 
 ## Breaking Changes
 
@@ -59,7 +59,7 @@ Golden tests:
 | `just metrics-golden-verify` | Regenerates the golden files. Fails if they differ from the committed files. |
 | `just metrics-golden-check [base] [allow_breaking]` | Checks out `base` (default `origin/main`) in a temporary git worktree. Fails if a metric or label is removed or changed since `base`. |
 
-- The `metrics-golden` workflow runs `metrics-golden-verify`, then `metrics-golden-check` against the PR base commit.
+- The `Repo Hygiene Checks` workflow runs `metrics-golden-verify`, then `metrics-golden-check` against the PR base commit. The second step runs only on pull requests.
 - The PR label `metrics-breaking-change` lets an intended removal pass. A reviewer must approve it.
 - `.gitattributes` marks the golden files as `linguist-generated`, so GitHub collapses them in the PR diff.
 
