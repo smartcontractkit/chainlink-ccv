@@ -1,10 +1,8 @@
 package services
 
 import (
-	"bytes"
 	"context"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -17,9 +15,9 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
+	"github.com/smartcontractkit/chainlink-ccv/bootstrap/info"
 	"github.com/smartcontractkit/chainlink-ccv/common/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
-	"github.com/smartcontractkit/chainlink-common/keystore"
 )
 
 const (
@@ -156,59 +154,22 @@ func (k BootstrapKeys) PublicKeyHex(keyName string) string {
 // FetchBootstrapKeys queries the bootstrap HTTP info server for public key material by name.
 // Devenv calls this after a container starts to retrieve keys needed for JD registration and on-chain funding.
 func FetchBootstrapKeys(bootstrapURL string, keyNames ...string) (BootstrapKeys, error) {
-	request := keystore.GetKeysRequest{KeyNames: keyNames}
-	jsonRequest, err := json.Marshal(request)
+	keyMap, err := info.FetchPublicKeys(context.Background(), nil, bootstrapURL, keyNames...)
 	if err != nil {
-		return BootstrapKeys{}, fmt.Errorf("failed to marshal request: %w", err)
-	}
-	b := bytes.NewBuffer(jsonRequest)
-	req, err := http.NewRequest("POST", fmt.Sprintf("%s%s", bootstrapURL, bootstrap.GetKeysEndpoint), b)
-	if err != nil {
-		return BootstrapKeys{}, fmt.Errorf("failed to create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return BootstrapKeys{}, fmt.Errorf("failed to get keys: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return BootstrapKeys{}, fmt.Errorf("failed to get keys: status code %d", resp.StatusCode)
-	}
-
-	var response keystore.GetKeysResponse
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		return BootstrapKeys{}, fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	// Build a name→key map; the keystore returns keys sorted alphabetically,
-	// not in request order, so positional indexing is unsafe.
-	keyMap := make(map[string]keystore.GetKeyResponse, len(response.Keys))
-	for _, k := range response.Keys {
-		keyMap[k.KeyInfo.Name] = k
-	}
-
-	// Confirm every requested name is present — a count match alone doesn't
-	// catch the server returning a different key with the same cardinality.
-	for _, name := range keyNames {
-		if _, ok := keyMap[name]; !ok {
-			return BootstrapKeys{}, fmt.Errorf("key %q not found in response", name)
-		}
+		return BootstrapKeys{}, err
 	}
 
 	var result BootstrapKeys
-	if csaKeyResp, ok := keyMap[bootstrap.DefaultCSAKeyName]; ok {
-		result.CSAPublicKey = hex.EncodeToString(csaKeyResp.KeyInfo.PublicKey)
+	if csaKey, ok := keyMap[bootstrap.DefaultCSAKeyName]; ok {
+		result.CSAPublicKey = hex.EncodeToString(csaKey)
 	}
 
-	if ecdsaKeyResp, ok := keyMap[commit.DefaultECDSASigningKeyName]; ok {
-		ecdsaPublicKey, err := crypto.UnmarshalPubkey(ecdsaKeyResp.KeyInfo.PublicKey)
+	if ecdsaKey, ok := keyMap[commit.DefaultECDSASigningKeyName]; ok {
+		ecdsaPublicKey, err := crypto.UnmarshalPubkey(ecdsaKey)
 		if err != nil {
 			return BootstrapKeys{}, fmt.Errorf("failed to unmarshal ECDSA public key: %w", err)
 		}
-		result.ECDSAPublicKey = hex.EncodeToString(ecdsaKeyResp.KeyInfo.PublicKey)
+		result.ECDSAPublicKey = hex.EncodeToString(ecdsaKey)
 		result.ECDSAAddress = hex.EncodeToString(crypto.PubkeyToAddress(*ecdsaPublicKey).Bytes())
 	}
 
@@ -219,7 +180,7 @@ func FetchBootstrapKeys(bootstrapURL string, keyNames ...string) (BootstrapKeys,
 		if result.PublicKeys == nil {
 			result.PublicKeys = make(map[string]string)
 		}
-		result.PublicKeys[name] = hex.EncodeToString(keyMap[name].KeyInfo.PublicKey)
+		result.PublicKeys[name] = hex.EncodeToString(keyMap[name])
 	}
 
 	return result, nil
