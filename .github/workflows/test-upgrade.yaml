@@ -1,0 +1,170 @@
+name: E2E Upgrade Test
+
+# Starts devenv on the service images of one commit, then upgrades each service to the images of another commit,
+# one at a time, and sends a message after each step. On a PR: from the target branch commit to the PR code.
+# On the Release Please PR of the services: from the latest release tag to the PR code, which becomes the release.
+# On a release tag vX.Y.Z: from the previous release tag to the new tag.
+on:
+  pull_request:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+  workflow_dispatch:
+    inputs:
+      from:
+        description: 'Commit, branch, or tag to upgrade from'
+        required: true
+      to:
+        description: 'Commit, branch, or tag to upgrade to (default: the commit of the selected branch)'
+        required: false
+        default: ''
+
+defaults:
+  run:
+    working-directory: build/devenv
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e-upgrade:
+    name: TestE2EUpgrade_HappyPath
+    permissions:
+      id-token: write
+      contents: read
+    runs-on: runs-on=${{ github.run_id }}/family=c6i/cpu=32+48/ram=64+96/spot=false/image=ubuntu24-full-x64/extras=s3-cache+tmpfs
+    steps:
+      - name: Enable S3 Cache for Self-Hosted Runners
+        uses: runs-on/action@cd2b598b0515d39d78c38a02d529db87d2196d1e # v2.0.3
+
+      - name: Setup GitHub Token
+        uses: smartcontractkit/.github/actions/setup-github-token@ef78fa97bf3c77de6563db1175422703e9e6674f # setup-github-token@0.2.1
+        with:
+          aws-role-arn: ${{ secrets.GATI_AWS_ROLE_ARN_CHAINLINK_READ_ONLY }}
+          aws-lambda-url: ${{ secrets.GATI_LAMBDA_URL_RELENG }}
+          aws-region: ${{ secrets.GATI_AWS_REGION }}
+          set-git-config: true
+
+      # Full history, so that the image builds can check out any commit.
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Select commits
+        id: refs
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          INPUT_FROM: ${{ inputs.from }}
+          INPUT_TO: ${{ inputs.to }}
+        run: |
+          set -euo pipefail
+          # Highest vX.Y.Z tag: the latest release of the services.
+          latest_release() { git tag --list 'v[0-9]*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1; }
+          # The services release PR; module release PRs use release-please--branches--main--components--<module>.
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ] && [ "${PR_HEAD_REF}" = "release-please--branches--main" ]; then
+            prev="$(latest_release)"
+            if [ -z "${prev}" ]; then
+              echo "No release tag found" >&2
+              exit 1
+            fi
+            echo "Release PR: upgrade from ${prev} to the release candidate" >> "$GITHUB_STEP_SUMMARY"
+            from="$(git rev-parse --verify "${prev}^{commit}")"
+            to="$(git rev-parse HEAD)"
+          elif [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            from="${PR_BASE}"
+            to="$(git rev-parse HEAD)"
+          elif [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            # The previous release is the highest vX.Y.Z tag below the new one, so a patch of an older line compares to its own line.
+            prev="$(git tag --list 'v[0-9]*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | grep -B1 -x "${GITHUB_REF_NAME}" | grep -vx "${GITHUB_REF_NAME}" || true)"
+            if [ -z "${prev}" ]; then
+              echo "No release tag before ${GITHUB_REF_NAME}" >&2
+              exit 1
+            fi
+            echo "Release upgrade from ${prev} to ${GITHUB_REF_NAME}" >> "$GITHUB_STEP_SUMMARY"
+            from="$(git rev-parse --verify "${prev}^{commit}")"
+            to="$(git rev-parse HEAD)"
+          else
+            from="$(git rev-parse --verify "${INPUT_FROM}^{commit}" 2>/dev/null || git rev-parse --verify "origin/${INPUT_FROM}^{commit}")"
+            to_ref="${INPUT_TO:-HEAD}"
+            to="$(git rev-parse --verify "${to_ref}^{commit}" 2>/dev/null || git rev-parse --verify "origin/${to_ref}^{commit}")"
+          fi
+          echo "from=${from}" >> "$GITHUB_OUTPUT"
+          echo "to=${to}" >> "$GITHUB_OUTPUT"
+          echo "Upgrade from ${from} to ${to}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+
+      - name: Install Just
+        uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # v3
+        with:
+          just-version: '1.40.0'
+
+      - name: Authenticate to AWS ECR
+        uses: ./.github/actions/aws-ecr-auth
+        with:
+          role-to-assume: ${{ secrets.CCV_IAM_ROLE }}
+          aws-region: us-east-1
+          registry-type: public
+
+      - name: Authenticate to AWS ECR (JD)
+        uses: ./.github/actions/aws-ecr-auth
+        with:
+          role-to-assume: ${{ secrets.CCV_IAM_ROLE }}
+          aws-region: us-west-2
+          registry-type: private
+          registries: ${{ secrets.JD_REGISTRY }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v6 # v6
+        env:
+          GOPRIVATE: github.com/smartcontractkit/*
+        with:
+          cache: true
+          go-version-file: build/devenv/go.mod
+          cache-dependency-path: build/devenv/go.sum
+
+      - name: Download Go dependencies
+        run: go mod download
+
+      - name: Build ccv CLI
+        run: |
+          mkdir -p "$RUNNER_TEMP/ccv-bin"
+          go build -o "$RUNNER_TEMP/ccv-bin/ccv" ./cmd/ccv
+          echo "$RUNNER_TEMP/ccv-bin" >> "$GITHUB_PATH"
+
+      # The test does not upgrade these, so they come from the checked-out code.
+      - name: Build fakes and pricer images
+        env:
+          DOCKER_BUILDKIT: 1
+        run: |
+          just ../../build/devenv/fakes/build
+          just ../../pricer/build
+
+      - name: Run Observability Stack
+        run: ccv obs up -m loki
+
+      - name: Run upgrade test
+        env:
+          DOCKER_BUILDKIT: 1
+          JD_IMAGE: ${{ secrets.JD_IMAGE }}
+        run: just upgrade-test "${{ steps.refs.outputs.from }}" "${{ steps.refs.outputs.to }}" standard.profile 30m
+
+      - name: Dump logs
+        if: always()
+        working-directory: build/devenv/tests/e2e
+        run: |
+          if [ ! -d "logs" ] || [ -z "$(ls -A logs)" ]; then
+            ccv dl --dir-suffix TestE2EUpgrade_HappyPath || true
+          fi
+
+      - name: Upload Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: container-logs-TestE2EUpgrade_HappyPath
+          path: build/devenv/tests/e2e/logs
+          retention-days: 1
