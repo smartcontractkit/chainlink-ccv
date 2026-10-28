@@ -18,9 +18,20 @@ import (
 )
 
 // UpgradeContainer replaces a running container with one from image, as a rolling upgrade does.
-// The new container keeps the name, env, ports, network aliases, mounts, and the files in the list that devenv copied in.
 // The old container is stopped and renamed to <name>-pre-upgrade, so its logs stay available.
 func UpgradeContainer(ctx context.Context, name, image string, list []UpgradeFile) error {
+	return ReplaceContainer(ctx, name, image, "-pre-upgrade", list)
+}
+
+// RollbackContainer replaces an upgraded container with one from the previous image, as a rollback does.
+// The upgraded container is stopped and renamed to <name>-pre-rollback.
+func RollbackContainer(ctx context.Context, name, image string, list []UpgradeFile) error {
+	return ReplaceContainer(ctx, name, image, "-pre-rollback", list)
+}
+
+// ReplaceContainer replaces a running container with one from image and renames the old one to <name><backupSuffix>.
+// The new container keeps the name, env, ports, network aliases, mounts, and the files in the list that devenv copied in.
+func ReplaceContainer(ctx context.Context, name, image, backupSuffix string, list []UpgradeFile) error {
 	cli, err := testcontainers.NewDockerClientWithOpts(ctx)
 	if err != nil {
 		return fmt.Errorf("docker client: %w", err)
@@ -42,7 +53,7 @@ func UpgradeContainer(ctx context.Context, name, image string, list []UpgradeFil
 		return fmt.Errorf("files of %s: %w", name, err)
 	}
 
-	backupName := name + "-pre-upgrade"
+	backupName := name + backupSuffix
 	if _, err := cli.ContainerRename(ctx, old.ID, client.ContainerRenameOptions{NewName: backupName}); err != nil {
 		return fmt.Errorf("rename %s: %w", name, err)
 	}

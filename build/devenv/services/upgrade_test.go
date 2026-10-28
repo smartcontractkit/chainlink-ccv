@@ -47,6 +47,7 @@ func TestUpgradeContainer(t *testing.T) {
 	t.Cleanup(func() {
 		removeContainer(name)
 		removeContainer(name + "-pre-upgrade")
+		removeContainer(name + "-pre-rollback")
 	})
 
 	// A file that the service writes at run time must not be carried over.
@@ -112,6 +113,20 @@ func TestUpgradeContainer(t *testing.T) {
 	require.Equal(t, "mounted = true\n", out, "bind mount is kept")
 	code, _ = execIn(ctx, t, upgraded.Container.ID, "test", "-f", "/tmp/runtime-file")
 	require.NotEqual(t, 0, code, "run-time file is not carried over")
+
+	// A second swap of the same container must not collide with the upgrade backup.
+	require.NoError(t, RollbackContainer(ctx, name, "redis:7-alpine", list))
+	same, err = RunsImage(ctx, name, "redis:7-alpine")
+	require.NoError(t, err)
+	require.True(t, same)
+	code, out = execIn(ctx, t, name, "cat", "/etc/upgrade-test/app.toml")
+	require.Equal(t, 0, code)
+	require.Equal(t, "app = 1\n", out, "listed file is carried back")
+	for _, backup := range []string{name + "-pre-upgrade", name + "-pre-rollback"} {
+		running, err := IsRunning(ctx, backup)
+		require.NoError(t, err)
+		require.False(t, running, "%s is kept and stopped", backup)
+	}
 }
 
 // execIn runs cmd in the container and returns its exit code and output.

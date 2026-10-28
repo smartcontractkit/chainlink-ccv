@@ -3,6 +3,7 @@ package e2e
 import (
 	"context"
 	"os"
+	"slices"
 	"testing"
 	"time"
 
@@ -30,6 +31,43 @@ const upgradeSettleTime = 10 * time.Second
 // time and in rollout order. The databases, keys, and chains stay. A message must execute before the upgrade,
 // after each container upgrade (with mixed versions), and at the end.
 func TestE2EUpgrade_HappyPath(t *testing.T) {
+	env := newUpgradeEnv(t, false)
+
+	t.Run("before upgrade", env.happyPath)
+	for _, s := range env.steps {
+		env.swap(t, "after upgrading "+s.name, s.name, s.toImage, s.repo, services.UpgradeContainer)
+	}
+	t.Run("after full upgrade", env.happyPath)
+}
+
+// TestE2ERollback_HappyPath starts on the images to upgrade to and rolls each service back to the image to upgrade
+// from, one at a time and in reverse rollout order. The old images must run on the schema and data of the new images.
+func TestE2ERollback_HappyPath(t *testing.T) {
+	env := newUpgradeEnv(t, true)
+
+	t.Run("before rollback", env.happyPath)
+	for _, s := range slices.Backward(env.steps) {
+		env.swap(t, "after rolling back "+s.name, s.name, s.fromImage, s.repo, services.RollbackContainer)
+	}
+	t.Run("after full rollback", env.happyPath)
+}
+
+// upgradeStep is one service container and the images it moves between.
+type upgradeStep struct{ name, repo, fromImage, toImage string }
+
+// upgradeEnv is the running environment and the containers to swap, in rollout order.
+type upgradeEnv struct {
+	ctx       context.Context
+	lib       ccv.Lib
+	src, dest uint64
+	proxies   map[string]string
+	steps     []upgradeStep
+}
+
+// newUpgradeEnv checks that each service runs its start image and that its files can be carried over.
+// The start image is the image to upgrade to if onTo is set, else the image to upgrade from.
+func newUpgradeEnv(t *testing.T, onTo bool) *upgradeEnv {
+	t.Helper()
 	if testing.Short() {
 		t.Skip("skipping e2e test in short mode; requires a running devenv environment")
 	}
@@ -48,54 +86,66 @@ func TestE2EUpgrade_HappyPath(t *testing.T) {
 	chains, err := lib.Chains(ctx)
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(chains), 2, "expected at least 2 chains for this test in the environment")
-	src, dest := chains[0].ChainSelector(), chains[1].ChainSelector()
-
-	happyPath := func(t *testing.T) {
-		t.Helper()
-		runHappyPath(t, lib, src, dest)
-	}
 
 	in, err := ccv.LoadOutput[ccv.Cfg](GetSmokeTestConfig())
 	require.NoError(t, err)
-	nginxOf := aggregatorProxies(in)
 
-	type upgrade struct{ name, repo, image string }
-	var upgrades []upgrade
+	env := &upgradeEnv{
+		ctx:     ctx,
+		lib:     lib,
+		src:     chains[0].ChainSelector(),
+		dest:    chains[1].ChainSelector(),
+		proxies: aggregatorProxies(in),
+	}
 	for _, repo := range rolloutOrder {
 		names, err := services.RunningContainersByImage(ctx, repo)
 		require.NoError(t, err)
 		for _, name := range names {
 			image := services.ImageWithTag(repo, tag)
 			fromImage := services.ImageWithTag(repo, fromTag)
-			runsFrom, err := services.RunsImage(ctx, name, fromImage)
+			start := fromImage
+			if onTo {
+				start = image
+			}
+			runsStart, err := services.RunsImage(ctx, name, start)
 			require.NoError(t, err)
-			require.True(t, runsFrom, "%s does not run %s: start the environment on the images to upgrade from (see 'just upgrade-test')", name, fromImage)
+			require.True(t, runsStart, "%s does not run %s: start the environment with 'just upgrade-test' or 'just rollback-test'", name, start)
 			unchanged, err := services.SameImage(ctx, fromImage, image)
 			require.NoError(t, err)
 			if unchanged {
-				t.Logf("%s: %s and %s are the same image, so its upgrade is a restart on the existing data", name, fromImage, image)
+				t.Logf("%s: %s and %s are the same image, so its swap is a restart on the existing data", name, fromImage, image)
 			}
 			require.NoError(t, services.CheckUpgradeFiles(ctx, name, services.UpgradeFiles(repo)))
-			upgrades = append(upgrades, upgrade{name: name, repo: repo, image: image})
+			env.steps = append(env.steps, upgradeStep{name: name, repo: repo, fromImage: fromImage, toImage: image})
 		}
 	}
-	require.NotEmpty(t, upgrades, "no service container found to upgrade")
+	require.NotEmpty(t, env.steps, "no service container found to upgrade")
+	return env
+}
 
-	t.Run("before upgrade", happyPath)
+func (e *upgradeEnv) happyPath(t *testing.T) {
+	t.Helper()
+	runHappyPath(t, e.lib, e.src, e.dest)
+}
 
-	for _, u := range upgrades {
-		ok := t.Run("after upgrading "+u.name, func(t *testing.T) {
-			require.NoError(t, services.UpgradeContainer(ctx, u.name, u.image, services.UpgradeFiles(u.repo)))
-			requireStaysRunning(t, ctx, u.name, upgradeSettleTime)
-			if proxy, ok := nginxOf[u.name]; ok {
-				reloadProxy(t, ctx, proxy)
-			}
-			happyPath(t)
-		})
-		require.True(t, ok, "rollout stopped at %s", u.name)
+// settle waits until the swapped container stays up, then makes the aggregator proxy resolve it again.
+func (e *upgradeEnv) settle(t *testing.T, name string) {
+	t.Helper()
+	requireStaysRunning(t, e.ctx, name, upgradeSettleTime)
+	if proxy, ok := e.proxies[name]; ok {
+		reloadProxy(t, e.ctx, proxy)
 	}
+}
 
-	t.Run("after full upgrade", happyPath)
+// swap replaces one container in a subtest, then sends a message. The test stops at the first failed swap.
+func (e *upgradeEnv) swap(t *testing.T, step, name, image, repo string, replace func(context.Context, string, string, []services.UpgradeFile) error) {
+	t.Helper()
+	ok := t.Run(step, func(t *testing.T) {
+		require.NoError(t, replace(e.ctx, name, image, services.UpgradeFiles(repo)))
+		e.settle(t, name)
+		e.happyPath(t)
+	})
+	require.True(t, ok, "rollout stopped at %s", name)
 }
 
 // runHappyPath sends the first basic message case that the environment supports and waits until it executes.
