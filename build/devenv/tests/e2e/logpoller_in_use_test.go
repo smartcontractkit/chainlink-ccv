@@ -10,13 +10,15 @@ import (
 	_ "github.com/lib/pq"
 
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/evm"
 )
 
-// requireLogPollerSourceReaderInUse fails the test when CL nodes are running but none of them has a
-// verifier filter registered in its log poller. Only LogPollerSourceReader registers one, so a
-// missing filter means the verifier fell back to the RPC reader. No-op outside CL mode.
+// requireLogPollerSourceReaderInUse fails the test when no verifier filter is registered in the log poller:
+// in any CL node's database, or in a standalone verifier's evm_db. Only LogPollerSourceReader registers one,
+// so a missing filter means the verifier fell back to the RPC reader.
 func requireLogPollerSourceReaderInUse(t *testing.T, in *ccv.Cfg) {
 	t.Helper()
+	requireStandaloneLogPollerFilters(t, in)
 
 	var dbURLs []string
 	for _, nodeSet := range in.NodeSets {
@@ -30,7 +32,7 @@ func requireLogPollerSourceReaderInUse(t *testing.T, in *ccv.Cfg) {
 		}
 	}
 	if len(dbURLs) == 0 {
-		t.Log("no CL nodes in this environment, skipping log poller source reader check")
+		t.Log("no CL nodes in this environment, skipping the CL log poller source reader check")
 		return
 	}
 
@@ -50,6 +52,32 @@ func requireLogPollerSourceReaderInUse(t *testing.T, in *ccv.Cfg) {
 	}, 30*time.Second, time.Second,
 		"no ccv-verifier filter in any CL node's evm.log_poller_filters; "+
 			"the verifier is not reading source logs through the log poller")
+}
+
+// requireStandaloneLogPollerFilters requires a verifier filter in the evm_db of every standalone verifier
+// that has one, which devenv creates only when the verifier reads through the LogPoller.
+func requireStandaloneLogPollerFilters(t *testing.T, in *ccv.Cfg) {
+	t.Helper()
+	for _, v := range in.Verifier {
+		if v == nil || v.Out == nil {
+			continue
+		}
+		url, ok := v.Out.ExtraDBConnectionStrings[evm.EVMDBName]
+		if !ok {
+			continue
+		}
+		require.Eventuallyf(t, func() bool {
+			n, err := countVerifierLogPollerFilters(url)
+			if err != nil {
+				t.Logf("counting log poller filters for %s: %v", v.Out.ContainerName, err)
+				return false
+			}
+			t.Logf("verifier %s has %d ccv-verifier log poller filter(s)", v.Out.ContainerName, n)
+			return n > 0
+		}, 30*time.Second, time.Second,
+			"no ccv-verifier filter in %s's evm.log_poller_filters; the verifier is not reading source logs through the log poller",
+			v.Out.ContainerName)
+	}
 }
 
 func countVerifierLogPollerFilters(dbURL string) (int, error) {

@@ -42,6 +42,32 @@ type tokenVerifierFactory struct {
 	lggr         logger.Logger
 }
 
+var _ bootstrap.ServiceFactoryValidator = (*tokenVerifierFactory)(nil)
+
+// validateTokenJobSpec decodes and validates a token verifier app config. It is
+// the single decode path shared by Start and Validate, so CI validation and the
+// service agree on what a valid config is.
+func validateTokenJobSpec(spec bootstrap.JobSpec) (token.Config, error) {
+	var cfg token.Config
+	if err := spec.GetAppConfig(&cfg); err != nil {
+		return token.Config{}, fmt.Errorf("unable to decode app config: %w", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		return token.Config{}, fmt.Errorf("invalid token verifier config: %w", err)
+	}
+	return cfg, nil
+}
+
+// Validate implements [bootstrap.ServiceFactoryValidator]: it decodes and
+// validates an app config without starting services or allocating runtime
+// resources. The bootstrap lifecycle calls it before replacing a running job, so
+// a bad config is rejected without stopping the current one, and `validate-config`
+// reuses it in CI.
+func (tvf *tokenVerifierFactory) Validate(spec bootstrap.JobSpec) error {
+	_, err := validateTokenJobSpec(spec)
+	return err
+}
+
 // NewTokenVerifierServiceFactory creates a new ServiceFactory for the token verifier service.
 // The factory loads the verifier secrets file itself in Start, so each chain-family binary's
 // main.go stays free of secrets-loading boilerplate.
@@ -82,12 +108,9 @@ func (tvf *tokenVerifierFactory) Stop(_ context.Context) error {
 
 // Start starts the service with the parsed config received from the bootstrapper.
 func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootstrap.ServiceDeps) error {
-	var appConfig token.Config
-	if err := spec.GetAppConfig(&appConfig); err != nil {
-		return fmt.Errorf("unable to decode app config: %w", err)
-	}
-	if err := appConfig.Validate(); err != nil {
-		return fmt.Errorf("invalid token verifier config: %w", err)
+	appConfig, err := validateTokenJobSpec(spec)
+	if err != nil {
+		return err
 	}
 
 	tvf.lggr = deps.Logger

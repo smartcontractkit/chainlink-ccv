@@ -1,12 +1,18 @@
 package cctp
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
+
+// ErrUnsupported marks a type/version pair this package does not handle, so a
+// caller probing multiple verifier types can fall through without masking a real
+// config error as "unsupported type".
+var ErrUnsupported = errors.New("unsupported verifier type")
 
 //nolint:revive // type has to be prefixed to avoid name clash in VerifierConfig
 type CCTPConfig struct {
@@ -39,9 +45,37 @@ type CCTPConfig struct {
 	ParsedVerifierResolvers map[protocol.ChainSelector]protocol.UnknownAddress `json:"-"                           toml:"-"`
 }
 
+// ConfigKeys are the keys TryParsing reads from a [[token_verifiers]] entry for
+// this verifier type. Entries are decoded through VerifierConfig.UnmarshalTOML,
+// which consumes the whole table, so the TOML decoder reports no undecoded keys
+// inside an entry — TryParsing rejects anything outside this list instead of
+// letting it silently do nothing.
+//
+// verifier_id, type and version are read by UnmarshalTOML rather than TryParsing;
+// they are listed so they are not reported as unknown.
+var ConfigKeys = []string{
+	"verifier_id",
+	"type",
+	"version",
+	"verifier_version",
+	"attestation_api",
+	"attestation_api_timeout",
+	"attestation_api_interval",
+	"attestation_api_cooldown",
+	"attestation_not_ready_retry",
+	"attestation_generic_error_retry",
+	"attestation_concurrent_fetchers",
+	"verifier_addresses",
+	"verifier_resolver_addresses",
+}
+
 func TryParsing(t, v string, data map[string]any) (*CCTPConfig, error) {
 	if t != "cctp" || v != "2.0" {
-		return nil, fmt.Errorf("unsupported verifier type %s and version %s", t, v)
+		return nil, fmt.Errorf("%w %s and version %s", ErrUnsupported, t, v)
+	}
+
+	if unknown := common.UnknownKeys(data, ConfigKeys); len(unknown) > 0 {
+		return nil, fmt.Errorf("unknown keys for cctp verifier: %v", unknown)
 	}
 
 	var ok bool

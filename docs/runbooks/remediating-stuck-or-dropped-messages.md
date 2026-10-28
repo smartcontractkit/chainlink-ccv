@@ -13,7 +13,7 @@ When the [admin console](../verifier/admin-console.md) is deployed, it is the pr
 | Failed archived verification, valid saved source payload | `ccv job-queue reschedule --queue task-verifier`; verification and policy run again. |
 | Failed persistence of a valid completed result | `ccv job-queue reschedule --queue storage-writer`; only persistence runs again. |
 | Curse/rule drop before admission, expired archive, missed source interval, or canonicality needs checking | `ccv recovery replay`; bounded canonical source re-read and current admission checks while the reader stays live. |
-| Reader disabled by a finality violation or at startup | Investigate canonical boundary, then `ccv recovery reset-reader`; explicit recorded reset and bounded source recovery. |
+| Reader disabled by a finality violation or at startup | On a log poller chain with a finality violation, follow [Resolving a Finality Violation](resolving-finality-violation.md). Otherwise investigate the canonical boundary, then `ccv recovery reset-reader`; explicit recorded reset and bounded source recovery. |
 | Deployment/binary lacks the recovery CLI or upgraded reader | Stop, set checkpoint, optionally enable, start; legacy fallback in step 4. |
 | Block/unblock a class of traffic | Aggregator disablement rules (step 5), followed by source recovery for already dropped traffic. |
 
@@ -103,7 +103,7 @@ verifier ccv recovery replay --verifier-id <OWNER> --chain-selector <SOURCE> \
 
 Omit `--to-block` only when a fixed copy of the reader's recently advertised head is appropriate. The returned `to_block` is captured at submission and never follows later heads. Missing/stale head observations require an explicit upper bound. Keep the returned operation ID; supplying your own `--request-id <UUID>` lets a disconnected caller safely repeat submission.
 
-A disabled reader requires an explicit investigated reset instead:
+A disabled reader requires an explicit investigated reset instead. This is for readers that use the RPC source reader. A log poller chain disabled by a finality violation follows [Resolving a Finality Violation](resolving-finality-violation.md) instead, because a reset does not repair the log poller's stored blocks:
 
 ```bash
 verifier ccv recovery reset-reader --verifier-id <OWNER> --chain-selector <SOURCE> \

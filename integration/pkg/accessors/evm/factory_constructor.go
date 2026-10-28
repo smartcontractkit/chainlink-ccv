@@ -3,6 +3,7 @@ package evm
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
@@ -60,7 +61,33 @@ func CreateEVMAccessorFactory(lggr logger.Logger, genericConfig chainaccess.Gene
 	}
 	lggr.Infow("loaded EVM config", "numChains", len(infos), "convertedFromNodeConfig", conversion != nil)
 
-	return CreateAccessorFactory(lggr, genericConfig, infos)
+	// Read only here: the database it names is connected and migrated when something first needs it.
+	secrets, err := evmconfig.LoadSecretsFile(evmconfig.ResolveSecretsPath())
+	if err != nil {
+		return nil, fmt.Errorf("failed to load EVM secrets: %w", err)
+	}
+
+	logPollerChains := evmCfg.LogPollerSourceReaderChains()
+	if len(logPollerChains) > 0 && secrets.DB == nil {
+		return nil, fmt.Errorf("log_poller_source_reader_enabled on chain %s in the EVM config %s requires [db] in the EVM secrets file",
+			logPollerChains[0], configPath)
+	}
+
+	f := newAccessorFactory(lggr, genericConfig, infos)
+	f.db = newLazyDB(lggr, secrets.DB)
+	if f.db != nil {
+		f.lease = newEVMLease(lggr, f.db)
+	}
+	f.logPollerChains = make(map[protocol.ChainSelector]bool, len(logPollerChains))
+	for _, selector := range logPollerChains {
+		sel, err := strconv.ParseUint(selector, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid chain selector %q: %w", selector, err)
+		}
+		f.logPollerChains[protocol.ChainSelector(sel)] = true
+	}
+	f.verifierID = genericConfig.VerifierID
+	return f, nil
 }
 
 // CreateAccessorFactory creates a lazy factory that starts one production
@@ -73,6 +100,14 @@ func CreateAccessorFactory(
 	generic chainaccess.GenericConfig,
 	infos chainaccess.Infos[Info],
 ) (chainaccess.AccessorFactory, error) {
+	return newAccessorFactory(lggr, generic, infos), nil
+}
+
+func newAccessorFactory(
+	lggr logger.Logger,
+	generic chainaccess.GenericConfig,
+	infos chainaccess.Infos[Info],
+) *factory {
 	onRampInfos := chainaccess.Infos[string](generic.OnRampAddresses).GetAllInfos()
 	// Deprecated configured RMN remotes are carried through only so the readers can warn when
 	// one disagrees with the address derived from the ramp's on-chain static config.
@@ -95,7 +130,7 @@ func CreateAccessorFactory(
 			if err != nil {
 				return nil, fmt.Errorf("failed to get EVM config for chain %d: %w", chainSelector, err)
 			}
-			return newStandaloneChain(ctx, info, chainLggr)
+			return newStandaloneChain(ctx, chainSelector, info, chainLggr)
 		},
-	), nil
+	)
 }

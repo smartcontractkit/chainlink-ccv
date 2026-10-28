@@ -35,6 +35,17 @@ const (
 // The connect ping retries and the migrations are bounded by ctx, so a degraded
 // database cannot block startup past the caller's deadline.
 func ConnectToPostgresDB(ctx context.Context, lggr logger.Logger, secrets *vsecrets.VerifierSecrets) (sqlutil.DataSource, error) {
+	sqlxDB, err := connectVerifierDB(ctx, lggr, secrets)
+	if err != nil || sqlxDB == nil {
+		// Return a true nil interface, not a typed-nil *sqlx.DB, so callers' nil checks keep working.
+		return nil, err
+	}
+	return sqlxDB, nil
+}
+
+// connectVerifierDB is ConnectToPostgresDB returning the concrete handle so an owner can close it.
+// It returns nil, nil when no database URL is configured.
+func connectVerifierDB(ctx context.Context, lggr logger.Logger, secrets *vsecrets.VerifierSecrets) (*sqlx.DB, error) {
 	dbURL := secrets.DatabaseURL()
 	if dbURL == "" {
 		return nil, nil

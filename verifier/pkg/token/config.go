@@ -1,6 +1,7 @@
 package token
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -125,15 +126,26 @@ func (o *VerifierConfig) UnmarshalTOML(data any) error {
 		return fmt.Errorf("version field is required for VerifierConfig")
 	}
 
+	// Dispatch by type/version, and only fall through to the next implementation
+	// when this one does not handle the type. Any other error is a real config
+	// error (e.g. a duration that is not a quoted string) and must be surfaced as
+	// such — reporting it as "unsupported verifier type" would send operators
+	// chasing the wrong field.
 	var err error
 	o.CCTPConfig, err = cctp.TryParsing(o.Type, o.Version, castedData)
 	if err == nil {
 		return nil
 	}
+	if !errors.Is(err, cctp.ErrUnsupported) {
+		return fmt.Errorf("invalid %s verifier %q: %w", o.Type, o.VerifierID, err)
+	}
 
 	o.LombardConfig, err = lombard.TryParsing(o.Type, o.Version, castedData)
 	if err == nil {
 		return nil
+	}
+	if !errors.Is(err, lombard.ErrUnsupported) {
+		return fmt.Errorf("invalid %s verifier %q: %w", o.Type, o.VerifierID, err)
 	}
 
 	return fmt.Errorf("unsupported verifier type %s and version %s", o.Type, o.Version)

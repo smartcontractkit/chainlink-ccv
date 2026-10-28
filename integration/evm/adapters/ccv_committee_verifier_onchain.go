@@ -6,12 +6,18 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
+
+	mcmstypes "github.com/smartcontractkit/mcms/types"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/committee_verifier"
 	cv "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v2_0_0/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/finality"
+	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
+	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/operations/contract"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
+	cldfops "github.com/smartcontractkit/chainlink-deployments-framework/operations"
 
 	ccvadapters "github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 )
@@ -80,105 +86,55 @@ func (a *EVMCCVCommitteeVerifierOnchainAdapter) ScanCommitteeStates(
 }
 
 func (a *EVMCCVCommitteeVerifierOnchainAdapter) ApplySignatureConfigs(
-	ctx context.Context,
+	_ context.Context,
 	env deployment.Environment,
 	destChainSelector uint64,
 	qualifier string,
 	change ccvadapters.SignatureConfigChange,
-) error {
-	refs := env.DataStore.Addresses().Filter(
-		datastore.AddressRefByType(datastore.ContractType(committee_verifier.ContractType)),
-		datastore.AddressRefByChainSelector(destChainSelector),
-		datastore.AddressRefByQualifier(qualifier),
-	)
-	if len(refs) == 0 {
-		return fmt.Errorf("no CommitteeVerifier found for chain %d qualifier %q", destChainSelector, qualifier)
-	}
-	if len(refs) > 1 {
-		return fmt.Errorf("multiple CommitteeVerifiers found for chain %d qualifier %q", destChainSelector, qualifier)
-	}
-
-	evmChains := env.BlockChains.EVMChains()
-	chain, ok := evmChains[destChainSelector]
-	if !ok {
-		return fmt.Errorf("EVM chain %d not found in environment", destChainSelector)
-	}
-
-	addr := common.HexToAddress(refs[0].Address)
-	contract, err := cv.NewCommitteeVerifier(addr, chain.Client)
-	if err != nil {
-		return fmt.Errorf("failed to bind CommitteeVerifier %s on chain %d: %w", refs[0].Address, destChainSelector, err)
-	}
-
-	sigConfigs := make([]cv.SignatureQuorumValidatorSignatureConfig, 0, len(change.NewConfigs))
+) ([]mcmstypes.BatchOperation, error) {
+	sigConfigs := make([]committee_verifier.SignatureConfig, 0, len(change.NewConfigs))
 	for _, c := range change.NewConfigs {
 		signers := make([]common.Address, 0, len(c.Signers))
 		for _, s := range c.Signers {
 			if !common.IsHexAddress(s) {
-				return fmt.Errorf("invalid signer address %q for source chain %d", s, c.SourceChainSelector)
+				return nil, fmt.Errorf("invalid signer address %q for source chain %d", s, c.SourceChainSelector)
 			}
 			signers = append(signers, common.HexToAddress(s))
 		}
-		sigConfigs = append(sigConfigs, cv.SignatureQuorumValidatorSignatureConfig{
+		sigConfigs = append(sigConfigs, committee_verifier.SignatureConfig{
 			SourceChainSelector: c.SourceChainSelector,
 			Threshold:           c.Threshold,
 			Signers:             signers,
 		})
 	}
 
-	tx, err := contract.ApplySignatureConfigs(chain.DeployerKey, change.RemovedSourceChainSelectors, sigConfigs)
-	if err != nil {
-		return fmt.Errorf("ApplySignatureConfigs tx failed on chain %d: %w", destChainSelector, err)
-	}
-
-	_, err = bind.WaitMined(ctx, chain.Client, tx)
-	if err != nil {
-		return fmt.Errorf("waiting for ApplySignatureConfigs tx on chain %d: %w", destChainSelector, err)
-	}
-
-	return nil
+	return writeCommitteeVerifier(env, destChainSelector, qualifier, committee_verifier.ApplySignatureConfigs,
+		committee_verifier.ApplySignatureConfigsArgs{
+			SourceChainSelectorsToRemove: change.RemovedSourceChainSelectors,
+			SignatureConfigs:             sigConfigs,
+		})
 }
 
 func (a *EVMCCVCommitteeVerifierOnchainAdapter) SetAllowedFinalityConfig(
-	ctx context.Context,
+	_ context.Context,
 	env deployment.Environment,
 	chainSelector uint64,
 	qualifier string,
 	waitForFinality bool,
 	waitForSafe bool,
 	blockDepth uint16,
-) error {
-	chain, ok := env.BlockChains.EVMChains()[chainSelector]
-	if !ok {
-		return fmt.Errorf("EVM chain %d not found in environment", chainSelector)
-	}
-	addr, err := committeeVerifierAddress(env, chainSelector, qualifier)
-	if err != nil {
-		return err
-	}
-	contract, err := cv.NewCommitteeVerifier(addr, chain.Client)
-	if err != nil {
-		return fmt.Errorf("failed to bind CommitteeVerifier %s on chain %d: %w", addr, chainSelector, err)
-	}
-
+) ([]mcmstypes.BatchOperation, error) {
 	raw := finality.Config{
 		WaitForFinality: waitForFinality,
 		WaitForSafe:     waitForSafe,
 		BlockDepth:      blockDepth,
 	}.Raw()
 
-	tx, err := contract.SetAllowedFinalityConfig(chain.DeployerKey, raw)
-	if err != nil {
-		return fmt.Errorf("SetAllowedFinalityConfig tx failed on chain %d: %w", chainSelector, err)
-	}
-	if _, err := bind.WaitMined(ctx, chain.Client, tx); err != nil {
-		return fmt.Errorf("waiting for SetAllowedFinalityConfig tx on chain %d: %w", chainSelector, err)
-	}
-	return nil
+	return writeCommitteeVerifier(env, chainSelector, qualifier, committee_verifier.SetAllowedFinalityConfig, raw)
 }
 
 func (a *EVMCCVCommitteeVerifierOnchainAdapter) ApplyAllowlistUpdates(
-	ctx context.Context,
+	_ context.Context,
 	env deployment.Environment,
 	chainSelector uint64,
 	qualifier string,
@@ -186,44 +142,89 @@ func (a *EVMCCVCommitteeVerifierOnchainAdapter) ApplyAllowlistUpdates(
 	allowlistEnabled bool,
 	addedSenders []string,
 	removedSenders []string,
-) error {
-	chain, ok := env.BlockChains.EVMChains()[chainSelector]
-	if !ok {
-		return fmt.Errorf("EVM chain %d not found in environment", chainSelector)
-	}
-	addr, err := committeeVerifierAddress(env, chainSelector, qualifier)
-	if err != nil {
-		return err
-	}
-	contract, err := cv.NewCommitteeVerifier(addr, chain.Client)
-	if err != nil {
-		return fmt.Errorf("failed to bind CommitteeVerifier %s on chain %d: %w", addr, chainSelector, err)
-	}
-
+) ([]mcmstypes.BatchOperation, error) {
 	added, err := toEVMSenderAddresses(addedSenders, "added")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	removed, err := toEVMSenderAddresses(removedSenders, "removed")
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	args := []cv.BaseVerifierAllowlistConfigArgs{{
-		DestChainSelector:         destChainSelector,
-		AllowlistEnabled:          allowlistEnabled,
-		AddedAllowlistedSenders:   added,
-		RemovedAllowlistedSenders: removed,
-	}}
+	return writeCommitteeVerifier(env, chainSelector, qualifier, applyAllowlistUpdates,
+		[]committee_verifier.AllowlistConfigArgs{{
+			DestChainSelector:         destChainSelector,
+			AllowlistEnabled:          allowlistEnabled,
+			AddedAllowlistedSenders:   added,
+			RemovedAllowlistedSenders: removed,
+		}})
+}
 
-	tx, err := contract.ApplyAllowlistUpdates(chain.DeployerKey, args)
+// applyAllowlistUpdates mirrors committee_verifier.ApplyAllowlistUpdates but, like the contract,
+// also lets the allowlist admin execute directly instead of only the owner.
+var applyAllowlistUpdates = contract.NewWrite(contract.WriteParams[[]committee_verifier.AllowlistConfigArgs, *committee_verifier.CommitteeVerifierContract]{
+	Name:            "ccv-committee-verifier:apply-allowlist-updates",
+	Version:         committee_verifier.Version,
+	Description:     "Calls applyAllowlistUpdates on the CommitteeVerifier as owner or allowlist admin",
+	ContractType:    committee_verifier.ContractType,
+	ContractABI:     committee_verifier.CommitteeVerifierABI,
+	NewContract:     committee_verifier.NewCommitteeVerifierContract,
+	IsAllowedCaller: ownerOrAllowlistAdmin,
+	Validate:        func([]committee_verifier.AllowlistConfigArgs) error { return nil },
+	CallContract: func(c *committee_verifier.CommitteeVerifierContract, opts *bind.TransactOpts, args []committee_verifier.AllowlistConfigArgs) (*types.Transaction, error) {
+		return c.ApplyAllowlistUpdates(opts, args)
+	},
+})
+
+func ownerOrAllowlistAdmin(c *committee_verifier.CommitteeVerifierContract, opts *bind.CallOpts, caller common.Address, args []committee_verifier.AllowlistConfigArgs) (bool, error) {
+	isOwner, err := contract.OnlyOwner(c, opts, caller, args)
+	if err != nil || isOwner {
+		return isOwner, err
+	}
+	cfg, err := c.GetDynamicConfig(opts)
 	if err != nil {
-		return fmt.Errorf("ApplyAllowlistUpdates tx failed on chain %d: %w", chainSelector, err)
+		return false, fmt.Errorf("failed to get dynamic config of %s: %w", c.Address(), err)
 	}
-	if _, err := bind.WaitMined(ctx, chain.Client, tx); err != nil {
-		return fmt.Errorf("waiting for ApplyAllowlistUpdates tx on chain %d: %w", chainSelector, err)
+	return cfg.AllowlistAdmin == caller, nil
+}
+
+// writeCommitteeVerifier runs a CommitteeVerifier write: mined directly when the deployer key
+// is an allowed caller (no batch ops), otherwise returned as one MCMS batch op.
+func writeCommitteeVerifier[ARGS any](
+	env deployment.Environment,
+	chainSelector uint64,
+	qualifier string,
+	op *cldfops.Operation[contract.FunctionInput[ARGS], contract.WriteOutput, evm.Chain],
+	args ARGS,
+) ([]mcmstypes.BatchOperation, error) {
+	chain, ok := env.BlockChains.EVMChains()[chainSelector]
+	if !ok {
+		return nil, fmt.Errorf("EVM chain %d not found in environment", chainSelector)
 	}
-	return nil
+	addr, err := committeeVerifierAddress(env, chainSelector, qualifier)
+	if err != nil {
+		return nil, err
+	}
+
+	// Force execution so a repeated config change in one bundle is not served from cache.
+	report, err := cldfops.ExecuteOperation(
+		env.OperationsBundle, op, chain,
+		contract.FunctionInput[ARGS]{ChainSelector: chainSelector, Address: addr, Args: args},
+		cldfops.WithForceExecute[contract.FunctionInput[ARGS], evm.Chain](),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("%s on CommitteeVerifier %s chain %d: %w", op.ID(), addr, chainSelector, err)
+	}
+
+	batchOp, err := contract.NewBatchOperationFromWrites([]contract.WriteOutput{report.Output})
+	if err != nil {
+		return nil, fmt.Errorf("failed to build batch operation for chain %d: %w", chainSelector, err)
+	}
+	if len(batchOp.Transactions) == 0 {
+		return nil, nil
+	}
+	return []mcmstypes.BatchOperation{batchOp}, nil
 }
 
 // committeeVerifierAddress resolves the single CommitteeVerifier contract address for

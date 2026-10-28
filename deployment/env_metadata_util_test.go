@@ -2,6 +2,7 @@ package deployment
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -236,6 +237,60 @@ func TestMergeTokenVerifierConfig_AccumulatesPerChain(t *testing.T) {
 	require.Equal(t, map[string]any{"1": "0xcctpres1", "2": "0xcctpres2"}, gotCCTP.VerifierResolvers)
 	gotLombard := byID["lombard-q"].LombardConfig
 	require.Equal(t, map[string]any{"1": "0xlomres1", "2": "0xlomres2"}, gotLombard.VerifierResolvers)
+}
+
+// TestMergeTokenVerifierConfig_PreservesUnmodelledFields guards the merge against
+// rebuilding token.Config field-by-field: generate-token-verifier-config models
+// only PyroscopeURL, Monitoring, and per-chain data, so a per-chain regeneration
+// must not reset the config-wide fields it never sets.
+func TestMergeTokenVerifierConfig_PreservesUnmodelledFields(t *testing.T) {
+	t.Parallel()
+
+	t.Run("fields the caller does not model survive a regeneration", func(t *testing.T) {
+		t.Parallel()
+
+		ds := datastore.NewMemoryDataStore()
+
+		require.NoError(t, MergeTokenVerifierConfig(ds, "token-1", &token.Config{
+			PyroscopeURL:                   "http://pyroscope",
+			DisableFinalityCheckers:        []string{"123"},
+			SourceReaderStalenessThreshold: 42 * time.Minute,
+			CommitteeConfig:                chainaccess.CommitteeConfig{OnRampAddresses: map[string]string{"1": "0xonramp1"}},
+		}))
+
+		// The next per-chain run models neither DisableFinalityCheckers nor
+		// SourceReaderStalenessThreshold, exactly like the changeset.
+		require.NoError(t, MergeTokenVerifierConfig(ds, "token-1", &token.Config{
+			PyroscopeURL:    "http://pyroscope",
+			CommitteeConfig: chainaccess.CommitteeConfig{OnRampAddresses: map[string]string{"2": "0xonramp2"}},
+		}))
+
+		got, err := GetTokenVerifierConfig(ds.Seal(), "token-1")
+		require.NoError(t, err)
+		require.Equal(t, []string{"123"}, got.DisableFinalityCheckers)
+		require.Equal(t, 42*time.Minute, got.SourceReaderStalenessThreshold)
+		require.Equal(t, map[string]string{"1": "0xonramp1", "2": "0xonramp2"}, got.OnRampAddresses)
+	})
+
+	t.Run("a non-zero incoming value still wins", func(t *testing.T) {
+		t.Parallel()
+
+		ds := datastore.NewMemoryDataStore()
+
+		require.NoError(t, MergeTokenVerifierConfig(ds, "token-1", &token.Config{
+			DisableFinalityCheckers:        []string{"123"},
+			SourceReaderStalenessThreshold: 42 * time.Minute,
+		}))
+		require.NoError(t, MergeTokenVerifierConfig(ds, "token-1", &token.Config{
+			DisableFinalityCheckers:        []string{"456"},
+			SourceReaderStalenessThreshold: 7 * time.Minute,
+		}))
+
+		got, err := GetTokenVerifierConfig(ds.Seal(), "token-1")
+		require.NoError(t, err)
+		require.Equal(t, []string{"456"}, got.DisableFinalityCheckers)
+		require.Equal(t, 7*time.Minute, got.SourceReaderStalenessThreshold)
+	})
 }
 
 func testProposal(id string, revision int64, status shared.JobProposalStatus) shared.ProposalRevision {

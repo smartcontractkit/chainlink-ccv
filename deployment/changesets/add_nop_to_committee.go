@@ -35,6 +35,7 @@ import (
 	"slices"
 	"strings"
 
+	mcmsutil "github.com/smartcontractkit/chainlink-ccip/deployment/utils/mcms"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
@@ -65,6 +66,9 @@ type AddNOPToCommitteeInput struct {
 	NOPAlias string
 	// NewThreshold is the desired threshold after the NOP is added. Zero keeps the current threshold.
 	NewThreshold uint8
+	// MCMS, when set, packages the onchain writes into an MCMS timelock proposal
+	// instead of submitting them with the deployer key.
+	MCMS *mcmsutil.Input
 }
 
 // AddNOPOffchainInput is the input for step-2 of the AddNOP two-entry product.
@@ -116,11 +120,12 @@ func AddNOPToCommittee() deployment.ChangeSetV2[AddNOPToCommitteeInput] {
 		if err != nil {
 			return deployment.ChangesetOutput{}, err
 		}
+		writes := committeeWrites{mcms: cfg.MCMS}
 		if err := applySignerChangesOnchain(e, cfg.CommitteeQualifier, cfg.NOPAlias, signerFamily,
-			cfg.SourceChainSelectors, cfg.NewThreshold, buildAddSignerChange); err != nil {
+			cfg.SourceChainSelectors, cfg.NewThreshold, buildAddSignerChange, &writes); err != nil {
 			return deployment.ChangesetOutput{}, err
 		}
-		return deployment.ChangesetOutput{}, nil
+		return writes.output(e)
 	}
 
 	return deployment.CreateChangeSet(apply, validate)
@@ -147,9 +152,8 @@ func validateStep1NOP(e deployment.Environment, qualifier, nopAlias string, sour
 	return nil
 }
 
-// applySignerChangesOnchain is the shared apply core of AddNOPToCommittee and
-// RemoveNOPFromCommittee. It fetches the signer address, scans every deployed dest chain for the
-// committee, builds the change via buildChange, and submits an ApplySignatureConfigs call.
+// applySignerChangesOnchain is the shared apply core of AddNOPToCommittee and RemoveNOPFromCommittee.
+// It collects into writes the ApplySignatureConfigs writes the deployer key could not execute.
 func applySignerChangesOnchain(
 	e deployment.Environment,
 	committeeQualifier string,
@@ -158,6 +162,7 @@ func applySignerChangesOnchain(
 	sourceChainSelectors []uint64,
 	newThreshold uint8,
 	buildChange func(*adapters.CommitteeState, string, uint8, []uint64) (adapters.SignatureConfigChange, error),
+	writes *committeeWrites,
 ) error {
 	ctx := e.GetContext()
 
@@ -192,8 +197,12 @@ func applySignerChangesOnchain(
 		if onchainErr != nil {
 			return fmt.Errorf("dest chain %d: %w", sel, onchainErr)
 		}
-		if applyErr := onchain.ApplySignatureConfigs(ctx, e, sel, committeeQualifier, change); applyErr != nil {
+		ops, applyErr := onchain.ApplySignatureConfigs(ctx, e, sel, committeeQualifier, change)
+		if applyErr != nil {
 			return fmt.Errorf("dest chain %d: ApplySignatureConfigs failed: %w", sel, applyErr)
+		}
+		if err := writes.add(sel, ops); err != nil {
+			return err
 		}
 		applied++
 	}
