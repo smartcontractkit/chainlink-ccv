@@ -2,6 +2,7 @@ package common
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"time"
 
@@ -38,8 +39,14 @@ func (d Duration) String() string {
 	return time.Duration(d).String()
 }
 
+// ParseIntOrDefault parses a TOML integer value, falling back to defaultVal only
+// when the value is absent. A value of an unsupported type is an error rather
+// than a silent fallback, so a mistyped field (e.g. `batch_size = true`) cannot
+// quietly take the default and look configured.
 func ParseIntOrDefault(val any, defaultVal int) (int, error) {
 	switch v := val.(type) {
+	case nil:
+		return defaultVal, nil
 	case int:
 		return v, nil
 	case int32:
@@ -57,19 +64,55 @@ func ParseIntOrDefault(val any, defaultVal int) (int, error) {
 			return 0, fmt.Errorf("invalid integer format: %w", err)
 		}
 		return intVal, nil
+	default:
+		return 0, fmt.Errorf("integer field must be a TOML integer or a quoted integer (e.g. \"42\"), got %T, %v", val, val)
 	}
-	return defaultVal, nil
 }
 
+// ParseDurationOrDefault parses a TOML duration value, falling back to defaultVal
+// only when the value is absent.
+//
+// Durations must be quoted strings (e.g. "30m", "5s"), the same contract as
+// [Duration.UnmarshalTOML]. A bare TOML integer is rejected rather than read as
+// nanoseconds: `timeout = 3000000000` used to mean "3s" to the author but the
+// default to the app, so the config silently disagreed with the binary. Any other
+// non-string type is an error too, so a mistyped field never falls back to a
+// default unnoticed.
 func ParseDurationOrDefault(val any, defaultVal time.Duration) (time.Duration, error) {
-	if v, ok := val.(string); ok {
-		duration, err := time.ParseDuration(v)
-		if err != nil {
-			return 0, fmt.Errorf("invalid duration format: %w", err)
-		}
-		return duration, nil
+	if val == nil {
+		return defaultVal, nil
 	}
-	return defaultVal, nil
+	v, ok := val.(string)
+	if !ok {
+		return 0, fmt.Errorf("duration must be a quoted string (e.g. \"30m\", \"5s\"), got %T, %v", val, val)
+	}
+	duration, err := time.ParseDuration(v)
+	if err != nil {
+		return 0, fmt.Errorf("invalid duration format: %w", err)
+	}
+	return duration, nil
+}
+
+// UnknownKeys returns the sorted names of keys in data that are not in allowed.
+//
+// A config decoded through a custom UnmarshalTOML consumes its whole TOML table,
+// so the decoder reports no undecoded keys for it and otherwise-dropped keys
+// would go unnoticed. Callers use this to reject keys that silently do nothing.
+func UnknownKeys(data map[string]any, allowed []string) []string {
+	allowedSet := make(map[string]struct{}, len(allowed))
+	for _, key := range allowed {
+		allowedSet[key] = struct{}{}
+	}
+
+	var unknown []string
+	for key := range data {
+		if _, ok := allowedSet[key]; !ok {
+			unknown = append(unknown, key)
+		}
+	}
+	slices.Sort(unknown)
+
+	return unknown
 }
 
 func ParseAddressesMap(val any) (map[protocol.ChainSelector]protocol.UnknownAddress, map[string]any, error) {
