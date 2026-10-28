@@ -1,11 +1,13 @@
 name: E2E Upgrade Test
 
 # Starts devenv on the service images of one commit, then upgrades each service to the images of another commit,
-# one at a time, and sends a message after each step. On a PR: from the target branch commit to the PR code.
+# one at a time, and sends a message after each step. The rollback job then goes back to the first images.
+# On a PR: from the target branch commit to the PR code. The label upgrade-breaking-change skips the PR jobs.
 # On the Release Please PR of the services: from the latest release tag to the PR code, which becomes the release.
 # On a release tag vX.Y.Z: from the previous release tag to the new tag.
 on:
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
   push:
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
@@ -29,7 +31,16 @@ concurrency:
 
 jobs:
   e2e-upgrade:
-    name: TestE2EUpgrade_HappyPath
+    name: ${{ matrix.test }}
+    if: github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'upgrade-breaking-change')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - test: TestE2EUpgrade_HappyPath
+            recipe: upgrade-test
+          - test: TestE2ERollback_HappyPath
+            recipe: rollback-test
     permissions:
       id-token: write
       contents: read
@@ -147,24 +158,24 @@ jobs:
       - name: Run Observability Stack
         run: ccv obs up -m loki
 
-      - name: Run upgrade test
+      - name: Run ${{ matrix.test }}
         env:
           DOCKER_BUILDKIT: 1
           JD_IMAGE: ${{ secrets.JD_IMAGE }}
-        run: just upgrade-test "${{ steps.refs.outputs.from }}" "${{ steps.refs.outputs.to }}" standard.profile 30m
+        run: just ${{ matrix.recipe }} "${{ steps.refs.outputs.from }}" "${{ steps.refs.outputs.to }}" standard.profile 30m
 
       - name: Dump logs
         if: always()
         working-directory: build/devenv/tests/e2e
         run: |
           if [ ! -d "logs" ] || [ -z "$(ls -A logs)" ]; then
-            ccv dl --dir-suffix TestE2EUpgrade_HappyPath || true
+            ccv dl --dir-suffix ${{ matrix.test }} || true
           fi
 
       - name: Upload Logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: container-logs-TestE2EUpgrade_HappyPath
+          name: container-logs-${{ matrix.test }}
           path: build/devenv/tests/e2e/logs
           retention-days: 1

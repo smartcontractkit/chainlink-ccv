@@ -87,13 +87,22 @@ build-images-at ref tag:
     done
     docker build -f "$dir/verifier/Dockerfile" --build-arg VERIFIER_TYPE=token -t "token-verifier:{{ tag }}" "$dir"
 
-# NOTE: the `from` images replace the local :latest service images, because devenv starts :latest.
-# Rolling upgrade test: start devenv on the images of `from`, then upgrade each service to the images of `to`.
-upgrade-test from to="HEAD" profile="standard.profile" timeout="30m":
+# NOTE: the `start` images (upgrade-from or upgrade-to) replace the local :latest service images, because devenv starts :latest.
+# Build the images of `from` and `to`, and run one swap test on them.
+[private]
+_swap-test test start from to profile timeout:
     just build-images-at "{{ from }}" upgrade-from
     just build-images-at "{{ to }}" upgrade-to
-    for svc in verifier token-verifier executor indexer aggregator; do docker tag "$svc:upgrade-from" "$svc:latest"; done
-    CCV_UPGRADE_FROM_IMAGE_TAG=upgrade-from CCV_UPGRADE_IMAGE_TAG=upgrade-to ccv test --profile {{ profile }} --pattern TestE2EUpgrade_HappyPath --timeout {{ timeout }} --build=false
+    for svc in verifier token-verifier executor indexer aggregator; do docker tag "$svc:{{ start }}" "$svc:latest"; done
+    CCV_UPGRADE_FROM_IMAGE_TAG=upgrade-from CCV_UPGRADE_IMAGE_TAG=upgrade-to ccv test --profile {{ profile }} --pattern {{ test }} --timeout {{ timeout }} --build=false
+
+# Rolling upgrade test: start devenv on the images of `from`, then upgrade each service to the images of `to`.
+upgrade-test from to="HEAD" profile="standard.profile" timeout="30m":
+    just _swap-test TestE2EUpgrade_HappyPath upgrade-from "{{ from }}" "{{ to }}" {{ profile }} {{ timeout }}
+
+# Rolling rollback test: start devenv on the images of `to`, then roll back each service to the images of `from`.
+rollback-test from to="HEAD" profile="standard.profile" timeout="30m":
+    just _swap-test TestE2ERollback_HappyPath upgrade-to "{{ from }}" "{{ to }}" {{ profile }} {{ timeout }}
 
 # Rebuild CLI
 cli:
