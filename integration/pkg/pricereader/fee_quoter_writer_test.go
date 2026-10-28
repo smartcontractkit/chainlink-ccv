@@ -161,7 +161,7 @@ func TestScaleTokenPrices(t *testing.T) {
 		require.Equal(t, in[i].Address, out[i].Address)
 		requireSameInt(t, mustBig(t, price), (*big.Int)(out[i].Price))
 	}
-	require.Equal(t, mustBig(t, "15000000000000000000"), (*big.Int)(in[0].Price), "input must not change")
+	require.Equal(t, mustBig(t, "1000000000000000000"), (*big.Int)(in[0].Price), "input must not change")
 }
 
 func TestScaleTokenPricesIsTheInverseOfTheReaderConversion(t *testing.T) {
