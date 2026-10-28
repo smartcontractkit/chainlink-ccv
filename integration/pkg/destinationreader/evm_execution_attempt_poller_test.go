@@ -100,12 +100,12 @@ func (m *mockClient) SubscribeFilterLogs(ctx context.Context, q ethereum.FilterQ
 	return nil, errors.New("websocket not available in test environment")
 }
 
-func (m *mockClient) TransactionByHash(ctx context.Context, txHash common.Hash) (*types.Transaction, error) {
+func (m *mockClient) TransactionByHash(ctx context.Context, txHash common.Hash) (*types.Transaction, bool, error) {
 	args := m.Called(ctx, txHash)
 	if args.Get(0) == nil {
-		return nil, args.Error(1)
+		return nil, false, args.Error(1)
 	}
-	return args.Get(0).(*types.Transaction), args.Error(1)
+	return args.Get(0).(*types.Transaction), false, args.Error(1)
 }
 
 // blockTimeCalculator calculates block timestamps based on block number and block time interval.

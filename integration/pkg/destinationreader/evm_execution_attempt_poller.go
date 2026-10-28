@@ -837,7 +837,7 @@ func (p *EvmExecutionAttemptPoller) processExecutionStateChanged(ctx context.Con
 		return nil
 	}
 
-	transaction, err := p.client.TransactionByHash(ctx, txHash)
+	transaction, _, err := p.client.TransactionByHash(ctx, txHash)
 	if err != nil {
 		return fmt.Errorf("failed to get transaction by hash %s: %w", txHash.Hex(), err)
 	}
