@@ -95,15 +95,7 @@ func TestE2ESmoke_TokenVerification(t *testing.T) {
 		)
 
 		tcs := []tokenVerifierTestCase{
-			{
-				name:                    "USDC transfer to EOA receiver with chain finality",
-				finalityConfig:          0,
-				transferAmount:          big.NewInt(100),
-				receiver:                mustGetEOAReceiverAddress(t, destChain),
-				expectedReceiptIssuers:  4, // CCTP CCV, token pool, executor, network fee
-				expectedVerifierResults: 1,
-				shouldCheckAggregator:   false,
-			},
+			usdcEOACase(t, destChain),
 			{
 				name:                    "USDC transfer to EOA receiver with fast finality",
 				finalityConfig:          protocol.NewFinality().WithBlockDepth(1),
@@ -161,14 +153,7 @@ func TestE2ESmoke_TokenVerification(t *testing.T) {
 		)
 
 		tcs := []tokenVerifierTestCase{
-			{
-				name:                    "Lombard transfer to EOA receiver with chain finality",
-				transferAmount:          big.NewInt(100),
-				receiver:                mustGetEOAReceiverAddress(t, destChain),
-				finalityConfig:          0,
-				expectedReceiptIssuers:  5, // default ccv, token pool, executor, network fee
-				expectedVerifierResults: 2, // default ccv, Lombard ccv
-			},
+			lombardEOACase(t, destChain),
 			{
 				name:           "Lombard transfer to EOA fails with custom finality config",
 				transferAmount: big.NewInt(100),
@@ -192,6 +177,31 @@ func TestE2ESmoke_TokenVerification(t *testing.T) {
 			})
 		}
 	})
+}
+
+// usdcEOACase is a USDC transfer to an EOA with chain finality. Only the CCTP token verifier verifies it.
+func usdcEOACase(t *testing.T, destChain cciptestinterfaces.CCIP17) tokenVerifierTestCase {
+	return tokenVerifierTestCase{
+		name:                    "USDC transfer to EOA receiver with chain finality",
+		finalityConfig:          0,
+		transferAmount:          big.NewInt(100),
+		receiver:                mustGetEOAReceiverAddress(t, destChain),
+		expectedReceiptIssuers:  4, // CCTP CCV, token pool, executor, network fee
+		expectedVerifierResults: 1,
+		shouldCheckAggregator:   false,
+	}
+}
+
+// lombardEOACase is a Lombard transfer to an EOA with chain finality. The default CCV and the Lombard CCV verify it.
+func lombardEOACase(t *testing.T, destChain cciptestinterfaces.CCIP17) tokenVerifierTestCase {
+	return tokenVerifierTestCase{
+		name:                    "Lombard transfer to EOA receiver with chain finality",
+		transferAmount:          big.NewInt(100),
+		receiver:                mustGetEOAReceiverAddress(t, destChain),
+		finalityConfig:          0,
+		expectedReceiptIssuers:  5, // default ccv, token pool, executor, network fee
+		expectedVerifierResults: 2, // default ccv, Lombard ccv
+	}
 }
 
 func runUSDCTestCase(

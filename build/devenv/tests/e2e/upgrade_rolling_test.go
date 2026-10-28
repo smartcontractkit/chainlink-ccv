@@ -7,9 +7,17 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Masterminds/semver/v3"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
+	chain_selectors "github.com/smartcontractkit/chain-selectors"
+	burn_mint_erc20_with_drip_v1_5 "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/burn_mint_erc20_with_drip"
+	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
+
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/tcapi"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/tcapi/basic"
@@ -58,10 +66,14 @@ type upgradeStep struct{ name, repo, fromImage, toImage string }
 // upgradeEnv is the running environment and the containers to swap, in rollout order.
 type upgradeEnv struct {
 	ctx       context.Context
+	in        *ccv.Cfg
 	lib       ccv.Lib
 	src, dest uint64
 	proxies   map[string]string
 	steps     []upgradeStep
+	// evmSrc and evmDest are set if the environment has two EVM chains, which the token transfers use.
+	evmChains       map[uint64]cciptestinterfaces.CCIP17
+	evmSrc, evmDest uint64
 }
 
 // newUpgradeEnv checks that each service runs its start image and that its files can be carried over.
@@ -92,10 +104,20 @@ func newUpgradeEnv(t *testing.T, onTo bool) *upgradeEnv {
 
 	env := &upgradeEnv{
 		ctx:     ctx,
+		in:      in,
 		lib:     lib,
 		src:     chains[0].ChainSelector(),
 		dest:    chains[1].ChainSelector(),
 		proxies: aggregatorProxies(in),
+	}
+	evmLib, err := ccv.NewLibFromCCVEnv(&ccv.Plog, GetSmokeTestConfig(), chain_selectors.FamilyEVM)
+	require.NoError(t, err)
+	evmChains, err := evmLib.Chains(ctx)
+	require.NoError(t, err)
+	if len(evmChains) >= 2 {
+		env.evmChains, err = evmLib.ChainsMap(ctx)
+		require.NoError(t, err)
+		env.evmSrc, env.evmDest = evmChains[0].Details.ChainSelector, evmChains[1].Details.ChainSelector
 	}
 	for _, repo := range rolloutOrder {
 		names, err := services.RunningContainersByImage(ctx, repo)
@@ -123,9 +145,48 @@ func newUpgradeEnv(t *testing.T, onTo bool) *upgradeEnv {
 	return env
 }
 
+// happyPath sends a basic message, then a USDC and a Lombard transfer, which need the token verifier.
 func (e *upgradeEnv) happyPath(t *testing.T) {
 	t.Helper()
 	runHappyPath(t, e.lib, e.src, e.dest)
+	e.tokenPath(t)
+}
+
+// tokenPath sends one USDC and one Lombard transfer between the first two EVM chains, if the environment has them.
+func (e *upgradeEnv) tokenPath(t *testing.T) {
+	t.Helper()
+	if e.evmChains == nil {
+		t.Log("fewer than 2 EVM chains: no token transfer")
+		return
+	}
+	src, dest := e.evmChains[e.evmSrc], e.evmChains[e.evmDest]
+	// A swap restarts the aggregator and the indexer, so make new clients for each step.
+	l := zerolog.Ctx(e.ctx)
+	aggregator := SetupAggregatorClients(t, e.ctx, e.in)[common.DefaultCommitteeVerifierQualifier]
+	indexer := SetupIndexerMonitor(t, e.ctx, e.lib)
+
+	if e.hasToken(e.evmSrc, "") && e.hasToken(e.evmDest, "") {
+		t.Run("USDC", func(t *testing.T) {
+			runUSDCTestCase(t, e.ctx, l, e.in, src, dest, e.evmSrc, e.evmDest, e.evmChains, aggregator, indexer, usdcEOACase(t, dest))
+		})
+	} else {
+		t.Log("no USDC token in the environment: no USDC transfer")
+	}
+	if e.hasToken(e.evmSrc, common.LombardContractsQualifier) && e.hasToken(e.evmDest, common.LombardContractsQualifier) {
+		t.Run("Lombard", func(t *testing.T) {
+			runLombardTestCase(t, e.ctx, l, e.in, src, dest, e.evmSrc, e.evmDest, e.evmChains, aggregator, indexer, lombardEOACase(t, dest))
+		})
+	} else {
+		t.Log("no Lombard token in the environment: no Lombard transfer")
+	}
+}
+
+// hasToken reports if the datastore has the test token with the qualifier: "" for USDC, Lombard for Lombard.
+func (e *upgradeEnv) hasToken(selector uint64, qualifier string) bool {
+	_, err := e.in.CLDF.DataStore.Addresses().Get(datastore.NewAddressRefKey(selector,
+		datastore.ContractType(burn_mint_erc20_with_drip_v1_5.ContractType),
+		semver.MustParse(burn_mint_erc20_with_drip_v1_5.Deploy.Version()), qualifier))
+	return err == nil
 }
 
 // settle waits until the swapped container stays up, then makes the aggregator proxy resolve it again.
