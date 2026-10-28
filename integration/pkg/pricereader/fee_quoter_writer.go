@@ -18,7 +18,20 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/gethwrappers/shared/generated/initial/erc20"
+	"github.com/smartcontractkit/chainlink-evm/pkg/keys"
+	"github.com/smartcontractkit/chainlink-evm/pkg/txmgr"
+
+	evmtypes "github.com/smartcontractkit/chainlink-evm/pkg/types"
+	txmgrcommon "github.com/smartcontractkit/chainlink-framework/chains/txmgr"
 )
+
+const (
+	// updatePricesBaseGas and updatePricesGasPerUpdate bound the gas limit of an updatePrices call.
+	updatePricesBaseGas      = 100_000
+	updatePricesGasPerUpdate = 50_000
+)
+
+var feeQuoterABI = evmtypes.MustGetABI(fee_quoter.FeeQuoterABI)
 
 // weibarPerTinybar is the divisor applied to Hedera gas prices.
 // Hedera gas price RPC call returns 1e18 yet the atomic unit
@@ -26,27 +39,51 @@ import (
 // by this factor
 var weibarPerTinybar = big.NewInt(1e10)
 
-var _ chainaccess.FeeQuoterWriter = (*LoggingFeeQuoterWriter)(nil)
+var _ chainaccess.FeeQuoterWriter = (*EVMFeeQuoterWriter)(nil)
 
-// LoggingFeeQuoterWriter logs the price updates and does not send a transaction.
-// It is a stub until the writer sends the updates to the Fee Quoter.
-type LoggingFeeQuoterWriter struct {
+// EVMFeeQuoterWriter sends price updates to the Fee Quoter through the transaction manager.
+// Without a transaction manager (see WithTxm) it only logs the updates.
+type EVMFeeQuoterWriter struct {
 	lggr    logger.Logger
 	client  batchClient
 	address common.Address
+
+	txm           txmgr.TxManager
+	keys          keys.RoundRobin
+	fromAddresses []common.Address
 
 	mu       sync.Mutex
 	decimals map[common.Address]uint8
 }
 
-// NewLoggingFeeQuoterWriter creates a writer that only logs. It does not call the chain.
-func NewLoggingFeeQuoterWriter(lggr logger.Logger, client batchClient, address common.Address) *LoggingFeeQuoterWriter {
-	return &LoggingFeeQuoterWriter{lggr: lggr, client: client, address: address, decimals: make(map[common.Address]uint8)}
+// WriterOption configures an EVMFeeQuoterWriter.
+type WriterOption func(*EVMFeeQuoterWriter)
+
+// WithTxm makes the writer send its updates as transactions from the given addresses.
+func WithTxm(txm txmgr.TxManager, keys keys.RoundRobin, fromAddresses []common.Address) WriterOption {
+	return func(w *EVMFeeQuoterWriter) {
+		w.txm = txm
+		w.keys = keys
+		w.fromAddresses = fromAddresses
+	}
 }
 
-// UpdatePrices logs the updates and returns nil. It reads the token decimals and scales the token prices
-// to the on-chain format. Gas prices are in USD per gas unit with 1e18 precision.
-func (w *LoggingFeeQuoterWriter) UpdatePrices(ctx context.Context, tokenPrices []protocol.FeeTokenPriceUpdate, gasPrices []protocol.GasTokenPriceUpdate) error {
+// NewEVMFeeQuoterWriter creates a writer. It does not call the chain.
+func NewEVMFeeQuoterWriter(lggr logger.Logger, client batchClient, address common.Address, opts ...WriterOption) *EVMFeeQuoterWriter {
+	w := &EVMFeeQuoterWriter{lggr: lggr, client: client, address: address, decimals: make(map[common.Address]uint8)}
+	for _, opt := range opts {
+		opt(w)
+	}
+	return w
+}
+
+// UpdatePrices reads the token decimals, scales the token prices to the on-chain format and submits one
+// updatePrices transaction to the TXM, returning once it is accepted. Without a TXM it only logs.
+// Gas prices are in USD per gas unit with 1e18 precision.
+func (w *EVMFeeQuoterWriter) UpdatePrices(ctx context.Context, tokenPrices []protocol.FeeTokenPriceUpdate, gasPrices []protocol.GasTokenPriceUpdate) error {
+	if len(tokenPrices) == 0 && len(gasPrices) == 0 {
+		return nil
+	}
 	tokenAddresses := make([]common.Address, len(tokenPrices))
 	for i, update := range tokenPrices {
 		tokenAddresses[i] = common.BytesToAddress(update.Address)
@@ -59,41 +96,70 @@ func (w *LoggingFeeQuoterWriter) UpdatePrices(ctx context.Context, tokenPrices [
 	if err != nil {
 		return err
 	}
-	formattedTokenPrices := make([]fee_quoter.InternalTokenPriceUpdate, len(scaledTokenPrices))
+	formattedTokenPrices := make([]fee_quoter.InternalTokenPriceUpdate, 0, len(scaledTokenPrices))
 	for _, token := range scaledTokenPrices {
-		formattedTokenPrice := fee_quoter.InternalTokenPriceUpdate{
+		formattedTokenPrices = append(formattedTokenPrices, fee_quoter.InternalTokenPriceUpdate{
 			SourceToken: common.BytesToAddress(token.Address),
 			UsdPerToken: (*big.Int)(token.Price),
-		}
-		formattedTokenPrices = append(formattedTokenPrices, formattedTokenPrice)
+		})
 	}
 
-	packedGasPrices := make([]fee_quoter.InternalGasPriceUpdate, len(gasPrices))
-	for _, update := range scaleGasPrice(gasPrices) {
-		// need to take the exec + da fee and combine according to
-		packedGasPrice := packFeeComponents(update.USDGasPrice)
-		formattedPrice := fee_quoter.InternalGasPriceUpdate{
+	scaledGasPrices := scaleGasPrice(gasPrices)
+	packedGasPrices := make([]fee_quoter.InternalGasPriceUpdate, 0, len(scaledGasPrices))
+	for _, update := range scaledGasPrices {
+		packedGasPrices = append(packedGasPrices, fee_quoter.InternalGasPriceUpdate{
 			DestChainSelector: uint64(update.ChainSelector),
-			UsdPerUnitGas:     packedGasPrice,
-		}
-		packedGasPrices = append(packedGasPrices, formattedPrice)
+			UsdPerUnitGas:     packFeeComponents(update.USDGasPrice),
+		})
 	}
 
-	gasPriceUpdate := fee_quoter.InternalPriceUpdates{
+	priceUpdates := fee_quoter.InternalPriceUpdates{
 		GasPriceUpdates:   packedGasPrices,
 		TokenPriceUpdates: formattedTokenPrices,
 	}
+	if w.txm == nil {
+		w.lggr.Infow("Fee quoter price update not sent, the writer has no transaction manager",
+			"feeQuoter", w.address.Hex(),
+			"prices", priceUpdates,
+		)
+		return nil
+	}
+	return w.send(ctx, priceUpdates)
+}
 
-	w.lggr.Infow("Fee quoter price update not sent, the writer only logs",
+// send submits updatePrices to the TXM. It does not wait for the transaction to be mined.
+func (w *EVMFeeQuoterWriter) send(ctx context.Context, priceUpdates fee_quoter.InternalPriceUpdates) error {
+	payload, err := feeQuoterABI.Pack("updatePrices", priceUpdates)
+	if err != nil {
+		return fmt.Errorf("failed to abi encode updatePrices: %w", err)
+	}
+	from, err := w.keys.GetNextAddress(ctx, w.fromAddresses...)
+	if err != nil {
+		return fmt.Errorf("failed to pick a sender address: %w", err)
+	}
+	updates := uint64(len(priceUpdates.TokenPriceUpdates) + len(priceUpdates.GasPriceUpdates))
+	tx, err := w.txm.CreateTransaction(ctx, txmgr.TxRequest{
+		FromAddress:    from,
+		ToAddress:      w.address,
+		EncodedPayload: payload,
+		FeeLimit:       updatePricesBaseGas + updatePricesGasPerUpdate*updates,
+		Strategy:       txmgrcommon.NewSendEveryStrategy(),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create updatePrices transaction: %w", err)
+	}
+	w.lggr.Infow("Submitted fee quoter price update to txm",
 		"feeQuoter", w.address.Hex(),
-		"prices", gasPriceUpdate,
+		"tokenUpdates", len(priceUpdates.TokenPriceUpdates),
+		"gasUpdates", len(priceUpdates.GasPriceUpdates),
+		"txm key", tx.IdempotencyKey,
 	)
 	return nil
 }
 
 // tokenDecimals returns the decimals of the tokens. Cached decimals are not read again,
 // and the others are read in one RPC batch.
-func (w *LoggingFeeQuoterWriter) tokenDecimals(ctx context.Context, tokens []common.Address) (map[common.Address]uint8, error) {
+func (w *EVMFeeQuoterWriter) tokenDecimals(ctx context.Context, tokens []common.Address) (map[common.Address]uint8, error) {
 	if w.client == nil && len(tokens) > 0 {
 		return nil, errors.New("fee quoter writer has no client to read token decimals")
 	}
@@ -189,6 +255,12 @@ func scaleWeiBar(price *protocol.USDPerGasUnit) *protocol.USDPerGasUnit {
 // still applies
 // https://github.com/smartcontractkit/chainlink-ccip/blob/ede0ec8b73e6e0dc32e317068c0a246d7aafc564/commit/chainfee/outcome.go#L408
 func packFeeComponents(feeComponents protocol.USDGasPrice) *big.Int {
-	daShifted := new(big.Int).Lsh(feeComponents.DAFee.ToInt(), 112)
-	return new(big.Int).Or(daShifted, feeComponents.ExecutionFee.ToInt())
+	da, execution := new(big.Int), new(big.Int)
+	if feeComponents.DAFee != nil {
+		da.Set(feeComponents.DAFee.ToInt())
+	}
+	if feeComponents.ExecutionFee != nil {
+		execution.Set(feeComponents.ExecutionFee.ToInt())
+	}
+	return new(big.Int).Or(da.Lsh(da, packedGasPriceBits), execution)
 }

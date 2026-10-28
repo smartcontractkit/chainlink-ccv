@@ -2,66 +2,69 @@ package pricereader
 
 import (
 	"context"
+	"errors"
 	"math/big"
 	"sync/atomic"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap/zapcore"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/fee_quoter"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/pricereader/pricereadertest"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-evm/pkg/txmgr"
 )
 
-func TestLoggingFeeQuoterWriterLogsTheUpdates(t *testing.T) {
+func TestEVMFeeQuoterWriterLogsTheUpdates(t *testing.T) {
 	lggr, logs := logger.TestObserved(t, zapcore.InfoLevel)
 	env := pricereadertest.New(t)
 	fq := common.HexToAddress("0xfee")
-	writer := NewLoggingFeeQuoterWriter(lggr, env.Client, fq)
+	writer := NewEVMFeeQuoterWriter(lggr, env.Client, fq)
 
 	err := writer.UpdatePrices(context.Background(),
 		[]protocol.FeeTokenPriceUpdate{{
 			Address: env.USDC.Bytes(),
-			Price:   (*protocol.USDPerWholeToken)(big.NewInt(15)),
+			Price:   (*protocol.USDPerWholeToken)(big.NewInt(1e18)),
 		}},
 		[]protocol.GasTokenPriceUpdate{{
 			ChainSelector: 5009297550715157269,
 			USDGasPrice: protocol.USDGasPrice{
-				ExecutionFee: (*protocol.USDPerGasUnit)(big.NewInt(3)),
-				DAFee:        (*protocol.USDPerGasUnit)(big.NewInt(2)),
+				ExecutionFee: (*protocol.USDPerGasUnit)(big.NewInt(3e18)),
+				DAFee:        (*protocol.USDPerGasUnit)(big.NewInt(2e18)),
 			},
 		}},
 	)
 	require.NoError(t, err)
 
-	entries := logs.FilterMessage("Fee quoter price update not sent, the writer only logs").All()
+	entries := logs.FilterMessage("Fee quoter price update not sent, the writer has no transaction manager").All()
 	require.Len(t, entries, 1)
 	fields := entries[0].ContextMap()
 	require.Equal(t, fq.Hex(), fields["feeQuoter"])
 	prices, ok := fields["prices"].(fee_quoter.InternalPriceUpdates)
 	require.True(t, ok, "prices should be the updatePrices argument")
 
-	// The updates are the last entries of each slice.
-	require.NotEmpty(t, prices.TokenPriceUpdates)
-	token := prices.TokenPriceUpdates[len(prices.TokenPriceUpdates)-1]
+	require.Len(t, prices.TokenPriceUpdates, 1)
+	token := prices.TokenPriceUpdates[0]
 	require.Equal(t, env.USDC, token.SourceToken)
-	// 15 * 1e18 / 10^6, USDC has 6 decimals.
-	require.Equal(t, big.NewInt(15_000_000_000_000), token.UsdPerToken)
+	// 15e18 * 1e18 / 10^6 = 1e30, USDC has 6 decimals.
+	require.Equal(t, new(big.Int).Exp(big.NewInt(10), big.NewInt(30), nil), token.UsdPerToken)
 
-	require.NotEmpty(t, prices.GasPriceUpdates)
-	gas := prices.GasPriceUpdates[len(prices.GasPriceUpdates)-1]
+	require.Len(t, prices.GasPriceUpdates, 1)
+	gas := prices.GasPriceUpdates[0]
 	require.EqualValues(t, 5009297550715157269, gas.DestChainSelector)
-	packed := new(big.Int).Or(new(big.Int).Lsh(big.NewInt(2), 112), big.NewInt(3))
+	packed := new(big.Int).Or(new(big.Int).Lsh(big.NewInt(2e18), 112), big.NewInt(3e18))
 	require.Equal(t, packed, gas.UsdPerUnitGas)
 }
 
-func TestLoggingFeeQuoterWriterAcceptsAnEmptyUpdate(t *testing.T) {
-	writer := NewLoggingFeeQuoterWriter(logger.Test(t), nil, common.Address{})
+func TestEVMFeeQuoterWriterAcceptsAnEmptyUpdate(t *testing.T) {
+	writer := NewEVMFeeQuoterWriter(logger.Test(t), nil, common.Address{})
 	require.NoError(t, writer.UpdatePrices(context.Background(), nil, nil))
 }
 
@@ -78,7 +81,7 @@ func (c *countingClient) BatchCallContext(ctx context.Context, b []rpc.BatchElem
 
 func TestTokenDecimalsReadsDecimalsFromTheTokens(t *testing.T) {
 	env := pricereadertest.New(t)
-	writer := NewLoggingFeeQuoterWriter(logger.Test(t), env.Client, common.Address{})
+	writer := NewEVMFeeQuoterWriter(logger.Test(t), env.Client, common.Address{})
 
 	got, err := writer.tokenDecimals(context.Background(), []common.Address{env.USDC, env.Link})
 	require.NoError(t, err)
@@ -88,7 +91,7 @@ func TestTokenDecimalsReadsDecimalsFromTheTokens(t *testing.T) {
 func TestTokenDecimalsReadsTokensInOneBatchWithoutDuplicates(t *testing.T) {
 	env := pricereadertest.New(t)
 	client := &countingClient{batchClient: env.Client}
-	writer := NewLoggingFeeQuoterWriter(logger.Test(t), client, common.Address{})
+	writer := NewEVMFeeQuoterWriter(logger.Test(t), client, common.Address{})
 
 	got, err := writer.tokenDecimals(context.Background(), []common.Address{env.USDC, env.Link, env.USDC})
 	require.NoError(t, err)
@@ -99,7 +102,7 @@ func TestTokenDecimalsReadsTokensInOneBatchWithoutDuplicates(t *testing.T) {
 func TestTokenDecimalsCachesDecimals(t *testing.T) {
 	env := pricereadertest.New(t)
 	client := &countingClient{batchClient: env.Client}
-	writer := NewLoggingFeeQuoterWriter(logger.Test(t), client, common.Address{})
+	writer := NewEVMFeeQuoterWriter(logger.Test(t), client, common.Address{})
 
 	_, err := writer.tokenDecimals(context.Background(), []common.Address{env.USDC})
 	require.NoError(t, err)
@@ -117,21 +120,21 @@ func TestTokenDecimalsCachesDecimals(t *testing.T) {
 }
 
 func TestTokenDecimalsWithoutTokensDoesNotNeedAClient(t *testing.T) {
-	writer := NewLoggingFeeQuoterWriter(logger.Test(t), nil, common.Address{})
+	writer := NewEVMFeeQuoterWriter(logger.Test(t), nil, common.Address{})
 	got, err := writer.tokenDecimals(context.Background(), nil)
 	require.NoError(t, err)
 	require.Empty(t, got)
 }
 
 func TestTokenDecimalsWithoutAClientFails(t *testing.T) {
-	writer := NewLoggingFeeQuoterWriter(logger.Test(t), nil, common.Address{})
+	writer := NewEVMFeeQuoterWriter(logger.Test(t), nil, common.Address{})
 	_, err := writer.tokenDecimals(context.Background(), []common.Address{common.HexToAddress("0x1")})
 	require.ErrorContains(t, err, "no client")
 }
 
 func TestTokenDecimalsFailsForAnAddressThatIsNotAToken(t *testing.T) {
 	env := pricereadertest.New(t)
-	writer := NewLoggingFeeQuoterWriter(logger.Test(t), env.Client, common.Address{})
+	writer := NewEVMFeeQuoterWriter(logger.Test(t), env.Client, common.Address{})
 	_, err := writer.tokenDecimals(context.Background(), []common.Address{common.HexToAddress("0xdead")})
 	require.Error(t, err)
 }
@@ -144,7 +147,7 @@ func TestScaleTokenPrices(t *testing.T) {
 	}
 
 	in := []protocol.FeeTokenPriceUpdate{
-		update(usdc, "15000000000000000000"),
+		update(usdc, "1000000000000000000"),
 		update(link, "15000000000000000000"),
 		update(zero, "2"),
 		update(usdc, "0"),
@@ -153,7 +156,7 @@ func TestScaleTokenPrices(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, out, len(in))
 
-	want := []string{"15000000000000000000000000000000", "15000000000000000000", "2000000000000000000", "0"}
+	want := []string{"1000000000000000000000000000000", "15000000000000000000", "2000000000000000000", "0"}
 	for i, price := range want {
 		require.Equal(t, in[i].Address, out[i].Address)
 		requireSameInt(t, mustBig(t, price), (*big.Int)(out[i].Price))
@@ -295,4 +298,123 @@ func TestPackFeeComponents(t *testing.T) {
 func requireSameInt(t *testing.T, want, got *big.Int) {
 	t.Helper()
 	require.Zero(t, want.Cmp(got), "want %s, got %s", want, got)
+}
+
+type fakeTxm struct {
+	txmgr.TxManager
+	requests []txmgr.TxRequest
+	err      error
+}
+
+func (f *fakeTxm) CreateTransaction(_ context.Context, r txmgr.TxRequest) (txmgr.Tx, error) {
+	f.requests = append(f.requests, r)
+	return txmgr.Tx{}, f.err
+}
+
+type fakeKeys struct{ err error }
+
+func (f fakeKeys) GetNextAddress(_ context.Context, addrs ...common.Address) (common.Address, error) {
+	if f.err != nil {
+		return common.Address{}, f.err
+	}
+	return addrs[0], nil
+}
+
+func newTxmWriter(t *testing.T, client batchClient, txm *fakeTxm, keys fakeKeys, from, fq common.Address) *EVMFeeQuoterWriter {
+	t.Helper()
+	return NewEVMFeeQuoterWriter(logger.Test(t), client, fq, WithTxm(txm, keys, []common.Address{from}))
+}
+
+func TestEVMFeeQuoterWriterSendsUpdatePricesThroughTheTxm(t *testing.T) {
+	env := pricereadertest.New(t)
+	txm := &fakeTxm{}
+	from, fq := common.HexToAddress("0x01"), common.HexToAddress("0xfee")
+	writer := newTxmWriter(t, env.Client, txm, fakeKeys{}, from, fq)
+
+	err := writer.UpdatePrices(t.Context(),
+		[]protocol.FeeTokenPriceUpdate{
+			{Address: env.USDC.Bytes(), Price: (*protocol.USDPerWholeToken)(big.NewInt(15))},
+			{Address: env.Link.Bytes(), Price: (*protocol.USDPerWholeToken)(big.NewInt(1e18))},
+		},
+		[]protocol.GasTokenPriceUpdate{{
+			ChainSelector: 5009297550715157269,
+			USDGasPrice: protocol.USDGasPrice{
+				ExecutionFee: (*protocol.USDPerGasUnit)(big.NewInt(3)),
+				DAFee:        (*protocol.USDPerGasUnit)(big.NewInt(2)),
+			},
+		}},
+	)
+	require.NoError(t, err)
+
+	require.Len(t, txm.requests, 1)
+	req := txm.requests[0]
+	require.Equal(t, from, req.FromAddress)
+	require.Equal(t, fq, req.ToAddress)
+	require.EqualValues(t, updatePricesBaseGas+3*updatePricesGasPerUpdate, req.FeeLimit)
+
+	args, err := feeQuoterABI.Methods["updatePrices"].Inputs.Unpack(req.EncodedPayload[4:])
+	require.NoError(t, err)
+	got := *abi.ConvertType(args[0], new(fee_quoter.InternalPriceUpdates)).(*fee_quoter.InternalPriceUpdates)
+	require.Len(t, got.TokenPriceUpdates, 2)
+	require.Equal(t, env.USDC, got.TokenPriceUpdates[0].SourceToken)
+	require.Equal(t, big.NewInt(15_000_000_000_000), got.TokenPriceUpdates[0].UsdPerToken)
+	require.Equal(t, env.Link, got.TokenPriceUpdates[1].SourceToken)
+	require.Equal(t, big.NewInt(1e18), got.TokenPriceUpdates[1].UsdPerToken)
+	require.Len(t, got.GasPriceUpdates, 1)
+	require.EqualValues(t, 5009297550715157269, got.GasPriceUpdates[0].DestChainSelector)
+	unpacked := unpackGasPrice(got.GasPriceUpdates[0].UsdPerUnitGas)
+	require.EqualValues(t, 3, unpacked.ExecutionFee.ToInt().Int64())
+	require.EqualValues(t, 2, unpacked.DAFee.ToInt().Int64())
+}
+
+func TestEVMFeeQuoterWriterSendsNothingForAnEmptyUpdate(t *testing.T) {
+	txm := &fakeTxm{}
+	writer := newTxmWriter(t, nil, txm, fakeKeys{}, common.HexToAddress("0x01"), common.HexToAddress("0xfee"))
+	require.NoError(t, writer.UpdatePrices(t.Context(), nil, nil))
+	require.Empty(t, txm.requests)
+}
+
+func TestEVMFeeQuoterWriterSendsAGasOnlyUpdateWithoutAClient(t *testing.T) {
+	txm := &fakeTxm{}
+	writer := newTxmWriter(t, nil, txm, fakeKeys{}, common.HexToAddress("0x01"), common.HexToAddress("0xfee"))
+	err := writer.UpdatePrices(t.Context(), nil, []protocol.GasTokenPriceUpdate{{
+		ChainSelector: 1,
+		USDGasPrice:   protocol.USDGasPrice{ExecutionFee: (*protocol.USDPerGasUnit)(big.NewInt(3))},
+	}})
+	require.NoError(t, err)
+	require.Len(t, txm.requests, 1)
+	require.EqualValues(t, updatePricesBaseGas+updatePricesGasPerUpdate, txm.requests[0].FeeLimit)
+}
+
+func TestEVMFeeQuoterWriterReturnsTxmAndKeyErrors(t *testing.T) {
+	gas := []protocol.GasTokenPriceUpdate{{
+		ChainSelector: 1,
+		USDGasPrice:   protocol.USDGasPrice{ExecutionFee: (*protocol.USDPerGasUnit)(big.NewInt(3))},
+	}}
+	from, fq := common.HexToAddress("0x01"), common.HexToAddress("0xfee")
+
+	txm := &fakeTxm{err: errors.New("txm down")}
+	err := newTxmWriter(t, nil, txm, fakeKeys{}, from, fq).UpdatePrices(t.Context(), nil, gas)
+	require.ErrorContains(t, err, "txm down")
+
+	txm = &fakeTxm{}
+	err = newTxmWriter(t, nil, txm, fakeKeys{err: errors.New("no key")}, from, fq).UpdatePrices(t.Context(), nil, gas)
+	require.ErrorContains(t, err, "no key")
+	require.Empty(t, txm.requests)
+}
+
+func TestEVMFeeQuoterWriterDoesNotSendWhenTheDecimalsCannotBeRead(t *testing.T) {
+	txm := &fakeTxm{}
+	writer := newTxmWriter(t, nil, txm, fakeKeys{}, common.HexToAddress("0x01"), common.HexToAddress("0xfee"))
+	err := writer.UpdatePrices(t.Context(),
+		[]protocol.FeeTokenPriceUpdate{{Address: common.HexToAddress("0x1").Bytes(), Price: (*protocol.USDPerWholeToken)(big.NewInt(1))}}, nil)
+	require.Error(t, err)
+	require.Empty(t, txm.requests)
+}
+
+func TestPackFeeComponentsTreatsANilFeeAsZero(t *testing.T) {
+	require.EqualValues(t, 3, packFeeComponents(protocol.USDGasPrice{ExecutionFee: (*protocol.USDPerGasUnit)(big.NewInt(3))}).Int64())
+	require.Zero(t, packFeeComponents(protocol.USDGasPrice{}).Sign())
+	onlyDA := packFeeComponents(protocol.USDGasPrice{DAFee: (*protocol.USDPerGasUnit)(big.NewInt(2))})
+	requireSameInt(t, new(big.Int).Lsh(big.NewInt(2), 112), onlyDA)
 }
