@@ -1209,6 +1209,9 @@ func launchStandaloneVerifiers(ctx context.Context, in *Cfg, blockchainOutputs [
 			}
 			ver.AggregatorCredentials = creds
 			ver.AggregatorOutput = aggOuts[ver.NodeIndex%len(aggOuts)]
+			if err := chainreg.GetRegistry().ResolveVerifierDatabases(ver); err != nil {
+				return nil, err
+			}
 			out, err = committeeverifier.New(ver, blockchainOutputs, jdInfra, chainreg.GetRegistry().GetVerifierModifiers())
 			if err != nil {
 				return nil, fmt.Errorf("failed to create verifier service: %w", err)

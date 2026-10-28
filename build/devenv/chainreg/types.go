@@ -139,6 +139,9 @@ type Launcher interface {
 // VerifierModifier adjusts committee verifier testcontainer requests for a chain family.
 type VerifierModifier = committeeverifier.ReqModifier
 
+// VerifierDatabases names the extra databases a chain family needs on a committee verifier's DB server.
+type VerifierDatabases func(in *committeeverifier.Input) ([]string, error)
+
 // ExecutorModifier adjusts executor testcontainer requests for a chain family.
 type ExecutorModifier = executor.ReqModifier
 
@@ -178,6 +181,7 @@ type Registration struct {
 	LocalNetworkConfigurator LocalNetworkConfigurator
 	Launcher                 Launcher
 	VerifierModifier         VerifierModifier
+	VerifierDatabases        VerifierDatabases
 	ExecutorInfo             ExecutorInfo
 	ExecutorModifier         ExecutorModifier
 	TokenVerifierModifier    TokenVerifierModifier

@@ -49,9 +49,16 @@ var _ chainaccess.FinalityViolationReporter = (*fakeFinalityReporter)(nil)
 type loadingReader struct {
 	*mocks.MockSourceReader
 	loadFromCalls []uint64
-	mu            sync.Mutex // guards loadedErr, which the service's load wait reads concurrently
-	loadedErr     error      // returned by Loaded
 	closed        atomic.Bool
+
+	loadedMu  sync.Mutex
+	loadedErr error // returned by Loaded; change it with setLoadedErr once the service runs
+}
+
+func (r *loadingReader) setLoadedErr(err error) {
+	r.loadedMu.Lock()
+	defer r.loadedMu.Unlock()
+	r.loadedErr = err
 }
 
 func (r *loadingReader) LoadFrom(startBlock uint64) {
@@ -59,15 +66,9 @@ func (r *loadingReader) LoadFrom(startBlock uint64) {
 }
 
 func (r *loadingReader) Loaded() error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.loadedMu.Lock()
+	defer r.loadedMu.Unlock()
 	return r.loadedErr
-}
-
-func (r *loadingReader) setLoadedErr(err error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.loadedErr = err
 }
 
 func (r *loadingReader) Close() error { r.closed.Store(true); return nil }
@@ -88,10 +89,18 @@ func (c *chainHealthRecorder) RecordChainHealthy(_ context.Context, _ protocol.C
 	c.healthy = append(c.healthy, healthy)
 }
 
+// recorded returns the values the gauge took, collapsing back-to-back repeats of the same value.
 func (c *chainHealthRecorder) recorded() []bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return slices.Clone(c.healthy)
+	return slices.Compact(slices.Clone(c.healthy))
+}
+
+// writes returns how many times the gauge was written, repeats included.
+func (c *chainHealthRecorder) writes() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.healthy)
 }
 
 // closingReader is a source reader with a Close but no local index, so the verifier must not close it.

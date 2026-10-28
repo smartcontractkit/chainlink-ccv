@@ -65,6 +65,9 @@ type GenericConfig struct {
 	CommitteeConfig
 	ExecutorConfig
 	PricerConfig
+
+	// VerifierID is the committee verifier's top-level verifier_id; it scopes per-verifier chain state.
+	VerifierID string `toml:"verifier_id"`
 }
 
 // PricerConfig that is defined as part of the app and required by the FeeQuoter and GasPriceReader.

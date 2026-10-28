@@ -50,6 +50,8 @@ Ordinary replay never rewinds the normal reader's checkpoint. Normal polling can
 
 ## Investigated finality reset
 
+This is for chains that use the RPC source reader. On a log poller chain (`Feature.LogPoller = true` on a node, `log_poller_source_reader_enabled = true` on the chain in a standalone verifier's EVM config), `reset-reader` is not supported for a finality violation, and `replay` is not a recovery for one: neither repairs the log poller's stored blocks above the last common ancestor. To reset a violation where the source reader uses log poller follow [Resolving a Finality Violation](../../docs/runbooks/resolving-finality-violation.md), which is the same on the node and the standalone verifier.
+
 First establish the canonical chain and a known-good boundary. A detection height is evidence, not necessarily the first affected height. Then submit a new explicit reset:
 
 ```bash
