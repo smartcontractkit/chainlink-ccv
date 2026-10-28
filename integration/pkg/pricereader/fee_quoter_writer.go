@@ -36,7 +36,7 @@ var feeQuoterABI = evmtypes.MustGetABI(fee_quoter.FeeQuoterABI)
 // weibarPerTinybar is the divisor applied to Hedera gas prices.
 // Hedera gas price RPC call returns 1e18 yet the atomic unit
 // for the actual token is 1e8. Gas prices need to be scaled down
-// by this factor
+// by this factor.
 var weibarPerTinybar = big.NewInt(1e10)
 
 var _ chainaccess.FeeQuoterWriter = (*EVMFeeQuoterWriter)(nil)
@@ -242,7 +242,7 @@ func scaleGasPrice(gasPrices []protocol.GasTokenPriceUpdate) []protocol.GasToken
 }
 
 // hedera specific scaling due to eth gas price RPC call returning in e18 where the
-// actual token is e8 precision
+// actual token is e8 precision.
 func scaleWeiBar(price *protocol.USDPerGasUnit) *protocol.USDPerGasUnit {
 	if price == nil {
 		return nil
@@ -252,7 +252,7 @@ func scaleWeiBar(price *protocol.USDPerGasUnit) *protocol.USDPerGasUnit {
 
 // Pack fee components following existing implementation where DA fee is left shifted
 // into a packed fee. Previous implementation is still being used for FQ 2.0.0 so logic
-// still applies
+// still applies.
 // https://github.com/smartcontractkit/chainlink-ccip/blob/ede0ec8b73e6e0dc32e317068c0a246d7aafc564/commit/chainfee/outcome.go#L408
 func packFeeComponents(feeComponents protocol.USDGasPrice) *big.Int {
 	da, execution := new(big.Int), new(big.Int)
