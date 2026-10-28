@@ -30,8 +30,6 @@ const (
 	applicationReadyPollInterval   = 250 * time.Millisecond
 )
 
-var CreateBootstrapDBInitScript = fmt.Sprintf(`CREATE DATABASE "%s";`, DefaultBootstrapDBName)
-
 // BootstrapInput describes the input to the app bootstrapper.
 type BootstrapInput struct {
 	Keystore   *bootstrap.KeystoreConfig `toml:"keystore"`
@@ -82,7 +80,12 @@ func ApplyBootstrapDefaults(in BootstrapInput) BootstrapInput {
 }
 
 func CreateBootstrapDBInitScriptFile() (path string, err error) {
-	tempFile, err := os.CreateTemp(os.TempDir(), "bootstrap-db-init-script-*.sql")
+	return CreateDBInitScriptFile(DefaultBootstrapDBName)
+}
+
+// CreateDBInitScriptFile writes a Postgres init script that creates the named database and returns its path.
+func CreateDBInitScriptFile(dbName string) (path string, err error) {
+	tempFile, err := os.CreateTemp(os.TempDir(), dbName+"-init-script-*.sql")
 	if err != nil {
 		return "", fmt.Errorf("failed to create temporary file: %w", err)
 	}
@@ -97,7 +100,7 @@ func CreateBootstrapDBInitScriptFile() (path string, err error) {
 		}
 	}()
 
-	_, err = tempFile.WriteString(CreateBootstrapDBInitScript)
+	_, err = fmt.Fprintf(tempFile, `CREATE DATABASE "%s";`, dbName)
 	if err != nil {
 		return "", fmt.Errorf("failed to write init script to file: %w", err)
 	}

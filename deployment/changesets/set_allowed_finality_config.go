@@ -11,16 +11,18 @@ package changesets
 // committee verifier for CommitteeQualifier is deployed.
 //
 // No offchain coupling exists: the change takes effect onchain and services read
-// it at the next attestation cycle. In deployer-key mode the transaction is
-// submitted directly; MCMS-mode support is deferred to Phase 0 (CLD
-// post-proposal hook prerequisite), matching the other committee onchain
-// products (AddNOPToCommittee, Increase/DecreaseThreshold).
+// it at the next attestation cycle. With MCMS input the write is packaged into a
+// timelock proposal; in deployer-key mode it is submitted directly.
 
 import (
 	"errors"
 	"fmt"
 	"slices"
 
+	mcmstypes "github.com/smartcontractkit/mcms/types"
+
+	ccipchangesets "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
+	mcmsutil "github.com/smartcontractkit/chainlink-ccip/deployment/utils/mcms"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 
 	"github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
@@ -47,6 +49,9 @@ type SetAllowedFinalityConfigInput struct {
 	WaitForSafe bool
 	// BlockDepth allows waiting up to the given number of block confirmations.
 	BlockDepth uint16
+	// MCMS, when set, packages the onchain writes into an MCMS timelock proposal
+	// instead of submitting them with the deployer key.
+	MCMS *mcmsutil.Input
 }
 
 // SetAllowedFinalityConfig updates the allowed-finality config on the committee
@@ -67,16 +72,21 @@ func SetAllowedFinalityConfig() deployment.ChangeSetV2[SetAllowedFinalityConfigI
 
 	apply := func(e deployment.Environment, cfg SetAllowedFinalityConfigInput) (deployment.ChangesetOutput, error) {
 		ctx := e.GetContext()
+		writes := committeeWrites{mcms: cfg.MCMS}
 		for _, sel := range cfg.ChainSelectors {
 			onchain, err := adapters.GetCommitteeVerifierOnchainRegistry().Get(sel)
 			if err != nil {
 				return deployment.ChangesetOutput{}, fmt.Errorf("chain %d: %w", sel, err)
 			}
-			if err := onchain.SetAllowedFinalityConfig(
+			ops, err := onchain.SetAllowedFinalityConfig(
 				ctx, e, sel, cfg.CommitteeQualifier,
 				cfg.WaitForFinality, cfg.WaitForSafe, cfg.BlockDepth,
-			); err != nil {
+			)
+			if err != nil {
 				return deployment.ChangesetOutput{}, fmt.Errorf("chain %d: SetAllowedFinalityConfig failed: %w", sel, err)
+			}
+			if err := writes.add(sel, ops); err != nil {
+				return deployment.ChangesetOutput{}, err
 			}
 			e.Logger.Infow("Set allowed finality config",
 				"chain", sel,
@@ -86,7 +96,7 @@ func SetAllowedFinalityConfig() deployment.ChangeSetV2[SetAllowedFinalityConfigI
 				"blockDepth", cfg.BlockDepth,
 			)
 		}
-		return deployment.ChangesetOutput{}, nil
+		return writes.output(e)
 	}
 
 	return deployment.CreateChangeSet(apply, validate)
@@ -119,4 +129,29 @@ func validateCommitteeOnchainTargets(e deployment.Environment, qualifier string,
 		}
 	}
 	return nil
+}
+
+// committeeWrites collects committee verifier writes the deployer key could not execute.
+// Without MCMS input it refuses the first such write, before later chains are written directly.
+type committeeWrites struct {
+	mcms *mcmsutil.Input
+	ops  []mcmstypes.BatchOperation
+}
+
+func (w *committeeWrites) add(chainSelector uint64, ops []mcmstypes.BatchOperation) error {
+	if w.mcms == nil && slices.ContainsFunc(ops, func(op mcmstypes.BatchOperation) bool { return len(op.Transactions) > 0 }) {
+		return fmt.Errorf("chain %d: deployer key cannot execute the committee verifier write; set MCMS to build a proposal", chainSelector)
+	}
+	w.ops = append(w.ops, ops...)
+	return nil
+}
+
+// output packages the collected writes into a timelock proposal.
+func (w *committeeWrites) output(e deployment.Environment) (deployment.ChangesetOutput, error) {
+	if w.mcms == nil {
+		return deployment.ChangesetOutput{}, nil
+	}
+	return ccipchangesets.NewOutputBuilder(e, ccipchangesets.GetRegistry()).
+		WithBatchOps(w.ops).
+		Build(*w.mcms)
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	indexer "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/tools/configdoc"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/admin"
@@ -40,6 +41,7 @@ var Targets = []configdoc.Target{
 	{Name: "bootstrap", Out: "bootstrap/secrets.documented.toml", Kind: configdoc.KindSecrets, New: bootstrapSecretsInstance},
 	{Name: "monitoring", Out: "common/monitoring.documented.toml", Kind: configdoc.KindConfig, New: monitoringConfigInstance},
 	{Name: "evm", Out: "evm/config.documented.toml", Kind: configdoc.KindConfig, New: evmConfigInstance},
+	{Name: "evm", Out: "evm/secrets.documented.toml", Kind: configdoc.KindSecrets, New: evmSecretsInstance},
 	{Name: "admin console", Out: "admin-console/config.documented.toml", Kind: configdoc.KindConfig, New: adminConsoleConfigInstance},
 }
 
@@ -379,10 +381,17 @@ func evmConfig() evm.Config {
 						Order:   1,
 					},
 				},
-				FinalityDepth: 0,
-				TXMBlockTime:  2 * time.Second,
+				FinalityDepth:                0,
+				TXMBlockTime:                 2 * time.Second,
+				LogPollerSourceReaderEnabled: true,
 			},
 		},
+	}
+}
+
+func evmSecretsInstance() any {
+	return &evmconfig.Secrets{
+		DB: &evmconfig.DBConfig{URL: "postgres://user:password@localhost:5432/evm_db?sslmode=disable"}, //nolint:gosec // G101: placeholder example value in generated docs, not a real credential
 	}
 }
 

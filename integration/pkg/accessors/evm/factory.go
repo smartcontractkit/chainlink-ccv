@@ -2,6 +2,7 @@ package evm
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"sync"
@@ -11,6 +12,7 @@ import (
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
+	"github.com/smartcontractkit/chainlink-ccv/common/lazy"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/contracttransmitter"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/destinationreader"
@@ -51,6 +53,14 @@ type factory struct {
 	// (50 poll intervals) when set; zero keeps the default.
 	readerStalenessThreshold time.Duration
 	newRuntime               runtimeBuilder
+	// db is the EVM database shared by every accessor; nil when none is configured.
+	db *lazy.Lazy[*sql.DB]
+	// lease is the one lease on db for this factory; nil when no database is configured.
+	lease *evmLease
+	// logPollerChains are the selectors whose source readers read through the chain's LogPoller on db.
+	logPollerChains map[protocol.ChainSelector]bool
+	// verifierID scopes LogPoller filter names; empty outside the committee verifier.
+	verifierID string
 }
 
 func newFactory(
@@ -62,7 +72,7 @@ func newFactory(
 	executionVisibilityWindow time.Duration,
 	readerStalenessThreshold time.Duration,
 	newRuntime runtimeBuilder,
-) chainaccess.AccessorFactory {
+) *factory {
 	if executionVisibilityWindow == 0 {
 		executionVisibilityWindow = defaultExecutionVisibilityWindow
 	}
@@ -158,8 +168,9 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 
 	// SourceReader is optional: if the on-ramp address is absent (for example,
 	// executor-only config), the runtime can still provide the destination
-	// reader and transmitter.
-	var evmSourceReader chainaccess.SourceReader
+	// reader and transmitter. The reader itself is built on the first SourceReader call, so
+	// a caller that selects the LogPoller reader never builds the RPC one.
+	var sourceParams *SourceReaderParams
 	if hasSourceReaderConfig {
 		headTracker, err := runtime.HeadTracker()
 		if err != nil {
@@ -170,7 +181,7 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 			closeErr := runtime.Close()
 			return nil, errors.Join(fmt.Errorf("failed to get EVM head tracker for chain %d: tracker is nil", chainSelector), closeErr)
 		}
-		sr, err := NewEVMSourceReader(ctx, SourceReaderParams{
+		sourceParams = &SourceReaderParams{
 			ChainClient:                chainClient,
 			HeadTracker:                headTracker,
 			OnRampAddress:              common.HexToAddress(onRampAddress),
@@ -179,12 +190,7 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 			ChainSelector:              chainSelector,
 			Logger:                     chainLggr,
 			HeaderFetchBatchSize:       runtime.SourceReaderHeaderFetchBatchSize(),
-		})
-		if err != nil {
-			closeErr := runtime.Close()
-			return nil, errors.Join(fmt.Errorf("failed to create EVM source reader: %w", err), closeErr)
 		}
-		evmSourceReader = sr
 	}
 
 	var evmDestReader chainaccess.DestinationReader
@@ -202,7 +208,7 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 			Monitoring:                monitoring.NewNoopExecutorMonitoring(),
 		})
 		if err != nil {
-			if evmSourceReader == nil && !hasPricerConfig {
+			if sourceParams == nil && !hasPricerConfig {
 				closeErr := runtime.Close()
 				return nil, errors.Join(fmt.Errorf("failed to create EVM destination reader: %w", err), closeErr)
 			}
@@ -242,23 +248,31 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 		keyName = destCfg.TransmitterKeyName
 	}
 
-	return newAccessor(
+	acc := buildAccessor(
 		chainLggr,
 		chainSelector,
 		runtime,
 		offRampAddr,
 		keyName,
-		evmSourceReader,
+		nil,
 		evmDestReader,
 		nil,
 		feeQuoterReader,
 		feeQuoterWriter,
 		gasPriceReader,
-	), nil
+	)
+	acc.sourceParams = sourceParams
+	acc.db = f.db
+	acc.logPollerEnabled = f.logPollerChains[chainSelector]
+	acc.verifierID = f.verifierID
+	if f.lease != nil {
+		f.lease.retain()
+		acc.lease = f.lease
+	}
+	return acc, nil
 }
 
 type accessor struct {
-	sourceReader        chainaccess.SourceReader
 	destinationReader   chainaccess.DestinationReader
 	contractTransmitter chainaccess.ContractTransmitter
 	feeQuoterReader     *pricereader.EVMFeeQuoterReader
@@ -268,6 +282,19 @@ type accessor struct {
 	// serviceAddressesErr is the last failure to load the transmitter addresses for the fee quoter reader.
 	mu                  sync.Mutex
 	serviceAddressesErr error
+
+	// sourceMu guards the lazily built source reader.
+	// sourceParams is nil for an accessor with no source config, such as the executor's.
+	sourceMu         sync.Mutex
+	sourceParams     *SourceReaderParams
+	sourceReader     chainaccess.SourceReader
+	sourceErr        error
+	sourceBuilt      bool
+	logPollerEnabled bool
+	verifierID       string
+	db               *lazy.Lazy[*sql.DB]
+	lease            *evmLease
+	leaseDropped     sync.Once
 
 	lggr          logger.Logger
 	chainSelector protocol.ChainSelector
@@ -289,6 +316,23 @@ func newAccessor(
 	feeQuoterWriter chainaccess.FeeQuoterWriter,
 	gasPriceReader chainaccess.GasPriceReader,
 ) chainaccess.Accessor {
+	return buildAccessor(lggr, chainSelector, runtime, offRampAddr, keyName, sourceReader, destinationReader,
+		contractTransmitter, feeQuoterReader, feeQuoterWriter, gasPriceReader)
+}
+
+func buildAccessor(
+	lggr logger.Logger,
+	chainSelector protocol.ChainSelector,
+	runtime chainRuntime,
+	offRampAddr common.Address,
+	keyName string,
+	sourceReader chainaccess.SourceReader,
+	destinationReader chainaccess.DestinationReader,
+	contractTransmitter chainaccess.ContractTransmitter,
+	feeQuoterReader *pricereader.EVMFeeQuoterReader,
+	feeQuoterWriter chainaccess.FeeQuoterWriter,
+	gasPriceReader chainaccess.GasPriceReader,
+) *accessor {
 	return &accessor{
 		lggr:                lggr,
 		chainSelector:       chainSelector,
@@ -296,6 +340,7 @@ func newAccessor(
 		offRampAddr:         offRampAddr,
 		keyName:             keyName,
 		sourceReader:        sourceReader,
+		sourceBuilt:         sourceReader != nil,
 		destinationReader:   destinationReader,
 		contractTransmitter: contractTransmitter,
 		feeQuoterReader:     feeQuoterReader,
@@ -328,11 +373,33 @@ func (a *accessor) SetKeystore(ctx context.Context, ks keystore.Keystore) error 
 	return nil
 }
 
+// SourceReader builds the reader on the first call and returns the same result afterwards: the
+// LogPoller reader when the chain sets log_poller_source_reader_enabled, the RPC reader otherwise.
 func (a *accessor) SourceReader() (chainaccess.SourceReader, error) {
-	if a == nil || a.sourceReader == nil {
+	if a == nil {
 		return nil, errors.New("source reader not available")
 	}
-	return a.sourceReader, nil
+	a.sourceMu.Lock()
+	defer a.sourceMu.Unlock()
+
+	if a.sourceBuilt {
+		return a.sourceReader, a.sourceErr
+	}
+	if a.sourceParams == nil {
+		return nil, errors.New("source reader not available")
+	}
+	a.sourceBuilt = true
+	if a.logPollerEnabled {
+		a.sourceReader, a.sourceErr = a.newLogPollerSourceReader()
+	} else {
+		// The constructor takes a ctx but does no I/O with it.
+		a.sourceReader, a.sourceErr = NewEVMSourceReader(context.Background(), *a.sourceParams)
+	}
+	if a.sourceErr != nil {
+		a.sourceReader = nil
+		a.sourceErr = fmt.Errorf("failed to create EVM source reader: %w", a.sourceErr)
+	}
+	return a.sourceReader, a.sourceErr
 }
 
 func (a *accessor) DestinationReader() (chainaccess.DestinationReader, error) {
@@ -403,9 +470,18 @@ func (a *accessor) GasPriceReader() (chainaccess.GasPriceReader, error) {
 }
 
 // Close releases the production services owned by this accessor.
+// The runtime closes first, stopping this chain's LogPoller, and bootstrap stops the readers before any
+// accessor closes, so the last accessor's drop releases the lease only once nothing can write.
 func (a *accessor) Close() error {
-	if a == nil || a.runtime == nil {
+	if a == nil {
 		return nil
 	}
-	return a.runtime.Close()
+	var err error
+	if a.runtime != nil {
+		err = a.runtime.Close()
+	}
+	if a.lease != nil {
+		a.leaseDropped.Do(func() { err = errors.Join(err, a.lease.drop()) })
+	}
+	return err
 }

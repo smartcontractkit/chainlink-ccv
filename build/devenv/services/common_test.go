@@ -61,3 +61,8 @@ func TestForwardedGCPCreds_EmptyNonNilWhenUnset(t *testing.T) {
 	require.Empty(t, env)
 	require.Empty(t, files)
 }
+
+func TestPostgresURL(t *testing.T) {
+	require.Equal(t, "postgresql://user:pass@db-host:5432/evm_db?sslmode=disable",
+		PostgresURL("user", "pass", "db-host", "5432", "evm_db"))
+}

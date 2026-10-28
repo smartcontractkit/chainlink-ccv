@@ -477,7 +477,7 @@ func createDurableProcessorsWithWakeupInterval(
 	}
 
 	sourceReadersDB, _, err := createSourceReadersDB(
-		lggr, config, chainStatusManager, curseDetector, monitoring, configuredSourceReaders, taskQueue, common.AllowAllMessagesChecker{}, nil,
+		lggr, config, chainStatusManager, curseDetector, monitoring, configuredSourceReaders, taskQueue, common.AllowAllMessagesChecker{}, nil, nil,
 	)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to create DB source reader services: %w", err)

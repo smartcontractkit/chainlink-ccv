@@ -8,6 +8,7 @@ import (
 	chainsel "github.com/smartcontractkit/chain-selectors"
 
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
 	ctfblockchain "github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
@@ -78,6 +79,9 @@ func mergeRegistration(existing, incoming Registration) Registration {
 	}
 	if existing.VerifierModifier == nil {
 		existing.VerifierModifier = incoming.VerifierModifier
+	}
+	if existing.VerifierDatabases == nil {
+		existing.VerifierDatabases = incoming.VerifierDatabases
 	}
 	if existing.ExecutorModifier == nil {
 		existing.ExecutorModifier = incoming.ExecutorModifier
@@ -159,6 +163,23 @@ func (r *Registry) GetVerifierModifiers() map[string]VerifierModifier {
 		}
 	}
 	return modifiers
+}
+
+// ResolveVerifierDatabases sets each verifier's ExtraDatabases from its chain family's registration.
+func (r *Registry) ResolveVerifierDatabases(verifiers ...*committeeverifier.Input) error {
+	for _, in := range verifiers {
+		family := committeeverifier.ApplyDefaults(*in).ChainFamily
+		reg, err := r.Get(family)
+		if err != nil || reg.VerifierDatabases == nil {
+			continue
+		}
+		names, err := reg.VerifierDatabases(in)
+		if err != nil {
+			return fmt.Errorf("verifier %s: failed to resolve %s databases: %w", in.ContainerName, family, err)
+		}
+		in.ExtraDatabases = names
+	}
+	return nil
 }
 
 // GetTokenVerifierModifiers returns a map of chain family to token verifier modifier from the registry.

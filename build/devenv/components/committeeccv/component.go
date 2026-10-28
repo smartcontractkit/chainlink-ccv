@@ -233,6 +233,9 @@ func runPhase3Core(
 		def.Bootstrap.Monitoring = &m
 		*ver = def
 	}
+	if err := chainreg.GetRegistry().ResolveVerifierDatabases(verifiers...); err != nil {
+		return nil, nil, fmt.Errorf("committeeccv: %w", err)
+	}
 	if err := committeeverifier.LaunchStandaloneVerifiers(
 		verifiers, aggregators, committeeverifier.CommitteeAggregatorNames(inputs.topology),
 		inputs.blockchainOutputs, inputs.jdInfra,

@@ -2,10 +2,13 @@ package chainreg
 
 import (
 	"context"
+	"errors"
+	"slices"
 	"testing"
 
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
 	ctfblockchain "github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
@@ -131,5 +134,32 @@ func TestRegistryAddMergesExecutorInfo(t *testing.T) {
 	}
 	if _, ok := r.GetExtraArgsSerializer("solana", 1); !ok {
 		t.Fatal("ExtraArgsSerializer was not preserved")
+	}
+}
+
+func TestRegistryResolveVerifierDatabases(t *testing.T) {
+	r := NewRegistry()
+	if err := r.Add("evm", Registration{VerifierDatabases: func(in *committeeverifier.Input) ([]string, error) {
+		if in.ContainerName == "bad" {
+			return nil, errors.New("bad config")
+		}
+		return []string{"evm_db"}, nil
+	}}); err != nil {
+		t.Fatalf("Add() error = %v", err)
+	}
+
+	defaulted := &committeeverifier.Input{ContainerName: "v1"} // empty family defaults to EVM
+	other := &committeeverifier.Input{ContainerName: "v2", ChainFamily: "solana"}
+	if err := r.ResolveVerifierDatabases(defaulted, other); err != nil {
+		t.Fatalf("ResolveVerifierDatabases() error = %v", err)
+	}
+	if !slices.Equal(defaulted.ExtraDatabases, []string{"evm_db"}) {
+		t.Fatalf("defaulted family databases = %v, want [evm_db]", defaulted.ExtraDatabases)
+	}
+	if other.ExtraDatabases != nil {
+		t.Fatalf("unregistered family databases = %v, want none", other.ExtraDatabases)
+	}
+	if err := r.ResolveVerifierDatabases(&committeeverifier.Input{ContainerName: "bad"}); err == nil {
+		t.Fatal("ResolveVerifierDatabases() error = nil, want the family's error")
 	}
 }
