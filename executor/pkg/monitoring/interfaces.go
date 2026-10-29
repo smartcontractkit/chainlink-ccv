@@ -65,8 +65,7 @@ type MetricLabeler interface {
 	SetLastHeartbeatTimestamp(ctx context.Context, timestamp int64)
 	// IncrementUnrecoverableMessageFailure fires when we were unable to execute a message due to an unrecoverable error.
 	IncrementUnrecoverableMessageFailure(ctx context.Context)
-	// IncrementDestinationReaderCriticalFailure fires when a destination reader
-	// has entered an unrecoverable failure state (e.g. the execution attempt
-	// poller permanently failed). This should trigger an alert.
+	// IncrementDestinationReaderCriticalFailure records a destination reader health
+	// check failure. Persistent failures should trigger an alert.
 	IncrementDestinationReaderCriticalFailure(ctx context.Context, destChainSelector protocol.ChainSelector)
 }

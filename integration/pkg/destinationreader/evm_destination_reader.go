@@ -325,9 +325,8 @@ func (dr *EvmDestinationReader) IsReady(_ protocol.ChainSelector) bool {
 	return dr.executionAttemptPoller.Ready() == nil
 }
 
-// CheckHealth returns nil when the destination reader and its execution attempt
-// poller are operating normally. A non-nil error indicates an unrecoverable
-// failure such as the poller being unable to determine its start block.
+// CheckHealth reports the destination reader and poller service health. Start-block
+// discovery retries in the background and does not latch an unhealthy state.
 func (dr *EvmDestinationReader) CheckHealth(_ protocol.ChainSelector) error {
 	if err := dr.Healthy(); err != nil {
 		return err
@@ -345,6 +344,7 @@ func (dr *EvmDestinationReader) HasHonestAttempt(ctx context.Context, message pr
 	}
 
 	notHonestAttemptExists := false
+	honestAttemptFailed := false
 	for _, attempt := range attempts {
 		honestCallData, err := executionchecker.IsHonestCallData(message, attempt, verifierResults, ccvAddressInfo)
 		if err != nil {
@@ -352,10 +352,17 @@ func (dr *EvmDestinationReader) HasHonestAttempt(ctx context.Context, message pr
 		}
 
 		if honestCallData && executionchecker.IsHonestGasLimit(message, attempt) {
-			return chainaccess.HonestAttemptCheck{Honest: true}, nil
+			if !attempt.Failed {
+				return chainaccess.HonestAttemptCheck{Honest: true}, nil
+			}
+			honestAttemptFailed = true
+		} else {
+			notHonestAttemptExists = true
 		}
-		notHonestAttemptExists = true
 	}
 
+	if honestAttemptFailed {
+		return chainaccess.HonestAttemptCheck{Honest: true, HonestAttemptFailed: true}, nil
+	}
 	return chainaccess.HonestAttemptCheck{NotHonestAttemptExists: notHonestAttemptExists}, nil
 }

@@ -324,8 +324,9 @@ func createDurableProcessors(
 		}
 	}
 
+	guardedVerifier := NewVerificationGuard(verifier, chainStatusManager, curseDetector, messageRulesChecker)
 	taskVerifierProcessor, err := taskverifier.NewProcessor(
-		lggr, config.VerifierID, verifier, monitoring, messageTracker, taskQueueObserver, resultQueueObserver, config.StorageBatchSize,
+		lggr, config.VerifierID, guardedVerifier, monitoring, messageTracker, taskQueueObserver, resultQueueObserver, config.StorageBatchSize,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create task verifier processor DB: %w", err)

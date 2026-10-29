@@ -81,9 +81,9 @@ func NewFinalityViolationCheckerService(
 	}, nil
 }
 
-// UpdateFinalized fetches and stores block headers from lastFinalized to finalizedBlock.
-// Validates that any previously stored blocks have not changed.
-// Returns error if headers cannot be fetched or if a finality violation is detected.
+// UpdateFinalized validates and stores headers through finalizedBlock, up to MaxFinalityBlocksStored per call.
+// A capped forward call returns an incomplete check error; subsequent calls resume from its partial cursor.
+// Fetch failures and finality violations are also returned.
 func (f *FinalityViolationCheckerService) UpdateFinalized(ctx context.Context, finalizedBlock uint64) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -162,6 +162,9 @@ func (f *FinalityViolationCheckerService) UpdateFinalized(ctx context.Context, f
 		"storedBlocksCount", len(f.finalizedBlocks))
 
 	f.trimStoredBlocks()
+	if f.lastFinalized < finalizedBlock {
+		return fmt.Errorf("incomplete check: validated through block %d, requested finalized block %d", f.lastFinalized, finalizedBlock)
+	}
 	return nil
 }
 
@@ -170,7 +173,7 @@ func (f *FinalityViolationCheckerService) trimStoredBlocks() {
 		// remove oldest entries to prevent unbounded growth
 		var toDelete []uint64
 		for blockNum := range f.finalizedBlocks {
-			if blockNum < f.lastFinalized-MaxFinalityBlocksStored {
+			if blockNum <= f.lastFinalized-MaxFinalityBlocksStored {
 				toDelete = append(toDelete, blockNum)
 			}
 		}
