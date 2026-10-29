@@ -93,8 +93,6 @@ maxCommitVerifierNodeResultRequestsPerBatch = 100
 
 # aggregation configures the signature-aggregation workers.
 [aggregation]
-  # channelBufferSize controls the size of the aggregation request channel buffer
-  channelBufferSize = 200
   # backgroundWorkerCount controls the number of background workers processing aggregation requests
   backgroundWorkerCount = 10
   # operationTimeout is the timeout for each aggregation operation (0 = no timeout)
@@ -104,6 +102,8 @@ maxCommitVerifierNodeResultRequestsPerBatch = 100
   drainTimeout = "10s"
   # maxConsecutiveErrors is the maximum number of consecutive errors allowed before the aggregation is considered failed
   maxConsecutiveErrors = 0
+  # channelBufferSize ignored since aggregation moved to the durable job queue; accepted so existing configs still load.
+  channelBufferSize = 0
 
 # messageDisablementRules configures the message-disablement registry refresh.
 [messageDisablementRules]

@@ -2,19 +2,15 @@ package handlers
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync"
 
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
-	oteltrace "go.opentelemetry.io/otel/trace"
 	"google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
@@ -117,7 +113,7 @@ func (h *BatchWriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, 
 }
 
 // persist inserts every prepared record in one statement, then triggers one aggregation check per
-// unique (message ID, aggregation key, channel key).
+// unique aggregation key.
 func (h *BatchWriteCommitVerifierNodeResultHandler) persist(ctx context.Context, prepared []*preparedWrite, responses []*committeepb.WriteCommitteeVerifierNodeResultResponse, batchErrors []*status.Status) {
 	validIndexes := make([]int, 0, len(prepared))
 	writes := make([]model.CommitVerificationWrite, 0, len(prepared))
@@ -158,7 +154,7 @@ func (h *BatchWriteCommitVerifierNodeResultHandler) persist(ctx context.Context,
 	order := make([]string, 0, len(validIndexes))
 	for _, i := range validIndexes {
 		p := prepared[i]
-		key := string(p.record.MessageID) + "\x00" + p.aggregationKey + "\x00" + string(p.channelKey())
+		key := p.aggregationKey
 		g, ok := groups[key]
 		if !ok {
 			g = &aggregationGroup{representative: p}
@@ -171,24 +167,17 @@ func (h *BatchWriteCommitVerifierNodeResultHandler) persist(ctx context.Context,
 	for _, key := range order {
 		g := groups[key]
 		p := g.representative
-		channelKey := p.channelKey()
-		err := h.handler.aggregator.CheckAggregation(p.ctx, p.record.MessageID, p.aggregationKey, channelKey)
+		err := h.handler.aggregator.CheckAggregation(p.ctx, p.record.MessageID, p.aggregationKey)
 		if err != nil {
-			code := codes.Internal
-			message := "failed to trigger aggregation"
-			if errors.Is(err, common.ErrAggregationChannelFull) {
-				code = codes.ResourceExhausted
-				message = "service temporarily unavailable: aggregation queue full"
-			}
 			h.logger(p.ctx).Errorw("failed to trigger aggregation", "error", err)
 			for _, i := range g.indexes {
 				prepared[i].span.RecordError(err)
-				SetBatchError(batchErrors, i, code, message)
+				SetBatchError(batchErrors, i, codes.Internal, "failed to trigger aggregation")
 			}
 			continue
 		}
 		for _, i := range g.indexes {
-			prepared[i].span.AddEvent(monitoring.EventAggregationEnqueued, oteltrace.WithAttributes(attribute.String(commontracing.ChannelKeyKey, string(channelKey))))
+			prepared[i].span.AddEvent(monitoring.EventAggregationEnqueued)
 			responses[i] = &committeepb.WriteCommitteeVerifierNodeResultResponse{
 				Status: committeepb.WriteStatus_SUCCESS,
 			}

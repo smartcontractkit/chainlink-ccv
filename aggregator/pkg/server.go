@@ -35,6 +35,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage"
 	"github.com/smartcontractkit/chainlink-ccv/common/health"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/services"
 
 	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
 	heartbeatpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/heartbeat/v1"
@@ -61,6 +62,7 @@ type Server struct {
 	store                                     common.CommitVerificationStore
 	messageRulesRegistry                      *messagerules.Registry
 	aggregator                                *aggregation.CommitReportAggregator
+	aggregationQueueObserver                  services.Service
 	recoverer                                 *OrphanRecoverer
 	readCommitVerifierNodeResultHandler       *handlers.ReadCommitVerifierNodeResultHandler
 	writeCommitVerifierNodeResultHandler      *handlers.WriteCommitVerifierNodeResultHandler
@@ -173,6 +175,22 @@ func (s *Server) Start(lis net.Listener) error {
 		return nil
 	}, func(error) {})
 
+	if s.aggregationQueueObserver != nil {
+		if err := s.aggregationQueueObserver.Start(context.Background()); err != nil {
+			return fmt.Errorf("failed to start aggregation queue observer: %w", err)
+		}
+		observerCtx, observerCancel := context.WithCancel(context.Background())
+		g.Add(func() error {
+			<-observerCtx.Done()
+			if err := s.aggregationQueueObserver.Close(); err != nil {
+				s.l.Errorw("Failed to stop aggregation queue observer", "error", err)
+			}
+			return nil
+		}, func(error) {
+			observerCancel()
+		})
+	}
+
 	// Start aggregator background worker with cancellable context
 	aggregatorCtx, aggregatorCancel := context.WithCancel(context.Background())
 	g.Add(func() error {
@@ -262,8 +280,8 @@ func (s *Server) Stop() error {
 	return nil
 }
 
-func createAggregator(storage common.CommitVerificationStore, aggregatedStore common.CommitVerificationAggregatedStore, sink common.Sink, validator aggregation.QuorumValidator, config *model.AggregatorConfig, lggr logger.SugaredLogger, monitoring common.AggregatorMonitoring) *aggregation.CommitReportAggregator {
-	return aggregation.NewCommitReportAggregator(storage, aggregatedStore, sink, validator, config, lggr, monitoring, aggregation.NewChannelManagerFromConfig(config))
+func createAggregator(storage common.CommitVerificationStore, aggregatedStore common.CommitVerificationAggregatedStore, sink common.Sink, validator aggregation.QuorumValidator, config *model.AggregatorConfig, lggr logger.SugaredLogger, monitoring common.AggregatorMonitoring, queue aggregation.Queue) *aggregation.CommitReportAggregator {
+	return aggregation.NewCommitReportAggregator(storage, aggregatedStore, sink, validator, config, lggr, monitoring, queue)
 }
 
 func buildGRPCServerOptions(serverConfig model.ServerConfig, m common.AggregatorMetricLabeler) []grpc.ServerOption {
@@ -326,7 +344,6 @@ func NewServer(ctx context.Context, l logger.SugaredLogger, config *model.Aggreg
 		"rate_limiting_enabled", config.RateLimiting.Enabled,
 		"health_check_enabled", config.HealthCheck.Enabled,
 		"orphan_recovery_enabled", config.OrphanRecovery.Enabled,
-		"aggregation_buffer_size", config.Aggregation.ChannelBufferSize,
 		"aggregation_workers", config.Aggregation.BackgroundWorkerCount,
 	)
 
@@ -363,7 +380,13 @@ func NewServer(ctx context.Context, l logger.SugaredLogger, config *model.Aggreg
 	store := storage.WrapWithMetrics(rawStore, aggMonitoring, l)
 	validator := quorum.NewQuorumValidator(config, l)
 
-	agg := createAggregator(store, store, store, validator, config, l, aggMonitoring)
+	// Shares the storage connection pool.
+	aggregationQueue, err := aggregation.NewQueue(rawStore.DataSource(), logger.With(l, "component", "aggregation_queue"), aggMonitoring.Metrics().SetAggregationQueueSize)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create aggregation queue: %w", err)
+	}
+
+	agg := createAggregator(store, store, store, validator, config, l, aggMonitoring, aggregationQueue)
 
 	writeCommitVerifierNodeResultHandler := handlers.NewWriteCommitCCVNodeDataHandler(store, agg, aggMonitoring, l, validator, messageDisablementRegistry)
 	readCommitVerifierNodeResultHandler := handlers.NewReadCommitVerifierNodeResultHandler(store, l)
@@ -388,7 +411,6 @@ func NewServer(ctx context.Context, l logger.SugaredLogger, config *model.Aggreg
 			callMeta.FullMethod() == committeepb.CommitteeVerifier_GetMessageStatus_FullMethodName
 	}
 
-	aggMonitoring.Metrics().IncrementPendingAggregationsChannelBuffer(context.Background(), config.Aggregation.ChannelBufferSize) // Pre-increment the buffer size metric
 	grpcPanicRecoveryHandler := func(p any) (err error) {
 		l.Error("recovered from panic", "panic", p, "stack", debug.Stack())
 		return status.Error(codes.Internal, "internal server error")
@@ -459,6 +481,7 @@ func NewServer(ctx context.Context, l logger.SugaredLogger, config *model.Aggreg
 		store:                                store,
 		messageRulesRegistry:                 messageDisablementRegistry,
 		aggregator:                           agg,
+		aggregationQueueObserver:             aggregationQueue,
 		readCommitVerifierNodeResultHandler:  readCommitVerifierNodeResultHandler,
 		writeCommitVerifierNodeResultHandler: writeCommitVerifierNodeResultHandler,
 		getMessagesSinceHandler:              getMessagesSinceHandler,

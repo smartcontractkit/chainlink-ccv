@@ -17,7 +17,6 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/auth"
-	aggcommon "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/testutil"
 	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
@@ -34,7 +33,6 @@ func TestBatchWriteCommitCCVNodeDataHandler_BatchSizeValidation(t *testing.T) {
 	t.Parallel()
 
 	const testCallerID = "test-caller"
-	const testChannelKey model.ChannelKey = "test-caller"
 
 	tests := []struct {
 		name           string
@@ -87,7 +85,7 @@ func TestBatchWriteCommitCCVNodeDataHandler_BatchSizeValidation(t *testing.T) {
 					Signer: signer,
 				}, nil).Maybe()
 				sig.EXPECT().DeriveAggregationKey(mock.Anything, mock.Anything).Return("messageId", nil).Maybe()
-				agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, mock.Anything, testChannelKey).Return(nil).Maybe()
+				agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 				store.EXPECT().SaveCommitVerification(mock.Anything, mock.Anything).Return(nil).Maybe()
 			}
 
@@ -129,7 +127,6 @@ func TestBatchWriteCommitCCVNodeDataHandler_MixedSuccessAndInvalidArgument(t *te
 	t.Parallel()
 
 	const testCallerID = "test-caller"
-	const testChannelKey model.ChannelKey = "test-caller"
 
 	lggr := logger.Sugared(logger.Nop())
 	store := mocks.NewMockCommitVerificationStore(t)
@@ -144,7 +141,7 @@ func TestBatchWriteCommitCCVNodeDataHandler_MixedSuccessAndInvalidArgument(t *te
 	}, nil)
 	sig.EXPECT().DeriveAggregationKey(mock.Anything, mock.Anything).Return("messageId", nil)
 
-	agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, mock.Anything, testChannelKey).Return(nil).Maybe()
+	agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 
 	store.EXPECT().SaveCommitVerification(mock.Anything, mock.Anything).Return(nil)
 
@@ -185,7 +182,6 @@ func TestBatchWriteCommitCCVNodeDataHandler_NilRequestAtIndexReturnsInvalidArgum
 	t.Parallel()
 
 	const testCallerID = "test-caller"
-	const testChannelKey model.ChannelKey = "test-caller"
 
 	lggr := logger.Sugared(logger.Nop())
 	store := mocks.NewMockCommitVerificationStore(t)
@@ -197,7 +193,7 @@ func TestBatchWriteCommitCCVNodeDataHandler_NilRequestAtIndexReturnsInvalidArgum
 		Signer: signer,
 	}, nil)
 	sig.EXPECT().DeriveAggregationKey(mock.Anything, mock.Anything).Return("messageId", nil)
-	agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, mock.Anything, testChannelKey).Return(nil)
+	agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	store.EXPECT().SaveCommitVerification(mock.Anything, mock.Anything).Return(nil)
 
 	mon := mocks.NewMockAggregatorMonitoring(t)
@@ -236,7 +232,6 @@ func TestBatchWriteCommitCCVNodeDataHandler_CancelledContextReturnsImmediately(t
 	t.Parallel()
 
 	const testCallerID = "test-caller"
-	const testChannelKey model.ChannelKey = "test-caller"
 	blockDuration := 5 * time.Second
 
 	// Use a nop logger: worker goroutines that are still running when the context
@@ -254,8 +249,8 @@ func TestBatchWriteCommitCCVNodeDataHandler_CancelledContextReturnsImmediately(t
 	sig.EXPECT().DeriveAggregationKey(mock.Anything, mock.Anything).Return("messageId", nil).Maybe()
 	store.EXPECT().SaveCommitVerification(mock.Anything, mock.Anything).Return(nil).Maybe()
 
-	agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, mock.Anything, testChannelKey).
-		RunAndReturn(func(ctx context.Context, _ model.MessageID, _ model.AggregationKey, _ model.ChannelKey) error {
+	agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(ctx context.Context, _ model.MessageID, _ model.AggregationKey) error {
 			<-ctx.Done()
 			return ctx.Err()
 		}).Maybe()
@@ -372,7 +367,6 @@ func TestBatchWriteCommitCCVNodeDataHandler_PerItemTraceParents(t *testing.T) {
 	t.Cleanup(func() { otel.SetTextMapPropagator(prevPropagator) })
 
 	const testCallerID = "test-caller"
-	const testChannelKey model.ChannelKey = "test-caller"
 
 	lggr := logger.Sugared(logger.Nop())
 	store := mocks.NewMockCommitVerificationStore(t)
@@ -382,7 +376,7 @@ func TestBatchWriteCommitCCVNodeDataHandler_PerItemTraceParents(t *testing.T) {
 	signer := &model.SignerIdentifier{Identifier: []byte{0xAA}}
 	sig.EXPECT().ValidateSignature(mock.Anything, mock.Anything).Return(&model.SignatureValidationResult{Signer: signer}, nil)
 	sig.EXPECT().DeriveAggregationKey(mock.Anything, mock.Anything).Return("messageId", nil)
-	agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, mock.Anything, testChannelKey).Return(nil)
+	agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	store.EXPECT().SaveCommitVerification(mock.Anything, mock.Anything).Return(nil)
 
 	tracing := newCapturingTracing()
@@ -482,7 +476,6 @@ func TestBatchWriteCommitVerifierNodeResultHandler_AggregationTriggerDedupedPerK
 	t.Parallel()
 
 	const testCallerID = "test-caller"
-	const testChannelKey model.ChannelKey = "test-caller"
 
 	lggr := logger.Sugared(logger.Nop())
 	store := mocks.NewMockCommitVerificationStore(t)
@@ -497,9 +490,9 @@ func TestBatchWriteCommitVerifierNodeResultHandler_AggregationTriggerDedupedPerK
 	store.EXPECT().SaveCommitVerification(mock.Anything, mock.Anything).Return(nil)
 
 	checkCalls := 0
-	agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, model.AggregationKey("agg-key"), testChannelKey).
-		Run(func(context.Context, []byte, string, model.ChannelKey) { checkCalls++ }).
-		Return(aggcommon.ErrAggregationChannelFull)
+	agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, model.AggregationKey("agg-key")).
+		Run(func(context.Context, []byte, string) { checkCalls++ }).
+		Return(errors.New("trigger failed"))
 
 	mon := mocks.NewMockAggregatorMonitoring(t)
 	testutil.StubTracing(mon)
@@ -511,8 +504,7 @@ func TestBatchWriteCommitVerifierNodeResultHandler_AggregationTriggerDedupedPerK
 	writeHandler := NewWriteCommitCCVNodeDataHandler(store, agg, mon, lggr, sig, messagerules.NoopChecker{})
 	batchHandler := NewBatchWriteCommitVerifierNodeResultHandler(writeHandler, 10)
 
-	// Two requests for the same message produce the same (messageID, aggregationKey) -
-	// one trigger group.
+	// Two requests for the same message produce the same aggregation key - one trigger group.
 	requests := []*committeepb.WriteCommitteeVerifierNodeResultRequest{makeValidProtoRequest(), makeValidProtoRequest()}
 
 	ctx := auth.ToContext(context.Background(), auth.CreateCallerIdentity(testCallerID, false))
@@ -524,6 +516,6 @@ func TestBatchWriteCommitVerifierNodeResultHandler_AggregationTriggerDedupedPerK
 
 	for i := range requests {
 		require.Equal(t, committeepb.WriteStatus_FAILED, resp.Responses[i].Status, "index %d", i)
-		require.Equal(t, codes.ResourceExhausted, codes.Code(resp.Errors[i].Code), "a trigger failure must fail every item in its group, index %d", i)
+		require.Equal(t, codes.Internal, codes.Code(resp.Errors[i].Code), "a trigger failure must fail every item in its group, index %d", i)
 	}
 }

@@ -291,8 +291,8 @@ func TestOrphanRecoverer_RecoverOrphans_MaxOrphansPerScanEnforced(t *testing.T) 
 			store.EXPECT().ListOrphanedKeys(mock.Anything, mock.Anything, mock.Anything).Return(orphansChan, errChan)
 
 			var checkAggCount atomic.Int32
-			agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, mock.Anything, model.OrphanRecoveryChannelKey).
-				RunAndReturn(func(_ context.Context, _ model.MessageID, _ model.AggregationKey, _ model.ChannelKey) error {
+			agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, mock.Anything).
+				RunAndReturn(func(_ context.Context, _ model.MessageID, _ model.AggregationKey) error {
 					checkAggCount.Add(1)
 					return nil
 				}).Maybe()

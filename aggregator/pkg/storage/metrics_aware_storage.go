@@ -9,6 +9,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
 	"github.com/smartcontractkit/chainlink-ccv/common/messagerules"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 )
 
 const (
@@ -235,4 +236,8 @@ func captureMetricsNoReturn(ctx context.Context, metrics common.AggregatorMetric
 		return struct{}{}, fn()
 	})
 	return err
+}
+
+func (s *MetricsAwareStorage) DataSource() sqlutil.DataSource {
+	return s.inner.DataSource()
 }

@@ -108,12 +108,8 @@ type AggregatorInput struct {
 	// Maps to Monitoring.Beholder.OtelExporterHTTPEndpoint in the aggregator config toml.
 	MonitoringOtelExporterHTTPEndpoint string `toml:"monitoring_otel_exporter_http_endpoint"`
 
-	// AggregationChannelBufferSize controls the size of the aggregation request channel buffer for individual client.
-	// If 0, the default (10) is used. Useful for pentest scenarios to trigger channel exhaustion.
-	AggregationChannelBufferSize int `toml:"aggregation_channel_buffer_size"`
-
 	// BackgroundWorkerCount controls the number of aggregation workers.
-	// If 0, the default (10) is used. Set to 1 for channel exhaustion tests.
+	// If 0, the default (10) is used. Set to 1 to slow queue drain for deterministic tests.
 	BackgroundWorkerCount int `toml:"background_worker_count"`
 
 	// SharedTLSCerts contains shared TLS certificates for all aggregators.
@@ -266,12 +262,7 @@ func (a *AggregatorInput) GenerateConfigs(generatedConfigFileName string) (*Gene
 
 	config.Monitoring.Beholder.TelemetryAttributes["service.instance.id"] = fmt.Sprintf("%s-%s", a.InstanceName(), AggregatorContainerNameSuffix)
 
-	// Override aggregation channel buffer size if specified (useful for pentest)
-	if a.AggregationChannelBufferSize > 0 {
-		config.Aggregation.ChannelBufferSize = a.AggregationChannelBufferSize
-	}
-
-	// Override background worker count if specified (useful for channel exhaustion tests)
+	// Override background worker count if specified (useful for queue backlog tests)
 	if a.BackgroundWorkerCount > 0 {
 		config.Aggregation.BackgroundWorkerCount = a.BackgroundWorkerCount
 	}

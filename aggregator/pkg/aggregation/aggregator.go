@@ -18,12 +18,25 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
+	"github.com/smartcontractkit/chainlink-ccv/common/jobqueue"
 	commontracing "github.com/smartcontractkit/chainlink-ccv/common/monitoring/tracing"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 var _ protocol.HealthReporter = (*CommitReportAggregator)(nil)
+
+const (
+	// pendingFallbackInterval bounds how late work published by another replica is picked
+	// up, since signals are in-process only.
+	pendingFallbackInterval = jobqueue.DefaultPendingFallbackInterval
+	// staleReclaimInterval is how often locks left behind by a crashed replica are swept.
+	staleReclaimInterval  = 1 * time.Minute
+	cleanupInterval       = 4 * time.Hour
+	retentionPeriod       = 30 * 24 * time.Hour
+	queueOperationTimeout = 30 * time.Second
+	retryDelay            = 30 * time.Second
+)
 
 type QuorumValidator interface {
 	// CheckQuorum checks if the aggregated report meets the quorum requirements.
@@ -32,12 +45,12 @@ type QuorumValidator interface {
 
 // CommitReportAggregator is responsible for aggregating commit reports from multiple verifiers.
 // It manages the verification and storage of commit reports through a configurable storage backend,
-// processes aggregation requests via a message channel, and forwards verified reports to a sink.
+// processes aggregation requests via a durable job queue, and forwards verified reports to a sink.
 type CommitReportAggregator struct {
 	storage               common.CommitVerificationStore
 	aggregatedStore       common.CommitVerificationAggregatedStore
 	sink                  common.Sink
-	channelManager        *ChannelManager
+	queue                 jobqueue.JobQueue[aggregationRequest]
 	backgroundWorkerCount int
 	operationTimeout      time.Duration
 	quorum                QuorumValidator
@@ -56,27 +69,29 @@ type CommitReportAggregator struct {
 type aggregationRequest struct {
 	AggregationKey model.AggregationKey
 	MessageID      model.MessageID
-	ChannelKey     model.ChannelKey
 	// TraceParent carries the enqueueing write span's W3C traceparent
 	TraceParent string
 }
 
+// DedupKey makes aggregationRequest storable in the durable queue. Aggregation runs per
+// aggregation key, which already commits to the message ID, so requests collapse per key and
+// only while a job for that key is still pending.
+func (r aggregationRequest) DedupKey() string {
+	return r.AggregationKey
+}
+
 // CheckAggregation enqueues a new aggregation request for the specified message ID.
-func (c *CommitReportAggregator) CheckAggregation(ctx context.Context, messageID model.MessageID, aggregationKey model.AggregationKey, channelKey model.ChannelKey) error {
+func (c *CommitReportAggregator) CheckAggregation(ctx context.Context, messageID model.MessageID, aggregationKey model.AggregationKey) error {
 	carrier := propagation.MapCarrier{}
 	otel.GetTextMapPropagator().Inject(ctx, carrier)
 	request := aggregationRequest{
 		MessageID:      messageID,
 		AggregationKey: aggregationKey,
-		ChannelKey:     channelKey,
 		TraceParent:    carrier.Get("traceparent"),
 	}
-	err := c.channelManager.Enqueue(ctx, channelKey, request)
-	if err != nil {
-		return err
-	}
-	c.metrics(ctx).With("channel_key", string(channelKey)).IncrementPendingAggregationsChannelBuffer(ctx, 1)
-	return nil
+	publishCtx, cancel := context.WithTimeout(ctx, queueOperationTimeout)
+	defer cancel()
+	return c.queue.Publish(publishCtx, request)
 }
 
 func (c *CommitReportAggregator) logger(ctx context.Context) logger.SugaredLogger {
@@ -230,40 +245,15 @@ func (c *CommitReportAggregator) submitAggregatedReport(ctx context.Context, lgg
 	return nil
 }
 
-// StartBackground begins processing aggregation requests in the background.
+// StartBackground begins consuming aggregation requests from the durable queue in the
+// background.
 func (c *CommitReportAggregator) StartBackground(ctx context.Context) {
 	c.mu.Lock()
 	c.done = make(chan struct{})
-	go func() { _ = c.channelManager.Start(ctx) }()
 	c.mu.Unlock()
-	aggregationChannel := c.channelManager.AggregationChannel
+
 	poolCtx, poolCancel := context.WithCancel(context.WithoutCancel(ctx))
 	p := pool.New().WithMaxGoroutines(c.backgroundWorkerCount).WithContext(poolCtx)
-
-	submitWork := func(request aggregationRequest) {
-		p.Go(func(poolCtx context.Context) error {
-			c.metrics(poolCtx).With("channel_key", string(request.ChannelKey)).DecrementPendingAggregationsChannelBuffer(poolCtx, 1)
-			poolCtx = scope.WithAggregationKey(poolCtx, request.AggregationKey)
-			poolCtx = scope.WithMessageID(poolCtx, request.MessageID)
-
-			return func() (err error) {
-				defer func() {
-					if r := recover(); r != nil {
-						c.logger(poolCtx).Errorw("Panic during aggregation", "panic", r)
-						c.metrics(poolCtx).IncrementPanics(poolCtx)
-						err = fmt.Errorf("panic: %v", r)
-					}
-				}()
-				err = c.checkAggregationAndSubmitComplete(poolCtx, request)
-				if err != nil {
-					c.consecutiveErrors.Add(1)
-				} else {
-					c.consecutiveErrors.Store(0)
-				}
-				return err
-			}()
-		})
-	}
 
 	drainDeadline := make(chan struct{})
 	go func() {
@@ -276,26 +266,135 @@ func (c *CommitReportAggregator) StartBackground(ctx context.Context) {
 		defer close(c.done)
 		defer poolCancel()
 		lggr := c.logger(context.Background())
+
+		signals := c.queue.Signals()
+		pendingTicker := time.NewTicker(pendingFallbackInterval)
+		defer pendingTicker.Stop()
+		staleTicker := time.NewTicker(staleReclaimInterval)
+		defer staleTicker.Stop()
+		cleanupTicker := time.NewTicker(cleanupInterval)
+		defer cleanupTicker.Stop()
+
+		// Both rearms are primed: work published before this process started, or published
+		// by another replica, has no in-process signal to announce it.
+		pendingRearm := make(chan struct{}, 1)
+		pendingRearm <- struct{}{}
+		staleRearm := make(chan struct{}, 1)
+		staleRearm <- struct{}{}
+
 		for {
 			select {
-			case request, ok := <-aggregationChannel:
-				if !ok {
-					c.waitForPool(lggr, p, drainDeadline, poolCancel)
-					return
-				}
-				submitWork(request)
+			case <-ctx.Done():
+				c.waitForPool(lggr, p, drainDeadline, poolCancel)
+				return
 			case <-drainDeadline:
 				lggr.Errorw("Drain timed out, dropping in-flight work", "timeout", c.drainTimeout)
 				poolCancel()
 				_ = p.Wait()
 				return
+
+			case <-signals:
+				c.consumeBatch(ctx, p, pendingRearm, c.queue.ConsumePending, "Failed to consume pending aggregation jobs")
+			case <-pendingRearm:
+				c.consumeBatch(ctx, p, pendingRearm, c.queue.ConsumePending, "Failed to consume pending aggregation jobs")
+			case <-pendingTicker.C:
+				c.consumeBatch(ctx, p, pendingRearm, c.queue.ConsumePending, "Failed to consume pending aggregation jobs")
+
+			case <-staleRearm:
+				c.consumeBatch(ctx, p, staleRearm, c.queue.ReclaimStale, "Failed to reclaim stale aggregation jobs")
+			case <-staleTicker.C:
+				c.consumeBatch(ctx, p, staleRearm, c.queue.ReclaimStale, "Failed to reclaim stale aggregation jobs")
+
+			case <-cleanupTicker.C:
+				c.cleanup(ctx, lggr)
 			}
 		}
 	}()
 }
 
+// consumeBatch locks one batch of jobs and dispatches each into the worker pool. It
+// re-arms when the batch came back full, because signals coalesce and a single wakeup can
+// stand for any amount of work.
+func (c *CommitReportAggregator) consumeBatch(
+	ctx context.Context,
+	p *pool.ContextPool,
+	rearm chan<- struct{},
+	consume func(context.Context, int) ([]jobqueue.Job[aggregationRequest], error),
+	consumeErrMsg string,
+) {
+	// A claim is capped at the worker count; surplus would sit unstarted in 'processing'
+	// until reclaimed as stale.
+	batchSize := c.backgroundWorkerCount
+	consumeCtx, cancel := context.WithTimeout(ctx, queueOperationTimeout)
+	jobs, err := consume(consumeCtx, batchSize)
+	cancel()
+	if err != nil {
+		c.logger(ctx).Errorw(consumeErrMsg, "error", err)
+		return
+	}
+	if len(jobs) == 0 {
+		return
+	}
+	if len(jobs) == batchSize {
+		select {
+		case rearm <- struct{}{}:
+		default:
+		}
+	}
+	for _, job := range jobs {
+		c.submitWork(p, job)
+	}
+}
+
+func (c *CommitReportAggregator) submitWork(p *pool.ContextPool, job jobqueue.Job[aggregationRequest]) {
+	p.Go(func(poolCtx context.Context) error {
+		request := job.Payload
+		poolCtx = scope.WithAggregationKey(poolCtx, request.AggregationKey)
+		poolCtx = scope.WithMessageID(poolCtx, request.MessageID)
+
+		err := func() (err error) {
+			defer func() {
+				if r := recover(); r != nil {
+					c.logger(poolCtx).Errorw("Panic during aggregation", "panic", r)
+					c.metrics(poolCtx).IncrementPanics(poolCtx)
+					err = fmt.Errorf("panic: %v", r)
+				}
+			}()
+			return c.checkAggregationAndSubmitComplete(poolCtx, request)
+		}()
+
+		opCtx, cancel := context.WithTimeout(context.WithoutCancel(poolCtx), queueOperationTimeout)
+		defer cancel()
+		if err != nil {
+			c.consecutiveErrors.Add(1)
+			if retryErr := c.queue.Retry(opCtx, retryDelay, map[string]error{job.ID: err}, job.ID); retryErr != nil {
+				c.logger(poolCtx).Errorw("Failed to schedule aggregation retry, job will be reclaimed as a stale lock", "error", retryErr)
+			}
+			return err
+		}
+		c.consecutiveErrors.Store(0)
+		if completeErr := c.queue.Complete(opCtx, job.ID); completeErr != nil {
+			c.logger(poolCtx).Errorw("Failed to complete aggregation job, job will be reclaimed as a stale lock", "error", completeErr)
+		}
+		return nil
+	})
+}
+
+func (c *CommitReportAggregator) cleanup(ctx context.Context, lggr logger.SugaredLogger) {
+	cleanupCtx, cancel := context.WithTimeout(ctx, queueOperationTimeout)
+	defer cancel()
+	deleted, err := c.queue.Cleanup(cleanupCtx, retentionPeriod)
+	if err != nil {
+		lggr.Errorw("Failed to clean up aggregation job archive", "error", err)
+		return
+	}
+	if deleted > 0 {
+		lggr.Infow("Cleaned up archived aggregation jobs", "count", deleted, "retentionPeriod", retentionPeriod)
+	}
+}
+
 func (c *CommitReportAggregator) waitForPool(lggr logger.SugaredLogger, p *pool.ContextPool, drainDeadline <-chan struct{}, poolCancel context.CancelFunc) {
-	lggr.Infow("Channel drained, waiting for in-flight workers")
+	lggr.Infow("Stopped consuming, waiting for in-flight workers")
 	poolDone := make(chan error, 1)
 	go func() { poolDone <- p.Wait() }()
 	select {
@@ -334,19 +433,6 @@ func (c *CommitReportAggregator) Ready() error {
 		}
 	}
 
-	lggr := c.logger(context.Background())
-	pending := len(c.channelManager.AggregationChannel)
-	capacity := cap(c.channelManager.AggregationChannel)
-	if pending >= capacity {
-		lggr.Warnw("aggregation queue full", "capacity", capacity, "pending", pending)
-		return nil
-	}
-
-	if float64(pending)/float64(capacity) > 0.8 {
-		lggr.Warnw("aggregation queue over 80%% full", "capacity", capacity, "pending", pending)
-		return nil
-	}
-
 	return nil
 }
 
@@ -369,17 +455,18 @@ func (c *CommitReportAggregator) Name() string {
 //   - aggregatedStore: Interface for querying existing aggregated reports (can be nil to disable the feature)
 //   - sink: Interface for submitting aggregated reports
 //   - config: Configuration containing committee and quorum settings
+//   - queue: Durable queue carrying aggregation requests between replicas
 //
 // Returns:
 //   - *CommitReportAggregator: A new aggregator instance ready to process commit reports
 //
 // The returned aggregator must have StartBackground called to begin processing aggregation requests.
-func NewCommitReportAggregator(storage common.CommitVerificationStore, aggregatedStore common.CommitVerificationAggregatedStore, sink common.Sink, quorum QuorumValidator, config *model.AggregatorConfig, logger logger.SugaredLogger, monitoring common.AggregatorMonitoring, channelManager *ChannelManager) *CommitReportAggregator {
+func NewCommitReportAggregator(storage common.CommitVerificationStore, aggregatedStore common.CommitVerificationAggregatedStore, sink common.Sink, quorum QuorumValidator, config *model.AggregatorConfig, logger logger.SugaredLogger, monitoring common.AggregatorMonitoring, queue jobqueue.JobQueue[aggregationRequest]) *CommitReportAggregator {
 	return &CommitReportAggregator{
 		storage:               storage,
 		aggregatedStore:       aggregatedStore,
 		sink:                  sink,
-		channelManager:        channelManager,
+		queue:                 queue,
 		backgroundWorkerCount: config.Aggregation.BackgroundWorkerCount,
 		operationTimeout:      config.Aggregation.OperationTimeout,
 		drainTimeout:          config.Aggregation.DrainTimeout,

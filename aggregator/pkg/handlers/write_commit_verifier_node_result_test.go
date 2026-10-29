@@ -11,7 +11,6 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/auth"
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/testutil"
 	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
@@ -70,7 +69,7 @@ func TestWriteCommitCCVNodeDataHandler_MessageDisablementGate(t *testing.T) {
 	testutil.StubTracing(mon)
 	// None of these should be called when the message is disabled
 	store.EXPECT().SaveCommitVerification(mock.Anything, mock.Anything).Maybe()
-	agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Maybe()
+	agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, mock.Anything).Maybe()
 	sig.EXPECT().ValidateSignature(mock.Anything, mock.Anything).Maybe()
 	sig.EXPECT().DeriveAggregationKey(mock.Anything, mock.Anything).Maybe()
 	mon.EXPECT().Metrics().Maybe()
@@ -97,7 +96,6 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 	t.Parallel()
 
 	const testCallerID = "test-caller"
-	const testChannelKey model.ChannelKey = "test-caller"
 
 	signer1 := &model.SignerIdentifier{
 		Identifier: []byte{0xAA},
@@ -158,16 +156,6 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 			expectAggCalls:   0,
 		},
 		{
-			name:             "aggregation_channel_full_returns_resource_exhausted",
-			req:              makeValidProtoRequest(),
-			signer:           signer1,
-			aggErr:           common.ErrAggregationChannelFull,
-			expectGRPCCode:   codes.ResourceExhausted,
-			expectStatus:     committeepb.WriteStatus_FAILED,
-			expectStoreCalls: 1,
-			expectAggCalls:   1,
-		},
-		{
 			name:             "aggregation_other_error_returns_internal",
 			req:              makeValidProtoRequest(),
 			signer:           signer1,
@@ -216,13 +204,13 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 			var lastMsgID model.MessageID
 			var lastAggregation model.AggregationKey
 			if tc.expectAggCalls > 0 {
-				agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, mock.Anything, testChannelKey).Run(func(_ context.Context, m model.MessageID, a model.AggregationKey, _ model.ChannelKey) {
+				agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, mock.Anything).Run(func(_ context.Context, m model.MessageID, a model.AggregationKey) {
 					aggCalled++
 					lastMsgID = m
 					lastAggregation = a
 				}).Return(tc.aggErr).Times(tc.expectAggCalls)
 			} else {
-				agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Maybe()
+				agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, mock.Anything).Maybe()
 			}
 
 			mon := mocks.NewMockAggregatorMonitoring(t)

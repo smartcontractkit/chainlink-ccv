@@ -42,12 +42,6 @@ type DestinationSelector = string
 // SourceSelector represents a source chain selector as a string.
 type SourceSelector = string
 
-// ChannelKey identifies a client's aggregation channel for fair scheduling.
-type ChannelKey string
-
-// OrphanRecoveryChannelKey is the channel key used for orphan recovery operations.
-const OrphanRecoveryChannelKey ChannelKey = "orphan_recovery"
-
 // Committee represents a group of signers participating in the commit verification process.
 type Committee struct {
 	mu sync.RWMutex
@@ -173,8 +167,6 @@ type ServerConfig struct {
 
 // AggregationConfig represents the configuration for the aggregation system.
 type AggregationConfig struct {
-	// ChannelBufferSize controls the size of the aggregation request channel buffer
-	ChannelBufferSize int `toml:"channelBufferSize"`
 	// BackgroundWorkerCount controls the number of background workers processing aggregation requests
 	BackgroundWorkerCount int `toml:"backgroundWorkerCount"`
 	// OperationTimeout is the timeout for each aggregation operation (0 = no timeout)
@@ -184,6 +176,8 @@ type AggregationConfig struct {
 	DrainTimeout time.Duration `toml:"drainTimeout"`
 	// MaxConsecutiveErrors is the maximum number of consecutive errors allowed before the aggregation is considered failed
 	MaxConsecutiveErrors uint32 `toml:"maxConsecutiveErrors"`
+	// Deprecated: ignored since aggregation moved to the durable job queue; accepted so existing configs still load.
+	ChannelBufferSize int `toml:"channelBufferSize"`
 }
 
 // MessageDisablementRulesConfig controls the message-disablement registry refresh behavior.
@@ -707,10 +701,6 @@ func (c *AggregatorConfig) SetDefaults() {
 		c.MaxCommitVerifierNodeResultRequestsPerBatch = 100
 	}
 	// Aggregation defaults
-	if c.Aggregation.ChannelBufferSize == 0 {
-		// Set to MaxCommitVerifierNodeResultRequestsPerBatch * 2 by default to allow for some buffering of requests
-		c.Aggregation.ChannelBufferSize = c.MaxCommitVerifierNodeResultRequestsPerBatch * 2
-	}
 	if c.Aggregation.BackgroundWorkerCount == 0 {
 		c.Aggregation.BackgroundWorkerCount = 10
 	}
@@ -859,12 +849,6 @@ func (c *AggregatorConfig) ValidateServerConfig() error {
 
 // ValidateAggregationConfig validates the aggregation configuration.
 func (c *AggregatorConfig) ValidateAggregationConfig() error {
-	if c.Aggregation.ChannelBufferSize <= 0 {
-		return errors.New("aggregation.channelBufferSize must be greater than 0")
-	}
-	if c.Aggregation.ChannelBufferSize > 100000 {
-		return errors.New("aggregation.channelBufferSize cannot exceed 100000")
-	}
 	if c.Aggregation.BackgroundWorkerCount <= 0 {
 		return errors.New("aggregation.backgroundWorkerCount must be greater than 0")
 	}
@@ -1096,11 +1080,6 @@ func (c *AggregatorConfig) ValidateWithoutSecrets() error {
 	// Validate orphan recovery configuration
 	if err := c.ValidateOrphanRecoveryConfig(); err != nil {
 		return fmt.Errorf("orphan recovery configuration error: %w", err)
-	}
-
-	// Validate that the client channel buffer size is sufficient for the batch size
-	if c.Aggregation.ChannelBufferSize < c.MaxCommitVerifierNodeResultRequestsPerBatch {
-		return fmt.Errorf("aggregation channel buffer size (%d) is smaller than the max commit verifier node result requests per batch (%d). Large batch will be rejected instantly", c.Aggregation.ChannelBufferSize, c.MaxCommitVerifierNodeResultRequestsPerBatch)
 	}
 
 	return nil

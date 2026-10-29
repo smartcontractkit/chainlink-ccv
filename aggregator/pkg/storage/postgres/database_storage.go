@@ -74,6 +74,12 @@ type DatabaseStorage struct {
 	lggr         logger.SugaredLogger
 }
 
+// DataSource exposes the underlying connection so components that need their own tables
+// in the aggregator database (e.g. the aggregation job queue) can share this pool.
+func (d *DatabaseStorage) DataSource() sqlutil.DataSource {
+	return d.ds
+}
+
 func (d *DatabaseStorage) logger(ctx context.Context) logger.SugaredLogger {
 	return scope.AugmentLogger(ctx, d.lggr)
 }

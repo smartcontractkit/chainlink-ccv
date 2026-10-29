@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"context"
-	"errors"
 	"strconv"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -33,7 +32,7 @@ type SignatureValidator interface {
 // AggregationTriggerer defines an interface for triggering aggregation checks.
 type AggregationTriggerer interface {
 	// CheckAggregation triggers the aggregation process for the specified aggregation key.
-	CheckAggregation(ctx context.Context, messageID model.MessageID, aggregationKey model.AggregationKey, channelKey model.ChannelKey) error
+	CheckAggregation(ctx context.Context, messageID model.MessageID, aggregationKey model.AggregationKey) error
 }
 
 // WriteCommitVerifierNodeResultHandler handles requests to write commit verification records.
@@ -59,10 +58,6 @@ type preparedWrite struct {
 	record         *model.CommitVerificationRecord
 	aggregationKey model.AggregationKey
 	callerID       string
-}
-
-func (p *preparedWrite) channelKey() model.ChannelKey {
-	return model.ChannelKey(p.callerID)
 }
 
 // prepare runs every check up to and including aggregation-key derivation. On error it ends any span
@@ -163,18 +158,12 @@ func (h *WriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *
 	h.recordSaved(p)
 
 	reqLogger := h.logger(p.ctx)
-	channelKey := p.channelKey()
-	if err := h.aggregator.CheckAggregation(p.ctx, p.record.MessageID, p.aggregationKey, channelKey); err != nil {
+	if err := h.aggregator.CheckAggregation(p.ctx, p.record.MessageID, p.aggregationKey); err != nil {
 		p.span.RecordError(err)
-		if errors.Is(err, common.ErrAggregationChannelFull) {
-			reqLogger.Errorf("Aggregation channel is full")
-			return failed, status.Error(codes.ResourceExhausted, "service temporarily unavailable: aggregation queue full")
-		}
-
 		reqLogger.Errorw("failed to trigger aggregation", "error", err)
 		return failed, status.Error(codes.Internal, "failed to trigger aggregation")
 	}
-	p.span.AddEvent(monitoring.EventAggregationEnqueued, oteltrace.WithAttributes(attribute.String(commontracing.ChannelKeyKey, string(channelKey))))
+	p.span.AddEvent(monitoring.EventAggregationEnqueued)
 	reqLogger.Debugf("Triggered aggregation check")
 
 	return &committeepb.WriteCommitteeVerifierNodeResultResponse{

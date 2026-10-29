@@ -23,7 +23,7 @@ type AggregatorMetrics struct {
 	apiRequestDuration                     metric.Float64Histogram
 	apiRequestError                        metric.Int64Counter
 	getMessageSinceNumberOfRecordsReturned metric.Int64Histogram
-	pendingAggregationsChannelBuffer       metric.Int64UpDownCounter
+	aggregationQueueSize                   metric.Int64Gauge
 	timeToAggregation                      metric.Float64Histogram
 
 	// Storage metrics
@@ -160,12 +160,12 @@ func InitMetrics() (am *AggregatorMetrics, err error) {
 		return nil, fmt.Errorf("failed to register GetMessagesSince number of records returned histogram: %w", err)
 	}
 
-	am.pendingAggregationsChannelBuffer, err = beholder.GetMeter().Int64UpDownCounter(
-		"aggregator_pending_aggregations_channel_buffer",
-		metric.WithDescription("Current size of the pending aggregations channel buffer"),
+	am.aggregationQueueSize, err = beholder.GetMeter().Int64Gauge(
+		"aggregator_aggregation_queue_size",
+		metric.WithDescription("Current count of pending and in-flight aggregation requests in the durable queue"),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to register pending aggregations channel buffer up down counter: %w", err)
+		return nil, fmt.Errorf("failed to register aggregation queue size gauge: %w", err)
 	}
 
 	am.storageLatency, err = beholder.GetMeter().Float64Histogram(
@@ -379,14 +379,9 @@ func (c *AggregatorMetricLabeler) RecordMessageSinceNumberOfRecordsReturned(ctx 
 	c.am.getMessageSinceNumberOfRecordsReturned.Record(ctx, int64(count), metric.WithAttributes(otelLabels...))
 }
 
-func (c *AggregatorMetricLabeler) IncrementPendingAggregationsChannelBuffer(ctx context.Context, count int) {
+func (c *AggregatorMetricLabeler) SetAggregationQueueSize(ctx context.Context, size int64) {
 	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
-	c.am.pendingAggregationsChannelBuffer.Add(ctx, int64(count), metric.WithAttributes(otelLabels...))
-}
-
-func (c *AggregatorMetricLabeler) DecrementPendingAggregationsChannelBuffer(ctx context.Context, count int) {
-	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
-	c.am.pendingAggregationsChannelBuffer.Add(ctx, -int64(count), metric.WithAttributes(otelLabels...))
+	c.am.aggregationQueueSize.Record(ctx, size, metric.WithAttributes(otelLabels...))
 }
 
 func (c *AggregatorMetricLabeler) RecordStorageLatency(ctx context.Context, operation string, duration time.Duration, errored bool) {
