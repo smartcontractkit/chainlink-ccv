@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
+	"os"
 	"os/signal"
 	"syscall"
 	"time"
@@ -36,6 +38,13 @@ import (
 )
 
 func main() {
+	if len(os.Args) >= 2 && os.Args[1] == "validate-config" {
+		// Strictly decodes the config (plus its generated config) and validates it
+		// with no secrets and no database. CI-safe.
+		runValidateConfig(os.Args[2:])
+		return
+	}
+
 	// Load in the config from './config.toml'
 	config, unmatchedVerifierNames, err := config.LoadConfig()
 	if err != nil {
@@ -372,4 +381,41 @@ func createPostgresStorage(ctx context.Context, lggr logger.Logger, cfg *config.
 	}
 
 	return storage.WrapWithMetrics(dbStore, indexerMonitoring, lggr)
+}
+
+// runValidateConfig implements `indexer validate-config [--config <path>]`. It
+// strictly decodes the rendered config and its generated config, then runs the
+// service's own secret-free validation, reading no secrets and touching no
+// database, so it is safe to run in CI against a rendered config.
+//
+// It terminates the process: 0 on success, 1 on an invalid config, 2 on a usage
+// error.
+func runValidateConfig(args []string) {
+	fs := flag.NewFlagSet("validate-config", flag.ContinueOnError)
+	configPath := fs.String("config", "", "path to the indexer config (default: $INDEXER_CONFIG_PATH, then ./config.toml)")
+	if err := fs.Parse(args); err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "%v\n", err)
+		os.Exit(2)
+	}
+
+	path := *configPath
+	if path == "" {
+		path = "config.toml"
+		if fromEnv, ok := os.LookupEnv("INDEXER_CONFIG_PATH"); ok {
+			path = fromEnv
+		}
+	}
+
+	// Unmatched generated entries are reported but do not fail the check: LoadConfig
+	// only logs them, so failing here would flag configs the service accepts today.
+	unmatched, err := config.ValidateConfigFile(path)
+	for _, name := range unmatched {
+		_, _ = fmt.Fprintf(os.Stderr, "warning: generated config verifier %q has no matching verifier in %s\n", name, path)
+	}
+	if err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "config validation failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	_, _ = fmt.Fprintln(os.Stdout, "config is valid")
 }
