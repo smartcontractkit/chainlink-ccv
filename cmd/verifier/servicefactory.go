@@ -337,16 +337,17 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		ChainStatusFlushThreshold: chainstatus.DefaultFlushThreshold,
 	}
 
-	signer, _, signerAddress, err := commit.NewSignerFromKeystore(ctx, deps.Keystore, commit.DefaultECDSASigningKeyName)
+	signer, publicKey, err := commit.NewECDSASignerFromKeystore(ctx, deps.Keystore, commit.DefaultECDSASigningKeyName)
 	if err != nil {
 		lggr.Errorw("Failed to create signer", "error", err)
 		return fmt.Errorf("failed to create signer: %w", err)
 	}
-	if err := commit.ValidateSignerAddress(config.SignerAddress, signerAddress); err != nil {
+	signerIdentity, err := commit.ResolveSignerIdentity(config.SignerAddress, publicKey)
+	if err != nil {
 		lggr.Errorw("Verifier signing key does not match job configuration", "error", err)
 		return err
 	}
-	lggr.Infow("Using signer address", "address", signerAddress)
+	lggr.Infow("Using signer identity", "identity", signerIdentity)
 
 	// An absent URL leaves the database nil (storage is optional).
 	chainStatusDB, err := f.connectDB(ctx, lggr, secrets)
@@ -359,7 +360,7 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	chainStatusManager := createChainStatusManager(lggr, config.VerifierID, verifierMonitoring, chainStatusDB)
 
 	// Create commit verifier
-	commitVerifier, err := commit.NewCommitVerifier(coordinatorConfig, signerAddress, signer, lggr, verifierMonitoring)
+	commitVerifier, err := commit.NewCommitVerifier(coordinatorConfig, signerIdentity, signer, lggr, verifierMonitoring)
 	if err != nil {
 		lggr.Errorw("Failed to create commit verifier", "error", err)
 		return fmt.Errorf("failed to create commit verifier: %w", err)

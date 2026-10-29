@@ -41,7 +41,7 @@ flowchart TB
     B["Validate HMAC credentials\nfrom environment variables"]
     C["Create AggregatorWriter\ngRPC connection to Aggregator"]
     D["Create SourceReaders\none per configured chain selector"]
-    E["Load signing key\nNewSignerFromKeystore(deps.Keystore)"]
+    E["Load signing key\nNewECDSASignerFromKeystore(deps.Keystore)"]
     F["Create CommitVerifier\ncommit.NewCommitVerifier(config, signerAddress, signer)"]
     G["Create ChainStatusManager\nPostgreSQL-backed checkpoint store"]
     H["Create Coordinator\nverifier.NewCoordinator(...)"]
@@ -57,14 +57,15 @@ flowchart TB
 The committee verifier uses the Chainlink Node keystore exclusively — the raw private key bytes are never exposed to the verifier code.
 
 ```go
-signer, pubKey, signerAddress, err := commit.NewSignerFromKeystore(
+signer, pubKey, err := commit.NewECDSASignerFromKeystore(
     ctx,
     deps.Keystore,
     keys.DefaultECDSASigningKeyName, // "ccip-verifier-signing-key"
 )
+signerIdentity, err := commit.ResolveSignerIdentity(config.SignerAddress, pubKey)
 ```
 
-`NewSignerFromKeystore` loads the key metadata from the keystore, derives the Ethereum address from the public key, and returns a `MessageSigner` that delegates all signing operations back to the keystore:
+`NewECDSASignerFromKeystore` returns the public key without deriving a chain-specific identity. `ResolveSignerIdentity` returns a matching public key directly and derives an EVM address only when needed for an address-length configuration. Signing delegates to the keystore:
 
 ```
 KeystoreSignerAdapter
@@ -72,11 +73,11 @@ KeystoreSignerAdapter
         └── returns raw ECDSA signature bytes
 ECDSASignerWithKeystoreSigner
   └── wraps KeystoreSignerAdapter
-  └── calls protocol.SignV27WithKeystoreSigner(data, adapter)
-  └── returns protocol.EncodeSingleECDSASignature(R, S, Signer)
+  └── calls protocol.SignV27WithKeystoreSignerRS(data, adapter)
+  └── returns protocol.EncodeSingleECDSASignatureRS(R, S)
 ```
 
-The final encoded signature is a packed struct of `(R [32]byte, S [32]byte, Signer [20]byte)` — 84 bytes total.
+The final encoded signature is `(R [32]byte, S [32]byte)` — 64 bytes total.
 
 For non-node deployments (tests, standalone binaries) `commit.NewECDSAMessageSignerFromString` accepts a raw hex private key and produces the same encoded signature format.
 

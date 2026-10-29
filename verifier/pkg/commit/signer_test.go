@@ -15,16 +15,17 @@ import (
 	"github.com/smartcontractkit/chainlink-common/keystore"
 )
 
-func TestValidateSignerAddress(t *testing.T) {
+func TestValidateSignerIdentity(t *testing.T) {
 	const configured = "0x1111111111111111111111111111111111111111"
 
 	evmAddress := protocol.UnknownAddress(common.HexToAddress(configured).Bytes())
 	wrongAddress := protocol.UnknownAddress(common.HexToAddress("0x2222222222222222222222222222222222222222").Bytes())
 
-	// Canton pins the 65-byte uncompressed public key, unprefixed, instead of a 20-byte EVM address.
+	// Canton pins the 65-byte uncompressed public key while the signer also derives its EVM address.
 	cantonKey, err := crypto.GenerateKey()
 	require.NoError(t, err)
 	cantonPubKey := crypto.FromECDSAPub(&cantonKey.PublicKey)
+	cantonAddress := crypto.PubkeyToAddress(cantonKey.PublicKey)
 	cantonConfigured := hex.EncodeToString(cantonPubKey)
 
 	t.Run("matching signer_address is accepted", func(t *testing.T) {
@@ -32,28 +33,28 @@ func TestValidateSignerAddress(t *testing.T) {
 			name       string
 			configured string
 			actual     protocol.UnknownAddress
+			publicKey  []byte
 		}{
 			{name: "0x-prefixed EVM address", configured: configured, actual: evmAddress},
 			{name: "unprefixed EVM address", configured: strings.TrimPrefix(configured, "0x"), actual: evmAddress},
 			{name: "uppercase hex digits", configured: "0x" + strings.ToUpper(strings.TrimPrefix(configured, "0x")), actual: evmAddress},
-			{name: "unprefixed Canton public key", configured: cantonConfigured, actual: protocol.UnknownAddress(cantonPubKey)},
-			{name: "0x-prefixed Canton public key", configured: "0x" + cantonConfigured, actual: protocol.UnknownAddress(cantonPubKey)},
+			{name: "unprefixed Canton public key", configured: cantonConfigured, actual: cantonAddress.Bytes(), publicKey: cantonPubKey},
+			{name: "0x-prefixed Canton public key", configured: "0x" + cantonConfigured, actual: cantonAddress.Bytes(), publicKey: cantonPubKey},
 		}
 
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				require.NoError(t, ValidateSignerAddress(tt.configured, tt.actual))
+				require.NoError(t, ValidateSignerIdentity(tt.configured, tt.actual, tt.publicKey))
 			})
 		}
 	})
 
 	t.Run("mismatched signer_address is rejected", func(t *testing.T) {
-		truncatedCanton := protocol.UnknownAddress(cantonPubKey[len(cantonPubKey)-common.AddressLength:])
-
 		tests := []struct {
 			name       string
 			configured string
 			actual     protocol.UnknownAddress
+			publicKey  []byte
 			wantInErr  string
 		}{
 			{
@@ -75,12 +76,11 @@ func TestValidateSignerAddress(t *testing.T) {
 				wantInErr:  evmAddress.String(),
 			},
 			{
-				// Length alone never decides: a keystore holding only the trailing EVM-address bytes of a
-				// Canton public key must not pass against the full public key.
-				name:       "Canton public key does not match its trailing 20 bytes",
-				configured: cantonConfigured,
-				actual:     truncatedCanton,
-				wantInErr:  truncatedCanton.String(),
+				name:       "trailing public key bytes do not match the full key",
+				configured: hex.EncodeToString(cantonPubKey[len(cantonPubKey)-common.AddressLength:]),
+				actual:     evmAddress,
+				publicKey:  cantonPubKey,
+				wantInErr:  evmAddress.String(),
 			},
 			{
 				name:       "Canton public key from a different key",
@@ -92,7 +92,7 @@ func TestValidateSignerAddress(t *testing.T) {
 
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				err := ValidateSignerAddress(tt.configured, tt.actual)
+				err := ValidateSignerIdentity(tt.configured, tt.actual, tt.publicKey)
 				require.Error(t, err)
 				require.ErrorContains(t, err, "signer_address")
 				require.ErrorContains(t, err, "[key_import]")
@@ -114,7 +114,7 @@ func TestValidateSignerAddress(t *testing.T) {
 
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				err := ValidateSignerAddress(tt.configured, evmAddress)
+				err := ValidateSignerIdentity(tt.configured, evmAddress, nil)
 				require.Error(t, err)
 				require.ErrorContains(t, err, "invalid signer_address")
 				require.ErrorContains(t, err, tt.configured)
@@ -126,24 +126,22 @@ func TestValidateSignerAddress(t *testing.T) {
 		// Empty means "forgot to set it", not "deliberately adopting": only the explicit
 		// AutoSignerAddress sentinel opts out, so forgetting signer_address is never silently
 		// conflated with choosing auto-adoption.
-		err := ValidateSignerAddress("", evmAddress)
+		err := ValidateSignerIdentity("", evmAddress, nil)
 		require.Error(t, err)
 		require.ErrorContains(t, err, "invalid signer_address")
 	})
 
 	t.Run("auto signer_address adopts the keystore address", func(t *testing.T) {
-		// The postgres auto-generate backend's first boot has no key to match: the explicit
-		// AutoSignerAddress sentinel must never fail the boot, whether or not it matches the actual.
+		// The explicit AutoSignerAddress sentinel accepts any key on the first boot.
 		for _, tt := range []struct {
-			name    string
-			actual  common.Address
-			wantErr bool
+			name   string
+			actual common.Address
 		}{
 			{name: "matches actual", actual: common.HexToAddress(configured)},
 			{name: "any keystore address", actual: common.HexToAddress("0x3333333333333333333333333333333333333333")},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
-				err := ValidateSignerAddress(AutoSignerAddress, protocol.UnknownAddress(tt.actual.Bytes()))
+				err := ValidateSignerIdentity(AutoSignerAddress, protocol.UnknownAddress(tt.actual.Bytes()), nil)
 				require.NoError(t, err)
 			})
 		}
@@ -155,7 +153,7 @@ func TestValidateSignerAddress(t *testing.T) {
 		generatedAddress := crypto.PubkeyToAddress(generatedKey.PublicKey)
 		actual := protocol.UnknownAddress(generatedAddress.Bytes())
 
-		err = ValidateSignerAddress(configured, actual)
+		err = ValidateSignerIdentity(configured, actual, crypto.FromECDSAPub(&generatedKey.PublicKey))
 		require.Error(t, err)
 		require.ErrorContains(t, err, "signer_address")
 		require.ErrorContains(t, err, "[key_import]")
@@ -177,7 +175,7 @@ func TestECDSASigner_Sign(t *testing.T) {
 
 	signature, err := signer.Sign(hash)
 	require.NoError(t, err)
-	require.Len(t, signature, protocol.SingleECDSASignatureSize, "signature should be 84 bytes (32 R + 32 S + 20 Signer)")
+	require.Len(t, signature, protocol.SingleECDSASignatureSize, "signature should be 64 bytes (32 R + 32 S)")
 
 	r, s, err := protocol.DecodeSingleECDSASignature(signature)
 	require.NoError(t, err)
@@ -283,7 +281,7 @@ func TestECDSASignerWithKeystoreSigner_Sign(t *testing.T) {
 	copy(hashArray[:], hash[:])
 	signature, err := signer.Sign(hash)
 	require.NoError(t, err)
-	require.Len(t, signature, protocol.SingleECDSASignatureSize, "signature should be 84 bytes (32 R + 32 S + 20 Signer)")
+	require.Len(t, signature, protocol.SingleECDSASignatureSize, "signature should be 64 bytes (32 R + 32 S)")
 
 	r, s, err := protocol.DecodeSingleECDSASignature(signature)
 	require.NoError(t, err)
@@ -372,7 +370,7 @@ func TestKeystoreSignerAdapter_WithECDSASignerWithKeystoreSigner(t *testing.T) {
 	copy(hashArray[:], hash[:])
 	signature, err := signer.Sign(hash)
 	require.NoError(t, err)
-	require.Len(t, signature, protocol.SingleECDSASignatureSize, "signature should be 84 bytes (32 R + 32 S + 20 Signer)")
+	require.Len(t, signature, protocol.SingleECDSASignatureSize, "signature should be 64 bytes (32 R + 32 S)")
 
 	r, s, err := protocol.DecodeSingleECDSASignature(signature)
 	require.NoError(t, err)
@@ -388,15 +386,17 @@ func TestKeystoreSignerAdapter_WithECDSASignerWithKeystoreSigner(t *testing.T) {
 	require.NotEqual(t, [32]byte{}, s, "S should not be zero")
 }
 
-func TestNewSignerFromKeystore(t *testing.T) {
-	ks, _ := createTestKeystore(t, keyName)
+func TestNewECDSASignerFromKeystore(t *testing.T) {
+	ks, expectedPublicKey := createTestKeystore(t, keyName)
 
 	ctx := context.Background()
-	signer, _, address, err := NewSignerFromKeystore(ctx, ks, keyName)
+	signer, publicKey, err := NewECDSASignerFromKeystore(ctx, ks, keyName)
 	require.NoError(t, err)
 	require.NotNil(t, signer)
+	require.Equal(t, expectedPublicKey, publicKey)
+	address, err := EVMAddressFromPublicKey(publicKey)
+	require.NoError(t, err)
 
-	// Test that the signer actually works
 	hash := crypto.Keccak256([]byte("test message"))
 	var hashArray [32]byte
 	copy(hashArray[:], hash[:])
@@ -411,6 +411,40 @@ func TestNewSignerFromKeystore(t *testing.T) {
 	require.Equal(t, address.Bytes(), signerAddr.Bytes())
 	require.NotEqual(t, [32]byte{}, r)
 	require.NotEqual(t, [32]byte{}, s)
+
+	require.NoError(t, ValidateSignerIdentity(hex.EncodeToString(publicKey), address, publicKey))
+	require.NoError(t, ValidateSignerIdentity(signerAddr.Hex(), address, publicKey))
+
+	identity, err := ResolveSignerIdentity(hex.EncodeToString(publicKey), publicKey)
+	require.NoError(t, err)
+	require.Equal(t, protocol.UnknownAddress(publicKey), identity)
+	identity, err = ResolveSignerIdentity(signerAddr.Hex(), publicKey)
+	require.NoError(t, err)
+	require.Equal(t, address, identity)
+}
+
+func TestResolveSignerIdentityDoesNotDeriveForPublicKey(t *testing.T) {
+	publicKey := make([]byte, 65)
+	_, err := crypto.UnmarshalPubkey(publicKey)
+	require.Error(t, err)
+
+	identity, err := ResolveSignerIdentity(hex.EncodeToString(publicKey), publicKey)
+	require.NoError(t, err)
+	require.Equal(t, protocol.UnknownAddress(publicKey), identity)
+	identity, err = ResolveSignerIdentity(AutoSignerAddress, publicKey)
+	require.NoError(t, err)
+	require.Equal(t, protocol.UnknownAddress(publicKey), identity)
+}
+
+func TestNewSignerFromKeystore(t *testing.T) {
+	ks, expectedPublicKey := createTestKeystore(t, keyName)
+
+	_, publicKey, address, err := NewSignerFromKeystore(context.Background(), ks, keyName)
+	require.NoError(t, err)
+	require.Equal(t, expectedPublicKey, publicKey)
+	expectedAddress, err := EVMAddressFromPublicKey(publicKey)
+	require.NoError(t, err)
+	require.Equal(t, expectedAddress, address)
 }
 
 func TestNewSignerFromKeystore_KeyNotFound(t *testing.T) {

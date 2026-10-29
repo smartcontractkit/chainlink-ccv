@@ -71,50 +71,78 @@ func NormalizeToV27(sig65 []byte) (r32, s32 [32]byte, err error) {
 	return r32, s32, nil
 }
 
-func normalizeAndVerify(sig, hash []byte) (r32, s32 [32]byte, addr common.Address, err error) {
+func normalizeAndVerify(sig, hash []byte) (r32, s32 [32]byte, publicKey *ecdsa.PublicKey, err error) {
 	r32, s32, err = NormalizeToV27(sig)
 	if err != nil {
-		return r32, s32, common.Address{}, err
+		return r32, s32, nil, err
 	}
 
-	// Verify our normalization actually recovers the expected address on-chain semantics.
-	// We emulate ecrecover(hash,27,r,s) by reconstructing a 65B sig with v=0 and running SigToPub.
+	// Reconstruct a V0 signature to verify recovery with V27 on-chain semantics.
 	check := make([]byte, 65)
 	copy(check[0:32], r32[:])
 	copy(check[32:64], s32[:])
-	check[64] = 0 // SigToPub expects 0/1, not 27/28
+	check[64] = 0
 
-	pub, err := crypto.SigToPub(hash, check)
+	publicKey, err = crypto.SigToPub(hash, check)
 	if err != nil {
-		return r32, s32, common.Address{}, err
+		return r32, s32, nil, err
 	}
-	return r32, s32, crypto.PubkeyToAddress(*pub), nil
+	return r32, s32, publicKey, nil
 }
 
-// SignV27WithKeystoreSigner signs hash with the provided keystore signer and returns (r,s) such that on-chain ecrecover(hash,27,r,s) recovers the signer.
-// This is equivalent to signing normally, then applying NormalizeToV27.
+func signV27WithKeystoreSigner(hash []byte, keystoreSigner interface {
+	Sign(data []byte) ([]byte, error)
+},
+) (r32, s32 [32]byte, publicKey *ecdsa.PublicKey, err error) {
+	sig, err := keystoreSigner.Sign(hash)
+	if err != nil {
+		return r32, s32, nil, err
+	}
+	return normalizeAndVerify(sig, hash)
+}
+
+// SignV27WithKeystoreSignerRS returns only the chain-neutral R and S signature components.
+func SignV27WithKeystoreSignerRS(hash []byte, keystoreSigner interface {
+	Sign(data []byte) ([]byte, error)
+},
+) (r32, s32 [32]byte, err error) {
+	r32, s32, _, err = signV27WithKeystoreSigner(hash, keystoreSigner)
+	return r32, s32, err
+}
+
+// SignV27WithKeystoreSigner retains the Ethereum-address-returning signing API for EVM callers.
 func SignV27WithKeystoreSigner(hash []byte, keystoreSigner interface {
 	Sign(data []byte) ([]byte, error)
 },
 ) (r32, s32 [32]byte, addr common.Address, err error) {
-	sig, err := keystoreSigner.Sign(hash)
+	r32, s32, publicKey, err := signV27WithKeystoreSigner(hash, keystoreSigner)
 	if err != nil {
 		return r32, s32, common.Address{}, err
 	}
+	return r32, s32, crypto.PubkeyToAddress(*publicKey), nil
+}
 
+func signV27(hash []byte, priv *ecdsa.PrivateKey) (r32, s32 [32]byte, publicKey *ecdsa.PublicKey, err error) {
+	sig, err := crypto.Sign(hash, priv)
+	if err != nil {
+		return r32, s32, nil, err
+	}
 	return normalizeAndVerify(sig, hash)
 }
 
-// SignV27 signs hash with priv and returns (r,s) such that on-chain ecrecover(hash,27,r,s) recovers the signer.
-// This is equivalent to signing normally, then applying NormalizeToV27.
+// SignV27RS returns only the chain-neutral R and S signature components.
+func SignV27RS(hash []byte, priv *ecdsa.PrivateKey) (r32, s32 [32]byte, err error) {
+	r32, s32, _, err = signV27(hash, priv)
+	return r32, s32, err
+}
+
+// SignV27 retains the Ethereum-address-returning signing API for EVM callers.
 func SignV27(hash []byte, priv *ecdsa.PrivateKey) (r32, s32 [32]byte, addr common.Address, err error) {
-	// go-ethereum's crypto.Sign returns 65 bytes: R||S||V, where V is 0/1 (recovery id).
-	sig, err := crypto.Sign(hash, priv)
+	r32, s32, publicKey, err := signV27(hash, priv)
 	if err != nil {
 		return r32, s32, common.Address{}, err
 	}
-
-	return normalizeAndVerify(sig, hash)
+	return r32, s32, crypto.PubkeyToAddress(*publicKey), nil
 }
 
 // leftPad32 left-pads a big-endian slice to exactly 32 bytes.
@@ -261,7 +289,7 @@ func RecoverECDSASigner(hash, r, s [32]byte) (common.Address, error) {
 	return signer, nil
 }
 
-// SingleECDSASignatureSize is the exact size of an encoded EVM signature: R(32) + S(32) = 64 bytes.
+// SingleECDSASignatureSize is the exact size of an encoded ECDSA signature: R(32) + S(32) = 64 bytes.
 const SingleECDSASignatureSize = 64
 
 func verifySig(rb, sb [32]byte) error {
@@ -273,22 +301,25 @@ func verifySig(rb, sb [32]byte) error {
 	return nil
 }
 
-// EncodeSingleECDSASignature encodes a single EVM signature as R||S (64 bytes).
-// This format is used by verifiers when sending individual signatures to the aggregator.
-// Format: [32 bytes R][32 bytes S].
+// EncodeSingleECDSASignature retains the Data-based encoding API for existing callers.
 func EncodeSingleECDSASignature(sig Data) ([]byte, error) {
-	if err := verifySig(sig.R, sig.S); err != nil {
+	return EncodeSingleECDSASignatureRS(sig.R, sig.S)
+}
+
+// EncodeSingleECDSASignatureRS encodes R||S without requiring a signer identity.
+func EncodeSingleECDSASignatureRS(r, s [32]byte) ([]byte, error) {
+	if err := verifySig(r, s); err != nil {
 		return nil, fmt.Errorf("invalid signature: %w", err)
 	}
 
 	result := make([]byte, SingleECDSASignatureSize)
-	copy(result[0:32], sig.R[:])
-	copy(result[32:64], sig.S[:])
+	copy(result[0:32], r[:])
+	copy(result[32:64], s[:])
 
 	return result, nil
 }
 
-// DecodeSingleECDSASignature decodes a single EVM signature from R||S format (64 bytes).
+// DecodeSingleECDSASignature decodes a single ECDSA signature from R||S format (64 bytes).
 // Returns the R, S components.
 func DecodeSingleECDSASignature(data []byte) (r, s [32]byte, err error) {
 	if len(data) != SingleECDSASignatureSize {
