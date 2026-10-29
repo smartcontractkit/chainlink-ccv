@@ -27,11 +27,6 @@ const (
 
 var _ chainaccess.FeeQuoterReader = (*EVMFeeQuoterReader)(nil)
 
-type tokenMetadata struct {
-	decimals uint8
-	symbol   string
-}
-
 // EVMFeeQuoterReader reads the state of a Fee Quoter contract.
 type EVMFeeQuoterReader struct {
 	address common.Address
@@ -39,21 +34,33 @@ type EVMFeeQuoterReader struct {
 
 	mu     sync.Mutex
 	self   []common.Address
-	tokens map[common.Address]tokenMetadata
+	tokens *TokenMetadataCache
+}
+
+// ReaderOption configures an EVMFeeQuoterReader.
+type ReaderOption func(*EVMFeeQuoterReader)
+
+// WithReaderTokenCache makes the reader use a token metadata cache shared with other components.
+func WithReaderTokenCache(cache *TokenMetadataCache) ReaderOption {
+	return func(f *EVMFeeQuoterReader) { f.tokens = cache }
 }
 
 // NewEVMFeeQuoterReader creates a Fee Quoter reader. It does not call the chain.
 // The self addresses are the price updater keys. Use SetServiceAddresses when the keystore is available later.
-func NewEVMFeeQuoterReader(address common.Address, client batchClient, self []common.Address) (*EVMFeeQuoterReader, error) {
+func NewEVMFeeQuoterReader(address common.Address, client batchClient, self []common.Address, opts ...ReaderOption) (*EVMFeeQuoterReader, error) {
 	if client == nil {
 		return nil, errors.New("batch client is nil")
 	}
-	return &EVMFeeQuoterReader{
+	f := &EVMFeeQuoterReader{
 		address: address,
 		client:  client,
 		self:    slices.Clone(self),
-		tokens:  make(map[common.Address]tokenMetadata),
-	}, nil
+		tokens:  NewTokenMetadataCache(),
+	}
+	for _, opt := range opts {
+		opt(f)
+	}
+	return f, nil
 }
 
 // SetServiceAddresses sets the addresses that GetFQState looks for in the authorized callers.
@@ -192,20 +199,27 @@ func (f *EVMFeeQuoterReader) readPrices(ctx context.Context, structure fqStructu
 			return err
 		})
 	}
-	// Decimals and symbol never change, so each token is read only once.
-	missing := f.uncachedTokens(structure.tokens, out.metadata)
-	fetched := make([]tokenMetadata, len(missing))
-	for i, token := range missing {
+	// Decimals and symbol never change, so each is read only once.
+	missingDecimals, missingSymbols := f.uncachedTokens(structure.tokens, out.metadata)
+	fetchedDecimals := make([]uint8, len(missingDecimals))
+	fetchedSymbols := make([]string, len(missingSymbols))
+	for i, token := range missingDecimals {
 		token20, err := erc20.NewERC20Caller(token, batch)
 		if err != nil {
 			return fqPrices{}, err
 		}
 		batch.add(fmt.Sprintf("decimals(%s)", token), func() (err error) {
-			fetched[i].decimals, err = token20.Decimals(opts)
+			fetchedDecimals[i], err = token20.Decimals(opts)
 			return err
 		})
+	}
+	for i, token := range missingSymbols {
+		token20, err := erc20.NewERC20Caller(token, batch)
+		if err != nil {
+			return fqPrices{}, err
+		}
 		batch.add(fmt.Sprintf("symbol(%s)", token), func() (err error) {
-			fetched[i].symbol, err = token20.Symbol(opts)
+			fetchedSymbols[i], err = token20.Symbol(opts)
 			return err
 		})
 	}
@@ -216,28 +230,39 @@ func (f *EVMFeeQuoterReader) readPrices(ctx context.Context, structure fqStructu
 	if len(out.tokenPrices) != len(structure.tokens) {
 		return fqPrices{}, fmt.Errorf("fee quoter returned %d token prices for %d tokens", len(out.tokenPrices), len(structure.tokens))
 	}
-	f.mu.Lock()
-	for i, token := range missing {
-		f.tokens[token] = fetched[i]
-		out.metadata[token] = fetched[i]
+	for i, token := range missingDecimals {
+		f.tokens.setDecimals(token, fetchedDecimals[i])
+		m := out.metadata[token]
+		m.decimals = fetchedDecimals[i]
+		out.metadata[token] = m
 	}
-	f.mu.Unlock()
+	for i, token := range missingSymbols {
+		f.tokens.setSymbol(token, fetchedSymbols[i])
+		m := out.metadata[token]
+		m.symbol = fetchedSymbols[i]
+		out.metadata[token] = m
+	}
 	return out, nil
 }
 
-// uncachedTokens adds the cached metadata of tokens to metadata and returns the other tokens, without duplicates.
-func (f *EVMFeeQuoterReader) uncachedTokens(tokens []common.Address, metadata map[common.Address]tokenMetadata) []common.Address {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	var missing []common.Address
+// uncachedTokens adds the cached metadata of tokens to metadata and returns the tokens whose decimals
+// and whose symbol are not cached, without duplicates.
+func (f *EVMFeeQuoterReader) uncachedTokens(tokens []common.Address, metadata map[common.Address]tokenMetadata) (decimals, symbols []common.Address) {
 	for _, token := range tokens {
-		if cached, ok := f.tokens[token]; ok {
-			metadata[token] = cached
-		} else if !slices.Contains(missing, token) {
-			missing = append(missing, token)
+		m := metadata[token]
+		if v, ok := f.tokens.getDecimals(token); ok {
+			m.decimals = v
+		} else if !slices.Contains(decimals, token) {
+			decimals = append(decimals, token)
 		}
+		if v, ok := f.tokens.getSymbol(token); ok {
+			m.symbol = v
+		} else if !slices.Contains(symbols, token) {
+			symbols = append(symbols, token)
+		}
+		metadata[token] = m
 	}
-	return missing
+	return decimals, symbols
 }
 
 // onChainTokenPriceToUSDPerWholeToken converts USD per 1e18 smallest units (1e18 precision)

@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/contracttransmitter"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/pricereader"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/pricereader/pricereadertest"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -44,6 +45,11 @@ type stubChainRuntime struct {
 	addresses     []common.Address
 	addressesErr  error
 	gotAddrKey    string
+
+	writer           chainaccess.FeeQuoterWriter
+	writerErr        error
+	gotWriterKey     string
+	gotWriterAddress common.Address
 
 	sourceReaderHeaderFetchBatchSize int
 }
@@ -87,6 +93,15 @@ func (s *stubChainRuntime) NewContractTransmitter(
 	s.gotKeyName = keyName
 	s.gotOffRamp = offRamp
 	return s.transmitter, s.transmitErr
+}
+
+func (s *stubChainRuntime) NewFeeQuoterWriter(_ context.Context, _ keystore.Keystore, keyName string, address common.Address, _ *pricereader.TokenMetadataCache) (chainaccess.FeeQuoterWriter, error) {
+	s.gotWriterKey = keyName
+	s.gotWriterAddress = address
+	if s.writer == nil && s.writerErr == nil {
+		return markerFeeQuoterWriter{}, nil
+	}
+	return s.writer, s.writerErr
 }
 
 func (s *stubChainRuntime) Close() error {
@@ -664,4 +679,52 @@ func TestFactoryIgnoresNativeTokenDecimalsWithoutFeeQuoterAddress(t *testing.T) 
 	// The setting is not checked: the error is about the missing services, not the decimals.
 	require.ErrorContains(t, err, "no source, destination or pricer services are configured")
 	require.NotContains(t, err.Error(), "native token decimals")
+}
+
+type markerFeeQuoterWriter struct{}
+
+func (markerFeeQuoterWriter) UpdatePrices(context.Context, []protocol.FeeTokenPriceUpdate, []protocol.GasTokenPriceUpdate) error {
+	return nil
+}
+
+func TestSetKeystoreReplacesTheFeeQuoterWriterWithTheRuntimeOne(t *testing.T) {
+	t.Parallel()
+	runtime := &stubChainRuntime{writer: markerFeeQuoterWriter{}}
+	fq := common.HexToAddress(validTestFeeQuoterAddress)
+	logOnly := pricereader.NewEVMFeeQuoterWriter(logger.Test(t), nil, fq)
+	acc := newAccessor(logger.Test(t), pricerTestSelector, runtime, common.Address{}, "evm-key", nil, nil, nil, nil, logOnly, nil, withFeeQuoterAddress(fq))
+
+	require.NoError(t, acc.(*accessor).SetKeystore(t.Context(), nil))
+
+	got, err := acc.FeeQuoterWriter()
+	require.NoError(t, err)
+	require.IsType(t, markerFeeQuoterWriter{}, got)
+	require.Equal(t, "evm-key", runtime.gotWriterKey)
+	require.Equal(t, fq, runtime.gotWriterAddress)
+	require.NoError(t, acc.(*accessor).Degraded())
+}
+
+func TestSetKeystoreKeepsTheLogOnlyFeeQuoterWriterAndReportsDegradedOnFailure(t *testing.T) {
+	t.Parallel()
+	runtime := &stubChainRuntime{writerErr: errors.New("no key")}
+	logOnly := pricereader.NewEVMFeeQuoterWriter(logger.Test(t), nil, common.Address{})
+	acc := newAccessor(logger.Test(t), pricerTestSelector, runtime, common.Address{}, "evm-key", nil, nil, nil, nil, logOnly, nil)
+
+	require.NoError(t, acc.(*accessor).SetKeystore(t.Context(), nil))
+
+	got, err := acc.FeeQuoterWriter()
+	require.NoError(t, err)
+	require.Same(t, logOnly, got)
+	require.ErrorContains(t, acc.(*accessor).Degraded(), "only logs")
+}
+
+func TestSetKeystoreWithoutFeeQuoterWriterDoesNotStartOne(t *testing.T) {
+	t.Parallel()
+	runtime := &stubChainRuntime{writer: markerFeeQuoterWriter{}}
+	acc := newAccessor(logger.Test(t), pricerTestSelector, runtime, common.Address{}, "evm-key", nil, nil, nil, nil, nil, nil)
+
+	require.NoError(t, acc.(*accessor).SetKeystore(t.Context(), nil))
+	_, err := acc.FeeQuoterWriter()
+	require.Error(t, err)
+	require.Empty(t, runtime.gotWriterKey)
 }

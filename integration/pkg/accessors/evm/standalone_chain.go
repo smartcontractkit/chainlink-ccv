@@ -17,6 +17,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/contracttransmitter"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/pricereader"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/keystore"
@@ -92,6 +93,14 @@ type chainRuntime interface {
 		keyName string,
 		offRampAddress common.Address,
 	) (chainaccess.ContractTransmitter, error)
+	// NewFeeQuoterWriter returns a writer that sends price updates to the Fee Quoter through the TXM.
+	NewFeeQuoterWriter(
+		ctx context.Context,
+		ks keystore.Keystore,
+		keyName string,
+		feeQuoterAddress common.Address,
+		tokens *pricereader.TokenMetadataCache,
+	) (chainaccess.FeeQuoterWriter, error)
 	Close() error
 }
 
@@ -117,6 +126,9 @@ type standaloneChain struct {
 
 	mu                  sync.Mutex
 	txm                 txmgr.TxManager
+	txmKeyName          string
+	chainKeystore       evmkeys.ChainStore
+	fromAddresses       []common.Address
 	daOracle            *lazy.Lazy[rollups.L1Oracle]
 	unsubscribeTXM      func()
 	contractTransmitter chainaccess.ContractTransmitter
@@ -307,14 +319,39 @@ func (c *standaloneChain) NewContractTransmitter(
 	if c.contractTransmitter != nil {
 		return c.contractTransmitter, nil
 	}
-	if ks == nil {
-		return nil, errors.New("EVM transaction manager requires a keystore")
-	}
-	if keyName == "" {
-		return nil, errors.New("EVM transaction manager requires a transmitter key name")
-	}
 	if offRampAddress == (common.Address{}) {
 		return nil, errors.New("EVM transaction manager requires an OffRamp address")
+	}
+	if err := c.ensureTXMLocked(ctx, ks, keyName); err != nil {
+		return nil, err
+	}
+	transmitter := contracttransmitter.NewEVMContractTransmitterFromTxm(
+		logger.With(c.lggr, "component", "ContractTransmitter"),
+		chainSelector,
+		c.txm,
+		offRampAddress,
+		c.chainKeystore,
+		c.fromAddresses,
+		monitoring.NewNoopExecutorMonitoring(),
+	)
+	c.contractTransmitter = transmitter
+	return transmitter, nil
+}
+
+// ensureTXMLocked starts the TXM on first use and shares it between the transmitter and the fee
+// quoter writer. The caller holds c.mu.
+func (c *standaloneChain) ensureTXMLocked(ctx context.Context, ks keystore.Keystore, keyName string) error {
+	if c.txm != nil {
+		if c.txmKeyName != keyName {
+			return fmt.Errorf("EVM transaction manager already runs with key %q, not %q", c.txmKeyName, keyName)
+		}
+		return nil
+	}
+	if ks == nil {
+		return errors.New("EVM transaction manager requires a keystore")
+	}
+	if keyName == "" {
+		return errors.New("EVM transaction manager requires a transmitter key name")
 	}
 
 	switch c.txmBlockTimeSource {
@@ -345,10 +382,10 @@ func (c *standaloneChain) NewContractTransmitter(
 	chainKeystore := evmkeys.NewChainStore(coreKeystore, c.chainConfig.EVM().ChainID())
 	fromAddresses, err := chainKeystore.EnabledAddresses(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load EVM transmitter key %q: %w", keyName, err)
+		return fmt.Errorf("failed to load EVM transmitter key %q: %w", keyName, err)
 	}
 	if len(fromAddresses) == 0 {
-		return nil, fmt.Errorf("EVM transmitter key %q was not found", keyName)
+		return fmt.Errorf("EVM transmitter key %q was not found", keyName)
 	}
 
 	estimator, err := gas.NewEstimator(
@@ -360,7 +397,7 @@ func (c *standaloneChain) NewContractTransmitter(
 		nil,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create EVM gas estimator: %w", err)
+		return fmt.Errorf("failed to create EVM gas estimator: %w", err)
 	}
 
 	txm, err := newTxmV2(
@@ -371,11 +408,11 @@ func (c *standaloneChain) NewContractTransmitter(
 		estimator,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create production EVM transaction manager: %w", err)
+		return fmt.Errorf("failed to create production EVM transaction manager: %w", err)
 	}
 	if err := txm.Start(ctx); err != nil {
 		_ = txm.Close()
-		return nil, fmt.Errorf("failed to start production EVM transaction manager: %w", err)
+		return fmt.Errorf("failed to start production EVM transaction manager: %w", err)
 	}
 
 	// Start has registered the transmitter addresses with the store, so recovery can seed into it.
@@ -387,23 +424,42 @@ func (c *standaloneChain) NewContractTransmitter(
 	if currentHead != nil {
 		txm.OnNewLongestChain(ctx, currentHead)
 	}
-	transmitter := contracttransmitter.NewEVMContractTransmitterFromTxm(
-		logger.With(c.lggr, "component", "ContractTransmitter"),
-		chainSelector,
-		txm,
-		offRampAddress,
-		chainKeystore,
-		fromAddresses,
-		monitoring.NewNoopExecutorMonitoring(),
-	)
 	c.txm = txm
+	c.txmKeyName = keyName
+	c.chainKeystore = chainKeystore
+	c.fromAddresses = fromAddresses
 	c.unsubscribeTXM = unsubscribe
-	c.contractTransmitter = transmitter
-	c.lggr.Infow("Started production EVM transaction manager",
-		"chainSelector", chainSelector,
-		"fromAddresses", fromAddresses,
-	)
-	return transmitter, nil
+	c.lggr.Infow("Started production EVM transaction manager", "fromAddresses", fromAddresses)
+	return nil
+}
+
+// NewFeeQuoterWriter returns a TXM-backed Fee Quoter writer, starting the TXM if needed.
+func (c *standaloneChain) NewFeeQuoterWriter(
+	ctx context.Context,
+	ks keystore.Keystore,
+	keyName string,
+	feeQuoterAddress common.Address,
+	tokens *pricereader.TokenMetadataCache,
+) (chainaccess.FeeQuoterWriter, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.closed {
+		return nil, errors.New("EVM chain runtime is closed")
+	}
+	if feeQuoterAddress == (common.Address{}) {
+		return nil, errors.New("EVM fee quoter writer requires a Fee Quoter address")
+	}
+	if err := c.ensureTXMLocked(ctx, ks, keyName); err != nil {
+		return nil, err
+	}
+	return pricereader.NewEVMFeeQuoterWriter(
+		logger.With(c.lggr, "component", "FeeQuoterWriter"),
+		c.chainClient,
+		feeQuoterAddress,
+		pricereader.WithTxm(c.txm, c.chainKeystore, c.fromAddresses),
+		pricereader.WithTokenCache(tokens),
+	), nil
 }
 
 var _ logPollerRuntime = (*standaloneChain)(nil)
