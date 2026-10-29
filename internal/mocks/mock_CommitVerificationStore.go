@@ -322,17 +322,17 @@ func (_c *MockCommitVerificationStore_OrphanedKeyStats_Call) RunAndReturn(run fu
 	return _c
 }
 
-// SaveCommitVerification provides a mock function with given fields: ctx, record, aggregationKey
-func (_m *MockCommitVerificationStore) SaveCommitVerification(ctx context.Context, record *model.CommitVerificationRecord, aggregationKey string) error {
-	ret := _m.Called(ctx, record, aggregationKey)
+// SaveCommitVerification provides a mock function with given fields: ctx, writes
+func (_m *MockCommitVerificationStore) SaveCommitVerification(ctx context.Context, writes []model.CommitVerificationWrite) error {
+	ret := _m.Called(ctx, writes)
 
 	if len(ret) == 0 {
 		panic("no return value specified for SaveCommitVerification")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, *model.CommitVerificationRecord, string) error); ok {
-		r0 = rf(ctx, record, aggregationKey)
+	if rf, ok := ret.Get(0).(func(context.Context, []model.CommitVerificationWrite) error); ok {
+		r0 = rf(ctx, writes)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -347,15 +347,14 @@ type MockCommitVerificationStore_SaveCommitVerification_Call struct {
 
 // SaveCommitVerification is a helper method to define mock.On call
 //   - ctx context.Context
-//   - record *model.CommitVerificationRecord
-//   - aggregationKey string
-func (_e *MockCommitVerificationStore_Expecter) SaveCommitVerification(ctx interface{}, record interface{}, aggregationKey interface{}) *MockCommitVerificationStore_SaveCommitVerification_Call {
-	return &MockCommitVerificationStore_SaveCommitVerification_Call{Call: _e.mock.On("SaveCommitVerification", ctx, record, aggregationKey)}
+//   - writes []model.CommitVerificationWrite
+func (_e *MockCommitVerificationStore_Expecter) SaveCommitVerification(ctx interface{}, writes interface{}) *MockCommitVerificationStore_SaveCommitVerification_Call {
+	return &MockCommitVerificationStore_SaveCommitVerification_Call{Call: _e.mock.On("SaveCommitVerification", ctx, writes)}
 }
 
-func (_c *MockCommitVerificationStore_SaveCommitVerification_Call) Run(run func(ctx context.Context, record *model.CommitVerificationRecord, aggregationKey string)) *MockCommitVerificationStore_SaveCommitVerification_Call {
+func (_c *MockCommitVerificationStore_SaveCommitVerification_Call) Run(run func(ctx context.Context, writes []model.CommitVerificationWrite)) *MockCommitVerificationStore_SaveCommitVerification_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(*model.CommitVerificationRecord), args[2].(string))
+		run(args[0].(context.Context), args[1].([]model.CommitVerificationWrite))
 	})
 	return _c
 }
@@ -365,7 +364,7 @@ func (_c *MockCommitVerificationStore_SaveCommitVerification_Call) Return(_a0 er
 	return _c
 }
 
-func (_c *MockCommitVerificationStore_SaveCommitVerification_Call) RunAndReturn(run func(context.Context, *model.CommitVerificationRecord, string) error) *MockCommitVerificationStore_SaveCommitVerification_Call {
+func (_c *MockCommitVerificationStore_SaveCommitVerification_Call) RunAndReturn(run func(context.Context, []model.CommitVerificationWrite) error) *MockCommitVerificationStore_SaveCommitVerification_Call {
 	_c.Call.Return(run)
 	return _c
 }
