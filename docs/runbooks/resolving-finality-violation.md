@@ -7,9 +7,20 @@ already saved as finalized no longer matches the chain. The verifier disables th
 (`disabled = true` and `finalized_block_height = 0` in `ccv_chain_statuses`), logs `FINALITY VIOLATION DETECTED`, and stops
 verifying that source until an operator resolves it.
 
-This runbook applies to committee verifiers running inside a Chainlink node with the log poller
-enabled (`Feature.LogPoller = true`). Standalone verifiers can use the live
-[recovery workflow](../../cli/recovery/README.md) instead.
+This runbook applies to committee verifiers that read through the log poller
+(`Feature.LogPoller = true` on a Chainlink node, `log_poller_source_reader_enabled = true` on the chain in a standalone
+verifier's EVM config), whether they run inside a Chainlink node or as a standalone verifier.
+The steps are the same on both. Only the command prefix differs:
+
+| | Chainlink node | Standalone verifier |
+|---|---|---|
+| Find the last common ancestor | `chainlink blocks find-lca` | `verifier ccv blocks find-lca` |
+| Remove blocks | `chainlink node remove-blocks` | `verifier ccv blocks remove-blocks` |
+| Chain statuses | `chainlink node ccv chain-statuses` | `verifier ccv chain-statuses` |
+
+Do not use `ccv recovery reset-reader` or `replay` for this case on a log poller chain. A reset
+resumes without repairing the stored blocks above the last common ancestor, so the reader reads
+stale blocks or reports the violation again.
 
 ## Placeholders
 
@@ -18,66 +29,104 @@ enabled (`Feature.LogPoller = true`). Standalone verifiers can use the live
 - `<verifier-id>`: the verifier ID (see `chain-statuses list`).
 - `L`: the last common ancestor block number found in step 2.
 
+## Standalone verifier environment
+
+The standalone commands run in the verifier's container or host, not inside a node:
+
+- `ccv chain-statuses` uses the verifier database: the verifier secrets file (`[db].url`), or `CL_DATABASE_URL`.
+- `ccv blocks` uses the EVM database, where the LogPoller keeps its tables: `[db].url` in the EVM secrets file
+  (`EVM_SECRETS_PATH`, default `/etc/evm/secrets.toml`).
+- `find-lca` needs the chain's RPC from the mounted EVM config (`EVM_CONFIG_PATH`, default `/etc/evm/config.toml`).
+- The commands read the chain's `log_poller_source_reader_enabled` from the same EVM config and refuse to run when it is off.
+
+On a node the commands use the node's own configuration and take the node's database lock. On a
+standalone verifier, `remove-blocks` takes the EVM database lease, which the running verifier holds,
+and logs that it is waiting until the verifier stops; Ctrl-C stops the wait. The `chain-statuses`
+commands in steps 5 and 6 take no lease, so keep the verifier stopped until step 6 is done.
+
 ## 1. Confirm the violation
 
 - The chain shows `disabled = true`:
 
   ```bash
+  # node
   chainlink node ccv chain-statuses list
+  # standalone
+  verifier ccv chain-statuses list
   ```
 
-- The node logs contain `FINALITY VIOLATION DETECTED`.
+- The logs contain `FINALITY VIOLATION DETECTED`.
 
 ## 2. Find the last common ancestor
 
-With the node running:
+`find-lca` only reads, so run it with the node or verifier running:
 
 ```bash
+# node
 chainlink blocks find-lca --evm-chain-id <evm-chain-id>
+# standalone
+verifier ccv blocks find-lca --evm-chain-id <evm-chain-id>
 ```
 
 Record the block number as `L`. It is the highest block whose hash in the log poller database
 matches the chain.
 
-## 3. Stop the node
+## 3. Stop the node or verifier
 
-`remove-blocks` and `set-finalized-height` take the node's database lock, and a running verifier
-can overwrite the checkpoint.
+`remove-blocks` takes the node's database lock on a node. On both paths a running verifier can
+overwrite the checkpoint and the log poller stores blocks again as soon as it is deleted.
 
 ## 4. Remove the blocks above the LCA
 
 `--start` is inclusive, so pass `L+1` to keep block `L`:
 
 ```bash
+# node
 chainlink node remove-blocks --start <L+1> --evm-chain-id <evm-chain-id>
+# standalone
+verifier ccv blocks remove-blocks --evm-chain-id <evm-chain-id> --start <L+1>
 ```
 
 This removes the log poller's blocks and logs from `L+1` upward for the chain. Other log poller
 consumers on the chain lose those logs too; the log poller refetches them as it catches up.
+
+Never pass a start below `L+1`. The command does not check retention, and `L+1` from `find-lca`
+is always inside the stored data, so only data that left the chain is deleted. Older data cannot
+be re-indexed cheaply.
 
 ## 5. Reset the verifier checkpoint to the LCA
 
 Set the checkpoint to `L` itself, not `L+1`. The verifier resumes at `finalized_block_height + 1`.
 
 ```bash
+# node
 chainlink node ccv chain-statuses set-finalized-height \
   --chain-selector <chain-selector> --verifier-id <verifier-id> --block-height <L>
 chainlink node ccv chain-statuses list
+# standalone
+verifier ccv chain-statuses set-finalized-height \
+  --chain-selector <chain-selector> --verifier-id <verifier-id> --block-height <L>
+verifier ccv chain-statuses list
 ```
 
 Confirm `finalized_block_height` reads `L`. Skipping this step leaves the checkpoint above the
 LCA, and the verifier would skip messages emitted on the new fork between `L+1` and the old
 checkpoint.
 
-## 6. Start the node and re-enable the chain
+## 6. Re-enable the chain and start
+
+Run `enable` while the node or verifier is still stopped, then start it. Run `set-finalized-height`
+the same way: the commands change the stored row, and the running service reads it only at start.
 
 ```bash
+# node
 chainlink node ccv chain-statuses enable --chain-selector <chain-selector> --verifier-id <verifier-id>
+# standalone
+verifier ccv chain-statuses enable --chain-selector <chain-selector> --verifier-id <verifier-id>
 ```
 
-Run `enable` while the node is stopped, then start it. On start the verifier registers the log
-poller filter, anchors the log poller at the checkpoint if it is empty, and replays from `L+1`.
-The chain reports not ready until the replay finishes.
+On start the verifier registers the log poller filter, anchors the log poller at the checkpoint
+if it is empty, and replays from `L+1`. The chain reports not ready until the replay finishes.
 
 ## 7. Verify
 
@@ -88,4 +137,5 @@ The chain reports not ready until the replay finishes.
 ## Caveats
 
 - If a violation is reported again right after the restart, the log poller still holds blocks
-  that disagree with the chain. Repeat from step 2.
+  that disagree with the chain. The chain is disabled again. Repeat from step 2. This is also what
+  happens when step 4 was skipped.

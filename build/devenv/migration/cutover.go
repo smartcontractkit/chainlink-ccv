@@ -161,6 +161,9 @@ func Run(ctx context.Context, in Input) (Result, error) {
 		return result, err
 	}
 	hydrateAggregatorCredentials(in.Aggregators)
+	if err := chainreg.GetRegistry().ResolveVerifierDatabases(in.Verifiers...); err != nil {
+		return result, err
+	}
 	if err := committeeverifier.LaunchStandaloneVerifiers(
 		in.Verifiers,
 		in.Aggregators,

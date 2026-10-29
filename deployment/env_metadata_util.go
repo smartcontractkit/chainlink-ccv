@@ -275,6 +275,14 @@ func MergeTokenVerifierConfig(ds datastore.MutableDataStore, serviceIdentifier s
 // mergeTokenConfigs upserts incoming's per-chain data over existing's, returning
 // the combined config. The inputs are not mutated. If either argument is nil, the
 // other is returned as-is.
+//
+// The merged config starts from existing so config-wide fields that the caller
+// does not model are preserved: the generate-token-verifier-config changeset only
+// sets PyroscopeURL, Monitoring, and per-chain data, so rebuilding the struct
+// field-by-field would silently reset DisableFinalityCheckers and
+// SourceReaderStalenessThreshold on every regeneration. Fields the caller does
+// own are overlaid below; a non-zero incoming value still wins, and zero means
+// "unset" for these fields by definition.
 func mergeTokenConfigs(existing, incoming *token.Config) *token.Config {
 	if existing == nil {
 		return incoming
@@ -283,18 +291,24 @@ func mergeTokenConfigs(existing, incoming *token.Config) *token.Config {
 		return existing
 	}
 
-	return &token.Config{
-		// Config-wide fields take the latest run's value.
-		PyroscopeURL: incoming.PyroscopeURL,
-		Monitoring:   incoming.Monitoring,
-		CommitteeConfig: chainaccess.CommitteeConfig{
-			OnRampAddresses: mergeStringMaps(existing.OnRampAddresses, incoming.OnRampAddresses),
-			// Deprecated, but preserved across merges so configs stored before the on-chain
-			// RMN derivation cutover keep their entries until replaced wholesale.
-			RMNRemoteAddresses: mergeStringMaps(existing.RMNRemoteAddresses, incoming.RMNRemoteAddresses),
-		},
-		TokenVerifiers: mergeTokenVerifiers(existing.TokenVerifiers, incoming.TokenVerifiers),
+	merged := *existing
+	merged.PyroscopeURL = incoming.PyroscopeURL
+	merged.Monitoring = incoming.Monitoring
+	if len(incoming.DisableFinalityCheckers) > 0 {
+		merged.DisableFinalityCheckers = incoming.DisableFinalityCheckers
 	}
+	if incoming.SourceReaderStalenessThreshold != 0 {
+		merged.SourceReaderStalenessThreshold = incoming.SourceReaderStalenessThreshold
+	}
+	merged.CommitteeConfig = chainaccess.CommitteeConfig{
+		OnRampAddresses: mergeStringMaps(existing.OnRampAddresses, incoming.OnRampAddresses),
+		// Deprecated, but preserved across merges so configs stored before the on-chain
+		// RMN derivation cutover keep their entries until replaced wholesale.
+		RMNRemoteAddresses: mergeStringMaps(existing.RMNRemoteAddresses, incoming.RMNRemoteAddresses),
+	}
+	merged.TokenVerifiers = mergeTokenVerifiers(existing.TokenVerifiers, incoming.TokenVerifiers)
+
+	return &merged
 }
 
 // mergeTokenVerifiers upserts incoming verifiers over existing ones, keyed by

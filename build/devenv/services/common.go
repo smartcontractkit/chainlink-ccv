@@ -32,6 +32,11 @@ const (
 	HostGatewayExtraHost = "host.docker.internal:host-gateway"
 )
 
+// PostgresURL is the URL of a devenv Postgres database served at host:port.
+func PostgresURL(user, password, host, port, database string) string {
+	return fmt.Sprintf("postgresql://%s:%s@%s:%s/%s?sslmode=disable", user, password, host, port, database)
+}
+
 // TelemetryAttrs copies base telemetry attributes and adds OTel service identity:
 // service.name for the service type and service.instance.id for the container name.
 // The fresh map prevents per-service writes from aliasing the shared config.

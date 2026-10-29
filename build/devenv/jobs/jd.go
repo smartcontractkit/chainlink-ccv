@@ -24,6 +24,7 @@ import (
 
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	ccvchangesets "github.com/smartcontractkit/chainlink-ccv/deployment/changesets"
+	"github.com/smartcontractkit/chainlink-ccv/deployment/registration"
 	ccvshared "github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 )
 
@@ -349,7 +350,7 @@ func createAndVerifyChainConfig(
 // connect to JD when [jd] node_connect_timeout is unset or invalid. Large or
 // emulated devenvs can need well over a minute, which the old 60s default
 // did not tolerate.
-const DefaultNodeConnectTimeout = 3 * time.Minute
+const DefaultNodeConnectTimeout = registration.DefaultConnectionTimeout
 
 // ConnectTimeout returns the JD connection wait used for nodes and
 // bootstraps: the infra's [jd] node_connect_timeout when a valid positive
@@ -366,68 +367,7 @@ func (j *JDInfrastructure) ConnectTimeout() time.Duration {
 
 // WaitForNodeConnection polls JD until the node reports connected or the timeout expires.
 func WaitForNodeConnection(ctx context.Context, jdClient offchain.Client, nodeID string, timeout time.Duration) error {
-	if jdClient == nil {
-		return fmt.Errorf("JD client is required to wait for node %s", nodeID)
-	}
-	if nodeID == "" {
-		return fmt.Errorf("node ID is required to wait for a JD connection")
-	}
-	return waitForConnection(ctx, jdClient, nodeID, timeout, "node")
-}
-
-// waitForConnection is the shared poll loop behind WaitForNodeConnection and
-// WaitForBootstrapConnection: polls every 2s until JD reports the node
-// connected, tolerating transient GetNode errors; each GetNode is bounded by
-// the remaining deadline so a hung RPC cannot outlive the timeout.
-func waitForConnection(ctx context.Context, jdClient offchain.Client, nodeID string, timeout time.Duration, kind string) error {
-	start := time.Now()
-	deadline := start.Add(timeout)
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
-
-	// Say so once at warn level past the old 60s hard-timeout mark, so the
-	// longer wait stays visible at default log level.
-	var warnedSlow bool
-
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			elapsed := time.Since(start)
-			if time.Now().After(deadline) {
-				return fmt.Errorf("timeout waiting for %s %s to connect to JD after %s (extend via node_connect_timeout under [jd] in the env TOML, e.g. \"5m\")",
-					kind, nodeID, elapsed.Round(time.Second))
-			}
-
-			// Bound the RPC by the remaining deadline: with only the caller's
-			// context a hung GetNode could block past it indefinitely.
-			rpcCtx, cancelRPC := context.WithTimeout(ctx, time.Until(deadline))
-			nodeResp, err := jdClient.GetNode(rpcCtx, &nodev1.GetNodeRequest{Id: nodeID})
-			cancelRPC()
-			if err != nil {
-				Plog.Debug().Str("nodeID", nodeID).Err(err).Msg("Failed to get node status, retrying...")
-				continue
-			}
-
-			isConnected := nodeResp.Node != nil && nodeResp.Node.IsConnected
-			if isConnected {
-				Plog.Info().Str("nodeID", nodeID).Msg("Node connected to JD")
-				return nil
-			}
-
-			if !warnedSlow && elapsed > time.Minute {
-				warnedSlow = true
-				Plog.Warn().
-					Str("nodeID", nodeID).
-					Dur("elapsed", elapsed.Round(time.Second)).
-					Dur("timeout", timeout).
-					Msg(kind + " still not connected to JD after 60s (the old hard timeout); continuing to wait")
-			}
-
-			Plog.Debug().Str("nodeID", nodeID).Bool("isConnected", isConnected).Msg("Node not yet connected, waiting...")
-		}
-	}
+	return registration.WaitForConnection(ctx, jdClient, nodeID, registration.WaitConfig{Timeout: timeout})
 }
 
 func ConnectNodesToJD(ctx context.Context, infra *JDInfrastructure, clientLookup *NodeSetClientLookup, chainIDs []string) error {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	mcmsutil "github.com/smartcontractkit/chainlink-ccip/deployment/utils/mcms"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 
@@ -37,6 +38,9 @@ type IncreaseThresholdInput struct {
 	// Used as a safety backstop: validate confirms each service's DataStore config already
 	// reflects NewThreshold before the onchain change is submitted.
 	ServiceIdentifiers []string
+	// MCMS, when set, packages the onchain writes into an MCMS timelock proposal
+	// instead of submitting them with the deployer key.
+	MCMS *mcmsutil.Input
 }
 
 // IncreaseThresholdOffchain is step-1 of a coupled offchain-first two-entry product (§5.5).
@@ -119,8 +123,8 @@ func IncreaseThresholdOffchain() deployment.ChangeSetV2[IncreaseThresholdOffchai
 //  2. The current onchain threshold is still below NewThreshold, guarding against
 //     double-fires and out-of-order manual invocations.
 //
-// In deployer-key mode the transaction is submitted directly inside Apply.
-// MCMS-mode support is deferred to Phase 0 (CLD post-proposal hook prerequisite).
+// With MCMS input the write is packaged into a timelock proposal; in deployer-key mode it
+// is submitted directly inside Apply. No step follows, so no post-proposal hook is needed.
 func IncreaseThreshold() deployment.ChangeSetV2[IncreaseThresholdInput] {
 	validate := func(e deployment.Environment, cfg IncreaseThresholdInput) error {
 		if cfg.CommitteeQualifier == "" {
@@ -181,6 +185,7 @@ func IncreaseThreshold() deployment.ChangeSetV2[IncreaseThresholdInput] {
 			return deployment.ChangesetOutput{}, err
 		}
 
+		writes := committeeWrites{mcms: cfg.MCMS}
 		for _, sel := range cfg.ChainSelectors {
 			change, err := buildSignatureConfigChange(committeeStates[sel], cfg.NewThreshold)
 			if err != nil {
@@ -191,13 +196,17 @@ func IncreaseThreshold() deployment.ChangeSetV2[IncreaseThresholdInput] {
 			if err != nil {
 				return deployment.ChangesetOutput{}, fmt.Errorf("chain %d: %w", sel, err)
 			}
-			if err := onchain.ApplySignatureConfigs(ctx, e, sel, cfg.CommitteeQualifier, change); err != nil {
+			ops, err := onchain.ApplySignatureConfigs(ctx, e, sel, cfg.CommitteeQualifier, change)
+			if err != nil {
 				return deployment.ChangesetOutput{}, fmt.Errorf("chain %d: ApplySignatureConfigs failed: %w", sel, err)
+			}
+			if err := writes.add(sel, ops); err != nil {
+				return deployment.ChangesetOutput{}, err
 			}
 		}
 
 		// No DataStore output — aggregator config was already written in step-1.
-		return deployment.ChangesetOutput{}, nil
+		return writes.output(e)
 	}
 
 	return deployment.CreateChangeSet(apply, validate)

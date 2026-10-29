@@ -31,13 +31,13 @@ func BenchmarkSubmitAggregatedReport(b *testing.B) {
 		aggKey := hex.EncodeToString(messageID)
 		r1 := createTestCommitVerificationRecord(b, msgWithCCV1, signer1)
 		r1.MessageID = messageID
-		if err := storage.SaveCommitVerification(ctx, r1, aggKey); err != nil {
+		if err := storage.SaveCommitVerification(ctx, []model.CommitVerificationWrite{{Record: r1, AggregationKey: aggKey}}); err != nil {
 			b.Fatalf("save verification 1: %v", err)
 		}
 		msgWithCCV2 := createTestMessageWithCCV(b, message, signer2)
 		r2 := createTestCommitVerificationRecord(b, msgWithCCV2, signer2)
 		r2.MessageID = messageID
-		if err := storage.SaveCommitVerification(ctx, r2, aggKey); err != nil {
+		if err := storage.SaveCommitVerification(ctx, []model.CommitVerificationWrite{{Record: r2, AggregationKey: aggKey}}); err != nil {
 			b.Fatalf("save verification 2: %v", err)
 		}
 		reports = append(reports, &model.CommitAggregatedReport{
@@ -79,13 +79,13 @@ func BenchmarkQueryAggregatedReports(b *testing.B) {
 		aggKey := hex.EncodeToString(messageID)
 		r1 := createTestCommitVerificationRecord(b, msgWithCCV1, signer1)
 		r1.MessageID = messageID
-		if err := storage.SaveCommitVerification(ctx, r1, aggKey); err != nil {
+		if err := storage.SaveCommitVerification(ctx, []model.CommitVerificationWrite{{Record: r1, AggregationKey: aggKey}}); err != nil {
 			b.Fatalf("save verification 1: %v", err)
 		}
 		msgWithCCV2 := createTestMessageWithCCV(b, message, signer2)
 		r2 := createTestCommitVerificationRecord(b, msgWithCCV2, signer2)
 		r2.MessageID = messageID
-		if err := storage.SaveCommitVerification(ctx, r2, aggKey); err != nil {
+		if err := storage.SaveCommitVerification(ctx, []model.CommitVerificationWrite{{Record: r2, AggregationKey: aggKey}}); err != nil {
 			b.Fatalf("save verification 2: %v", err)
 		}
 		report := &model.CommitAggregatedReport{
@@ -145,13 +145,13 @@ func BenchmarkQueryAggregatedReports_GrowingVolume(b *testing.B) {
 			aggKey := hex.EncodeToString(messageID)
 			r1 := createTestCommitVerificationRecord(b, msgWithCCV1, signer1)
 			r1.MessageID = messageID
-			if err := storage.SaveCommitVerification(ctx, r1, aggKey); err != nil {
+			if err := storage.SaveCommitVerification(ctx, []model.CommitVerificationWrite{{Record: r1, AggregationKey: aggKey}}); err != nil {
 				b.Fatalf("save verification 1: %v", err)
 			}
 			msgWithCCV2 := createTestMessageWithCCV(b, message, signer2)
 			r2 := createTestCommitVerificationRecord(b, msgWithCCV2, signer2)
 			r2.MessageID = messageID
-			if err := storage.SaveCommitVerification(ctx, r2, aggKey); err != nil {
+			if err := storage.SaveCommitVerification(ctx, []model.CommitVerificationWrite{{Record: r2, AggregationKey: aggKey}}); err != nil {
 				b.Fatalf("save verification 2: %v", err)
 			}
 			report := &model.CommitAggregatedReport{

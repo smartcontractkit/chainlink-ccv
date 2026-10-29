@@ -18,7 +18,6 @@ import (
 )
 
 const (
-	GetKeysEndpoint          = "/keystore/reader/getkeys"
 	GetKeyAddressesEndpoint  = "/keystore/reader/getaddresses"
 	HealthEndpoint           = "/health"
 	ApplicationReadyEndpoint = "/ready"

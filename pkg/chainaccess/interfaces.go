@@ -71,6 +71,13 @@ type FinalityViolationReporter interface {
 	FinalityViolated() bool
 }
 
+// SourceHealthReporter is an optional SourceReader capability for a chain's own health signal, such as the
+// EVM log poller's. Finality violations are not part of it: they are reported only through FinalityViolationReporter.
+type SourceHealthReporter interface {
+	// Healthy returns nil when the data source is healthy, otherwise the reason it is not.
+	Healthy() error
+}
+
 // ErrSourceNotReady is returned by SourceReader reads while the source is still loading; callers retry
 // later and must not treat the range as scanned.
 var ErrSourceNotReady = errors.New("source not ready")

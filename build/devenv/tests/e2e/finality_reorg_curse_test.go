@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
 	"github.com/rs/zerolog"
@@ -39,7 +40,8 @@ import (
 // TestE2EReorg tests that messages sent in different orders
 // before and after a reorg are correctly verified after finality is reached.
 // IMPORTANT: Need to run this test against an env that has source chain with auto mining.
-// Run `just rebuild-all "env.toml,env-src-auto-mine.toml"` before running this test.
+// Run `just rebuild-all "env.toml,env-src-auto-mine.toml"` before running this test, or
+// standard.logpoller.src-auto-mine.profile for verifiers that read through the LogPoller.
 func TestE2EReorg(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping e2e test in short mode; requires a running devenv environment")
@@ -721,32 +723,37 @@ func TestE2EReorg(t *testing.T) {
 		logSentMessage(event2, "Sending toBeDropped message")
 		toBeDroppedMessageID := event2.MessageID
 
+		committee := newVerifierCommitteeClientForSmoke(t, in)
+		logPoller := committeeReadsThroughLogPoller(t, in, committee.VerifierID(), srcSelector)
+		headBeforeRevert := sourceChainHead(t, ctx, in, srcSelector)
+
 		l.Info().Msg("⚠️  Triggering finality violation by reverting to initial snapshot")
 		revert(snapshotID)
 		l.Info().Msg("✅ Reverted to initial snapshot (deep reorg past finalized blocks)")
 		// Mine some blocks to give system opportunity to process (if it were working)
 		l.Info().Int("blocks", verifier.ConfirmationDepth+5).Msg("⛏️  Mining blocks after revert")
 		advanceBlocks(verifier.ConfirmationDepth + 5)
+		// The LogPoller only looks for a reorg once the chain is taller than the last block it processed.
+		if head := sourceChainHead(t, ctx, in, srcSelector); logPoller && head <= headBeforeRevert {
+			l.Info().Uint64("head", head).Uint64("headBeforeRevert", headBeforeRevert).Msg("⛏️  Mining past the pre-revert head for the LogPoller")
+			advanceBlocks(int(headBeforeRevert-head) + 1)
+		}
 		verifyMessageNotExists(toBeDroppedMessageID, "Post-violation message")
 
 		l.Info().Msg("🔍 Verifying chain status in verifier's local storage...")
 
+		// Polled, not asserted once: the LogPoller reports the violation on its own poll, after the RPC reader would.
 		require.Eventually(t, func() bool {
 			statuses, err := chainStatusManager.ReadChainStatuses(ctx, []protocol.ChainSelector{protocol.ChainSelector(srcSelector)})
-			require.NoError(t, err, "should be able to read chain status from verifier's database")
-			require.Len(t, statuses, 1, "should have one chain status for source chain")
-
+			if err != nil || len(statuses) != 1 {
+				return false
+			}
 			chainStatus := statuses[protocol.ChainSelector(srcSelector)]
-			require.NotNil(t, chainStatus, "chain status should exist")
-			require.True(t, chainStatus.Disabled, "chain should be marked as disabled after finality violation")
-			require.Equal(t, uint64(0), chainStatus.FinalizedBlockHeight.Uint64(), "finalized block height should be 0 after finality violation")
+			return chainStatus != nil && chainStatus.Disabled &&
+				chainStatus.FinalizedBlockHeight != nil && chainStatus.FinalizedBlockHeight.Uint64() == 0
+		}, time.Minute, 100*time.Millisecond, "chain should be disabled with checkpoint 0 after finality violation")
+		l.Info().Msg("✅ Chain status verified in verifier's local storage: chain is disabled with checkpoint 0")
 
-			l.Info().Msg("✅ Chain status verified in verifier's local storage: chain is disabled with checkpoint 0")
-
-			return true
-		}, 3*time.Second, 100*time.Millisecond, "chain status should reflect disabled state after finality violation")
-
-		committee := newVerifierCommitteeClientForSmoke(t, in)
 		for _, member := range committee.Members() {
 			require.Eventually(t, func() bool {
 				page, err := member.Recovery().Events(ctx, committee.VerifierID(), fmt.Sprint(srcSelector), "finality_violation")
@@ -754,7 +761,8 @@ func TestE2EReorg(t *testing.T) {
 					return false
 				}
 				for _, event := range page.Events {
-					if event.Kind == "finality_incident" && event.SourceBlock != nil {
+					// The LogPoller reports no evidence block, so its incident has no source block.
+					if event.Kind == "finality_incident" && (logPoller || event.SourceBlock != nil) {
 						return true
 					}
 				}
@@ -762,7 +770,11 @@ func TestE2EReorg(t *testing.T) {
 			}, time.Minute, time.Second, "finality incident must be durable on %s", member.Container())
 		}
 
-		requireLiveRangeRecovery(t, ctx, committee, srcSelector, 1, nil, "reset-reader")
+		if logPoller {
+			requireLogPollerFinalityRecovery(t, ctx, committee, srcSelector)
+		} else {
+			requireLiveRangeRecovery(t, ctx, committee, srcSelector, 1, nil, "reset-reader")
+		}
 		afterReset, err := srcImpl.SendMessage(ctx, destSelector, newMessageFields(receiver, "after live finality recovery"), defaultMessageOptions, defaultMessageVersion)
 		require.NoError(t, err)
 		advanceBlocks(verifier.ConfirmationDepth + 5)
@@ -876,6 +888,26 @@ func uncurseSelector(t *testing.T, env *deployment.Environment, adapter fastcurs
 // implements both ProgressableChain and ReorgableChain, and for which
 // SupportManualBlockProgress(ctx) and SupportReorgs(ctx) are true.
 // Slice order does not matter (e.g. lib.Chains order is not guaranteed).
+// sourceChainHead returns the latest block number of the chain with the given selector.
+func sourceChainHead(t *testing.T, ctx context.Context, in *ccv.Cfg, chainSelector uint64) uint64 {
+	t.Helper()
+	chainID, err := chain_selectors.GetChainIDFromSelector(chainSelector)
+	require.NoError(t, err)
+	for _, bc := range in.Blockchains {
+		if bc == nil || bc.ChainID != chainID || bc.Out == nil || len(bc.Out.Nodes) == 0 {
+			continue
+		}
+		client, err := ethclient.DialContext(ctx, bc.Out.Nodes[0].ExternalHTTPUrl)
+		require.NoError(t, err)
+		defer client.Close()
+		head, err := client.BlockNumber(ctx)
+		require.NoError(t, err)
+		return head
+	}
+	require.FailNow(t, "no blockchain output for chain", "chain ID %s", chainID)
+	return 0
+}
+
 func chainSupportingReorgs(ctx context.Context, chains []ccv.ChainImpl) (
 	src ccv.ChainImpl,
 	progress cciptestinterfaces.ProgressableChain,

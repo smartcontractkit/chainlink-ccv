@@ -11,14 +11,14 @@ package changesets
 // chain in ChainSelectors where the committee verifier for CommitteeQualifier is
 // deployed.
 //
-// No offchain coupling exists. In deployer-key mode the transaction is submitted
-// directly; MCMS-mode support is deferred to Phase 0 (CLD post-proposal hook
-// prerequisite), matching the other committee onchain products.
+// No offchain coupling exists. With MCMS input the write is packaged into a
+// timelock proposal; in deployer-key mode it is submitted directly.
 
 import (
 	"errors"
 	"fmt"
 
+	mcmsutil "github.com/smartcontractkit/chainlink-ccip/deployment/utils/mcms"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 
 	"github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
@@ -41,6 +41,9 @@ type UpdateSenderAllowlistInput struct {
 	AddedSenders []string
 	// RemovedSenders are sender addresses to remove.
 	RemovedSenders []string
+	// MCMS, when set, packages the onchain writes into an MCMS timelock proposal
+	// instead of submitting them with the deployer key.
+	MCMS *mcmsutil.Input
 }
 
 // UpdateSenderAllowlist updates the per-destination-chain sender allowlist on the
@@ -58,16 +61,21 @@ func UpdateSenderAllowlist() deployment.ChangeSetV2[UpdateSenderAllowlistInput] 
 
 	apply := func(e deployment.Environment, cfg UpdateSenderAllowlistInput) (deployment.ChangesetOutput, error) {
 		ctx := e.GetContext()
+		writes := committeeWrites{mcms: cfg.MCMS}
 		for _, sel := range cfg.ChainSelectors {
 			onchain, err := adapters.GetCommitteeVerifierOnchainRegistry().Get(sel)
 			if err != nil {
 				return deployment.ChangesetOutput{}, fmt.Errorf("chain %d: %w", sel, err)
 			}
-			if err := onchain.ApplyAllowlistUpdates(
+			ops, err := onchain.ApplyAllowlistUpdates(
 				ctx, e, sel, cfg.CommitteeQualifier, cfg.DestChainSelector,
 				cfg.AllowlistEnabled, cfg.AddedSenders, cfg.RemovedSenders,
-			); err != nil {
+			)
+			if err != nil {
 				return deployment.ChangesetOutput{}, fmt.Errorf("chain %d: ApplyAllowlistUpdates failed: %w", sel, err)
+			}
+			if err := writes.add(sel, ops); err != nil {
+				return deployment.ChangesetOutput{}, err
 			}
 			e.Logger.Infow("Updated sender allowlist",
 				"chain", sel,
@@ -78,7 +86,7 @@ func UpdateSenderAllowlist() deployment.ChangeSetV2[UpdateSenderAllowlistInput] 
 				"removed", len(cfg.RemovedSenders),
 			)
 		}
-		return deployment.ChangesetOutput{}, nil
+		return writes.output(e)
 	}
 
 	return deployment.CreateChangeSet(apply, validate)
