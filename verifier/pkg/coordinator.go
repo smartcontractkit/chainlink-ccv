@@ -91,7 +91,6 @@ func newCoordinatorOptions(opts ...CoordinatorOption) coordinatorOptions {
 		opt(&options)
 	}
 	return options
-
 }
 
 // WithSourceHealthReporters gives chains their own health signal, such as the log poller's, which the
