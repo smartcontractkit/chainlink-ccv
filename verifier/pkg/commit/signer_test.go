@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"encoding/hex"
+	"strings"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -17,52 +18,103 @@ import (
 func TestValidateSignerAddress(t *testing.T) {
 	const configured = "0x1111111111111111111111111111111111111111"
 
-	tests := []struct {
-		name    string
-		actual  common.Address
-		wantErr bool
-	}{
-		{
-			name:   "imported key matches signer_address",
-			actual: common.HexToAddress(configured),
-		},
-		{
-			name:    "wrong imported key is rejected",
-			actual:  common.HexToAddress("0x2222222222222222222222222222222222222222"),
-			wantErr: true,
-		},
-	}
+	evmAddress := protocol.UnknownAddress(common.HexToAddress(configured).Bytes())
+	wrongAddress := protocol.UnknownAddress(common.HexToAddress("0x2222222222222222222222222222222222222222").Bytes())
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := ValidateSignerAddress(configured, protocol.UnknownAddress(tt.actual.Bytes()))
-			if !tt.wantErr {
-				require.NoError(t, err)
-				return
-			}
-			require.Error(t, err)
-			require.ErrorContains(t, err, "signer_address")
-			require.ErrorContains(t, err, "[key_import]")
-			require.ErrorContains(t, err, tt.actual.Hex())
-		})
-	}
+	// Canton pins the 65-byte uncompressed public key, unprefixed, instead of a 20-byte EVM address.
+	cantonKey, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	cantonPubKey := crypto.FromECDSAPub(&cantonKey.PublicKey)
+	cantonConfigured := hex.EncodeToString(cantonPubKey)
 
-	t.Run("malformed signer_address is rejected", func(t *testing.T) {
-		actual := protocol.UnknownAddress(common.HexToAddress(configured).Bytes())
+	t.Run("matching signer_address is accepted", func(t *testing.T) {
 		tests := []struct {
 			name       string
 			configured string
+			actual     protocol.UnknownAddress
 		}{
-			{name: "missing 0x prefix", configured: "1111111111111111111111111111111111111111"},
-			{name: "short address", configured: "0x1111"},
-			{name: "odd-length hex", configured: "0x111"},
-			{name: "non-hex character", configured: "0x111111111111111111111111111111111111111g"},
-			{name: "surrounding whitespace", configured: " 0x1111111111111111111111111111111111111111 "},
+			{name: "0x-prefixed EVM address", configured: configured, actual: evmAddress},
+			{name: "unprefixed EVM address", configured: strings.TrimPrefix(configured, "0x"), actual: evmAddress},
+			{name: "uppercase hex digits", configured: "0x" + strings.ToUpper(strings.TrimPrefix(configured, "0x")), actual: evmAddress},
+			{name: "unprefixed Canton public key", configured: cantonConfigured, actual: protocol.UnknownAddress(cantonPubKey)},
+			{name: "0x-prefixed Canton public key", configured: "0x" + cantonConfigured, actual: protocol.UnknownAddress(cantonPubKey)},
 		}
 
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				err := ValidateSignerAddress(tt.configured, actual)
+				require.NoError(t, ValidateSignerAddress(tt.configured, tt.actual))
+			})
+		}
+	})
+
+	t.Run("mismatched signer_address is rejected", func(t *testing.T) {
+		truncatedCanton := protocol.UnknownAddress(cantonPubKey[len(cantonPubKey)-common.AddressLength:])
+
+		tests := []struct {
+			name       string
+			configured string
+			actual     protocol.UnknownAddress
+			wantInErr  string
+		}{
+			{
+				name:       "wrong EVM address",
+				configured: configured,
+				actual:     wrongAddress,
+				wantInErr:  wrongAddress.String(),
+			},
+			{
+				name:       "unprefixed but wrong EVM address",
+				configured: strings.TrimPrefix(configured, "0x"),
+				actual:     wrongAddress,
+				wantInErr:  wrongAddress.String(),
+			},
+			{
+				name:       "short address is compared, not reshaped",
+				configured: "0x1111",
+				actual:     evmAddress,
+				wantInErr:  evmAddress.String(),
+			},
+			{
+				// Length alone never decides: a keystore holding only the trailing EVM-address bytes of a
+				// Canton public key must not pass against the full public key.
+				name:       "Canton public key does not match its trailing 20 bytes",
+				configured: cantonConfigured,
+				actual:     truncatedCanton,
+				wantInErr:  truncatedCanton.String(),
+			},
+			{
+				name:       "Canton public key from a different key",
+				configured: cantonConfigured,
+				actual:     evmAddress,
+				wantInErr:  evmAddress.String(),
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				err := ValidateSignerAddress(tt.configured, tt.actual)
+				require.Error(t, err)
+				require.ErrorContains(t, err, "signer_address")
+				require.ErrorContains(t, err, "[key_import]")
+				require.ErrorContains(t, err, tt.wantInErr)
+			})
+		}
+	})
+
+	t.Run("malformed signer_address is rejected", func(t *testing.T) {
+		tests := []struct {
+			name       string
+			configured string
+		}{
+			{name: "odd-length hex", configured: "0x111"},
+			{name: "non-hex character", configured: "0x111111111111111111111111111111111111111g"},
+			{name: "surrounding whitespace", configured: " 0x1111111111111111111111111111111111111111 "},
+			{name: "whole-word whitespace", configured: "not-hex"},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				err := ValidateSignerAddress(tt.configured, evmAddress)
 				require.Error(t, err)
 				require.ErrorContains(t, err, "invalid signer_address")
 				require.ErrorContains(t, err, tt.configured)
@@ -74,7 +126,7 @@ func TestValidateSignerAddress(t *testing.T) {
 		// Empty means "forgot to set it", not "deliberately adopting": only the explicit
 		// AutoSignerAddress sentinel opts out, so forgetting signer_address is never silently
 		// conflated with choosing auto-adoption.
-		err := ValidateSignerAddress("", protocol.UnknownAddress(common.HexToAddress(configured).Bytes()))
+		err := ValidateSignerAddress("", evmAddress)
 		require.Error(t, err)
 		require.ErrorContains(t, err, "invalid signer_address")
 	})
