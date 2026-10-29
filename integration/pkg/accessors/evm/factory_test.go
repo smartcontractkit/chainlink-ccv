@@ -95,7 +95,7 @@ func (s *stubChainRuntime) NewContractTransmitter(
 	return s.transmitter, s.transmitErr
 }
 
-func (s *stubChainRuntime) NewFeeQuoterWriter(_ context.Context, _ keystore.Keystore, keyName string, address common.Address) (chainaccess.FeeQuoterWriter, error) {
+func (s *stubChainRuntime) NewFeeQuoterWriter(_ context.Context, _ keystore.Keystore, keyName string, address common.Address, _ *pricereader.TokenMetadataCache) (chainaccess.FeeQuoterWriter, error) {
 	s.gotWriterKey = keyName
 	s.gotWriterAddress = address
 	if s.writer == nil && s.writerErr == nil {

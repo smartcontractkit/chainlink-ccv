@@ -2,6 +2,7 @@ package pricereader
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"math/big"
 	"sync/atomic"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap/zapcore"
@@ -119,6 +121,70 @@ func TestTokenDecimalsCachesDecimals(t *testing.T) {
 	require.EqualValues(t, 2, client.batches.Load())
 }
 
+func TestTokenDecimalsUsesTheSharedCache(t *testing.T) {
+	env := pricereadertest.New(t)
+	client := &countingClient{batchClient: env.Client}
+	cache := NewTokenMetadataCache()
+	cache.setDecimals(env.USDC, 6)
+	writer := NewEVMFeeQuoterWriter(logger.Test(t), client, common.Address{}, WithTokenCache(cache))
+
+	got, err := writer.tokenDecimals(context.Background(), []common.Address{env.USDC})
+	require.NoError(t, err)
+	require.Equal(t, map[common.Address]uint8{env.USDC: 6}, got)
+	require.Zero(t, client.batches.Load(), "a cached token must not be read")
+
+	_, err = writer.tokenDecimals(context.Background(), []common.Address{env.Link})
+	require.NoError(t, err)
+	link, ok := cache.getDecimals(env.Link)
+	require.True(t, ok, "the writer must store what it reads in the shared cache")
+	require.EqualValues(t, 18, link)
+}
+
+func TestReaderFillsTheSymbolOfATokenTheWriterCachedDecimalsFor(t *testing.T) {
+	env := pricereadertest.New(t)
+	cache := NewTokenMetadataCache()
+	writer := NewEVMFeeQuoterWriter(logger.Test(t), env.Client, common.Address{}, WithTokenCache(cache))
+	reader, err := NewEVMFeeQuoterReader(env.FeeQuoter, env.Client, nil, WithReaderTokenCache(cache))
+	require.NoError(t, err)
+
+	// The writer caches the decimals of USDC only, so USDC has decimals without a symbol.
+	_, err = writer.tokenDecimals(context.Background(), []common.Address{env.USDC})
+	require.NoError(t, err)
+	_, hasSymbol := cache.getSymbol(env.USDC)
+	require.False(t, hasSymbol)
+
+	env.Client.ResetBatches()
+	state, err := reader.GetFQState(context.Background())
+	require.NoError(t, err)
+
+	require.ElementsMatch(t, []protocol.FeeToken{
+		{Address: env.Link.Bytes(), Symbol: "LINK"},
+		{Address: env.USDC.Bytes(), Symbol: "USDC"},
+	}, state.FeeTokens)
+	usdc := state.FeeTokenPrices[protocol.UnknownAddress(env.USDC.Bytes()).String()]
+	require.Equal(t, big.NewInt(1e18), usdc.Price.ToInt(), "the cached decimals must be used")
+
+	// The reader reads both symbols but only the decimals of LINK.
+	selector := func(sig string) string { return hex.EncodeToString(crypto.Keccak256([]byte(sig))[:4]) }
+	var decimalsCalls, symbolCalls int
+	for _, batch := range env.Client.Batches() {
+		for _, call := range batch {
+			switch call.Selector {
+			case selector("decimals()"):
+				decimalsCalls++
+			case selector("symbol()"):
+				symbolCalls++
+			}
+		}
+	}
+	require.Equal(t, 1, decimalsCalls)
+	require.Equal(t, 2, symbolCalls)
+
+	symbol, ok := cache.getSymbol(env.USDC)
+	require.True(t, ok)
+	require.Equal(t, "USDC", symbol)
+}
+
 func TestTokenDecimalsWithoutTokensDoesNotNeedAClient(t *testing.T) {
 	writer := NewEVMFeeQuoterWriter(logger.Test(t), nil, common.Address{})
 	got, err := writer.tokenDecimals(context.Background(), nil)
@@ -133,12 +199,35 @@ func TestTokenDecimalsWithoutAClientFails(t *testing.T) {
 }
 
 func TestTokenDecimalsOmitsAnAddressThatIsNotAToken(t *testing.T) {
+	lggr, logs := logger.TestObserved(t, zapcore.WarnLevel)
 	env := pricereadertest.New(t)
-	writer := NewEVMFeeQuoterWriter(logger.Test(t), env.Client, common.Address{})
-	got, err := writer.tokenDecimals(context.Background(), []common.Address{common.HexToAddress("0xdead")})
+	writer := NewEVMFeeQuoterWriter(lggr, env.Client, common.Address{})
+	notToken := common.HexToAddress("0xdead")
+
+	got, err := writer.tokenDecimals(context.Background(), []common.Address{notToken, env.USDC})
+	require.NoError(t, err)
+	require.Equal(t, map[common.Address]uint8{env.USDC: 6}, got)
+	_, cached := writer.tokens.getDecimals(notToken)
+	require.False(t, cached, "a failed read must not be cached")
+	require.Len(t, logs.FilterMessage("Failed to read token decimals").All(), 1)
+}
+
+// failingClient fails every RPC batch.
+type failingClient struct{ batchClient }
+
+func (failingClient) BatchCallContext(context.Context, []rpc.BatchElem) error {
+	return errors.New("rpc down")
+}
+
+func TestTokenDecimalsLogsInsteadOfFailingWhenTheBatchFails(t *testing.T) {
+	lggr, logs := logger.TestObserved(t, zapcore.WarnLevel)
+	env := pricereadertest.New(t)
+	writer := NewEVMFeeQuoterWriter(lggr, failingClient{env.Client}, common.Address{})
+
+	got, err := writer.tokenDecimals(context.Background(), []common.Address{env.USDC})
 	require.NoError(t, err)
 	require.Empty(t, got)
-	require.Empty(t, writer.decimals)
+	require.Len(t, logs.FilterMessage("Failed to read token decimals").All(), 1)
 }
 
 func TestWithDecimalsDropsTokensWithoutDecimals(t *testing.T) {
@@ -413,7 +502,48 @@ func TestEVMFeeQuoterWriterReturnsTxmAndKeyErrors(t *testing.T) {
 	require.Empty(t, txm.requests)
 }
 
-func TestEVMFeeQuoterWriterDoesNotSendWhenTheDecimalsCannotBeRead(t *testing.T) {
+func TestEVMFeeQuoterWriterSkipsTokensWithoutDecimals(t *testing.T) {
+	lggr, logs := logger.TestObserved(t, zapcore.WarnLevel)
+	env := pricereadertest.New(t)
+	txm := &fakeTxm{}
+	notToken := common.HexToAddress("0xdead")
+	writer := NewEVMFeeQuoterWriter(lggr, env.Client, common.HexToAddress("0xfee"),
+		WithTxm(txm, fakeKeys{}, []common.Address{common.HexToAddress("0x01")}))
+
+	err := writer.UpdatePrices(t.Context(),
+		[]protocol.FeeTokenPriceUpdate{
+			{Address: notToken.Bytes(), Price: (*protocol.USDPerWholeToken)(big.NewInt(1))},
+			{Address: env.USDC.Bytes(), Price: (*protocol.USDPerWholeToken)(big.NewInt(15))},
+		},
+		[]protocol.GasTokenPriceUpdate{{
+			ChainSelector: 1,
+			USDGasPrice:   protocol.USDGasPrice{ExecutionFee: (*protocol.USDPerGasUnit)(big.NewInt(3))},
+		}},
+	)
+	require.NoError(t, err)
+	require.Len(t, logs.FilterMessage("Skipping token price update, token decimals unavailable").All(), 1)
+
+	require.Len(t, txm.requests, 1)
+	args, err := feeQuoterABI.Methods["updatePrices"].Inputs.Unpack(txm.requests[0].EncodedPayload[4:])
+	require.NoError(t, err)
+	got := *abi.ConvertType(args[0], new(fee_quoter.InternalPriceUpdates)).(*fee_quoter.InternalPriceUpdates)
+	require.Len(t, got.TokenPriceUpdates, 1)
+	require.Equal(t, env.USDC, got.TokenPriceUpdates[0].SourceToken)
+	require.Len(t, got.GasPriceUpdates, 1)
+	require.EqualValues(t, updatePricesBaseGas+2*updatePricesGasPerUpdate, txm.requests[0].FeeLimit)
+}
+
+func TestEVMFeeQuoterWriterSendsNothingWhenNoUpdateHasDecimals(t *testing.T) {
+	env := pricereadertest.New(t)
+	txm := &fakeTxm{}
+	writer := newTxmWriter(t, env.Client, txm, fakeKeys{}, common.HexToAddress("0x01"), common.HexToAddress("0xfee"))
+	err := writer.UpdatePrices(t.Context(),
+		[]protocol.FeeTokenPriceUpdate{{Address: common.HexToAddress("0xdead").Bytes(), Price: (*protocol.USDPerWholeToken)(big.NewInt(1))}}, nil)
+	require.NoError(t, err)
+	require.Empty(t, txm.requests)
+}
+
+func TestEVMFeeQuoterWriterFailsWithoutAClientToReadDecimals(t *testing.T) {
 	txm := &fakeTxm{}
 	writer := newTxmWriter(t, nil, txm, fakeKeys{}, common.HexToAddress("0x01"), common.HexToAddress("0xfee"))
 	err := writer.UpdatePrices(t.Context(),

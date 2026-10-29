@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"sync"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
@@ -52,8 +51,7 @@ type EVMFeeQuoterWriter struct {
 	keys          keys.RoundRobin
 	fromAddresses []common.Address
 
-	mu       sync.Mutex
-	decimals map[common.Address]uint8
+	tokens *TokenMetadataCache
 }
 
 // WriterOption configures an EVMFeeQuoterWriter.
@@ -68,9 +66,18 @@ func WithTxm(txm txmgr.TxManager, keys keys.RoundRobin, fromAddresses []common.A
 	}
 }
 
+// WithTokenCache makes the writer use a token metadata cache shared with other components.
+func WithTokenCache(cache *TokenMetadataCache) WriterOption {
+	return func(w *EVMFeeQuoterWriter) {
+		if cache != nil {
+			w.tokens = cache
+		}
+	}
+}
+
 // NewEVMFeeQuoterWriter creates a writer. It does not call the chain.
 func NewEVMFeeQuoterWriter(lggr logger.Logger, client batchClient, address common.Address, opts ...WriterOption) *EVMFeeQuoterWriter {
-	w := &EVMFeeQuoterWriter{lggr: lggr, client: client, address: address, decimals: make(map[common.Address]uint8)}
+	w := &EVMFeeQuoterWriter{lggr: lggr, client: client, address: address, tokens: NewTokenMetadataCache()}
 	for _, opt := range opts {
 		opt(w)
 	}
@@ -185,9 +192,8 @@ func (w *EVMFeeQuoterWriter) tokenDecimals(ctx context.Context, tokens []common.
 	out := make(map[common.Address]uint8, len(tokens))
 	queued := make(map[common.Address]struct{}, len(tokens))
 	var missing []common.Address
-	w.mu.Lock()
 	for _, token := range tokens {
-		if cached, ok := w.decimals[token]; ok {
+		if cached, ok := w.tokens.getDecimals(token); ok {
 			out[token] = cached
 		} else if _, ok := queued[token]; !ok {
 			// removes duplicate token decimal calls in the event that the same token exists twice
@@ -195,7 +201,6 @@ func (w *EVMFeeQuoterWriter) tokenDecimals(ctx context.Context, tokens []common.
 			missing = append(missing, token)
 		}
 	}
-	w.mu.Unlock()
 	if len(missing) == 0 {
 		return out, nil
 	}
@@ -217,14 +222,12 @@ func (w *EVMFeeQuoterWriter) tokenDecimals(ctx context.Context, tokens []common.
 		w.lggr.Warnw("Failed to read token decimals", "tokens", missing, "error", err)
 		return out, nil
 	}
-	w.mu.Lock()
-	defer w.mu.Unlock()
 	for i, token := range missing {
 		if callErrs[i] != nil {
 			w.lggr.Warnw("Failed to read token decimals", "token", token.Hex(), "error", callErrs[i])
 			continue
 		}
-		w.decimals[token] = fetched[i]
+		w.tokens.setDecimals(token, fetched[i])
 		out[token] = fetched[i]
 	}
 	return out, nil

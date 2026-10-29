@@ -221,10 +221,11 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 
 	// The fee quoter services and the gas price reader are optional. They exist only with a fee quoter address.
 	var feeQuoterReader *pricereader.EVMFeeQuoterReader
+	tokenCache := pricereader.NewTokenMetadataCache()
 	var feeQuoterWriter chainaccess.FeeQuoterWriter
 	var gasPriceReader chainaccess.GasPriceReader
 	if hasPricerConfig {
-		feeQuoterWriter = pricereader.NewEVMFeeQuoterWriter(chainLggr, chainClient, common.HexToAddress(feeQuoterAddress))
+		feeQuoterWriter = pricereader.NewEVMFeeQuoterWriter(chainLggr, chainClient, common.HexToAddress(feeQuoterAddress), pricereader.WithTokenCache(tokenCache))
 		daOracle := func(ctx context.Context) (pricereader.DAGasPriceOracle, error) {
 			oracle, err := runtime.DAGasPriceOracle(ctx)
 			// A nil L1Oracle must become a plain nil, so that the reader sees no oracle.
@@ -238,7 +239,7 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 			closeErr := runtime.Close()
 			return nil, errors.Join(fmt.Errorf("failed to create EVM gas price reader for chain %d: %w", chainSelector, err), closeErr)
 		}
-		if feeQuoterReader, err = pricereader.NewEVMFeeQuoterReader(common.HexToAddress(feeQuoterAddress), chainClient, nil); err != nil {
+		if feeQuoterReader, err = pricereader.NewEVMFeeQuoterReader(common.HexToAddress(feeQuoterAddress), chainClient, nil, pricereader.WithReaderTokenCache(tokenCache)); err != nil {
 			closeErr := runtime.Close()
 			return nil, errors.Join(fmt.Errorf("failed to create EVM fee quoter reader for chain %d: %w", chainSelector, err), closeErr)
 		}
@@ -262,6 +263,7 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 		feeQuoterWriter,
 		gasPriceReader,
 		withFeeQuoterAddress(common.HexToAddress(feeQuoterAddress)),
+		withTokenCache(tokenCache),
 	)
 	acc.sourceParams = sourceParams
 	acc.db = f.db
@@ -305,9 +307,14 @@ type accessor struct {
 	offRampAddr   common.Address
 	keyName       string
 	feeQuoterAddr common.Address
+	tokenCache    *pricereader.TokenMetadataCache
 }
 
 type accessorOption func(*accessor)
+
+func withTokenCache(cache *pricereader.TokenMetadataCache) accessorOption {
+	return func(a *accessor) { a.tokenCache = cache }
+}
 
 func withFeeQuoterAddress(address common.Address) accessorOption {
 	return func(a *accessor) { a.feeQuoterAddr = address }
@@ -396,7 +403,7 @@ func (a *accessor) startFeeQuoterWriter(ctx context.Context, ks keystore.Keystor
 	if a.feeQuoterWriter == nil || a.runtime == nil {
 		return
 	}
-	writer, err := a.runtime.NewFeeQuoterWriter(ctx, ks, a.keyName, a.feeQuoterAddr)
+	writer, err := a.runtime.NewFeeQuoterWriter(ctx, ks, a.keyName, a.feeQuoterAddr, a.tokenCache)
 	if err == nil && writer == nil {
 		err = errors.New("writer is nil")
 	}
