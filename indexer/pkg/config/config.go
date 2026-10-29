@@ -353,7 +353,21 @@ func (c *Config) DiscoveryConfigs() []DiscoveryConfig {
 
 // Validate performs basic validation on the configuration.
 // It returns an error if the configuration is invalid.
+// Validate performs validation on the configuration. It requires every value
+// LoadConfig resolves from secrets (currently the postgres URI) to be present.
 func (c *Config) Validate() error {
+	return c.validate(false)
+}
+
+// ValidateWithoutSecrets performs every check Validate does except the ones that
+// can only pass once secrets are merged — currently the postgres URI, which
+// LoadConfig fills from secrets.toml. It exists so CI can validate a rendered
+// config with no secrets available (see ValidateConfigFile).
+func (c *Config) ValidateWithoutSecrets() error {
+	return c.validate(true)
+}
+
+func (c *Config) validate(withoutSecrets bool) error {
 	if err := c.Scheduler.Validate(); err != nil {
 		return fmt.Errorf("scheduler config validation failed: %w", err)
 	}
@@ -383,7 +397,7 @@ func (c *Config) Validate() error {
 	}
 
 	// Validate storage config
-	if err := c.Storage.Validate(); err != nil {
+	if err := c.Storage.validate(withoutSecrets); err != nil {
 		return fmt.Errorf("storage config validation failed: %w", err)
 	}
 
@@ -447,7 +461,15 @@ func defaultIfNotPositive[T cmp.Ordered](v, def T) T {
 }
 
 // Validate performs validation on the storage configuration.
+// Validate performs validation on the storage configuration.
 func (s *StorageConfig) Validate() error {
+	return s.validate(false)
+}
+
+// validate is the shared body of Validate and the secret-free variant: when
+// withoutSecrets is set, secret-derived values (the postgres URI) are not
+// required.
+func (s *StorageConfig) validate(withoutSecrets bool) error {
 	if s.Strategy == "" {
 		return fmt.Errorf("storage strategy is required")
 	}
@@ -460,11 +482,15 @@ func (s *StorageConfig) Validate() error {
 		return fmt.Errorf("single storage config is required when strategy is single")
 	}
 
-	return s.Single.Validate()
+	return s.Single.validate(withoutSecrets)
 }
 
 // Validate performs validation on the single storage configuration.
 func (s *SingleStorageConfig) Validate() error {
+	return s.validate(false)
+}
+
+func (s *SingleStorageConfig) validate(withoutSecrets bool) error {
 	if s.Type == "" {
 		return fmt.Errorf("storage backend type is required")
 	}
@@ -477,7 +503,7 @@ func (s *SingleStorageConfig) Validate() error {
 		return fmt.Errorf("postgres storage config is required when type is postgres")
 	}
 
-	return s.Postgres.Validate()
+	return s.Postgres.validate(withoutSecrets)
 }
 
 func (v *VerifierConfig) Validate(index int) error {
@@ -572,7 +598,11 @@ func EffectiveMaxResponseBytes(v int) int {
 
 // Validate performs validation on the postgres configuration.
 func (p *PostgresConfig) Validate() error {
-	if p.URI == "" {
+	return p.validate(false)
+}
+
+func (p *PostgresConfig) validate(withoutSecrets bool) error {
+	if !withoutSecrets && p.URI == "" {
 		return fmt.Errorf("postgres URI is required")
 	}
 
