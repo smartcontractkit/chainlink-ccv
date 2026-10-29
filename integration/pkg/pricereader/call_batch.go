@@ -59,27 +59,42 @@ func (b *callBatch) add(name string, call func() error) {
 	b.calls = append(b.calls, call)
 }
 
-// send sends all calls in one RPC batch and decodes the results.
+// send sends all calls in one RPC batch and decodes the results. It fails on the first failed call.
 func (b *callBatch) send(ctx context.Context) error {
-	if b.err != nil {
-		return b.err
+	callErrs, err := b.sendEach(ctx)
+	if err != nil {
+		return err
 	}
-	if len(b.elems) == 0 {
-		return nil
-	}
-	if err := b.client.BatchCallContext(ctx, b.elems); err != nil {
-		return fmt.Errorf("batch call failed: %w", err)
-	}
-	for i := range b.elems {
-		if b.elems[i].Error != nil {
-			return fmt.Errorf("%s: %w", b.names[i], b.elems[i].Error)
-		}
-		b.replay = i
-		if err := b.calls[i](); err != nil {
-			return fmt.Errorf("%s: %w", b.names[i], err)
+	for i, callErr := range callErrs {
+		if callErr != nil {
+			return fmt.Errorf("%s: %w", b.names[i], callErr)
 		}
 	}
 	return nil
+}
+
+// sendEach sends all calls in one RPC batch and decodes the results. It returns the error of each call,
+// and fails only when the batch as a whole cannot be sent.
+func (b *callBatch) sendEach(ctx context.Context) ([]error, error) {
+	if b.err != nil {
+		return nil, b.err
+	}
+	if len(b.elems) == 0 {
+		return nil, nil
+	}
+	if err := b.client.BatchCallContext(ctx, b.elems); err != nil {
+		return nil, fmt.Errorf("batch call failed: %w", err)
+	}
+	callErrs := make([]error, len(b.elems))
+	for i := range b.elems {
+		if b.elems[i].Error != nil {
+			callErrs[i] = b.elems[i].Error
+			continue
+		}
+		b.replay = i
+		callErrs[i] = b.calls[i]()
+	}
+	return callErrs, nil
 }
 
 // CallContract records the eth_call, or returns its result when the call decodes.

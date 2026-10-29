@@ -92,6 +92,11 @@ func (w *EVMFeeQuoterWriter) UpdatePrices(ctx context.Context, tokenPrices []pro
 	if err != nil {
 		return err
 	}
+	tokenPrices = w.withDecimals(tokenPrices, decimals)
+	if len(tokenPrices) == 0 && len(gasPrices) == 0 {
+		w.lggr.Warn("No token and gas price updates to be made")
+		return nil
+	}
 	scaledTokenPrices, err := scaleTokenPrices(tokenPrices, decimals)
 	if err != nil {
 		return err
@@ -157,20 +162,36 @@ func (w *EVMFeeQuoterWriter) send(ctx context.Context, priceUpdates fee_quoter.I
 	return nil
 }
 
-// tokenDecimals returns the decimals of the tokens. Cached decimals are not read again,
-// and the others are read in one RPC batch.
+// withDecimals drops the updates of tokens whose decimals could not be read.
+func (w *EVMFeeQuoterWriter) withDecimals(tokenPrices []protocol.FeeTokenPriceUpdate, decimals map[common.Address]uint8) []protocol.FeeTokenPriceUpdate {
+	kept := make([]protocol.FeeTokenPriceUpdate, 0, len(tokenPrices))
+	for _, update := range tokenPrices {
+		token := common.BytesToAddress(update.Address)
+		if _, ok := decimals[token]; !ok {
+			w.lggr.Warnw("Skipping token price update, token decimals unavailable", "token", token.Hex())
+			continue
+		}
+		kept = append(kept, update)
+	}
+	return kept
+}
+
+// tokenDecimals returns the decimals of the tokens. Cached decimals are not read again, and the others are
+// read in one RPC batch. Tokens whose decimals fail to read are logged and left out of the result.
 func (w *EVMFeeQuoterWriter) tokenDecimals(ctx context.Context, tokens []common.Address) (map[common.Address]uint8, error) {
 	if w.client == nil && len(tokens) > 0 {
 		return nil, errors.New("fee quoter writer has no client to read token decimals")
 	}
 	out := make(map[common.Address]uint8, len(tokens))
+	queued := make(map[common.Address]struct{}, len(tokens))
 	var missing []common.Address
 	w.mu.Lock()
 	for _, token := range tokens {
 		if cached, ok := w.decimals[token]; ok {
 			out[token] = cached
-		} else if _, queued := out[token]; !queued {
-			out[token] = 0
+		} else if _, ok := queued[token]; !ok {
+			// removes duplicate token decimal calls in the event that the same token exists twice
+			queued[token] = struct{}{}
 			missing = append(missing, token)
 		}
 	}
@@ -191,12 +212,18 @@ func (w *EVMFeeQuoterWriter) tokenDecimals(ctx context.Context, tokens []common.
 			return err
 		})
 	}
-	if err := batch.send(ctx); err != nil {
-		return nil, fmt.Errorf("failed to read token decimals: %w", err)
+	callErrs, err := batch.sendEach(ctx)
+	if err != nil {
+		w.lggr.Warnw("Failed to read token decimals", "tokens", missing, "error", err)
+		return out, nil
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	for i, token := range missing {
+		if callErrs[i] != nil {
+			w.lggr.Warnw("Failed to read token decimals", "token", token.Hex(), "error", callErrs[i])
+			continue
+		}
 		w.decimals[token] = fetched[i]
 		out[token] = fetched[i]
 	}

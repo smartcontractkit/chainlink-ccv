@@ -132,11 +132,21 @@ func TestTokenDecimalsWithoutAClientFails(t *testing.T) {
 	require.ErrorContains(t, err, "no client")
 }
 
-func TestTokenDecimalsFailsForAnAddressThatIsNotAToken(t *testing.T) {
+func TestTokenDecimalsOmitsAnAddressThatIsNotAToken(t *testing.T) {
 	env := pricereadertest.New(t)
 	writer := NewEVMFeeQuoterWriter(logger.Test(t), env.Client, common.Address{})
-	_, err := writer.tokenDecimals(context.Background(), []common.Address{common.HexToAddress("0xdead")})
-	require.Error(t, err)
+	got, err := writer.tokenDecimals(context.Background(), []common.Address{common.HexToAddress("0xdead")})
+	require.NoError(t, err)
+	require.Empty(t, got)
+	require.Empty(t, writer.decimals)
+}
+
+func TestWithDecimalsDropsTokensWithoutDecimals(t *testing.T) {
+	known, unknown := common.HexToAddress("0x1"), common.HexToAddress("0x2")
+	writer := NewEVMFeeQuoterWriter(logger.Test(t), nil, common.Address{})
+	in := []protocol.FeeTokenPriceUpdate{{Address: known.Bytes()}, {Address: unknown.Bytes()}}
+	got := writer.withDecimals(in, map[common.Address]uint8{known: 18})
+	require.Equal(t, in[:1], got)
 }
 
 func TestScaleTokenPrices(t *testing.T) {
