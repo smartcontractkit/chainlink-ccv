@@ -315,7 +315,7 @@
       "name": "executor_destination_reader_critical_failure_total",
       "kind": "Int64Counter",
       "unit": "",
-      "description": "Total number of messages rejected due to the destination reader being in an unrecoverable failure state",
+      "description": "Total number of destination reader health check failures",
       "labels": [
         "destChainName",
         "destChainSelector"
