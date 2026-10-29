@@ -582,7 +582,7 @@ func maxDataSize(lib ccv.Lib, src, dest uint64, args Args) *v3TestCase {
 			}
 			// Respect any tighter executable limit advertised by the destination.
 			if destinationLimitProvider, ok := env.Dst.(cciptestinterfaces.MaxDataSizeProvider); ok {
-				destinationMaxDataBytes, err := destinationLimitProvider.GetMaxDataBytes(ctx, tc.src)
+				destinationMaxDataBytes, err := destinationLimitProvider.GetMaxDataBytes(ctx, tc.dst)
 				if err != nil {
 					return false
 				}
