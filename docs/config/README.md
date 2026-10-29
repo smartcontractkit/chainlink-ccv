@@ -13,6 +13,8 @@ This directory holds the config and secrets reference for every CCV app, one
 | indexer | `indexer/config.documented.toml`, `indexer/secrets.documented.toml` |
 | bootstrap | `bootstrap/config.documented.toml`, `bootstrap/secrets.documented.toml` |
 | monitoring (shared) | `common/monitoring.documented.toml` |
+| evm | `evm/config.documented.toml`, `evm/secrets.documented.toml` |
+| admin console | `admin-console/config.documented.toml` |
 
 Each file is a working TOML document: the values are the app's defaults where a
 default exists, and illustrative examples otherwise, and every field is annotated

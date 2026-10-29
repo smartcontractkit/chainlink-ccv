@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/smartcontractkit/chainlink-common/keystore"
 )
@@ -38,6 +39,7 @@ var _ crypto.Signer = (*CSASigner)(nil)
 
 // NewCSASigner returns a [crypto.Signer] for the named Ed25519 key in ks.
 func NewCSASigner(ctx context.Context, ks keystore.Keystore, keyName string) (*CSASigner, error) {
+	//nolint:noeagerio // fail-fast by design: without the CSA key the node cannot identify itself, so the keystore read happens at startup rather than at first use
 	resp, err := ks.GetKeys(ctx, keystore.GetKeysRequest{
 		KeyNames: []string{keyName},
 	})
@@ -66,9 +68,14 @@ func (s *CSASigner) Public() crypto.PublicKey {
 	return s.publicKey
 }
 
+const csaSignTimeout = 10 * time.Second
+
 // Sign signs digest with the keystore-managed private key.
 func (s *CSASigner) Sign(_ io.Reader, digest []byte, _ crypto.SignerOpts) ([]byte, error) {
-	resp, err := s.ks.Sign(context.TODO(), keystore.SignRequest{
+	ctx, cancel := context.WithTimeout(context.Background(), csaSignTimeout)
+	defer cancel()
+
+	resp, err := s.ks.Sign(ctx, keystore.SignRequest{
 		KeyName: s.keyName,
 		Data:    digest,
 	})

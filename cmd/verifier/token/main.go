@@ -18,6 +18,12 @@ func main() {
 		return
 	}
 
+	if len(os.Args) >= 2 && os.Args[1] == "validate-config" {
+		// Strictly decodes the app config and validates it, with no secrets, DB, or JD. CI-safe.
+		cmd.RunValidateConfig(os.Args[2:], cmd.NewTokenVerifierServiceFactory())
+		return
+	}
+
 	err := bootstrap.Run(
 		"TokenVerifier",
 		cmd.NewTokenVerifierServiceFactory(),

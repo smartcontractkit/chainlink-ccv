@@ -38,6 +38,7 @@ type EVMContractTransmitter struct {
 
 func NewEVMContractTransmitterFromRPC(_ context.Context, lggr logger.Logger, chainSelector protocol.ChainSelector, rpc, privatekey string, offRampAddress common.Address) (*EVMContractTransmitter, error) {
 	// create a client for the off ramp contract
+	//nolint:noeagerio // retained for external callers (CL node integration); a contract transmitter is useless without its chain connection, so dialing fails fast
 	client, err := ethclient.Dial(rpc)
 	if err != nil {
 		return nil, err

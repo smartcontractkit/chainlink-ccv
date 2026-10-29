@@ -424,11 +424,12 @@ func TestMultiSourceVerifier_HealthReporter(t *testing.T) {
 	err = v.Start(ts.ctx)
 	require.NoError(t, err)
 
-	// HealthReport should show coordinator is healthy
-	report = v.HealthReport()
-	require.NotNil(t, report)
+	// HealthReport should show coordinator is healthy once the source readers initialize in the background.
+	require.Eventually(t, func() bool {
+		report = v.HealthReport()
+		return report != nil && report[v.Name()] == nil
+	}, 5*time.Second, 10*time.Millisecond)
 	require.Contains(t, report, v.Name())
-	require.NoError(t, report[v.Name()])
 
 	// Close the verifier
 	err = v.Close()

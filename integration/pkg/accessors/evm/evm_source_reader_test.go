@@ -16,16 +16,20 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap/zapcore"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	evmclient "github.com/smartcontractkit/chainlink-evm/pkg/client"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client/clienttest"
 	"github.com/smartcontractkit/chainlink-evm/pkg/heads"
+	"github.com/smartcontractkit/chainlink-evm/pkg/logpoller"
+	lpmocks "github.com/smartcontractkit/chainlink-evm/pkg/logpoller/mocks"
 	evmtypes "github.com/smartcontractkit/chainlink-evm/pkg/types"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_6_0/rmn_remote"
 
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
@@ -131,10 +135,10 @@ func blockNumFromArg(arg any) int64 {
 
 func newTestSourceReader(t *testing.T, cc evmclient.Client) *SourceReader {
 	t.Helper()
-	return &SourceReader{
+	return &SourceReader{sourceReaderCore{
 		chainClient: cc,
 		lggr:        logger.Test(t),
-	}
+	}}
 }
 
 // mockFilterLogsClient embeds evmclient.Client and overrides FilterLogs, so a test can serve logs
@@ -201,43 +205,57 @@ func TestFetchMessageSentEvents_SourceMetadata(t *testing.T) {
 				TxHash:         common.HexToHash("0xdeadbeef"),
 				BlockHash:      common.HexToHash("0xb10c"),
 			}
-			// Only FilterLogs is implemented: an added block or transaction RPC fails the test.
-			calls := 0
-			chainClient := &mockFilterLogsClient{
-				filterLogsFunc: func(context.Context, ethereum.FilterQuery) ([]types.Log, error) {
-					calls++
-					return []types.Log{log}, nil
-				},
-			}
-			// Configured inline rather than through newTestSourceReader: the reader has to agree
-			// with the log this test builds on the onramp address and the source selector, and
-			// the shared helper only supplies a client and a logger.
-			reader := &SourceReader{
-				chainClient:          chainClient,
-				lggr:                 logger.Test(t),
-				onRampAddress:        onRampAddress,
-				chainSelector:        protocol.ChainSelector(1337),
-				onRampABI:            onRampABI,
-				ccipMessageSentTopic: onRampABI.Events["CCIPMessageSent"].ID.Hex(),
-			}
-			reader.SetCriticalSourceInvariantCallback(func(context.Context) { t.Error("unexpected invalid event") })
-			events, err := reader.FetchMessageSentEvents(t.Context(), 90, 100)
-			require.NoError(t, err)
-			require.Equal(t, 1, calls)
-			require.Len(t, events, 1)
-			require.Equal(t, protocol.UnknownAddress(tc.feeToken.Bytes()), events[0].FeeToken)
-			require.Equal(t, messageID, events[0].MessageID)
-			require.Equal(t, protocol.ByteSlice(common.HexToHash("0xb10c").Bytes()), events[0].BlockHash)
-			require.Equal(t, *message, events[0].Message)
-			// The reader surfaces the raw event. Normalizing it into the published policy view
-			// happens in verifier/pkg/policy and is covered there.
-			for i, receipt := range receipts {
-				require.Equal(t, receipt.FeeTokenAmount, events[0].Receipts[i].FeeTokenAmount)
-			}
-			if tc.timestamp == 0 {
-				require.True(t, events[0].BlockTimestamp.IsZero())
-			} else {
-				require.Equal(t, time.Unix(1700000000, 0).UTC(), events[0].BlockTimestamp)
+			// Both read paths must decode the same log into the same event.
+			for _, viaLogPoller := range []bool{false, true} {
+				t.Run(map[bool]string{false: "rpc", true: "log poller"}[viaLogPoller], func(t *testing.T) {
+					// Configured inline rather than through newTestSourceReader: the reader has to agree
+					// with the log this test builds on the onramp address and the source selector.
+					core := sourceReaderCore{
+						lggr:                 logger.Test(t),
+						onRampAddress:        onRampAddress,
+						chainSelector:        protocol.ChainSelector(1337),
+						onRampABI:            onRampABI,
+						ccipMessageSentTopic: onRampABI.Events["CCIPMessageSent"].ID.Hex(),
+					}
+					core.SetCriticalSourceInvariantCallback(func(context.Context) { t.Error("unexpected invalid event") })
+					var src chainaccess.SourceReader
+					if viaLogPoller {
+						lp := lpmocks.NewLogPoller(t)
+						lp.EXPECT().LatestBlock(mock.Anything).Return(logpoller.Block{BlockNumber: 100}, nil).Once()
+						lp.EXPECT().LogsWithSigs(mock.Anything, int64(90), int64(100),
+							[]common.Hash{onRampABI.Events["CCIPMessageSent"].ID}, onRampAddress).
+							Return([]logpoller.Log{toLogPollerLog(log)}, nil).Once()
+						src = readyLogPollerReader(core, lp)
+					} else {
+						// Only FilterLogs is implemented: an added block or transaction RPC fails the test.
+						calls := 0
+						t.Cleanup(func() { require.Equal(t, 1, calls) })
+						core.chainClient = &mockFilterLogsClient{
+							filterLogsFunc: func(context.Context, ethereum.FilterQuery) ([]types.Log, error) {
+								calls++
+								return []types.Log{log}, nil
+							},
+						}
+						src = &SourceReader{sourceReaderCore: core}
+					}
+					events, err := src.FetchMessageSentEvents(t.Context(), 90, 100)
+					require.NoError(t, err)
+					require.Len(t, events, 1)
+					require.Equal(t, protocol.UnknownAddress(tc.feeToken.Bytes()), events[0].FeeToken)
+					require.Equal(t, messageID, events[0].MessageID)
+					require.Equal(t, protocol.ByteSlice(common.HexToHash("0xb10c").Bytes()), events[0].BlockHash)
+					require.Equal(t, *message, events[0].Message)
+					// The reader surfaces the raw event. Normalizing it into the published policy view
+					// happens in verifier/pkg/policy and is covered there.
+					for i, receipt := range receipts {
+						require.Equal(t, receipt.FeeTokenAmount, events[0].Receipts[i].FeeTokenAmount)
+					}
+					if tc.timestamp == 0 {
+						require.True(t, events[0].BlockTimestamp.IsZero())
+					} else {
+						require.Equal(t, time.Unix(1700000000, 0).UTC(), events[0].BlockTimestamp)
+					}
+				})
 			}
 		})
 	}
@@ -320,22 +338,18 @@ func TestNewEVMSourceReader_NoEagerRPCAtConstruction(t *testing.T) {
 	client.On("CallContract", mock.Anything, mock.Anything, mock.Anything).
 		Return(nil, rateLimitErr)
 
-	reader, err := NewEVMSourceReader(
-		context.Background(),
-		client,
-		heads.NullTracker,
-		common.HexToAddress("0x1234"),
-		common.Address{}, // deprecated configured RMN Remote, unset
-		common.Hash{}.Hex(),
-		protocol.ChainSelector(1337),
-		logger.Test(t),
-		25,
-		nil,
-	)
+	reader, err := NewEVMSourceReader(context.Background(), SourceReaderParams{
+		ChainClient:          client,
+		HeadTracker:          heads.NullTracker,
+		OnRampAddress:        common.HexToAddress("0x1234"),
+		CCIPMessageSentTopic: common.Hash{}.Hex(),
+		ChainSelector:        protocol.ChainSelector(1337),
+		Logger:               logger.Test(t),
+		HeaderFetchBatchSize: 25,
+	})
 	require.NoError(t, err, "construction must not fail even when the RPC is unavailable")
-	require.NotNil(t, reader)
-
 	sr := reader.(*SourceReader)
+
 	require.False(t, sr.rmnRemoteCaller.Derived(),
 		"the RMN Remote caller must not be derived during construction")
 
@@ -395,18 +409,15 @@ func TestGetRMNCursedSubjects_RetriesDerivationAndCaches(t *testing.T) {
 		Run(func(mock.Arguments) { staticConfigCalls.Add(1) }).
 		Return(staticConfigOut, nil).Once()
 
-	reader, err := NewEVMSourceReader(
-		context.Background(),
-		client,
-		heads.NullTracker,
-		onRampAddr,
-		common.Address{}, // deprecated configured RMN Remote, unset
-		common.Hash{}.Hex(),
-		protocol.ChainSelector(1337),
-		logger.Test(t),
-		25,
-		nil,
-	)
+	reader, err := NewEVMSourceReader(context.Background(), SourceReaderParams{
+		ChainClient:          client,
+		HeadTracker:          heads.NullTracker,
+		OnRampAddress:        onRampAddr,
+		CCIPMessageSentTopic: common.Hash{}.Hex(),
+		ChainSelector:        protocol.ChainSelector(1337),
+		Logger:               logger.Test(t),
+		HeaderFetchBatchSize: 25,
+	})
 	require.NoError(t, err)
 	sr := reader.(*SourceReader)
 
@@ -430,4 +441,168 @@ func TestGetRMNCursedSubjects_RetriesDerivationAndCaches(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, want, subjects)
 	require.Equal(t, int32(3), staticConfigCalls.Load())
+}
+
+func TestFetchMessageSentEvents_CriticalInvariantsDoNotExitProcess(t *testing.T) {
+	t.Parallel()
+
+	onRampAddress := common.HexToAddress("0x1234")
+	sender := common.HexToAddress("0x5678")
+	receipts := []onramp.OnRampReceipt{
+		{Issuer: common.HexToAddress("0x1111"), FeeTokenAmount: big.NewInt(2)},
+		{Issuer: common.HexToAddress("0x2222"), FeeTokenAmount: big.NewInt(3)},
+		{Issuer: common.HexToAddress("0x3333"), FeeTokenAmount: big.NewInt(4)},
+	}
+	ccvHash, err := protocol.ComputeCCVAndExecutorHash(
+		[]protocol.UnknownAddress{receipts[0].Issuer.Bytes()}, receipts[1].Issuer.Bytes())
+	require.NoError(t, err)
+
+	onRampABI, err := onramp.OnRampMetaData.GetAbi()
+	require.NoError(t, err)
+
+	buildLog := func(t *testing.T, msg *protocol.Message, topicSender common.Address, topicDest uint64, topicMsgID protocol.Bytes32, logReceipts []onramp.OnRampReceipt) types.Log {
+		t.Helper()
+		encodedMessage, err := msg.Encode()
+		require.NoError(t, err)
+		data, err := onRampABI.Events["CCIPMessageSent"].Inputs.NonIndexed().Pack(
+			common.HexToAddress("0xabcd"), big.NewInt(0), encodedMessage, logReceipts, [][]byte{{0x01}},
+		)
+		require.NoError(t, err)
+		return types.Log{
+			Address: onRampAddress,
+			Topics: []common.Hash{
+				onRampABI.Events["CCIPMessageSent"].ID,
+				common.BigToHash(new(big.Int).SetUint64(topicDest)),
+				common.BytesToHash(topicSender.Bytes()),
+				common.Hash(topicMsgID),
+			},
+			Data:        data,
+			BlockNumber: 95,
+		}
+	}
+
+	validMsg, err := protocol.NewMessage(
+		1337, 100, 1,
+		expectedSourceAddressBytes(onRampAddress), protocol.UnknownAddress{0x01},
+		protocol.FinalityWaitForFinality, 300000, 200000, ccvHash,
+		expectedSourceAddressBytes(sender), protocol.UnknownAddress{0x02}, nil, nil, nil,
+	)
+	require.NoError(t, err)
+	validMsgID := validMsg.MustMessageID()
+
+	wrongSourceSelectorMsg, err := protocol.NewMessage(
+		9999, 100, 1,
+		expectedSourceAddressBytes(onRampAddress), protocol.UnknownAddress{0x01},
+		protocol.FinalityWaitForFinality, 300000, 200000, ccvHash,
+		expectedSourceAddressBytes(sender), protocol.UnknownAddress{0x02}, nil, nil, nil,
+	)
+	require.NoError(t, err)
+
+	wrongOnRampMsg, err := protocol.NewMessage(
+		1337, 100, 1,
+		expectedSourceAddressBytes(common.HexToAddress("0x9999")), protocol.UnknownAddress{0x01},
+		protocol.FinalityWaitForFinality, 300000, 200000, ccvHash,
+		expectedSourceAddressBytes(sender), protocol.UnknownAddress{0x02}, nil, nil, nil,
+	)
+	require.NoError(t, err)
+
+	wrongHashMsg, err := protocol.NewMessage(
+		1337, 100, 1,
+		expectedSourceAddressBytes(onRampAddress), protocol.UnknownAddress{0x01},
+		protocol.FinalityWaitForFinality, 300000, 200000, protocol.Bytes32{0xff},
+		expectedSourceAddressBytes(sender), protocol.UnknownAddress{0x02}, nil, nil, nil,
+	)
+	require.NoError(t, err)
+
+	logs := []types.Log{
+		// 1. Mismatched source chain selector
+		buildLog(t, wrongSourceSelectorMsg, sender, 100, wrongSourceSelectorMsg.MustMessageID(), receipts),
+		// 2. Mismatched onRampAddress
+		buildLog(t, wrongOnRampMsg, sender, 100, wrongOnRampMsg.MustMessageID(), receipts),
+		// 3. Mismatched sender in topic vs decoded message
+		buildLog(t, validMsg, common.HexToAddress("0xdead"), 100, validMsgID, receipts),
+		// 4. Mismatched messageID in topic vs computed
+		buildLog(t, validMsg, sender, 100, protocol.Bytes32{0xaa}, receipts),
+		// 5. Mismatched destChainSelector in topic vs decoded message
+		buildLog(t, validMsg, sender, 200, validMsgID, receipts),
+		// 6. Invalid ccvAndExecutorHash vs receipts (non-critical: error log, no disable)
+		buildLog(t, wrongHashMsg, sender, 100, wrongHashMsg.MustMessageID(), receipts),
+		// 7. Valid log after all invalid logs (proves processing continues)
+		buildLog(t, validMsg, sender, 100, validMsgID, receipts),
+	}
+
+	var invariantCalls atomic.Int32
+	lggr, observed := logger.TestObserved(t, zapcore.DPanicLevel)
+	core := sourceReaderCore{
+		lggr:                 lggr,
+		onRampAddress:        onRampAddress,
+		chainSelector:        protocol.ChainSelector(1337),
+		onRampABI:            onRampABI,
+		ccipMessageSentTopic: onRampABI.Events["CCIPMessageSent"].ID.Hex(),
+		disabled:             new(atomic.Bool),
+		chainClient: &mockFilterLogsClient{
+			filterLogsFunc: func(context.Context, ethereum.FilterQuery) ([]types.Log, error) {
+				return logs, nil
+			},
+		},
+	}
+	core.SetCriticalSourceInvariantCallback(func(context.Context) {
+		invariantCalls.Add(1)
+	})
+	src := &SourceReader{sourceReaderCore: core}
+
+	events, err := src.FetchMessageSentEvents(t.Context(), 90, 100)
+	require.NoError(t, err)
+	require.Len(t, events, 1)
+	require.Equal(t, validMsgID, events[0].MessageID)
+	require.Equal(t, int32(6), invariantCalls.Load())
+	require.Equal(t, 5, observed.Len(), "each critical invariant violation must emit a Criticalw log; the hash mismatch is a plain error")
+
+	// The critical violations disable the reader: later reads fail permanently instead of serving the chain.
+	_, err = src.FetchMessageSentEvents(t.Context(), 90, 100)
+	require.ErrorIs(t, err, chainaccess.ErrSourceReaderDisabled)
+}
+
+// TestFetchMessageSentEvents_DisabledAfterCriticalInvariant covers both read paths: once a
+// critical invariant violation fires, the reader stops serving message events for its chain.
+func TestFetchMessageSentEvents_DisabledAfterCriticalInvariant(t *testing.T) {
+	t.Parallel()
+
+	newCore := func(t *testing.T) sourceReaderCore {
+		return sourceReaderCore{
+			lggr:          logger.Test(t),
+			chainSelector: protocol.ChainSelector(1337),
+			disabled:      new(atomic.Bool),
+		}
+	}
+
+	rpcReader := &SourceReader{sourceReaderCore: newCore(t)}
+	rpcReader.onCriticalInvariant(t.Context(), "test invariant violation")
+	_, err := rpcReader.FetchMessageSentEvents(t.Context(), 90, 100)
+	require.ErrorIs(t, err, chainaccess.ErrSourceReaderDisabled)
+
+	lpReader := readyLogPollerReader(newCore(t), lpmocks.NewLogPoller(t))
+	lpReader.onCriticalInvariant(t.Context(), "test invariant violation")
+	_, err = lpReader.FetchMessageSentEvents(t.Context(), 90, 100)
+	require.ErrorIs(t, err, chainaccess.ErrSourceReaderDisabled)
+}
+
+// TestFetchMessageSentEvents_NonCriticalViolationKeepsServing covers the violations that were never
+// fatal: the metric fires and the message is skipped, but the reader keeps serving the chain.
+func TestFetchMessageSentEvents_NonCriticalViolationKeepsServing(t *testing.T) {
+	t.Parallel()
+
+	core := sourceReaderCore{
+		lggr:          logger.Test(t),
+		chainSelector: protocol.ChainSelector(1337),
+		disabled:      new(atomic.Bool),
+		chainClient: &mockFilterLogsClient{
+			filterLogsFunc: func(context.Context, ethereum.FilterQuery) ([]types.Log, error) { return nil, nil },
+		},
+	}
+	core.onInvariantViolation(t.Context(), "test non-critical violation")
+	src := &SourceReader{sourceReaderCore: core}
+	events, err := src.FetchMessageSentEvents(t.Context(), 90, 100)
+	require.NoError(t, err)
+	require.Empty(t, events)
 }

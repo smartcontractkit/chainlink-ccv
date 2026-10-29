@@ -555,7 +555,12 @@ func maxDataSize(lib ccv.Lib, src, dest uint64, args Args) *v3TestCase {
 			if !ok {
 				return false
 			}
-			maxDataSizeProvider, ok := env.Dst.(cciptestinterfaces.MaxDataSizeProvider)
+			// The source fee quoter owns both the budget and billed overhead for this lane.
+			v3Src, err := tc.lib.V3Source(ctx, tc.src)
+			if err != nil {
+				return false
+			}
+			maxDataSizeProvider, ok := v3Src.(cciptestinterfaces.MaxDataSizeProvider)
 			if !ok {
 				return false
 			}
@@ -563,7 +568,39 @@ func maxDataSize(lib ccv.Lib, src, dest uint64, args Args) *v3TestCase {
 			if err != nil {
 				return false
 			}
-			tc.msgData = bytes.Repeat([]byte("a"), int(maxDataBytes))
+			overheadProvider, ok := v3Src.(cciptestinterfaces.MessageOverheadProvider)
+			if !ok {
+				return false
+			}
+			overhead, err := overheadProvider.GetMessageOverheadBytes(ctx, tc.dst)
+			if err != nil {
+				return false
+			}
+			dataLen := int(maxDataBytes) - int(overhead)
+			if dataLen < 0 {
+				return false
+			}
+			// Respect any tighter executable limit advertised by the destination.
+			if destinationLimitProvider, ok := env.Dst.(cciptestinterfaces.MaxDataSizeProvider); ok {
+				destinationMaxDataBytes, err := destinationLimitProvider.GetMaxDataBytes(ctx, tc.dst)
+				if err != nil {
+					return false
+				}
+				dataLen = min(dataLen, int(destinationMaxDataBytes))
+			}
+			// Use the destination's gas estimate when available; otherwise preserve the caller's budget.
+			v3Dst, err := tc.lib.V3Destination(ctx, tc.dst)
+			if err != nil {
+				return false
+			}
+			if gasLimitProvider, ok := v3Dst.(cciptestinterfaces.ExecutionGasLimitProvider); ok {
+				gasLimit, err := gasLimitProvider.GetExecutionGasLimit(ctx, tc.src, uint32(dataLen))
+				if err != nil {
+					return false
+				}
+				tc.args.Send.ExecutionGasLimit = gasLimit
+			}
+			tc.msgData = bytes.Repeat([]byte("a"), dataLen)
 
 			receiver, err := env.DstResolver.GetContractReceiver(env.DS, tc.dst, common.DefaultReceiverQualifier)
 			if err != nil {

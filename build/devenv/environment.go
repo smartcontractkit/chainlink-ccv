@@ -11,7 +11,6 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/rs/zerolog"
@@ -103,6 +102,16 @@ const (
 // ProtocolContractsCfg holds config for the protocol_contracts Phase 3 component.
 type ProtocolContractsCfg struct{}
 
+// JDSection wraps the third-party JD input (which we cannot add fields to)
+// with devenv-only [jd] fields, inlined by go-toml like the jd component's
+// jdConfig.
+type JDSection struct {
+	jd.Input
+	// NodeConnectTimeout overrides the wait for nodes/bootstraps to connect
+	// to JD (Go duration string, e.g. "5m"); empty uses the default.
+	NodeConnectTimeout string `toml:"node_connect_timeout,omitempty"`
+}
+
 // AppConfigSource selects how the environment delivers application config to bootstrapped services.
 type AppConfigSource string
 
@@ -133,7 +142,7 @@ type Cfg struct {
 	Executor      []*executorsvc.Input           `toml:"executor"       validate:"required"`
 	Indexer       []*services.IndexerInput       `toml:"indexer"        validate:"required"`
 	Aggregator    []*services.AggregatorInput    `toml:"aggregator"     validate:"required"`
-	JD            *jd.Input                      `toml:"jd"             validate:"required"`
+	JD            *JDSection                     `toml:"jd"             validate:"required"`
 	Blockchains   []*blockchain.Input            `toml:"blockchains"    validate:"required"`
 
 	// LocalNetworks contains opaque, chain-family-owned local network
@@ -1062,7 +1071,7 @@ func registerExecutorsWithJD(ctx context.Context, executors []*executorsvc.Input
 			jdInfra.RegisterNodeAlias(exec.NOPAlias, reg.NodeID)
 			mu.Unlock()
 
-			if err := jobs.WaitForBootstrapConnection(gCtx, jdClient, reg.NodeID, 60*time.Second); err != nil {
+			if err := jobs.WaitForBootstrapConnection(gCtx, jdClient, reg.NodeID, jdInfra.ConnectTimeout()); err != nil {
 				return fmt.Errorf("executor %s failed to connect to JD: %w", exec.ContainerName, err)
 			}
 
@@ -1200,6 +1209,9 @@ func launchStandaloneVerifiers(ctx context.Context, in *Cfg, blockchainOutputs [
 			}
 			ver.AggregatorCredentials = creds
 			ver.AggregatorOutput = aggOuts[ver.NodeIndex%len(aggOuts)]
+			if err := chainreg.GetRegistry().ResolveVerifierDatabases(ver); err != nil {
+				return nil, err
+			}
 			out, err = committeeverifier.New(ver, blockchainOutputs, jdInfra, chainreg.GetRegistry().GetVerifierModifiers())
 			if err != nil {
 				return nil, fmt.Errorf("failed to create verifier service: %w", err)
@@ -1227,10 +1239,12 @@ func launchStandaloneTokenVerifiers(in *Cfg, blockchainOutputs []*blockchain.Out
 			}
 			m := monitoring
 			v.Bootstrap.Monitoring = &m
-			out, err := services.NewTokenVerifier(&v, blockchainOutputs, modifiers)
+			*ver = v
+			out, err := services.NewTokenVerifier(ver, blockchainOutputs, modifiers)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create token verifier service: %w", err)
 			}
+			ver.Out = out
 			outs = append(outs, out)
 		}
 	}
@@ -1380,7 +1394,7 @@ func registerStandaloneVerifiersWithJD(ctx context.Context, verifiers []*committ
 			mu.Unlock()
 
 			// Wait for bootstrap to connect to JD
-			if err := jobs.WaitForBootstrapConnection(gCtx, jdClient, reg.NodeID, 60*time.Second); err != nil {
+			if err := jobs.WaitForBootstrapConnection(gCtx, jdClient, reg.NodeID, jdInfra.ConnectTimeout()); err != nil {
 				return fmt.Errorf("bootstrap %s failed to connect to JD: %w", ver.ContainerName, err)
 			}
 

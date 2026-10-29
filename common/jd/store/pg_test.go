@@ -304,9 +304,8 @@ func TestPostgresStore_AcceptPendingJob_WhenEmpty(t *testing.T) {
 	assert.False(t, promoted)
 }
 
-// TestPostgresStore_AcceptPendingJob_OnlyApprovedRow documents that calling AcceptPendingJob
-// when only an approved row exists deletes it and returns false — the job is lost.
-// This cannot happen via normal manager flow but is a footgun callers should be aware of.
+// TestPostgresStore_AcceptPendingJob_OnlyApprovedRow verifies that calling AcceptPendingJob
+// when only an approved row exists is a no-op that returns false and preserves the approved row.
 func TestPostgresStore_AcceptPendingJob_OnlyApprovedRow(t *testing.T) {
 	s, _, cleanup := setupPostgresStore(t)
 	defer cleanup()
@@ -321,9 +320,11 @@ func TestPostgresStore_AcceptPendingJob_OnlyApprovedRow(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, promoted)
 
-	// The approved row has been deleted — store is now empty.
-	_, err = s.LoadJob(ctx)
-	assert.ErrorIs(t, err, ErrNoJob)
+	// The approved row is preserved.
+	job, err := s.LoadJob(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "proposal-1", job.ProposalID)
+	assert.Equal(t, JobStatusApproved, job.Status)
 }
 
 // TestPostgresStore_SavePendingJob_WithBothRows verifies that SavePendingJob updates the

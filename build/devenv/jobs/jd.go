@@ -24,6 +24,7 @@ import (
 
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	ccvchangesets "github.com/smartcontractkit/chainlink-ccv/deployment/changesets"
+	"github.com/smartcontractkit/chainlink-ccv/deployment/registration"
 	ccvshared "github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 )
 
@@ -34,6 +35,10 @@ type JDInfrastructure struct {
 	// serialized phased output (where JDInfrastructure is published publicly).
 	OffchainClient offchain.Client   `toml:"-"`
 	NodeIDMap      map[string]string `toml:"node_id_map"` // alias -> JD node ID (needed for JD operations)
+	// NodeConnectTimeout is the raw [jd] node_connect_timeout TOML value
+	// (Go duration string, e.g. "5m"); ConnectTimeout resolves it with a
+	// default fallback.
+	NodeConnectTimeout string `toml:"node_connect_timeout,omitempty"`
 }
 
 func (j *JDInfrastructure) GetNodeIDs() []string {
@@ -71,6 +76,9 @@ func SyncEnvNodeIDs(jdInfra *JDInfrastructure, e *deployment.Environment) {
 type JDInfrastructureConfig struct {
 	JDInput  *ctf_jd.Input
 	NodeSets []*ns.Input
+	// NodeConnectTimeout is the raw [jd] node_connect_timeout value carried
+	// onto the infra for consumers; empty falls back to the default.
+	NodeConnectTimeout string
 }
 
 func StartJDInfrastructure(ctx context.Context, cfg JDInfrastructureConfig) (*JDInfrastructure, error) {
@@ -103,9 +111,10 @@ func StartJDInfrastructure(ctx context.Context, cfg JDInfrastructureConfig) (*JD
 		Msg("JD infrastructure started")
 
 	return &JDInfrastructure{
-		JDOutput:       jdOutput,
-		OffchainClient: jdClient,
-		NodeIDMap:      make(map[string]string),
+		JDOutput:           jdOutput,
+		OffchainClient:     jdClient,
+		NodeIDMap:          make(map[string]string),
+		NodeConnectTimeout: cfg.NodeConnectTimeout,
 	}, nil
 }
 
@@ -337,42 +346,28 @@ func createAndVerifyChainConfig(
 	})
 }
 
+// DefaultNodeConnectTimeout is the wait used for a node or bootstrap to
+// connect to JD when [jd] node_connect_timeout is unset or invalid. Large or
+// emulated devenvs can need well over a minute, which the old 60s default
+// did not tolerate.
+const DefaultNodeConnectTimeout = registration.DefaultConnectionTimeout
+
+// ConnectTimeout returns the JD connection wait used for nodes and
+// bootstraps: the infra's [jd] node_connect_timeout when a valid positive
+// duration, else DefaultNodeConnectTimeout. Nil infra falls back too.
+func (j *JDInfrastructure) ConnectTimeout() time.Duration {
+	if j != nil && j.NodeConnectTimeout != "" {
+		if d, err := time.ParseDuration(j.NodeConnectTimeout); err == nil && d > 0 {
+			return d
+		}
+		Plog.Warn().Str("node_connect_timeout", j.NodeConnectTimeout).Msg("invalid duration (want e.g. \"5m\"), using default")
+	}
+	return DefaultNodeConnectTimeout
+}
+
 // WaitForNodeConnection polls JD until the node reports connected or the timeout expires.
 func WaitForNodeConnection(ctx context.Context, jdClient offchain.Client, nodeID string, timeout time.Duration) error {
-	if jdClient == nil {
-		return fmt.Errorf("JD client is required to wait for node %s", nodeID)
-	}
-	if nodeID == "" {
-		return fmt.Errorf("node ID is required to wait for a JD connection")
-	}
-	deadline := time.Now().Add(timeout)
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			if time.Now().After(deadline) {
-				return fmt.Errorf("timeout waiting for node %s to connect", nodeID)
-			}
-
-			nodeResp, err := jdClient.GetNode(ctx, &nodev1.GetNodeRequest{Id: nodeID})
-			if err != nil {
-				Plog.Debug().Str("nodeID", nodeID).Err(err).Msg("Failed to get node status, retrying...")
-				continue
-			}
-
-			isConnected := nodeResp.Node != nil && nodeResp.Node.IsConnected
-			if isConnected {
-				Plog.Info().Str("nodeID", nodeID).Msg("Node connected to JD")
-				return nil
-			}
-
-			Plog.Debug().Str("nodeID", nodeID).Bool("isConnected", isConnected).Msg("Node not yet connected, waiting...")
-		}
-	}
+	return registration.WaitForConnection(ctx, jdClient, nodeID, registration.WaitConfig{Timeout: timeout})
 }
 
 func ConnectNodesToJD(ctx context.Context, infra *JDInfrastructure, clientLookup *NodeSetClientLookup, chainIDs []string) error {
@@ -406,7 +401,7 @@ func ConnectNodesToJD(ctx context.Context, infra *JDInfrastructure, clientLookup
 
 	Plog.Info().Msg("Waiting for all nodes to connect to JD...")
 
-	connectionTimeout := 60 * time.Second
+	connectionTimeout := infra.ConnectTimeout()
 	for alias, nodeID := range infra.NodeIDMap {
 		if err := WaitForNodeConnection(ctx, infra.OffchainClient, nodeID, connectionTimeout); err != nil {
 			Plog.Warn().

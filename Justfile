@@ -22,12 +22,13 @@ install-go-tools:
     go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v$VERSION_GOLANGCI_LINT
     go install github.com/vektra/mockery/v2@v$VERSION_MOCKERY
     go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v$VERSION_OAPI_CODEGEN
+    go install github.com/a-h/templ/cmd/templ@v$VERSION_TEMPL
 
 install-pre-commit:
     brew install pre-commit
     pre-commit install
 
-generate: ensure-oapi-codegen
+generate: ensure-oapi-codegen ensure-templ
     rm -f indexer/indexer_openapi_v1.yaml
     rm -f indexer/pkg/client/internal/client.go
     find . -name 'go.mod' -execdir go generate ./... \;
@@ -63,8 +64,15 @@ fmt: ensure-golangci-lint
 
 # Run golangci-lint (positional args: fix?, timeout?). Pass `true` or `fix` as the first arg to add
 # golangci's --fix; other tokens (e.g. mistyped `--timeout`) must not enable --fix.
-lint fix="" timeout="10m": ensure-golangci-lint
+# The noeagerio analyzer runs as a lint dependency: one cheap go vet pass.
+lint fix="" timeout="10m": ensure-golangci-lint lint-noeagerio
     gomods -c 'golangci-lint run --config {{justfile_directory()}}/.golangci.yaml {{ if fix == "true" { "--fix" } else if fix == "fix" { "--fix" } else { "" } }} --timeout {{timeout}}'
+
+# Run the noeagerio analyzer (tools/noeagerio): no I/O in constructors or Start
+# methods. Runs on the root module only; build/devenv and deployment are excluded.
+lint-noeagerio: ensure-go
+    go build -o "$(go env GOPATH)/bin/noeagerio" ./tools/noeagerio/cmd/noeagerio
+    go vet -vettool="$(go env GOPATH)/bin/noeagerio" ./...
 
 shellcheck:
     @command -v shellcheck >/dev/null 2>&1 || { \
@@ -85,6 +93,31 @@ test-coverage coverage_file="coverage.out" short="":
     # Filter mockery-generated files (mock_*.go) from coverage profile
     { head -n1 {{coverage_file}}; tail -n +2 {{coverage_file}} | grep -v -E '{{COVERAGE_EXCLUDE_REGEX}}' || true; } > {{coverage_file}}.filtered
     mv {{coverage_file}}.filtered {{coverage_file}}
+
+METRICS_GOLDEN := "tools/metricsgolden/registry/testdata/metrics.golden.json"
+
+# Regenerate the metrics golden file. Review the diff before you commit.
+metrics-golden-update: ensure-go
+    UPDATE_METRICS_GOLDEN=1 go test -count=1 -run '^TestMetricsGolden$' ./tools/metricsgolden/registry
+
+# Fail if the committed metrics golden file does not match the code.
+metrics-golden-verify: metrics-golden-update
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ -n "$(git status --porcelain -- {{METRICS_GOLDEN}})" ]; then
+        git diff -- {{METRICS_GOLDEN}}
+        echo "The metrics golden file is out of date: run 'just metrics-golden-update' and commit the result."
+        exit 1
+    fi
+
+# Fail if a metric or label is removed or changed since base (the CI check).
+metrics-golden-check base="origin/main" allow_breaking="false": ensure-go
+    #!/usr/bin/env bash
+    set -euo pipefail
+    base_file="$(mktemp)"
+    trap 'rm -f "$base_file"' EXIT
+    git show "{{base}}:{{METRICS_GOLDEN}}" > "$base_file" 2>/dev/null || rm -f "$base_file"
+    go run ./tools/metricsgolden/cmd/metricsgolden -base "$base_file" -head {{METRICS_GOLDEN}} -allow-breaking="{{allow_breaking}}"
 
 bump-chainlink-ccip sha:
     @echo "Bumping chainlink-ccip dependencies in root..."

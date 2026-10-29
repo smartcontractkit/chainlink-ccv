@@ -17,8 +17,10 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	indexer "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/tools/configdoc"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/admin"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/policy"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token"
@@ -39,6 +41,8 @@ var Targets = []configdoc.Target{
 	{Name: "bootstrap", Out: "bootstrap/secrets.documented.toml", Kind: configdoc.KindSecrets, New: bootstrapSecretsInstance},
 	{Name: "monitoring", Out: "common/monitoring.documented.toml", Kind: configdoc.KindConfig, New: monitoringConfigInstance},
 	{Name: "evm", Out: "evm/config.documented.toml", Kind: configdoc.KindConfig, New: evmConfigInstance},
+	{Name: "evm", Out: "evm/secrets.documented.toml", Kind: configdoc.KindSecrets, New: evmSecretsInstance},
+	{Name: "admin console", Out: "admin-console/config.documented.toml", Kind: configdoc.KindConfig, New: adminConsoleConfigInstance},
 }
 
 // executorDocInstance builds a fully-populated, valid executor Configuration
@@ -191,6 +195,7 @@ func verifierSecretsInstance() any {
 			{SecretName: "aggregator_1", APIKey: "<api-key>", SecretKey: "<secret-key>"},
 		},
 		PolicyHook: &vsecrets.PolicyHookSecret{APIKey: "<api-key>", SecretKey: "<secret-key>"},
+		AdminUI:    &vsecrets.AdminUISecret{Username: "operator", Password: "<password>"},
 	}
 }
 
@@ -376,9 +381,26 @@ func evmConfig() evm.Config {
 						Order:   1,
 					},
 				},
-				FinalityDepth: 0,
-				TXMBlockTime:  2 * time.Second,
+				FinalityDepth:                0,
+				TXMBlockTime:                 2 * time.Second,
+				LogPollerSourceReaderEnabled: true,
 			},
 		},
+	}
+}
+
+func evmSecretsInstance() any {
+	return &evmconfig.Secrets{
+		DB: &evmconfig.DBConfig{URL: "postgres://user:password@localhost:5432/evm_db?sslmode=disable"}, //nolint:gosec // G101: placeholder example value in generated docs, not a real credential
+	}
+}
+
+// adminConsoleConfigInstance builds the documented admin console config. The struct
+// has no defaulting routine, so the loopback listen address is set explicitly; the
+// optional trace viewer link is illustrative.
+func adminConsoleConfigInstance() any {
+	return &admin.Config{
+		ListenAddress: admin.DefaultListenAddress,
+		TraceURL:      "https://traces.example.com",
 	}
 }

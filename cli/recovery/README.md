@@ -1,6 +1,8 @@
 # CCV live recovery CLI
 
-The standalone verifier accepts durable recovery requests through its existing PostgreSQL database. The running source reader performs the work on its event loop. There is no admin HTTP endpoint or UI in this change. These commands require a binary and schema containing migration 00009; the existing verifier migration mechanism applies it during upgrade. Chainlink core must separately expose this command group before it is available through `chainlink node`.
+The standalone verifier accepts durable recovery requests through its existing PostgreSQL database. The running source reader performs the work on its event loop. These commands require a binary and schema containing migration 00009; the existing verifier migration mechanism applies it during upgrade. Chainlink core must separately expose this command group before it is available through `chainlink node`.
+
+A server-rendered admin console wrapping these flows is served in-process by the standalone verifier when its config file is present; see `docs/verifier/admin-console.md`.
 
 Idle readers check for new recovery operations every 15 seconds (`sourcereader.RecoveryPollInterval`), so a submission can take up to that long to be picked up; an active operation runs at full event-loop speed. The coarse idle cadence keeps the control-plane database reads negligible.
 
@@ -47,6 +49,8 @@ Jobs, drop evidence, counters and progress commit together. Unknown curse/rule s
 Ordinary replay never rewinds the normal reader's checkpoint. Normal polling can continue independently. Overlapping scans reconcile pending/sent tracking after a committed chunk. Deployments retain the existing requirement that one live source-reader owner controls normal polling for a given owner/source; recovery locking does not turn normal polling into a multi-writer service.
 
 ## Investigated finality reset
+
+This is for chains that use the RPC source reader. On a log poller chain (`Feature.LogPoller = true` on a node, `log_poller_source_reader_enabled = true` on the chain in a standalone verifier's EVM config), `reset-reader` is not supported for a finality violation, and `replay` is not a recovery for one: neither repairs the log poller's stored blocks above the last common ancestor. To reset a violation where the source reader uses log poller follow [Resolving a Finality Violation](../../docs/runbooks/resolving-finality-violation.md), which is the same on the node and the standalone verifier.
 
 First establish the canonical chain and a known-good boundary. A detection height is evidence, not necessarily the first affected height. Then submit a new explicit reset:
 

@@ -1,2 +1,3 @@
 **go.sum linguist-generated=true
 **/explain_*.txt linguist-generated=true
+**/testdata/metrics.golden.json linguist-generated=true

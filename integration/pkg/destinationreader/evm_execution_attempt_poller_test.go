@@ -1,20 +1,27 @@
 package destinationreader
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"math/big"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/params"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/offramp"
+	"github.com/smartcontractkit/chainlink-ccv/executor"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/executionchecker"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
@@ -24,9 +31,36 @@ import (
 // It only implements HeaderByNumber which is what we need for these tests.
 type mockClient struct {
 	mock.Mock
-	client.Client                                                                   // Embed to satisfy interface (will panic if other methods called)
-	headerFunc    func(blockNum uint64) *types.Header                               // Optional: function to generate headers dynamically
-	dynamicFunc   func(ctx context.Context, number *big.Int) (*types.Header, error) // Optional: dynamic function for complex scenarios
+	client.Client                                                                           // Embed to satisfy interface (will panic if other methods called)
+	headerFunc            func(blockNum uint64) *types.Header                               // Optional: function to generate headers dynamically
+	dynamicFunc           func(ctx context.Context, number *big.Int) (*types.Header, error) // Optional: dynamic function for complex scenarios
+	filterLogsFunc        func(ctx context.Context, q ethereum.FilterQuery) ([]types.Log, error)
+	subscribeFilterLogsFn func(ctx context.Context, q ethereum.FilterQuery, ch chan<- types.Log) (ethereum.Subscription, error)
+}
+
+type testSubscription struct {
+	errCh        chan error
+	once         sync.Once
+	unsubscribed atomic.Bool
+}
+
+func newTestSubscription() *testSubscription {
+	return &testSubscription{errCh: make(chan error, 1)}
+}
+
+func (s *testSubscription) Err() <-chan error {
+	return s.errCh
+}
+
+func (s *testSubscription) Unsubscribe() {
+	s.once.Do(func() {
+		s.unsubscribed.Store(true)
+		close(s.errCh)
+	})
+}
+
+func (s *testSubscription) fail(err error) {
+	s.errCh <- err
 }
 
 func (m *mockClient) HeaderByNumber(ctx context.Context, number *big.Int) (*types.Header, error) {
@@ -50,16 +84,19 @@ func (m *mockClient) HeaderByNumber(ctx context.Context, number *big.Int) (*type
 	return args.Get(0).(*types.Header), args.Error(1)
 }
 
-// FilterLogs is a stub implementation needed for FilterExecutionStateChanged.
-// Returns empty results for testing purposes.
 func (m *mockClient) FilterLogs(ctx context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
+	if m.filterLogsFunc != nil {
+		return m.filterLogsFunc(ctx, q)
+	}
 	return []types.Log{}, nil
 }
 
-// SubscribeFilterLogs is a stub that always returns an error, simulating a non-WebSocket
-// RPC endpoint. This prevents a nil-pointer panic from the embedded client.Client when
-// WatchExecutionStateChanged is called in tests.
+// SubscribeFilterLogs is a stub that returns an error by default, simulating a non-WebSocket
+// RPC endpoint unless subscribeFilterLogsFn is configured by the test.
 func (m *mockClient) SubscribeFilterLogs(ctx context.Context, q ethereum.FilterQuery, ch chan<- types.Log) (ethereum.Subscription, error) {
+	if m.subscribeFilterLogsFn != nil {
+		return m.subscribeFilterLogsFn(ctx, q, ch)
+	}
 	return nil, errors.New("websocket not available in test environment")
 }
 
@@ -106,6 +143,7 @@ func setupTestPoller(t *testing.T, mockCli *mockClient, lookbackWindow time.Dura
 		mockCli,
 		lggr,
 		lookbackWindow,
+		0, // default staleness threshold
 	)
 	require.NoError(t, err)
 	require.NotNil(t, poller)
@@ -545,6 +583,31 @@ func TestProcessExecutionStateChanged_RejectsTxNotDirectlyToOffRamp(t *testing.T
 	}
 }
 
+// The cached attempt keeps the event's FAILURE state and returnData, which the checker needs.
+func TestProcessExecutionStateChanged_RecordsFailureData(t *testing.T) {
+	mockCli := new(mockClient)
+	poller := setupTestPoller(t, mockCli, 24*time.Hour)
+
+	offRampAddr := poller.offRampAddress
+	tx := types.NewTx(&types.LegacyTx{To: &offRampAddr, Gas: 500_000, Data: buildExecuteCallData(t, 0)})
+	message := buildPollerTestMessage(t)
+	failureData := []byte{0x37, 0xc3, 0xbe, 0x29}
+	event := &offramp.OffRampExecutionStateChanged{
+		MessageId:  message.MustMessageID(),
+		State:      uint8(executor.FAILURE),
+		ReturnData: failureData,
+	}
+	mockCli.On("TransactionByHash", mock.Anything, event.Raw.TxHash).Return(tx, nil).Once()
+
+	require.NoError(t, poller.processExecutionStateChanged(context.Background(), event))
+
+	attempts, ok := poller.attemptCache.Get(event.MessageId)
+	require.True(t, ok)
+	require.Len(t, attempts, 1)
+	assert.True(t, attempts[0].Failed)
+	assert.Equal(t, failureData, attempts[0].FailureData)
+}
+
 func TestProcessExecutionStateChanged_RejectsWhenTransactionByHashFails(t *testing.T) {
 	mockCli := new(mockClient)
 	poller := setupTestPoller(t, mockCli, 24*time.Hour)
@@ -557,6 +620,86 @@ func TestProcessExecutionStateChanged_RejectsWhenTransactionByHashFails(t *testi
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to get transaction by hash")
+	mockCli.AssertExpectations(t)
+}
+
+// A processed event advances lastPolledBlock; an older event never moves it backward.
+func TestProcessExecutionStateChanged_AdvancesLastPolledBlockForwardOnly(t *testing.T) {
+	mockCli := new(mockClient)
+	poller := setupTestPoller(t, mockCli, 24*time.Hour)
+
+	offRampAddr := poller.offRampAddress
+	tx := types.NewTx(&types.LegacyTx{To: &offRampAddr, Gas: 500_000, Data: buildExecuteCallData(t, 0)})
+	message := buildPollerTestMessage(t)
+
+	newEvent := func(txHash common.Hash, blockNumber uint64) *offramp.OffRampExecutionStateChanged {
+		event := &offramp.OffRampExecutionStateChanged{
+			MessageId: message.MustMessageID(),
+			State:     uint8(executor.SUCCESS),
+		}
+		event.Raw.TxHash = txHash
+		event.Raw.BlockNumber = blockNumber
+		return event
+	}
+
+	const newerBlock = uint64(2000)
+	newerEvent := newEvent(common.HexToHash("0x1"), newerBlock)
+	mockCli.On("TransactionByHash", mock.Anything, newerEvent.Raw.TxHash).Return(tx, nil).Once()
+
+	require.NoError(t, poller.processExecutionStateChanged(context.Background(), newerEvent))
+	assert.Equal(t, newerBlock, poller.getLastPolledBlock())
+
+	const olderBlock = uint64(1500)
+	olderEvent := newEvent(common.HexToHash("0x2"), olderBlock)
+	mockCli.On("TransactionByHash", mock.Anything, olderEvent.Raw.TxHash).Return(tx, nil).Once()
+
+	require.NoError(t, poller.processExecutionStateChanged(context.Background(), olderEvent))
+	assert.Equal(t, newerBlock, poller.getLastPolledBlock(), "an older event must not move the cursor backward")
+	mockCli.AssertExpectations(t)
+}
+
+// A replayed event (same tx hash and log index) is skipped, not appended to the cache again.
+func TestProcessExecutionStateChanged_SkipsReplayedEvent(t *testing.T) {
+	mockCli := new(mockClient)
+	poller := setupTestPoller(t, mockCli, 24*time.Hour)
+
+	offRampAddr := poller.offRampAddress
+	tx := types.NewTx(&types.LegacyTx{To: &offRampAddr, Gas: 500_000, Data: buildExecuteCallData(t, 0)})
+	message := buildPollerTestMessage(t)
+
+	event := &offramp.OffRampExecutionStateChanged{
+		MessageId: message.MustMessageID(),
+		State:     uint8(executor.SUCCESS),
+	}
+	event.Raw.TxHash = common.HexToHash("0xabc")
+	event.Raw.Index = 3
+	event.Raw.BlockNumber = 100
+
+	// The replay never reaches the RPC: TransactionByHash is expected exactly once.
+	mockCli.On("TransactionByHash", mock.Anything, event.Raw.TxHash).Return(tx, nil).Once()
+
+	require.NoError(t, poller.processExecutionStateChanged(context.Background(), event))
+	require.NoError(t, poller.processExecutionStateChanged(context.Background(), event))
+
+	attempts, ok := poller.attemptCache.Get(event.MessageId)
+	require.True(t, ok)
+	assert.Len(t, attempts, 1, "a replayed event must not append a duplicate attempt")
+
+	// A different log index in the same transaction is a distinct event and is processed.
+	sameTxDifferentLog := &offramp.OffRampExecutionStateChanged{
+		MessageId: message.MustMessageID(),
+		State:     uint8(executor.SUCCESS),
+	}
+	sameTxDifferentLog.Raw.TxHash = event.Raw.TxHash
+	sameTxDifferentLog.Raw.Index = 4
+	sameTxDifferentLog.Raw.BlockNumber = 100
+	mockCli.On("TransactionByHash", mock.Anything, event.Raw.TxHash).Return(tx, nil).Once()
+
+	require.NoError(t, poller.processExecutionStateChanged(context.Background(), sameTxDifferentLog))
+
+	attempts, ok = poller.attemptCache.Get(event.MessageId)
+	require.True(t, ok)
+	assert.Len(t, attempts, 2, "a distinct log index must not be deduplicated")
 	mockCli.AssertExpectations(t)
 }
 
@@ -619,7 +762,7 @@ func TestRunBackfill(t *testing.T) {
 				assert.Contains(t, err.Error(), tc.wantErrContains)
 			} else {
 				require.NoError(t, err)
-				assert.Equal(t, tc.wantLastPolledBlock, poller.lastPolledBlock)
+				assert.Equal(t, tc.wantLastPolledBlock, poller.getLastPolledBlock())
 			}
 			mockCli.AssertExpectations(t)
 		})
@@ -656,7 +799,7 @@ func TestRunBackfill_InitialBlockPositioning(t *testing.T) {
 			mockCli.dynamicFunc = func(ctx context.Context, number *big.Int) (*types.Header, error) {
 				if number == nil {
 					// Capture lastPolledBlock at the moment pollForEvents calls HeaderByNumber
-					capturedLastPolled = poller.lastPolledBlock
+					capturedLastPolled = poller.getLastPolledBlock()
 					return &types.Header{
 						Number: big.NewInt(int64(tc.startBlock + 100)),
 						Time:   uint64(time.Now().Unix()),
@@ -710,9 +853,9 @@ func TestStartupSequence_BackfillFailureFallback(t *testing.T) {
 			require.Error(t, err)
 
 			// Simulate what Start() does on backfill failure.
-			poller.lastPolledBlock = poller.startBlock
+			poller.setLastPolledBlock(poller.startBlock)
 
-			assert.Equal(t, tc.wantLastPolledBlock, poller.lastPolledBlock)
+			assert.Equal(t, tc.wantLastPolledBlock, poller.getLastPolledBlock())
 		})
 	}
 }
@@ -752,7 +895,7 @@ func TestStartHTTPMode_PreservesLastPolledBlock(t *testing.T) {
 			mockCli := new(mockClient)
 			poller := setupTestPoller(t, mockCli, 24*time.Hour)
 			poller.startBlock = tc.startBlock
-			poller.lastPolledBlock = tc.lastPolledBlock
+			poller.setLastPolledBlock(tc.lastPolledBlock)
 
 			ctx, cancel := context.WithCancel(context.Background())
 			cancel() // cancel immediately so the polling goroutine exits promptly
@@ -760,7 +903,7 @@ func TestStartHTTPMode_PreservesLastPolledBlock(t *testing.T) {
 			poller.startHTTPMode(ctx)
 			poller.runWg.Wait()
 
-			assert.Equal(t, tc.wantLastPolledBlock, poller.lastPolledBlock,
+			assert.Equal(t, tc.wantLastPolledBlock, poller.getLastPolledBlock(),
 				"startHTTPMode must not reset lastPolledBlock")
 		})
 	}
@@ -831,11 +974,14 @@ func TestDecodeCallDataToExecutionAttempt(t *testing.T) {
 		poller := setupTestPoller(t, mockCli, 24*time.Hour)
 		gasLimit := uint64(500_000)
 
-		attempt, err := poller.decodeCallDataToExecutionAttempt(validCallData, gasLimit)
+		tx := types.NewTx(&types.LegacyTx{Data: validCallData, Gas: gasLimit})
+		attempt, err := poller.decodeCallDataToExecutionAttempt(tx)
 		require.NoError(t, err)
 		require.NotNil(t, attempt)
 
 		assert.Equal(t, new(big.Int).SetUint64(gasLimit), attempt.TransactionGasLimit)
+		assert.Equal(t, uint64(0), attempt.GasLimitOverride.Uint64())
+		assert.False(t, attempt.HasNonCanonicalGasEnvelope, "a plain legacy tx with exact canonical calldata must be considered canonical")
 		assert.NotEmpty(t, attempt.Report.CCVS, "should have at least one CCV address")
 		assert.Len(t, attempt.Report.CCVS, 2, "should decode two CCV addresses")
 		assert.Len(t, attempt.Report.CCVData, 2, "should decode two CCV data entries")
@@ -855,7 +1001,7 @@ func TestDecodeCallDataToExecutionAttempt(t *testing.T) {
 		mockCli := new(mockClient)
 		poller := setupTestPoller(t, mockCli, 24*time.Hour)
 
-		_, err := poller.decodeCallDataToExecutionAttempt([]byte{0x01, 0x02}, 100)
+		_, err := poller.decodeCallDataToExecutionAttempt(types.NewTx(&types.LegacyTx{Data: []byte{0x01, 0x02}, Gas: 100}))
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "call data too short")
 	})
@@ -871,7 +1017,7 @@ func TestDecodeCallDataToExecutionAttempt(t *testing.T) {
 		wrongSelector[2] = 0xFF
 		wrongSelector[3] = 0xFF
 
-		_, err := poller.decodeCallDataToExecutionAttempt(wrongSelector, 100)
+		_, err := poller.decodeCallDataToExecutionAttempt(types.NewTx(&types.LegacyTx{Data: wrongSelector, Gas: 100}))
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "call data does not match execute function selector")
 	})
@@ -883,7 +1029,7 @@ func TestDecodeCallDataToExecutionAttempt(t *testing.T) {
 		// Keep valid selector but truncate the rest
 		truncated := validCallData[:functionSelectorLength+10]
 
-		_, err := poller.decodeCallDataToExecutionAttempt(truncated, 100)
+		_, err := poller.decodeCallDataToExecutionAttempt(types.NewTx(&types.LegacyTx{Data: truncated, Gas: 100}))
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to unpack execute call data")
 	})
@@ -892,7 +1038,7 @@ func TestDecodeCallDataToExecutionAttempt(t *testing.T) {
 		mockCli := new(mockClient)
 		poller := setupTestPoller(t, mockCli, 24*time.Hour)
 
-		_, err := poller.decodeCallDataToExecutionAttempt([]byte{}, 100)
+		_, err := poller.decodeCallDataToExecutionAttempt(types.NewTx(&types.LegacyTx{Data: []byte{}, Gas: 100}))
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "call data too short")
 	})
@@ -927,7 +1073,7 @@ func TestStartWSMode_UsesLastPolledBlock(t *testing.T) {
 			mockCli := new(mockClient)
 			poller := setupTestPoller(t, mockCli, 24*time.Hour)
 			poller.startBlock = tc.startBlock
-			poller.lastPolledBlock = tc.lastPolledBlock
+			poller.setLastPolledBlock(tc.lastPolledBlock)
 
 			// WatchExecutionStateChanged will fail (no WebSocket), confirming startWSMode
 			// returns an error; the important invariant is which value it reads.
@@ -935,7 +1081,7 @@ func TestStartWSMode_UsesLastPolledBlock(t *testing.T) {
 
 			// In a non-WS environment the call fails; the key assertion is that
 			// lastPolledBlock was not altered by startWSMode.
-			assert.Equal(t, tc.lastPolledBlock, poller.lastPolledBlock,
+			assert.Equal(t, tc.lastPolledBlock, poller.getLastPolledBlock(),
 				"startWSMode must not modify lastPolledBlock")
 			// err may or may not be nil depending on WS availability in the test env.
 			_ = err
@@ -952,7 +1098,7 @@ func TestHTTPPolling_ContinuousRPCFailures(t *testing.T) {
 	mockCli := new(mockClient)
 	poller := setupTestPoller(t, mockCli, lookbackWindow)
 	poller.startBlock = startBlock
-	poller.lastPolledBlock = startBlock
+	poller.setLastPolledBlock(startBlock)
 	poller.pollInterval = 10 * time.Millisecond
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
@@ -974,7 +1120,7 @@ func TestHTTPPolling_ContinuousRPCFailures(t *testing.T) {
 
 	// Verify poller fields are set correctly
 	assert.Equal(t, uint64(startBlock), poller.startBlock, "Poller should maintain start block")
-	assert.Equal(t, uint64(startBlock), poller.lastPolledBlock, "Poller should maintain last polled block")
+	assert.Equal(t, uint64(startBlock), poller.getLastPolledBlock(), "Poller should maintain last polled block")
 }
 
 func TestStart_NonBlocking(t *testing.T) {
@@ -1048,6 +1194,59 @@ func TestReady_ReturnsNilAfterBackfillCompletes(t *testing.T) {
 	require.NoError(t, poller.Close())
 }
 
+// TestReady_ReportsStaleWhenPollsStopSucceeding verifies that in HTTP polling
+// mode a dead RPC turns the poller not-ready after 50 poll intervals, and that
+// it recovers when the RPC answers again.
+func TestReady_ReportsStaleWhenPollsStopSucceeding(t *testing.T) {
+	const (
+		totalBlocks    = 100
+		blockInterval  = 12 * time.Second
+		lookbackWindow = 10 * time.Minute
+	)
+
+	now := time.Now()
+	genesisTime := now.Add(-time.Duration(totalBlocks) * blockInterval)
+	calc := newBlockTimeCalculator(genesisTime, blockInterval)
+
+	var failRPC atomic.Bool
+	mockCli := new(mockClient)
+	mockCli.dynamicFunc = func(ctx context.Context, number *big.Int) (*types.Header, error) {
+		if failRPC.Load() {
+			return nil, errors.New("RPC unreachable")
+		}
+		if number == nil {
+			return calc.createHead(totalBlocks), nil
+		}
+		return calc.createHead(number.Uint64()), nil
+	}
+
+	poller := setupTestPoller(t, mockCli, lookbackWindow)
+	poller.pollInterval = 20 * time.Millisecond
+	poller.stalenessThreshold = 1 * time.Second // 50 × 20ms; set explicitly since the constructor derives it from the default poll interval
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	require.NoError(t, poller.Start(ctx))
+	defer func() { require.NoError(t, poller.Close()) }()
+
+	require.Eventually(t, func() bool {
+		return poller.Ready() == nil
+	}, 5*time.Second, 10*time.Millisecond)
+	assert.True(t, poller.pollingMode.Load(), "test env has no WS, poller should be in HTTP mode")
+
+	failRPC.Store(true)
+	require.Eventually(t, func() bool {
+		err := poller.Ready()
+		return err != nil && strings.Contains(err.Error(), "no successful execution-attempt poll")
+	}, 5*time.Second, 20*time.Millisecond, "poller should report staleness once polls stop succeeding")
+
+	failRPC.Store(false)
+	require.Eventually(t, func() bool {
+		return poller.Ready() == nil
+	}, 5*time.Second, 20*time.Millisecond, "poller should recover once the RPC answers again")
+}
+
 func TestStart_ContextCancelDuringStartup_NotFatal(t *testing.T) {
 	const lookbackWindow = 1 * time.Hour
 
@@ -1119,4 +1318,510 @@ func TestHealthy_ReturnsFatalError_WhenGetStartBlockFails(t *testing.T) {
 
 	cancel()
 	require.NoError(t, poller.Close())
+}
+
+// The staleness threshold defaults to 50 poll intervals and honors an explicit override.
+func TestNewEVMExecutionAttemptPoller_StalenessThreshold(t *testing.T) {
+	offRampAddr := common.HexToAddress("0x1234567890123456789012345678901234567890")
+
+	poller, err := NewEVMExecutionAttemptPoller(offRampAddr, new(mockClient), logger.Test(t), time.Hour, 0)
+	require.NoError(t, err)
+	assert.Equal(t, stalenessPollIntervals*defaultPollInterval, poller.stalenessThreshold)
+
+	poller, err = NewEVMExecutionAttemptPoller(offRampAddr, new(mockClient), logger.Test(t), time.Hour, 42*time.Second)
+	require.NoError(t, err)
+	assert.Equal(t, 42*time.Second, poller.stalenessThreshold)
+}
+
+const (
+	testSourceChainForPoller         = protocol.ChainSelector(1)
+	testDestChainForPoller           = protocol.ChainSelector(2)
+	testExecutionGasLimitForPoller   = uint32(100000)
+	testCcipReceiveGasLimitForPoller = uint32(100000)
+)
+
+// buildPollerTestMessage builds the message used by buildExecuteCallData, so
+// tests that need to run the honesty checker against a decoded attempt can
+// construct a message with matching gas limits.
+func buildPollerTestMessage(t *testing.T) protocol.Message {
+	message, err := protocol.NewMessage(
+		testSourceChainForPoller,
+		testDestChainForPoller,
+		1,
+		protocol.UnknownAddress([]byte("onramp_address")),
+		protocol.UnknownAddress([]byte("offramp_address")),
+		0,
+		testExecutionGasLimitForPoller,
+		testCcipReceiveGasLimitForPoller,
+		protocol.Bytes32{},
+		protocol.UnknownAddress([]byte("sender_address")),
+		protocol.UnknownAddress([]byte("receiver_address")),
+		[]byte("test data"),
+		[]byte("test data"),
+		nil,
+	)
+	require.NoError(t, err)
+	return *message
+}
+
+// buildExecuteCallData ABI-encodes a call to the offramp's execute() method,
+// mirroring what a real transmitter would submit on-chain.
+func buildExecuteCallData(t *testing.T, gasLimitOverride uint32) []byte {
+	message := buildPollerTestMessage(t)
+	encodedMsg, err := message.Encode()
+	require.NoError(t, err)
+
+	method, ok := offrampABI.Methods[executeMethodName]
+	require.True(t, ok)
+
+	packedArgs, err := method.Inputs.Pack(
+		encodedMsg,
+		[]common.Address{common.HexToAddress("0x1111111111111111111111111111111111111111")},
+		[][]byte{[]byte("ccv_data")},
+		gasLimitOverride,
+	)
+	require.NoError(t, err)
+
+	return append(append([]byte{}, method.ID...), packedArgs...)
+}
+
+// decodeCallDataToExecutionAttempt keeps gasLimitOverride, and a nonzero value is not honest
+// because the executor always submits gasLimitOverride == 0.
+func TestDecodeCallDataToExecutionAttempt_CapturesGasLimitOverride(t *testing.T) {
+	mockCli := new(mockClient)
+	poller := setupTestPoller(t, mockCli, time.Hour)
+
+	const nonZeroOverride = uint32(4294967295) // type(uint32).max
+	callData := buildExecuteCallData(t, nonZeroOverride)
+
+	attempt, err := poller.decodeCallDataToExecutionAttempt(types.NewTx(&types.LegacyTx{Data: callData, Gas: 100000}))
+	require.NoError(t, err)
+
+	require.NotNil(t, attempt.GasLimitOverride, "gasLimitOverride must be decoded and retained, not discarded")
+	assert.Equal(t, uint64(nonZeroOverride), attempt.GasLimitOverride.Uint64())
+
+	honest := executionchecker.IsHonestGasLimit(buildPollerTestMessage(t), *attempt)
+	assert.False(t, honest, "any nonzero gasLimitOverride must be dishonest: the canonical executor never sets one")
+}
+
+// An access list makes the gas envelope non-canonical, so the attempt is not honest.
+func TestDecodeCallDataToExecutionAttempt_RejectsAccessList(t *testing.T) {
+	mockCli := new(mockClient)
+	poller := setupTestPoller(t, mockCli, time.Hour)
+
+	callData := buildExecuteCallData(t, 0)
+
+	accessList := make(types.AccessList, 0, 4)
+	for i := range 4 {
+		accessList = append(accessList, types.AccessTuple{
+			Address:     common.BigToAddress(big.NewInt(int64(i) + 1)),
+			StorageKeys: []common.Hash{{}, {}},
+		})
+	}
+
+	// Gas is intrinsic gas plus less than the message requires.
+	intrinsicGas := estimateIntrinsicGasForTest(t, callData, accessList)
+	const executionGas = uint64(50000)
+	tx := types.NewTx(&types.AccessListTx{
+		Data:       callData,
+		Gas:        intrinsicGas + executionGas,
+		AccessList: accessList,
+	})
+
+	attempt, err := poller.decodeCallDataToExecutionAttempt(tx)
+	require.NoError(t, err)
+
+	assert.True(t, attempt.HasNonCanonicalGasEnvelope, "a nonempty access list must mark the gas envelope as non-canonical")
+
+	honest := executionchecker.IsHonestGasLimit(buildPollerTestMessage(t), *attempt)
+	assert.False(t, honest, "an attempt with a non-canonical gas envelope must not be considered honest")
+}
+
+// Calldata with bytes after the canonical ABI encoding makes the gas envelope non-canonical.
+func TestDecodeCallDataToExecutionAttempt_RejectsTrailingCallData(t *testing.T) {
+	mockCli := new(mockClient)
+	poller := setupTestPoller(t, mockCli, time.Hour)
+
+	callData := buildExecuteCallData(t, 0)
+	extendedCallData := append(append([]byte{}, callData...), make([]byte, 5000)...)
+
+	tx := types.NewTx(&types.LegacyTx{Data: extendedCallData, Gas: 500000})
+
+	attempt, err := poller.decodeCallDataToExecutionAttempt(tx)
+	require.NoError(t, err)
+
+	assert.True(t, attempt.HasNonCanonicalGasEnvelope, "trailing calldata bytes must mark the gas envelope as non-canonical")
+
+	honest := executionchecker.IsHonestGasLimit(buildPollerTestMessage(t), *attempt)
+	assert.False(t, honest, "an attempt with trailing calldata must not be considered honest")
+}
+
+// An attempt with the executor's own envelope and gas limit is honest.
+func TestDecodeCallDataToExecutionAttempt_AcceptsCanonicalExecutorAttempt(t *testing.T) {
+	mockCli := new(mockClient)
+	poller := setupTestPoller(t, mockCli, time.Hour)
+
+	callData := buildExecuteCallData(t, 0)
+	message := buildPollerTestMessage(t)
+
+	// Mirrors contracttransmitter's own feeLimit calculation.
+	requiredGas := uint64(message.ExecutionGasLimit) + eip150ForwardingGasBufferForTest(message.CcipReceiveGasLimit)
+
+	tx := types.NewTx(&types.LegacyTx{Data: callData, Gas: requiredGas})
+
+	attempt, err := poller.decodeCallDataToExecutionAttempt(tx)
+	require.NoError(t, err)
+
+	assert.False(t, attempt.HasNonCanonicalGasEnvelope)
+	honest := executionchecker.IsHonestGasLimit(message, *attempt)
+	assert.True(t, honest, "the executor's own canonical attempt at its own computed fee limit must be honest")
+}
+
+// estimateIntrinsicGasForTest returns the intrinsic gas (base cost, calldata, and access list) of a transaction.
+func estimateIntrinsicGasForTest(t *testing.T, callData []byte, accessList types.AccessList) uint64 {
+	t.Helper()
+
+	gas := params.TxGas
+	if len(callData) > 0 {
+		zeroBytes := uint64(bytes.Count(callData, []byte{0}))
+		nonZeroBytes := uint64(len(callData)) - zeroBytes
+		gas += zeroBytes*params.TxDataZeroGas + nonZeroBytes*params.TxDataNonZeroGasEIP2028
+	}
+	for _, entry := range accessList {
+		gas += params.TxAccessListAddressGas
+		gas += uint64(len(entry.StorageKeys)) * params.TxAccessListStorageKeyGas
+	}
+	return gas
+}
+
+// eip150ForwardingGasBufferForTest mirrors contracttransmitter's and
+// executionchecker's eip150ForwardingGasBuffer so this test doesn't need to
+// import either package's unexported helper.
+func eip150ForwardingGasBufferForTest(ccipReceiveGasLimit uint32) uint64 {
+	const (
+		numerator   = 64
+		denominator = 63
+	)
+	gasLimit := uint64(ccipReceiveGasLimit)
+	atRouter := (numerator*gasLimit + denominator - 1) / denominator
+	atOffRamp := (numerator*atRouter + denominator - 1) / denominator
+	return atOffRamp - gasLimit
+}
+
+func buildPollerTestMessageWithSeq(t *testing.T, seq protocol.SequenceNumber) protocol.Message {
+	t.Helper()
+	msg, err := protocol.NewMessage(
+		testSourceChainForPoller,
+		testDestChainForPoller,
+		seq,
+		protocol.UnknownAddress([]byte("onramp_address")),
+		protocol.UnknownAddress([]byte("offramp_address")),
+		0,
+		testExecutionGasLimitForPoller,
+		testCcipReceiveGasLimitForPoller,
+		protocol.Bytes32{},
+		protocol.UnknownAddress([]byte("sender_address")),
+		protocol.UnknownAddress([]byte("receiver_address")),
+		[]byte("test data"),
+		[]byte("test data"),
+		nil,
+	)
+	require.NoError(t, err)
+	return *msg
+}
+
+func buildExecuteTxForMessage(t *testing.T, offRampAddr common.Address, msg protocol.Message) *types.Transaction {
+	t.Helper()
+	encodedMsg, err := msg.Encode()
+	require.NoError(t, err)
+
+	method, ok := offrampABI.Methods[executeMethodName]
+	require.True(t, ok)
+
+	packedArgs, err := method.Inputs.Pack(
+		encodedMsg,
+		[]common.Address{common.HexToAddress("0x1111111111111111111111111111111111111111")},
+		[][]byte{[]byte("ccv_data")},
+		uint32(0),
+	)
+	require.NoError(t, err)
+	callData := append(append([]byte{}, method.ID...), packedArgs...)
+	return types.NewTx(&types.LegacyTx{
+		To:   &offRampAddr,
+		Gas:  500_000,
+		Data: callData,
+	})
+}
+
+func buildExecutionStateChangedLog(
+	t *testing.T,
+	offRampAddr common.Address,
+	msg protocol.Message,
+	state executor.MessageExecutionState,
+	returnData []byte,
+	txHash common.Hash,
+	blockNum uint64,
+	logIndex uint,
+) types.Log {
+	t.Helper()
+	eventSpec, ok := offrampABI.Events["ExecutionStateChanged"]
+	require.True(t, ok)
+
+	data, err := eventSpec.Inputs.NonIndexed().Pack(uint8(state), returnData)
+	require.NoError(t, err)
+
+	msgID := msg.MustMessageID()
+	return types.Log{
+		Address: offRampAddr,
+		Topics: []common.Hash{
+			eventSpec.ID,
+			common.BigToHash(new(big.Int).SetUint64(uint64(msg.SourceChainSelector))),
+			common.BigToHash(new(big.Int).SetUint64(uint64(msg.SequenceNumber))),
+			common.Hash(msgID),
+		},
+		Data:        data,
+		BlockNumber: blockNum,
+		TxHash:      txHash,
+		Index:       logIndex,
+	}
+}
+
+// If block B contains two logs and the WebSocket drops after delivering only the first log,
+// falling back to HTTP polling must replay block B inclusively, deduplicate the first log,
+// and process the second log without waiting for block B+1.
+func TestWSFallbackToHTTP_ReplaysPartialWebSocketBlockAndDeduplicates(t *testing.T) {
+	mockCli := new(mockClient)
+	poller := setupTestPoller(t, mockCli, 24*time.Hour)
+	poller.startBlock = 90
+	poller.setLastPolledBlock(99)
+	poller.pollInterval = 10 * time.Millisecond
+	poller.reconnectBackoff = time.Millisecond
+
+	msg1 := buildPollerTestMessageWithSeq(t, 1)
+	msg2 := buildPollerTestMessageWithSeq(t, 2)
+	tx1Hash := common.HexToHash("0x1111")
+	tx2Hash := common.HexToHash("0x2222")
+	tx1 := buildExecuteTxForMessage(t, poller.offRampAddress, msg1)
+	tx2 := buildExecuteTxForMessage(t, poller.offRampAddress, msg2)
+
+	const blockB = uint64(100)
+	log0 := buildExecutionStateChangedLog(t, poller.offRampAddress, msg1, executor.FAILURE, []byte{0x01}, tx1Hash, blockB, 0)
+	log1 := buildExecutionStateChangedLog(t, poller.offRampAddress, msg2, executor.FAILURE, []byte{0x02}, tx2Hash, blockB, 1)
+
+	// Each transaction is fetched only once: log0 via WS (deduplicated on HTTP replay), log1 via HTTP fallback.
+	mockCli.On("TransactionByHash", mock.Anything, tx1Hash).Return(tx1, nil).Once()
+	mockCli.On("TransactionByHash", mock.Anything, tx2Hash).Return(tx2, nil).Once()
+
+	// Chain head stays at block B (100) when HTTP fallback runs.
+	mockCli.dynamicFunc = func(context.Context, *big.Int) (*types.Header, error) {
+		return &types.Header{
+			Number: big.NewInt(int64(blockB)),
+			Time:   uint64(time.Now().Unix()),
+		}, nil
+	}
+
+	var (
+		filterMu    sync.Mutex
+		filterFroms []uint64
+	)
+	mockCli.filterLogsFunc = func(_ context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
+		if q.FromBlock != nil && q.ToBlock != nil {
+			from := q.FromBlock.Uint64()
+			to := q.ToBlock.Uint64()
+			filterMu.Lock()
+			filterFroms = append(filterFroms, from)
+			filterMu.Unlock()
+			if from <= blockB && blockB <= to {
+				return []types.Log{log0, log1}, nil
+			}
+		}
+		return nil, nil
+	}
+
+	sub := newTestSubscription()
+	var subCalls atomic.Int32
+	var wsCh chan<- types.Log
+	mockCli.subscribeFilterLogsFn = func(_ context.Context, _ ethereum.FilterQuery, ch chan<- types.Log) (ethereum.Subscription, error) {
+		if subCalls.Add(1) == 1 {
+			wsCh = ch
+			return sub, nil
+		}
+		return nil, errors.New("ws reconnect failed")
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	poller.cancelFunc = cancel
+
+	require.NoError(t, poller.StartOnce(evmExecutionAttemptPollerServiceName, func() error {
+		return poller.startWSMode(ctx)
+	}))
+	defer func() { require.NoError(t, poller.Close()) }()
+
+	// Deliver only the first log in block B over WebSocket, then drop the subscription.
+	wsCh <- log0
+	require.Eventually(t, func() bool {
+		attempts, err := poller.GetExecutionAttempts(ctx, msg1)
+		return err == nil && len(attempts) == 1
+	}, 2*time.Second, 10*time.Millisecond, "first log must be processed via WebSocket")
+	assert.Equal(t, blockB, poller.getLastPolledBlock())
+	assert.True(t, poller.wsBlockPartial.Load(), "cursor from WS event must mark block as partially consumed")
+
+	// Drop the WebSocket connection; all reconnect attempts fail, triggering HTTP fallback.
+	sub.fail(errors.New("websocket connection lost"))
+
+	require.Eventually(t, func() bool {
+		attempts, err := poller.GetExecutionAttempts(ctx, msg2)
+		return err == nil && len(attempts) == 1
+	}, 2*time.Second, 10*time.Millisecond, "second log in block B must be recovered by HTTP fallback")
+
+	attempts1, err := poller.GetExecutionAttempts(ctx, msg1)
+	require.NoError(t, err)
+	assert.Len(t, attempts1, 1, "first log in block B must be deduplicated during HTTP replay")
+
+	filterMu.Lock()
+	assert.Contains(t, filterFroms, blockB, "HTTP fallback must replay block B inclusively")
+	filterMu.Unlock()
+	assert.False(t, poller.wsBlockPartial.Load(), "full HTTP poll must clear wsBlockPartial")
+	mockCli.AssertExpectations(t)
+}
+
+// Repeated WebSocket reconnects replace and unsubscribe previous subscriptions without spawning
+// duplicate event consumers, and events continue to be processed across reconnects.
+func TestWSReconnectLifecycle_SingleConsumerAndProcessesEventsAcrossReconnects(t *testing.T) {
+	mockCli := new(mockClient)
+	poller := setupTestPoller(t, mockCli, 24*time.Hour)
+	poller.startBlock = 100
+	poller.setLastPolledBlock(100)
+	poller.reconnectBackoff = time.Millisecond
+
+	msgs := []protocol.Message{
+		buildPollerTestMessageWithSeq(t, 1),
+		buildPollerTestMessageWithSeq(t, 2),
+		buildPollerTestMessageWithSeq(t, 3),
+	}
+	txHashes := []common.Hash{
+		common.HexToHash("0xa1"),
+		common.HexToHash("0xa2"),
+		common.HexToHash("0xa3"),
+	}
+	for i := range msgs {
+		tx := buildExecuteTxForMessage(t, poller.offRampAddress, msgs[i])
+		mockCli.On("TransactionByHash", mock.Anything, txHashes[i]).Return(tx, nil).Once()
+	}
+
+	subs := []*testSubscription{
+		newTestSubscription(),
+		newTestSubscription(),
+		newTestSubscription(),
+	}
+	logChs := make(chan chan<- types.Log, 3)
+	var subIdx atomic.Int32
+	mockCli.subscribeFilterLogsFn = func(_ context.Context, _ ethereum.FilterQuery, ch chan<- types.Log) (ethereum.Subscription, error) {
+		idx := int(subIdx.Add(1)) - 1
+		if idx >= len(subs) {
+			return nil, errors.New("unexpected extra subscription")
+		}
+		logChs <- ch
+		return subs[idx], nil
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	poller.cancelFunc = cancel
+
+	require.NoError(t, poller.StartOnce(evmExecutionAttemptPollerServiceName, func() error {
+		return poller.startWSMode(ctx)
+	}))
+
+	// Across 3 subscriptions (initial + 2 reconnects), deliver one event per subscription.
+	for i := range subs {
+		var ch chan<- types.Log
+		select {
+		case ch = <-logChs:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("timed out waiting for subscription %d", i)
+		}
+
+		logEntry := buildExecutionStateChangedLog(
+			t, poller.offRampAddress, msgs[i], executor.FAILURE, []byte{byte(i + 1)},
+			txHashes[i], uint64(101+i), 0,
+		)
+		ch <- logEntry
+
+		require.Eventually(t, func() bool {
+			attempts, err := poller.GetExecutionAttempts(ctx, msgs[i])
+			return err == nil && len(attempts) == 1
+		}, 2*time.Second, 10*time.Millisecond, "event %d must be processed", i)
+
+		if i < len(subs)-1 {
+			subs[i].fail(errors.New("transient ws disconnect"))
+			require.Eventually(t, func() bool {
+				return subs[i].unsubscribed.Load()
+			}, 2*time.Second, 10*time.Millisecond, "replaced subscription %d must be unsubscribed", i)
+		}
+	}
+
+	require.NoError(t, poller.Close())
+	assert.True(t, subs[len(subs)-1].unsubscribed.Load(), "active subscription must be unsubscribed on Close")
+	poller.subMu.Lock()
+	assert.Nil(t, poller.subscription, "subscription field must be cleared after Close")
+	poller.subMu.Unlock()
+	mockCli.AssertExpectations(t)
+}
+
+// Closing the poller while a reconnect is in flight inside SubscribeFilterLogs must unsubscribe
+// the late-returning subscription and leave poller.subscription nil.
+func TestWSReconnect_CloseDuringReconnectionLeavesNoActiveSubscription(t *testing.T) {
+	mockCli := new(mockClient)
+	poller := setupTestPoller(t, mockCli, 24*time.Hour)
+	poller.startBlock = 100
+	poller.setLastPolledBlock(100)
+	poller.reconnectBackoff = time.Millisecond
+
+	initialSub := newTestSubscription()
+	lateSub := newTestSubscription()
+	reconnectStarted := make(chan struct{})
+	allowReconnectReturn := make(chan struct{})
+	var subCalls atomic.Int32
+
+	mockCli.subscribeFilterLogsFn = func(_ context.Context, _ ethereum.FilterQuery, _ chan<- types.Log) (ethereum.Subscription, error) {
+		if subCalls.Add(1) == 1 {
+			return initialSub, nil
+		}
+		close(reconnectStarted)
+		<-allowReconnectReturn
+		return lateSub, nil
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	poller.cancelFunc = cancel
+	// Mark StateMachine as started so Close() runs StopOnce.
+	require.NoError(t, poller.StartOnce(evmExecutionAttemptPollerServiceName, func() error {
+		return poller.startWSMode(ctx)
+	}))
+
+	// Trigger reconnect and wait until reconnectSubscription is blocked in SubscribeFilterLogs.
+	initialSub.fail(errors.New("ws dropped"))
+	<-reconnectStarted
+
+	// Start Close() in the background; it cancels ctx, clears p.subscription, and waits on runWg.
+	closeDone := make(chan error, 1)
+	go func() {
+		closeDone <- poller.Close()
+	}()
+
+	// Wait until Close() has canceled the context before letting SubscribeFilterLogs return lateSub.
+	require.Eventually(t, func() bool {
+		return ctx.Err() != nil
+	}, 2*time.Second, 5*time.Millisecond)
+	close(allowReconnectReturn)
+
+	require.NoError(t, <-closeDone)
+	assert.True(t, initialSub.unsubscribed.Load(), "initial subscription must be unsubscribed")
+	assert.True(t, lateSub.unsubscribed.Load(), "late subscription created during Close must be unsubscribed")
+	poller.subMu.Lock()
+	assert.Nil(t, poller.subscription, "no active subscription may remain after Close")
+	poller.subMu.Unlock()
 }

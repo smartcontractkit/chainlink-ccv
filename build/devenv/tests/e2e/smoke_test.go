@@ -32,12 +32,18 @@ func TestE2ESmoke_Basic(t *testing.T) {
 
 	lib, err := ccv.NewLibFromCCVEnv(&ccv.Plog, GetSmokeTestConfig())
 	require.NoError(t, err)
+	in, err := ccv.LoadOutput[ccv.Cfg](GetSmokeTestConfig())
+	require.NoError(t, err)
 
 	chains, err := lib.Chains(ctx)
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(chains), 2, "expected at least 2 chains for this test in the environment")
 
 	src, dest := chains[0].CCIP17, chains[1].CCIP17
+
+	t.Run("standalone JD registration", func(t *testing.T) {
+		assertStandaloneJDRegistration(t, ccv.Plog.WithContext(t.Context()), in)
+	})
 
 	sendCfg := tcapi.SendArgs{}
 	basicArgs := basic.Args{Send: sendCfg}
@@ -79,6 +85,10 @@ func TestE2ESmoke_Basic(t *testing.T) {
 				t.Logf("Skipping %s because current environment does not have the prerequisites", tc.Name())
 			}
 		}
+	})
+
+	t.Run("log poller source reader in use", func(t *testing.T) {
+		requireLogPollerSourceReaderInUse(t, in)
 	})
 }
 

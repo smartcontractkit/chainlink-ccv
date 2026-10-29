@@ -248,7 +248,8 @@ executor_pool        = ["test-executor"]
 	f := NewFactory()
 	err = f.Start(context.Background(), bootstrap.JobSpec{AppConfig: appConfig}, bootstrap.ServiceDeps{Logger: lggr, Registry: reg})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to validate chainlink executor")
+	// The skipped chain leaves the executor pool empty, and the leader elector is created before the executor.
+	assert.Contains(t, err.Error(), "failed to create leader elector")
 }
 
 // TestFactory_Start_InvalidExecutorAddress uses a valid chain selector but a

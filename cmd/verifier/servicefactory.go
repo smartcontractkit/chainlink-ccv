@@ -7,10 +7,12 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/grafana/pyroscope-go"
+	"github.com/jmoiron/sqlx"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
@@ -41,7 +43,13 @@ import (
 const defaultHTTPListenPort = 8100
 
 // httpShutdownTimeout bounds the graceful drain of the HTTP server during Stop.
-const httpShutdownTimeout = 5 * time.Second
+const (
+	httpShutdownTimeout = 5 * time.Second
+	// accessorBuildTimeout caps one chain's accessor construction (RPC dial +
+	// chain services) during factory Start; the parent startup context may be
+	// tighter and always wins.
+	accessorBuildTimeout = 30 * time.Second
+)
 
 // factory is a ServiceFactory implementation that creates a committee verifier service.
 type factory struct {
@@ -51,7 +59,11 @@ type factory struct {
 	profiler         *pyroscope.Profiler
 	aggregatorWriter *storageaccess.FanOutWriter
 	heartbeatClient  heartbeatclient.HeartbeatSender
-	chainStatusDB    sqlutil.DataSource
+	adminStop        func()
+
+	// db is the verifier database, opened in Start and closed last in Stop.
+	dbMu sync.Mutex
+	db   *sqlx.DB
 }
 
 var _ bootstrap.ServiceFactoryValidator = (*factory)(nil)
@@ -74,6 +86,25 @@ func validateJobSpec(spec bootstrap.JobSpec) (commit.Config, error) {
 	return config, nil
 }
 
+func attachCriticalSourceInvariantCallback(
+	reader chainaccess.SourceReader,
+	selector protocol.ChainSelector,
+	verifierMonitoring verifier.Monitoring,
+) {
+	if verifierMonitoring == nil {
+		return
+	}
+	if setter, ok := reader.(chainaccess.CriticalSourceInvariantCallbackSetter); ok {
+		chainMetrics := verifierMonitoring.Metrics().With(
+			"chain_selector", selector.String(),
+			"chain_name", selector.ChainName(),
+		)
+		setter.SetCriticalSourceInvariantCallback(func(ctx context.Context) {
+			chainMetrics.IncrementCriticalSourceInvariantViolations(ctx)
+		})
+	}
+}
+
 func instrumentSourceReader(
 	reader chainaccess.SourceReader,
 	verifierID string,
@@ -84,15 +115,7 @@ func instrumentSourceReader(
 		return nil, fmt.Errorf("cannot instrument source reader for chain %d: monitoring is nil", selector)
 	}
 
-	if setter, ok := reader.(chainaccess.CriticalSourceInvariantCallbackSetter); ok {
-		chainMetrics := verifierMonitoring.Metrics().With(
-			"chain_selector", selector.String(),
-			"chain_name", selector.ChainName(),
-		)
-		setter.SetCriticalSourceInvariantCallback(func(ctx context.Context) {
-			chainMetrics.IncrementCriticalSourceInvariantViolations(ctx)
-		})
-	}
+	attachCriticalSourceInvariantCallback(reader, selector, verifierMonitoring)
 
 	observedReader, err := sourcereader.NewObservedSourceReader(reader, verifierID, selector, verifierMonitoring)
 	if err != nil {
@@ -211,33 +234,80 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 
 	// A failure to stand up one chain's reader (e.g. an unreachable RPC) must not stop the
 	// remaining chains from starting. Log and skip, then only reject the whole coordinator if no
-	// chain is usable.
+	// chain is usable. Chains are built concurrently with a per-chain timeout: accessor
+	// construction dials the chain, so a slow (not failing) RPC must not serialize away the
+	// shared startup budget.
 	chainSelectors := chainaccess.Infos[string](config.OnRampAddresses).GetAllChainSelectors()
+	// Skipped chains are reported on /health as degraded. The factory fails below when none is usable.
+	startupSkips := health.NewStartupSkips("verifier.StartupSkips")
 	sourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
-	for _, selector := range chainSelectors {
-		accessor, err := deps.Registry.GetAccessor(ctx, selector)
-		if err != nil {
-			lggr.Errorw("Failed to get accessor, skipping chain", "error", err, "selector", selector)
-			continue
-		}
-		reader, err := accessor.SourceReader()
-		if err != nil {
-			lggr.Errorw("Failed to get source reader, skipping chain", "selector", selector, "error", err)
-			continue
-		}
-		observedReader, err := instrumentSourceReader(reader, config.VerifierID, selector, verifierMonitoring)
-		if err != nil {
-			lggr.Errorw("Failed to instrument source reader, skipping chain", "selector", selector, "error", err)
-			continue
-		}
-		sourceReaders[selector] = observedReader
+	finalityReporters := make(map[protocol.ChainSelector]chainaccess.FinalityViolationReporter)
+	healthReporters := make(map[protocol.ChainSelector]chainaccess.SourceHealthReporter)
+	skip := func(selector protocol.ChainSelector, msg string, err error) {
+		lggr.Errorw(msg+", skipping chain", "selector", selector, "error", err)
+		startupSkips.SkipChain(selector, err)
+		verifierMonitoring.RecordChainHealthy(ctx, selector, false)
 	}
+	var readersMu sync.Mutex
+	var wg sync.WaitGroup
+	for _, selector := range chainSelectors {
+		wg.Go(func() {
+			chainCtx, cancel := context.WithTimeout(ctx, accessorBuildTimeout)
+			defer cancel()
+			//nolint:noeagerio // accessor construction dials the chain; it runs concurrently per chain with a bounded ctx, and failures are skipped, not fatal
+			accessor, err := deps.Registry.GetAccessor(chainCtx, selector)
+			if err != nil {
+				skip(selector, "Failed to get accessor", err)
+				return
+			}
+			reader, err := accessor.SourceReader()
+			if err != nil {
+				skip(selector, "Failed to get source reader", err)
+				return
+			}
+			// Take the reader's own reporters, such as the EVM LogPoller reader's, before wrapping hides them.
+			// A chain in disable_finality_checkers ignores its finality reporter in newFinalityChecker.
+			var finalityReporter chainaccess.FinalityViolationReporter
+			if r, ok := reader.(chainaccess.FinalityViolationReporter); ok {
+				finalityReporter = r
+			}
+			var healthReporter chainaccess.SourceHealthReporter
+			if r, ok := reader.(chainaccess.SourceHealthReporter); ok {
+				healthReporter = r
+			}
+			lggr.Infow("Source reader selected", "chainSelector", selector,
+				"reportsFinality", finalityReporter != nil, "reportsHealth", healthReporter != nil)
+
+			observedReader, err := instrumentSourceReader(reader, config.VerifierID, selector, verifierMonitoring)
+			if err != nil {
+				skip(selector, "Failed to instrument source reader", err)
+				return
+			}
+			// Unhealthy until its service says otherwise, so the series exists even if no service ever
+			// starts. Once the service exists it is the only writer of the chain's health.
+			verifierMonitoring.RecordChainHealthy(ctx, selector, false)
+			readersMu.Lock()
+			sourceReaders[selector] = observedReader
+			if finalityReporter != nil {
+				finalityReporters[selector] = finalityReporter
+			}
+			if healthReporter != nil {
+				healthReporters[selector] = healthReporter
+			}
+			readersMu.Unlock()
+		})
+	}
+	wg.Wait()
 	if len(sourceReaders) == 0 {
 		return fmt.Errorf("no source readers configured: ensure at least one chain has a working source reader")
 	}
 
 	// Create coordinator configuration. Only chains that produced a source reader are configured;
 	// the coordinator uses sourceReaders as authoritative, so configs must be aligned with it.
+	stalenessThreshold, err := config.SourceReaderStalenessThresholdDuration()
+	if err != nil {
+		return err
+	}
 	sourceConfigs := make(map[protocol.ChainSelector]verifier.SourceConfig)
 	for selector := range sourceReaders {
 		strSelector := strconv.FormatUint(uint64(selector), 10)
@@ -246,6 +316,7 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 			VerifierAddress:        verifierAddresses[strSelector],
 			DefaultExecutorAddress: defaultExecutorAddresses[strSelector],
 			PollInterval:           verifier.SourceReaderPollInterval,
+			StalenessThreshold:     stalenessThreshold,
 			ChainSelector:          selector,
 			DisableFinalityChecker: slices.Contains(config.DisableFinalityCheckers, strSelector),
 		}
@@ -277,13 +348,15 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	}
 	lggr.Infow("Using signer address", "address", signerAddress)
 
-	// Create chain status manager (PostgreSQL storage) with monitoring decorator
-	chainStatusManager, chainStatusDB, err := createChainStatusManager(lggr, config.VerifierID, verifierMonitoring, secrets)
+	// An absent URL leaves the database nil (storage is optional).
+	chainStatusDB, err := f.connectDB(ctx, lggr, secrets)
 	if err != nil {
-		lggr.Errorw("Failed to create chain status manager", "error", err)
-		return fmt.Errorf("failed to create chain status manager: %w", err)
+		lggr.Errorw("Failed to connect to Postgres DB", "error", err)
+		return fmt.Errorf("failed to connect to Postgres DB: %w", err)
 	}
-	f.chainStatusDB = chainStatusDB
+
+	// Create chain status manager (PostgreSQL storage) with monitoring decorator
+	chainStatusManager := createChainStatusManager(lggr, config.VerifierID, verifierMonitoring, chainStatusDB)
 
 	// Create commit verifier
 	commitVerifier, err := commit.NewCommitVerifier(coordinatorConfig, signerAddress, signer, lggr, verifierMonitoring)
@@ -413,7 +486,8 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		messageRulesPoller,
 		chainStatusDB,
 		verifier.WithSourceRecovery(),
-		verifier.WithDedupKeyColumn(),
+		verifier.WithFinalityReporters(finalityReporters),
+		verifier.WithSourceHealthReporters(healthReporters),
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create verification coordinator", "error", err)
@@ -443,6 +517,7 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 
 	healthManager := health.NewManager()
 	healthManager.Register(coordinator)
+	healthManager.Register(startupSkips)
 	health.RegisterOn(healthManager, router)
 
 	router.GET("/stats", func(c *gin.Context) {
@@ -473,6 +548,19 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 
 	f.server = server
 	f.coordinator = coordinator
+
+	// The admin console serves in-process when its config file is present; it shares
+	// this verifier's application database and secrets.
+	aggregatorAddress, aggregatorInsecure := "", false
+	if len(resolvedAggregators) > 0 {
+		aggregatorAddress = resolvedAggregators[0].Address
+		aggregatorInsecure = resolvedAggregators[0].InsecureConnection
+	}
+	adminStop, err := startAdminConsole(lggr, chainStatusDB, secrets, aggregatorAddress, aggregatorInsecure)
+	if err != nil {
+		return fmt.Errorf("failed to start admin console: %w", err)
+	}
+	f.adminStop = adminStop
 
 	lggr.Infow("🎯 Verifier service fully started and ready!")
 
@@ -532,26 +620,77 @@ func (f *factory) Stop(ctx context.Context) error {
 		}
 	}
 
+	// Stop the admin console
+	if f.adminStop != nil {
+		f.adminStop()
+	}
+
+	// Close the database last: the coordinator and the admin console use it until they stop.
+	if err := f.closeDB(); err != nil {
+		f.lggr.Errorw("Database close error", "error", err)
+		allErrors = errors.Join(allErrors, err)
+	}
+
 	f.server = nil
 	f.coordinator = nil
 	f.profiler = nil
 	f.aggregatorWriter = nil
 	f.heartbeatClient = nil
+	f.adminStop = nil
 	f.lggr = nil
-	f.chainStatusDB = nil
 
 	return allErrors
 }
 
-func createChainStatusManager(lggr logger.Logger, verifierID string, monitoring verifier.Monitoring, secrets *vsecrets.VerifierSecrets) (protocol.ChainStatusManager, sqlutil.DataSource, error) {
-	sqlDB, err := ConnectToPostgresDB(lggr, secrets)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to connect to Postgres DB: %w", err)
+// connectDB opens and migrates the verifier database and keeps it for Stop. It returns a nil
+// DataSource when no database URL is configured.
+func (f *factory) connectDB(ctx context.Context, lggr logger.Logger, secrets *vsecrets.VerifierSecrets) (sqlutil.DataSource, error) {
+	f.dbMu.Lock()
+	defer f.dbMu.Unlock()
+
+	// A handle left by a previous Start would leak its pool, so release it first.
+	if f.db != nil {
+		lggr.Warnw("Closing verifier database left open by a previous start")
+		if err := f.db.Close(); err != nil {
+			lggr.Warnw("Failed to close leftover verifier database", "error", err)
+		}
+		f.db = nil
 	}
+
+	//nolint:noeagerio // the service's own DB is a hard dependency; fails fast (bounded by the startup ctx) and JD/local restarts retry
+	db, err := connectVerifierDB(ctx, lggr, secrets)
+	if err != nil {
+		return nil, err
+	}
+	if db == nil {
+		return nil, nil
+	}
+	f.db = db
+	return db, nil
+}
+
+// closeDB closes the verifier database once; later calls, or calls with none open, do nothing.
+func (f *factory) closeDB() error {
+	f.dbMu.Lock()
+	defer f.dbMu.Unlock()
+
+	if f.db == nil {
+		return nil
+	}
+
+	err := f.db.Close()
+	f.db = nil
+
+	if err != nil {
+		return fmt.Errorf("failed to close verifier database: %w", err)
+	}
+	return nil
+}
+
+func createChainStatusManager(lggr logger.Logger, verifierID string, monitoring verifier.Monitoring, sqlDB sqlutil.DataSource) protocol.ChainStatusManager {
 	chainStatusStore := chainstatus.NewPostgresChainStatusStore(sqlDB, lggr)
 	chainStatusManager := chainstatus.NewPostgresChainStatusManager(chainStatusStore, verifierID)
 	// Wrap with monitoring decorator to track query durations. The Coordinator
 	// adds the batcher on top of this, so the metrics measure real database calls.
-	monitoredManager := chainstatus.NewMonitoredChainStatusManager(chainStatusManager, monitoring.Metrics())
-	return monitoredManager, sqlDB, nil
+	return chainstatus.NewMonitoredChainStatusManager(chainStatusManager, monitoring.Metrics())
 }

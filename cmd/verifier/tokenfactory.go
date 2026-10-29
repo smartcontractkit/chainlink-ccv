@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"sync"
 	"time"
 
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -14,6 +15,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
+	"github.com/smartcontractkit/chainlink-ccv/common/health"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
@@ -36,7 +38,34 @@ type tokenVerifierFactory struct {
 
 	coordinators []*verifier.Coordinator
 	httpServer   *http.Server
+	adminStop    func()
 	lggr         logger.Logger
+}
+
+var _ bootstrap.ServiceFactoryValidator = (*tokenVerifierFactory)(nil)
+
+// validateTokenJobSpec decodes and validates a token verifier app config. It is
+// the single decode path shared by Start and Validate, so CI validation and the
+// service agree on what a valid config is.
+func validateTokenJobSpec(spec bootstrap.JobSpec) (token.Config, error) {
+	var cfg token.Config
+	if err := spec.GetAppConfig(&cfg); err != nil {
+		return token.Config{}, fmt.Errorf("unable to decode app config: %w", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		return token.Config{}, fmt.Errorf("invalid token verifier config: %w", err)
+	}
+	return cfg, nil
+}
+
+// Validate implements [bootstrap.ServiceFactoryValidator]: it decodes and
+// validates an app config without starting services or allocating runtime
+// resources. The bootstrap lifecycle calls it before replacing a running job, so
+// a bad config is rejected without stopping the current one, and `validate-config`
+// reuses it in CI.
+func (tvf *tokenVerifierFactory) Validate(spec bootstrap.JobSpec) error {
+	_, err := validateTokenJobSpec(spec)
+	return err
 }
 
 // NewTokenVerifierServiceFactory creates a new ServiceFactory for the token verifier service.
@@ -49,6 +78,10 @@ func NewTokenVerifierServiceFactory() bootstrap.ServiceFactory {
 // Stop tries to stop all services gracefully.
 func (tvf *tokenVerifierFactory) Stop(_ context.Context) error {
 	var errs []error
+	if tvf.adminStop != nil {
+		tvf.adminStop()
+		tvf.adminStop = nil
+	}
 	if tvf.httpServer != nil {
 		// Graceful shutdown
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -75,9 +108,9 @@ func (tvf *tokenVerifierFactory) Stop(_ context.Context) error {
 
 // Start starts the service with the parsed config received from the bootstrapper.
 func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootstrap.ServiceDeps) error {
-	var appConfig token.Config
-	if err := spec.GetAppConfig(&appConfig); err != nil {
-		return fmt.Errorf("unable to decode app config: %w", err)
+	appConfig, err := validateTokenJobSpec(spec)
+	if err != nil {
+		return err
 	}
 
 	tvf.lggr = deps.Logger
@@ -95,29 +128,52 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 
 	protocol.InitChainSelectorCache()
 
-	// TODO: validate config?
 	cfg := appConfig
 
+	// Skipped chains/verifiers degrade the service on /health, which names each one.
+	// The factory fails below when none is usable.
+	startupSkips := health.NewStartupSkips("verifier.StartupSkips")
+
 	// On-ramp addresses are the application-owned source-chain set. RPC connection and tuning
-	// details are supplied independently by each chain family's local config.
+	// details are supplied independently by each chain family's local config. Chains are built
+	// concurrently with a per-chain timeout: accessor construction dials the chain, so a slow
+	// (not failing) RPC must not serialize away the shared startup budget.
 	chainSelectors := chainaccess.Infos[string](cfg.OnRampAddresses).GetAllChainSelectors()
 	sourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
 	accessors := make(map[protocol.ChainSelector]chainaccess.Accessor)
+	var accessorsMu sync.Mutex
+	var wg sync.WaitGroup
 	for _, selector := range chainSelectors {
-		accessor, err := deps.Registry.GetAccessor(ctx, selector)
-		if err != nil {
-			tvf.lggr.Errorw("Skipping chain, failed to get accessor for chain selector", "error", err, "chainSelector", selector)
-			continue
-		}
-		accessors[selector] = accessor
-		reader, err := accessor.SourceReader()
-		if err != nil {
-			tvf.lggr.Warnw("Skipping chain, source reader not available", "chainSelector", selector, "error", err)
-			continue
-		}
-		sourceReaders[selector] = reader
-		tvf.lggr.Infow("Created source reader for chain", "chainSelector", selector)
+		wg.Go(func() {
+			chainCtx, cancel := context.WithTimeout(ctx, accessorBuildTimeout)
+			defer cancel()
+			//nolint:noeagerio // accessor construction dials the chain; it runs concurrently per chain with a bounded ctx, and failures are skipped, not fatal
+			accessor, err := deps.Registry.GetAccessor(chainCtx, selector)
+			if err != nil {
+				tvf.lggr.Errorw("Skipping chain, failed to get accessor for chain selector", "error", err, "chainSelector", selector)
+				startupSkips.SkipChain(selector, err)
+				verifierMonitoring.RecordChainHealthy(ctx, selector, false)
+				return
+			}
+			reader, err := accessor.SourceReader()
+			accessorsMu.Lock()
+			accessors[selector] = accessor
+			accessorsMu.Unlock()
+			if err != nil {
+				tvf.lggr.Warnw("Skipping chain, source reader not available", "chainSelector", selector, "error", err)
+				startupSkips.SkipChain(selector, err)
+				verifierMonitoring.RecordChainHealthy(ctx, selector, false)
+				return
+			}
+			attachCriticalSourceInvariantCallback(reader, selector, verifierMonitoring)
+			verifierMonitoring.RecordChainHealthy(ctx, selector, true)
+			accessorsMu.Lock()
+			sourceReaders[selector] = reader
+			accessorsMu.Unlock()
+			tvf.lggr.Infow("Created source reader for chain", "chainSelector", selector)
+		})
 	}
+	wg.Wait()
 
 	// Load the verifier secrets file (only [db].url is used by the token verifier); an absent file
 	// is fine and falls back to CL_DATABASE_URL.
@@ -126,9 +182,18 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 		return fmt.Errorf("failed to load verifier secrets: %w", err)
 	}
 
-	db, err := ConnectToPostgresDB(tvf.lggr, secrets)
+	//nolint:noeagerio // the service's own DB is a hard dependency: connect + migrate fail fast (bounded by the startup ctx) and JD/local restarts retry
+	db, err := ConnectToPostgresDB(ctx, tvf.lggr, secrets)
 	if err != nil {
 		return fmt.Errorf("failed to connect to Postgres database: %w", err)
+	}
+
+	// The admin console serves in-process when its config file is present; it shares
+	// this verifier's application database and secrets. The token verifier has no
+	// aggregator of its own, so freshness checks need aggregator_address in the file.
+	tvf.adminStop, err = startAdminConsole(tvf.lggr, db, secrets, "", false)
+	if err != nil {
+		return fmt.Errorf("failed to start admin console: %w", err)
 	}
 
 	postgresStorage := storage.NewPostgres(db, tvf.lggr)
@@ -150,13 +215,15 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 		)
 
 		var coordinator *verifier.Coordinator
+		var createErr error
 		switch {
 		case verifierConfig.IsLombard():
-			coordinator, err = createLombardCoordinator(
+			coordinator, createErr = createLombardCoordinator(
 				ctx,
 				verifierConfig.VerifierID,
 				verifierConfig.LombardConfig,
 				cfg.DisableFinalityCheckers,
+				cfg.SourceReaderStalenessThreshold,
 				tvf.lggr,
 				sourceReaders,
 				storage.NewCCVWriter(
@@ -172,13 +239,16 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 		case verifierConfig.IsCCTP():
 			cctpCodecs, codecErr := cctpCodecsFor(accessors, verifierConfig.CCTPConfig)
 			if codecErr != nil {
-				return fmt.Errorf("failed to create verification coordinator for cctp: %w", codecErr)
+				tvf.lggr.Errorw("Skipping verifier, failed to build CCTP codecs", "verifierID", verifierConfig.VerifierID, "error", codecErr)
+				startupSkips.Skip(fmt.Sprintf("Verifier[%s]", verifierConfig.VerifierID), codecErr)
+				continue
 			}
-			coordinator, err = createCCTPCoordinator(
+			coordinator, createErr = createCCTPCoordinator(
 				ctx,
 				verifierConfig.VerifierID,
 				verifierConfig.CCTPConfig,
 				cfg.DisableFinalityCheckers,
+				cfg.SourceReaderStalenessThreshold,
 				tvf.lggr,
 				sourceReaders,
 				cctpCodecs,
@@ -193,25 +263,44 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 				db,
 			)
 		default:
-			tvf.lggr.Fatalw("Unknown verifier type", "type", verifierConfig.Type)
+			// Unknown type is a deterministic config error, not a transient
+			// failure: fail fast rather than silently skipping the verifier.
+			return fmt.Errorf("unknown verifier type %q for verifier %s", verifierConfig.Type, verifierConfig.VerifierID)
+		}
+		// A failure to stand up one verifier must not stop the remaining
+		// verifiers. Log, skip, and record for /health; only reject the whole
+		// service when no verifier is usable.
+		if createErr != nil {
+			tvf.lggr.Errorw("Skipping verifier, failed to create verification coordinator",
+				"verifierID", verifierConfig.VerifierID, "type", verifierConfig.Type, "error", createErr)
+			startupSkips.Skip(fmt.Sprintf("Verifier[%s]", verifierConfig.VerifierID), createErr)
 			continue
 		}
-		if err != nil {
-			return fmt.Errorf("failed to create verification coordinator for %s: %w", verifierConfig.Type, err)
-		}
-
-		tvf.coordinators = append(tvf.coordinators, coordinator)
 
 		if err := coordinator.Start(ctx); err != nil {
-			tvf.lggr.Errorw("Failed to start verification coordinator", "error", err)
-			return fmt.Errorf("failed to start verification coordinator: %w", err)
+			tvf.lggr.Errorw("Skipping verifier, failed to start verification coordinator",
+				"verifierID", verifierConfig.VerifierID, "type", verifierConfig.Type, "error", err)
+			startupSkips.Skip(fmt.Sprintf("Verifier[%s]", verifierConfig.VerifierID), err)
+			// The coordinator may have partially started subcomponents (batcher,
+			// processors, source readers) before failing: close it so the skip
+			// does not leak them for the life of the process.
+			if closeErr := coordinator.Close(); closeErr != nil {
+				tvf.lggr.Warnw("Failed to close skipped verification coordinator",
+					"verifierID", verifierConfig.VerifierID, "error", closeErr)
+			}
+			continue
 		}
+		tvf.coordinators = append(tvf.coordinators, coordinator)
+	}
+	if len(cfg.TokenVerifiers) > 0 && len(tvf.coordinators) == 0 {
+		return fmt.Errorf("failed to start any token verifier across %d configured", len(cfg.TokenVerifiers))
 	}
 
-	healthReporters := make([]protocol.HealthReporter, len(tvf.coordinators))
-	for i, coordinator := range tvf.coordinators {
-		healthReporters[i] = coordinator
+	healthReporters := make([]protocol.HealthReporter, 0, len(tvf.coordinators)+1)
+	for _, coordinator := range tvf.coordinators {
+		healthReporters = append(healthReporters, coordinator)
 	}
+	healthReporters = append(healthReporters, startupSkips)
 	ginRouter := tokenapi.NewHTTPAPI(tvf.lggr, storage.NewCCVReader(postgresStorage), healthReporters, verifierMonitoring)
 	verifierMonitoring.RecordServiceStarted(ctx)
 
@@ -269,6 +358,7 @@ func createCCTPCoordinator(
 	verifierID string,
 	cctpConfig *cctp.CCTPConfig,
 	disableFinalityCheckers []string,
+	stalenessThreshold time.Duration,
 	lggr logger.Logger,
 	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
 	cctpCodecs map[protocol.ChainSelector]chainaccess.CCTPCodec,
@@ -278,7 +368,7 @@ func createCCTPCoordinator(
 	chainStatusManager protocol.ChainStatusManager,
 	db sqlutil.DataSource,
 ) (*verifier.Coordinator, error) {
-	cctpSourceConfigs := createSourceConfigs(cctpConfig.ParsedVerifierResolvers, disableFinalityCheckers)
+	cctpSourceConfigs := createSourceConfigs(cctpConfig.ParsedVerifierResolvers, disableFinalityCheckers, stalenessThreshold)
 
 	attestationService, err := cctp.NewAttestationService(lggr, verifierMonitoring, *cctpConfig, cctpCodecs)
 	if err != nil {
@@ -323,6 +413,7 @@ func createLombardCoordinator(
 	verifierID string,
 	lombardConfig *lombard.LombardConfig,
 	disableFinalityCheckers []string,
+	stalenessThreshold time.Duration,
 	lggr logger.Logger,
 	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
 	ccvStorage protocol.CCVNodeDataWriter,
@@ -331,7 +422,7 @@ func createLombardCoordinator(
 	chainStatusManager protocol.ChainStatusManager,
 	db sqlutil.DataSource,
 ) (*verifier.Coordinator, error) {
-	sourceConfigs := createSourceConfigs(lombardConfig.ParsedVerifierResolvers, disableFinalityCheckers)
+	sourceConfigs := createSourceConfigs(lombardConfig.ParsedVerifierResolvers, disableFinalityCheckers, stalenessThreshold)
 	attestationService, err := lombard.NewAttestationService(lggr, verifierMonitoring, *lombardConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Lombard attestation service: %w", err)
@@ -378,6 +469,7 @@ func createLombardCoordinator(
 func createSourceConfigs(
 	verifiers map[protocol.ChainSelector]protocol.UnknownAddress,
 	disableFinalityCheckers []string,
+	stalenessThreshold time.Duration,
 ) map[protocol.ChainSelector]verifier.SourceConfig {
 	sourceConfigs := make(map[protocol.ChainSelector]verifier.SourceConfig)
 	for selector, address := range verifiers {
@@ -386,6 +478,7 @@ func createSourceConfigs(
 			VerifierAddress:        address,
 			DefaultExecutorAddress: nil,
 			PollInterval:           verifier.SourceReaderPollInterval,
+			StalenessThreshold:     stalenessThreshold,
 			ChainSelector:          selector,
 			DisableFinalityChecker: slices.Contains(disableFinalityCheckers, strSelector),
 		}

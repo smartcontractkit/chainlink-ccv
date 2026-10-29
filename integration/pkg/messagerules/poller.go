@@ -61,7 +61,12 @@ func NewPollerService(client Client, pollInterval, clientTimeout time.Duration, 
 func (s *PollerService) Start(ctx context.Context) error {
 	return s.StartOnce(s.Name(), func() error {
 		s.wg.Go(func() {
-			s.poll(ctx)
+			// The initial poll must use the service-lifetime context, not the
+			// startup ctx: bootstrap cancels the startup ctx as soon as Start
+			// returns, which could abort the very first rules fetch.
+			pollCtx, cancel := s.stopCh.NewCtx()
+			defer cancel()
+			s.poll(pollCtx)
 			s.pollLoop()
 		})
 

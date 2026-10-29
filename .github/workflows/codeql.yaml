@@ -16,6 +16,8 @@ jobs:
     needs: [runner-config]
     runs-on: ${{ matrix.runs-on || 'ubuntu-latest' }}
     permissions:
+      actions: read
+      contents: read
       # required for all workflows
       security-events: write
       # required to fetch internal or private CodeQL packs

@@ -196,14 +196,15 @@ func (c *component) RunPhase4(
 		if tvIn == nil || tvIn.Mode != services.Standalone {
 			continue
 		}
-		tvIn := services.ApplyTokenVerifierDefaults(*tvIn)
-		if tvIn.Bootstrap == nil {
-			tvIn.Bootstrap = &services.BootstrapInput{}
+		def := services.ApplyTokenVerifierDefaults(*tvIn)
+		if def.Bootstrap == nil {
+			def.Bootstrap = &services.BootstrapInput{}
 		}
 		m := obs.Monitoring
-		m.Beholder.TelemetryAttributes = services.TelemetryAttrs(obs.Monitoring.Beholder.TelemetryAttributes, "token-verifier", tvIn.ContainerName)
-		tvIn.Bootstrap.Monitoring = &m
-		out, launchErr := services.NewTokenVerifier(&tvIn, blockchainOutputs, modifiers)
+		m.Beholder.TelemetryAttributes = services.TelemetryAttrs(obs.Monitoring.Beholder.TelemetryAttributes, "token-verifier", def.ContainerName)
+		def.Bootstrap.Monitoring = &m
+		*tvIn = def
+		out, launchErr := services.NewTokenVerifier(tvIn, blockchainOutputs, modifiers)
 		if launchErr != nil {
 			return nil, nil, fmt.Errorf("tokenverifier: launching %q: %w", tvIn.ContainerName, launchErr)
 		}

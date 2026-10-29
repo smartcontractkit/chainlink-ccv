@@ -654,6 +654,9 @@ func (b *Bootstrapper) startLocalService(ctx context.Context, keyStore keystore.
 
 	js := JobSpec{Name: "local", AppConfig: string(appCfg)}
 	if err := b.fac.Start(ctx, js, ServiceDeps{Logger: b.lggr, Keystore: keyStore, Registry: b.accCloser}); err != nil {
+		if stopErr := b.fac.Stop(ctx); stopErr != nil {
+			b.lggr.Warnw("stop factory after failed startLocal", "error", stopErr)
+		}
 		return err
 	}
 	b.applicationReady.Store(true)
@@ -710,8 +713,10 @@ func (b *Bootstrapper) Start(ctx context.Context) error {
 		return fmt.Errorf("bootstrapper has no logger")
 	}
 	if b.mode == AppConfigModeJD {
+		//nolint:noeagerio // fail-fast by design: the DB connection, migrations, and keystore are hard dependencies of any job, verified up front and bounded by the startup timeout
 		return b.startWithJDLifecycle(ctx)
 	}
+	//nolint:noeagerio // fail-fast by design: same as the JD path above; a misconfigured local deployment should exit, not idle
 	return b.startLocal(ctx)
 }
 
@@ -772,7 +777,7 @@ func connectToDB(ctx context.Context, connStr string) (*sqlx.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to bootstrapper database: %w", err)
 	}
-	if err := dbpkg.RunMigrations(db); err != nil {
+	if err := dbpkg.RunMigrationsContext(ctx, db); err != nil {
 		return nil, fmt.Errorf("failed to run bootstrapper database migrations: %w", err)
 	}
 	return db, nil

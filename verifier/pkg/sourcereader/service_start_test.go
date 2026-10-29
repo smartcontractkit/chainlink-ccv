@@ -1,0 +1,263 @@
+package sourcereader
+
+import (
+	"context"
+	"errors"
+	"math/big"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
+
+	"github.com/smartcontractkit/chainlink-ccv/common"
+	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	verifiermonitoring "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
+	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+)
+
+// Start must return promptly without waiting on the DB/chain reads that derive
+// the start block: those belong to the background loop so a hanging or failing
+// dependency cannot block or abort process startup.
+func TestSRS_StartDoesNotBlockOnInitIO(t *testing.T) {
+	chain := protocol.ChainSelector(1337)
+
+	reader := mocks.NewMockSourceReader(t)
+	chainStatusMgr := mocks.NewMockChainStatusManager(t)
+	curseDetector := mocks.NewMockCurseCheckerService(t)
+
+	// Hold the DB read open until the test releases it.
+	readStarted := make(chan struct{})
+	release := make(chan struct{})
+	chainStatusMgr.EXPECT().ReadChainStatuses(mock.Anything, mock.Anything).
+		Run(func(context.Context, []protocol.ChainSelector) {
+			close(readStarted)
+			<-release
+		}).
+		Return(map[protocol.ChainSelector]*protocol.ChainStatusInfo{
+			chain: {ChainSelector: chain, FinalizedBlockHeight: big.NewInt(100)},
+		}, nil).
+		Maybe()
+	reader.EXPECT().LatestAndFinalizedBlock(mock.Anything).
+		Return(&protocol.BlockHeader{Number: 200}, &protocol.BlockHeader{Number: 150}, nil).
+		Maybe()
+	reader.EXPECT().LatestSafeBlock(mock.Anything).Return(nil, nil).Maybe()
+	reader.EXPECT().FetchMessageSentEvents(mock.Anything, mock.Anything, mock.Anything).
+		Return([]protocol.MessageSentEvent{}, nil).
+		Maybe()
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).
+		Return(false, nil).
+		Maybe()
+
+	srs, _, _ := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 20*time.Millisecond, 100)
+
+	// Start must return promptly without waiting on the init DB/chain read.
+	// Start runs in a goroutine with its own timeout so a regression back to
+	// synchronous init fails fast instead of deadlocking until the test
+	// timeout, and release is always closed before Close so the deferred
+	// shutdown can never wait on a blocked init attempt.
+	startDone := make(chan error, 1)
+	go func() { startDone <- srs.Start(t.Context()) }()
+	select {
+	case err := <-startDone:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("Start blocked on initialization I/O")
+	}
+	releaseOnce := sync.Once{}
+	releaseFn := func() { releaseOnce.Do(func() { close(release) }) }
+	defer func() {
+		// Release first so Close's wg.Wait can never block on a stuck init.
+		releaseFn()
+		require.NoError(t, srs.Close())
+	}()
+
+	// The background init reaches the blocked read while the service reports not-ready.
+	select {
+	case <-readStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("background init never attempted the chain status read")
+	}
+	require.Error(t, srs.Ready(), "service must report not-ready until the start block is initialized")
+
+	// Once the dependency recovers, init completes and the service becomes ready.
+	releaseFn()
+	require.Eventually(t, func() bool {
+		return srs.Ready() == nil
+	}, 2*time.Second, 5*time.Millisecond)
+}
+
+// A failing init (DB down, RPC down) must not fail Start; the service retries
+// in the background and self-heals.
+func TestSRS_StartRetriesFailedInit(t *testing.T) {
+	chain := protocol.ChainSelector(1337)
+
+	reader := mocks.NewMockSourceReader(t)
+	chainStatusMgr := mocks.NewMockChainStatusManager(t)
+	curseDetector := mocks.NewMockCurseCheckerService(t)
+
+	var attempts atomic.Int32
+	chainStatusMgr.EXPECT().ReadChainStatuses(mock.Anything, mock.Anything).
+		RunAndReturn(func(context.Context, []protocol.ChainSelector) (map[protocol.ChainSelector]*protocol.ChainStatusInfo, error) {
+			if attempts.Add(1) < 3 {
+				return nil, errors.New("transient DB error")
+			}
+			return map[protocol.ChainSelector]*protocol.ChainStatusInfo{
+				chain: {ChainSelector: chain, FinalizedBlockHeight: big.NewInt(100)},
+			}, nil
+		}).
+		Maybe()
+	reader.EXPECT().LatestAndFinalizedBlock(mock.Anything).
+		Return(&protocol.BlockHeader{Number: 200}, &protocol.BlockHeader{Number: 150}, nil).
+		Maybe()
+	reader.EXPECT().LatestSafeBlock(mock.Anything).Return(nil, nil).Maybe()
+	reader.EXPECT().FetchMessageSentEvents(mock.Anything, mock.Anything, mock.Anything).
+		Return([]protocol.MessageSentEvent{}, nil).
+		Maybe()
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).
+		Return(false, nil).
+		Maybe()
+
+	srs, _, _ := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 20*time.Millisecond, 100)
+
+	require.NoError(t, srs.Start(t.Context()))
+	defer func() { require.NoError(t, srs.Close()) }()
+
+	// No not-ready assertion here: the retrying init can succeed between Start
+	// and any unsynchronized Ready check. The blocked-read test above verifies
+	// non-readiness while initialization is deterministically held pending.
+	require.Eventually(t, func() bool {
+		return srs.Ready() == nil
+	}, 2*time.Second, 5*time.Millisecond, "service should self-heal once init succeeds")
+	require.GreaterOrEqual(t, attempts.Load(), int32(3))
+}
+
+// Once initialized, a chain whose queries keep failing (dead RPC/multinode) must
+// turn the reader not-ready after the staleness threshold, and ready again when
+// the chain recovers. Threshold is 50 poll intervals; 20ms polls give 1s.
+func TestSRS_ReadyReportsStaleAfterFailedQueries(t *testing.T) {
+	chain := protocol.ChainSelector(1337)
+
+	reader := mocks.NewMockSourceReader(t)
+	chainStatusMgr := mocks.NewMockChainStatusManager(t)
+	curseDetector := mocks.NewMockCurseCheckerService(t)
+
+	var failQueries atomic.Bool
+	chainStatusMgr.EXPECT().ReadChainStatuses(mock.Anything, mock.Anything).
+		Return(map[protocol.ChainSelector]*protocol.ChainStatusInfo{
+			chain: {ChainSelector: chain, FinalizedBlockHeight: big.NewInt(100)},
+		}, nil).
+		Maybe()
+	reader.EXPECT().LatestAndFinalizedBlock(mock.Anything).
+		RunAndReturn(func(context.Context) (*protocol.BlockHeader, *protocol.BlockHeader, error) {
+			if failQueries.Load() {
+				return nil, nil, errors.New("RPC unreachable")
+			}
+			return &protocol.BlockHeader{Number: 200}, &protocol.BlockHeader{Number: 150}, nil
+		}).
+		Maybe()
+	reader.EXPECT().LatestSafeBlock(mock.Anything).Return(nil, nil).Maybe()
+	reader.EXPECT().FetchMessageSentEvents(mock.Anything, mock.Anything, mock.Anything).
+		Return([]protocol.MessageSentEvent{}, nil).
+		Maybe()
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).
+		Return(false, nil).
+		Maybe()
+
+	srs, _, _ := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 20*time.Millisecond, 100)
+
+	require.NoError(t, srs.Start(t.Context()))
+	defer func() { require.NoError(t, srs.Close()) }()
+
+	require.Eventually(t, func() bool {
+		return srs.Ready() == nil
+	}, 2*time.Second, 5*time.Millisecond)
+
+	failQueries.Store(true)
+	require.Eventually(t, func() bool {
+		err := srs.Ready()
+		return err != nil && strings.Contains(err.Error(), "no successful chain query")
+	}, 5*time.Second, 20*time.Millisecond, "reader should report staleness once queries stop succeeding")
+
+	failQueries.Store(false)
+	require.Eventually(t, func() bool {
+		return srs.Ready() == nil
+	}, 2*time.Second, 5*time.Millisecond, "reader should recover once the chain answers again")
+}
+
+// A disabled chain is intentionally idle: queries stop by design, so staleness
+// must not flip readiness.
+func TestSRS_ReadyIgnoresStalenessWhenDisabled(t *testing.T) {
+	chain := protocol.ChainSelector(1337)
+
+	reader := mocks.NewMockSourceReader(t)
+	chainStatusMgr := mocks.NewMockChainStatusManager(t)
+	curseDetector := mocks.NewMockCurseCheckerService(t)
+
+	chainStatusMgr.EXPECT().ReadChainStatuses(mock.Anything, mock.Anything).
+		Return(map[protocol.ChainSelector]*protocol.ChainStatusInfo{
+			chain: {ChainSelector: chain, FinalizedBlockHeight: big.NewInt(100)},
+		}, nil).
+		Maybe()
+	reader.EXPECT().LatestAndFinalizedBlock(mock.Anything).
+		Return(&protocol.BlockHeader{Number: 200}, &protocol.BlockHeader{Number: 150}, nil).
+		Maybe()
+	reader.EXPECT().LatestSafeBlock(mock.Anything).Return(nil, nil).Maybe()
+	reader.EXPECT().FetchMessageSentEvents(mock.Anything, mock.Anything, mock.Anything).
+		Return([]protocol.MessageSentEvent{}, nil).
+		Maybe()
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).
+		Return(false, nil).
+		Maybe()
+
+	srs, _, _ := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 20*time.Millisecond, 100)
+
+	require.NoError(t, srs.Start(t.Context()))
+	defer func() { require.NoError(t, srs.Close()) }()
+
+	require.Eventually(t, func() bool {
+		return srs.Ready() == nil
+	}, 2*time.Second, 5*time.Millisecond)
+
+	srs.disabled.Store(true)
+	require.Never(t, func() bool {
+		return srs.Ready() != nil
+	}, 2*time.Second, 20*time.Millisecond, "disabled chain must stay ready (idle by design), not stale")
+}
+
+// The staleness threshold defaults to 50 poll intervals and honors an explicit override.
+func TestNewService_StalenessThreshold(t *testing.T) {
+	newSvc := func(t *testing.T, cfg verifier.SourceConfig) *Service {
+		t.Helper()
+		srs, err := NewService(
+			"test-verifier",
+			mocks.NewMockSourceReader(t),
+			protocol.ChainSelector(1337),
+			mocks.NewMockChainStatusManager(t),
+			logger.Test(t),
+			cfg,
+			mocks.NewMockCurseCheckerService(t),
+			&noopFilter{},
+			verifiermonitoring.NewFakeVerifierMonitoring(),
+			&fakeTaskQueue{},
+			common.AllowAllMessagesChecker{},
+		)
+		require.NoError(t, err)
+		return srs
+	}
+
+	t.Run("default is 50 poll intervals", func(t *testing.T) {
+		srs := newSvc(t, verifier.SourceConfig{PollInterval: 20 * time.Millisecond})
+		require.Equal(t, 50*20*time.Millisecond, srs.stalenessThreshold)
+	})
+
+	t.Run("explicit override wins", func(t *testing.T) {
+		srs := newSvc(t, verifier.SourceConfig{PollInterval: 20 * time.Millisecond, StalenessThreshold: 42 * time.Second})
+		require.Equal(t, 42*time.Second, srs.stalenessThreshold)
+	})
+}

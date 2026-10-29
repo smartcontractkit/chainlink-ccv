@@ -34,6 +34,7 @@ func NewStore(ds sqlutil.DataSource, lggr logger.Logger) *Store {
 
 // NewStoreFromConfig creates a Store with its own Postgres connection pool.
 func NewStoreFromConfig(ctx context.Context, lggr logger.Logger, uri string, dbConfig pg.DBConfig, connMaxLifetime, connMaxIdleTime time.Duration) (*Store, error) {
+	//nolint:noeagerio // replay is an operator-run one-shot tool whose only dependency is this DB; connecting eagerly fails fast on misconfiguration
 	db, err := dbConfig.New(ctx, uri, pg.DriverPostgres)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open replay store connection: %w", err)

@@ -43,6 +43,20 @@ type SecretsFile struct {
 	// PolicyHook is the optional credential the committee verifier presents to the operator's
 	// policy endpoint. Omit it to call the endpoint unauthenticated.
 	PolicyHook *PolicyHookSecret `toml:"policy_hook"`
+	// AdminUI is the optional basic-auth credential gating the admin console UI. Only the
+	// admin console consumes it, when this file is the console's secrets file; the verifier
+	// binaries ignore it.
+	AdminUI *AdminUISecret `toml:"admin_ui"`
+}
+
+// AdminUISecret is the basic-auth credential the admin console gates its UI with, as
+// declared in the [admin_ui] table. Both fields are required together; a half-supplied
+// pair is a startup error rather than a silent downgrade to unauthenticated serving.
+type AdminUISecret struct {
+	// Username is the basic-auth username; it also becomes the action-log actor.
+	Username string `toml:"username"`
+	// Password is the basic-auth password.
+	Password string `toml:"password"`
 }
 
 // PolicyHookSecret is the HMAC credential the committee verifier presents to the operator's
@@ -120,6 +134,8 @@ type VerifierSecrets struct {
 	aggregators AggregatorSecrets
 	// policyHook is nil when the file supplied no [policy_hook] (env is then used).
 	policyHook *PolicyHookSecret
+	// adminUI is nil when the file supplied no [admin_ui]; only the admin console reads it.
+	adminUI *AdminUISecret
 }
 
 // ResolveSecretsPath returns the secrets file path from envVar, or defaultPath when unset.
@@ -169,7 +185,7 @@ func Load(path string) (*VerifierSecrets, error) {
 		return nil, fmt.Errorf("invalid verifier secrets file %q: %w", path, err)
 	}
 
-	return &VerifierSecrets{dbURL: file.DB.URL, aggregators: aggregators, policyHook: file.PolicyHook}, nil
+	return &VerifierSecrets{dbURL: file.DB.URL, aggregators: aggregators, policyHook: file.PolicyHook, adminUI: file.AdminUI}, nil
 }
 
 // DatabaseURL returns the application storage DB URL: the secrets file value when present, otherwise
@@ -199,4 +215,13 @@ func (s *VerifierSecrets) PolicyHookSecret() *PolicyHookSecret {
 		return nil
 	}
 	return s.policyHook
+}
+
+// AdminUIAuth returns the console basic-auth pair from the file, or nil when the file
+// supplied no [admin_ui]. Only the admin console consumes it.
+func (s *VerifierSecrets) AdminUIAuth() *AdminUISecret {
+	if s == nil {
+		return nil
+	}
+	return s.adminUI
 }

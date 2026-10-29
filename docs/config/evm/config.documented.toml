@@ -17,6 +17,9 @@
     # are sent in a single JSON-RPC batch when the source reader fetches block
     # headers. Zero uses [DefaultSourceReaderHeaderFetchBatchSize], which is 25.
     source_reader_header_fetch_batch_size = 0
+    # log_poller_source_reader_enabled makes the committee verifier read this source chain through a LogPoller
+    # instead of RPC. It requires [db] in the EVM secrets file. Defaults to false.
+    log_poller_source_reader_enabled = true
 
     # nodes are the RPC endpoints used to reach this chain.
     [[chains.1.nodes]]

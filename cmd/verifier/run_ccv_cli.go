@@ -1,6 +1,7 @@
 package verifier
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
+	"github.com/smartcontractkit/chainlink-ccv/cli/admin"
 	"github.com/smartcontractkit/chainlink-ccv/cli/chainstatuses"
 	"github.com/smartcontractkit/chainlink-ccv/cli/jobqueue"
 	"github.com/smartcontractkit/chainlink-ccv/cli/migrate"
@@ -32,7 +34,9 @@ import (
 // secretsEnvVar/defaultSecretsPath name the calling app's verifier secrets file; the CLI loads it
 // itself (it runs before the service factory) so an operator who has cut over to the file need not
 // re-export CL_DATABASE_URL to run the CLI.
-func RunCCVCLI(args []string, secretsEnvVar, defaultSecretsPath string) {
+//
+// commands adds extra ccv subcommands, such as a chain family's own; building one must do no I/O.
+func RunCCVCLI(args []string, secretsEnvVar, defaultSecretsPath string, commands ...func(logger.Logger) cli.Command) {
 	// The profile and the stderr override are one function because NewWith takes a single
 	// customizer. Logs go to stderr so a caller can pipe the CLI's own output on stdout
 	// without them.
@@ -58,7 +62,7 @@ func RunCCVCLI(args []string, secretsEnvVar, defaultSecretsPath string) {
 	var chainStatusDeps chainstatuses.Deps
 	getChainStatusDeps := func() chainstatuses.Deps {
 		chainStatusOnce.Do(func() {
-			ds, connErr := ConnectToPostgresDB(lggr, secrets)
+			ds, connErr := ConnectToPostgresDB(context.Background(), lggr, secrets)
 			if connErr != nil {
 				_, _ = fmt.Fprintf(os.Stderr, "failed to connect to database: %v\n", connErr)
 				os.Exit(1)
@@ -77,7 +81,7 @@ func RunCCVCLI(args []string, secretsEnvVar, defaultSecretsPath string) {
 	var jobQueueDeps jobqueue.Deps
 	getJobQueueDeps := func() jobqueue.Deps {
 		jobQueueOnce.Do(func() {
-			ds, connErr := ConnectToPostgresDB(lggr, secrets)
+			ds, connErr := ConnectToPostgresDB(context.Background(), lggr, secrets)
 			if connErr != nil {
 				_, _ = fmt.Fprintf(os.Stderr, "failed to connect to database: %v\n", connErr)
 				os.Exit(1)
@@ -96,7 +100,7 @@ func RunCCVCLI(args []string, secretsEnvVar, defaultSecretsPath string) {
 	var recoveryStore recoverycli.Store
 	getRecoveryStore := func() recoverycli.Store {
 		recoveryOnce.Do(func() {
-			ds, err := ConnectToPostgresDB(lggr, secrets)
+			ds, err := ConnectToPostgresDB(context.Background(), lggr, secrets)
 			if err != nil || ds == nil {
 				_, _ = fmt.Fprintf(os.Stderr, "recovery requires a database connection: %v\n", err)
 				os.Exit(1)
@@ -115,6 +119,7 @@ func RunCCVCLI(args []string, secretsEnvVar, defaultSecretsPath string) {
 			Usage: "CCV-related commands",
 			Subcommands: []cli.Command{
 				{Name: "recovery", Usage: "Live source-range recovery and durable admission evidence", Subcommands: recoverycli.InitCommandsWithFactory(getRecoveryStore)},
+				admin.Command(secrets),
 				{
 					Name:        "chain-statuses",
 					Usage:       "List, enable, disable, or set finalized block height for chain statuses",
@@ -137,6 +142,9 @@ func RunCCVCLI(args []string, secretsEnvVar, defaultSecretsPath string) {
 				},
 			},
 		},
+	}
+	for _, command := range commands {
+		app.Commands[0].Subcommands = append(app.Commands[0].Subcommands, command(lggr))
 	}
 
 	if err := app.Run(append([]string{app.Name}, args...)); err != nil {

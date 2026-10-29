@@ -233,6 +233,9 @@ func runPhase3Core(
 		def.Bootstrap.Monitoring = &m
 		*ver = def
 	}
+	if err := chainreg.GetRegistry().ResolveVerifierDatabases(verifiers...); err != nil {
+		return nil, nil, fmt.Errorf("committeeccv: %w", err)
+	}
 	if err := committeeverifier.LaunchStandaloneVerifiers(
 		verifiers, aggregators, committeeverifier.CommitteeAggregatorNames(inputs.topology),
 		inputs.blockchainOutputs, inputs.jdInfra,
@@ -240,7 +243,7 @@ func runPhase3Core(
 	); err != nil {
 		return nil, nil, fmt.Errorf("committeeccv: failed to launch standalone verifiers: %w", err)
 	}
-	if err := committeeverifier.RegisterStandaloneVerifiersWithJD(ctx, verifiers, inputs.jdInfra.OffchainClient); err != nil {
+	if err := committeeverifier.RegisterStandaloneVerifiersWithJDFromInfra(ctx, verifiers, inputs.jdInfra); err != nil {
 		return nil, nil, fmt.Errorf("committeeccv: failed to register standalone verifiers with JD: %w", err)
 	}
 	for _, ver := range verifiers {

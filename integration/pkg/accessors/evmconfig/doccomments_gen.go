@@ -7,6 +7,7 @@ import "github.com/smartcontractkit/chainlink-common/x/config/commentparsing"
 func (ChainConfig) DocComments() map[string]commentparsing.FieldDoc {
 	return map[string]commentparsing.FieldDoc{
 		"FinalityDepth":                    {Comment: "FinalityDepth is the number of blocks required before a head is considered final.\nZero enables finality-tag mode; a positive value uses confirmation-depth mode."},
+		"LogPollerSourceReaderEnabled":     {Comment: "LogPollerSourceReaderEnabled makes the committee verifier read this source chain through a LogPoller\ninstead of RPC. It requires [db] in the EVM secrets file. Defaults to false."},
 		"Nodes":                            {Comment: "Nodes are the RPC endpoints used to reach this chain."},
 		"SourceReaderHeaderFetchBatchSize": {Comment: "SourceReaderHeaderFetchBatchSize caps how many eth_getBlockByNumber requests\nare sent in a single JSON-RPC batch when the source reader fetches block\nheaders. Zero uses [DefaultSourceReaderHeaderFetchBatchSize], which is 25."},
 		"TXMBlockTime":                     {Comment: "TXMBlockTime controls TXM v2's retry cadence: a transaction rebroadcasts once it is\nRetryBlockThreshold times this value old, so it should track the chain's real block\ninterval. It is not used outside the transaction manager. Zero takes the chain's curated\ndefault block interval when one exists and DefaultTXMBlockTime otherwise; upstream\nvalidation rejects values below two seconds."},
@@ -19,11 +20,23 @@ func (Config) DocComments() map[string]commentparsing.FieldDoc {
 	}
 }
 
+func (DBConfig) DocComments() map[string]commentparsing.FieldDoc {
+	return map[string]commentparsing.FieldDoc{
+		"URL": {Comment: "URL is the database connection URL. It is required."},
+	}
+}
+
 func (Node) DocComments() map[string]commentparsing.FieldDoc {
 	return map[string]commentparsing.FieldDoc{
 		"HTTPUrl": {Comment: "HTTPUrl is the JSON-RPC endpoint used for reads and transaction submission. It is required."},
 		"Name":    {Comment: "Name identifies the RPC provider or endpoint in logs and health reports."},
 		"Order":   {Comment: "Order is the node's selection priority, 1 (highest) through 100 (lowest). When several nodes\nare equally healthy the multi-node pool prefers the one with the lowest Order value, so an\noperator can keep a primary RPC ahead of its backups. Zero is the default and leaves Order\nunset: the conversion sends no Order to chainlink-evm, which then applies its own default\npriority. A converted Chainlink node config carries each node's Order over unchanged."},
 		"WSUrl":   {Comment: "WSUrl is the optional WebSocket endpoint used for head subscriptions. Nodes without one\nfall back to HTTP head polling."},
+	}
+}
+
+func (Secrets) DocComments() map[string]commentparsing.FieldDoc {
+	return map[string]commentparsing.FieldDoc{
+		"DB": {Comment: "DB is the database for the EVM accessor's own tables. Required when any chain sets log_poller_source_reader_enabled."},
 	}
 }

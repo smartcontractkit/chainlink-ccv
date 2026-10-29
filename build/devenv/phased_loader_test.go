@@ -56,6 +56,43 @@ func TestLoadPhasedCfg(t *testing.T) {
 	assert.Equal(t, []string{"http://idx-internal:1"}, cfg.IndexerInternalEndpoints)
 }
 
+// TestLoadPhasedCfgJDOutput verifies the phased [jd] section (a serialized
+// JDInfrastructure) is wired back onto cfg.JD.Out and cfg.JDInfra, since the
+// lenient Cfg decode drops its jd_output/node_id_map keys.
+func TestLoadPhasedCfgJDOutput(t *testing.T) {
+	out := map[string]any{
+		"version": 1,
+		"cldf": map[string]any{
+			"addresses": []string{`[{"address":"0x1"}]`},
+		},
+		"jd": map[string]any{
+			"jd_output": map[string]any{
+				"use_cache":          true,
+				"container_name":     "jd-1",
+				"grpc_url":           "127.0.0.1:14231",
+				"internal_grpc_url":  "jd-1:14231",
+				"wsrpc_url":          "127.0.0.1:8080",
+				"internal_wsrpc_url": "jd-1:8080",
+			},
+			"node_id_map":          map[string]string{"verifier-1": "node_abc"},
+			"node_connect_timeout": "7m",
+		},
+	}
+	data, err := toml.Marshal(out)
+	require.NoError(t, err)
+
+	cfg, err := loadPhasedCfg(data)
+	require.NoError(t, err)
+
+	require.NotNil(t, cfg.JD)
+	require.NotNil(t, cfg.JD.Out)
+	assert.Equal(t, "jd-1", cfg.JD.Out.ContainerName)
+	assert.Equal(t, "127.0.0.1:14231", cfg.JD.Out.ExternalGRPCUrl)
+	assert.Equal(t, "7m", cfg.JD.NodeConnectTimeout)
+	require.NotNil(t, cfg.JDInfra)
+	assert.Equal(t, map[string]string{"verifier-1": "node_abc"}, cfg.JDInfra.NodeIDMap)
+}
+
 // TestLoadPhasedCfgIgnoresRuntimeKeys confirms the lenient decode tolerates the
 // extra non-Cfg keys a raw phased dump carries (it must not error on them).
 func TestLoadPhasedCfgIgnoresRuntimeKeys(t *testing.T) {

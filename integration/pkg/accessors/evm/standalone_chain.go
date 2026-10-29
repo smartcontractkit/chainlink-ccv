@@ -2,14 +2,17 @@ package evm
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
+	"math/big"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 
+	"github.com/smartcontractkit/chainlink-ccv/common/lazy"
 	commonmonitoring "github.com/smartcontractkit/chainlink-ccv/common/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
@@ -23,9 +26,11 @@ import (
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 	clevmconfig "github.com/smartcontractkit/chainlink-evm/pkg/config"
 	"github.com/smartcontractkit/chainlink-evm/pkg/gas"
+	"github.com/smartcontractkit/chainlink-evm/pkg/gas/rollups"
 	"github.com/smartcontractkit/chainlink-evm/pkg/heads"
 	evmkeys "github.com/smartcontractkit/chainlink-evm/pkg/keys"
 	evmkeysv2 "github.com/smartcontractkit/chainlink-evm/pkg/keys/v2"
+	"github.com/smartcontractkit/chainlink-evm/pkg/logpoller"
 	"github.com/smartcontractkit/chainlink-evm/pkg/txmgr"
 )
 
@@ -76,6 +81,9 @@ func rawNodeURLs(nodes []Node) []map[string]string {
 type chainRuntime interface {
 	ChainClient() (client.Client, error)
 	HeadTracker() (heads.Tracker, error)
+	// DAGasPriceOracle returns nil when the chain type has no data availability fee.
+	DAGasPriceOracle(ctx context.Context) (rollups.L1Oracle, error)
+	TransmitterAddresses(ctx context.Context, ks keystore.Keystore, keyName string) ([]common.Address, error)
 	SourceReaderHeaderFetchBatchSize() int
 	NewContractTransmitter(
 		ctx context.Context,
@@ -89,6 +97,7 @@ type chainRuntime interface {
 
 type standaloneChain struct {
 	lggr            logger.Logger
+	selector        protocol.ChainSelector
 	chainClient     client.Client
 	chainConfig     *clevmconfig.ChainScoped
 	headBroadcaster heads.Broadcaster
@@ -108,9 +117,16 @@ type standaloneChain struct {
 
 	mu                  sync.Mutex
 	txm                 txmgr.TxManager
+	daOracle            *lazy.Lazy[rollups.L1Oracle]
 	unsubscribeTXM      func()
 	contractTransmitter chainaccess.ContractTransmitter
 	closed              bool
+
+	// logPoller is built by the first LogPoller call, through newLogPoller.
+	newLogPoller logPollerBuilder
+	logPoller    logpoller.LogPoller
+	// logPollerStarted is set once StartLogPoller has started logPoller.
+	logPollerStarted bool
 
 	// recoveryStop cancels the orphan recovery goroutine, which spends most of its life in a grace
 	// period sleep and must not outlive the accessor. recoveryWG lets Close wait for it, so the
@@ -119,7 +135,7 @@ type standaloneChain struct {
 	recoveryWG   sync.WaitGroup
 }
 
-func newStandaloneChain(ctx context.Context, info Info, lggr logger.Logger) (*standaloneChain, error) {
+func newStandaloneChain(ctx context.Context, selector protocol.ChainSelector, info Info, lggr logger.Logger) (*standaloneChain, error) {
 	chainClient, chainConfig, err := newMultiNodeClientFromInfo(info, lggr)
 	if err != nil {
 		return nil, err
@@ -167,8 +183,9 @@ func newStandaloneChain(ctx context.Context, info Info, lggr logger.Logger) (*st
 		"nodeCount", len(chainConfig.Nodes()),
 	)
 	txmBlockTime, txmBlockTimeSource := evmconfig.ResolveTXMBlockTime(info)
-	return &standaloneChain{
+	chain := &standaloneChain{
 		lggr:                             lggr,
+		selector:                         selector,
 		chainClient:                      chainClient,
 		chainConfig:                      chainConfig,
 		headBroadcaster:                  headBroadcaster,
@@ -178,8 +195,11 @@ func newStandaloneChain(ctx context.Context, info Info, lggr logger.Logger) (*st
 		txmBlockTime:                     txmBlockTime,
 		txmBlockTimeSource:               txmBlockTimeSource,
 		sourceReaderHeaderFetchBatchSize: sourceReaderHeaderFetchBatchSize(info.SourceReaderHeaderFetchBatchSize),
+		newLogPoller:                     buildLogPoller,
 		recoveryStop:                     make(services.StopChan),
-	}, nil
+	}
+	chain.daOracle = lazy.New(chain.buildDAGasPriceOracle)
+	return chain, nil
 }
 
 // SourceReaderHeaderFetchBatchSize returns the configured source-reader header
@@ -209,6 +229,63 @@ func (c *standaloneChain) HeadTracker() (heads.Tracker, error) {
 		return nil, errors.New("EVM head tracker is not available")
 	}
 	return c.headTracker, nil
+}
+
+// DAGasPriceOracle builds and starts the data availability gas price oracle on the first call.
+// It returns nil for chain types that have no data availability fee.
+func (c *standaloneChain) DAGasPriceOracle(ctx context.Context) (rollups.L1Oracle, error) {
+	if c == nil || c.daOracle == nil {
+		return nil, errors.New("EVM DA gas price oracle is not available")
+	}
+	return c.daOracle.Value(ctx)
+}
+
+// buildDAGasPriceOracle starts the oracle. The start waits for the first RPC read, so it holds no lock.
+func (c *standaloneChain) buildDAGasPriceOracle(ctx context.Context) (rollups.L1Oracle, error) {
+	c.mu.Lock()
+	closed := c.closed
+	c.mu.Unlock()
+	if closed {
+		return nil, errors.New("EVM chain runtime is closed")
+	}
+	oracle, err := rollups.NewL1GasOracle(
+		logger.Named(c.lggr, "DAGasPriceOracle"),
+		c.chainClient,
+		c.chainConfig.EVM().ChainType(),
+		c.chainConfig.EVM().GasEstimator().DAOracle(),
+		nil,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create EVM DA gas price oracle: %w", err)
+	}
+	if oracle == nil {
+		return nil, nil
+	}
+	if err := oracle.Start(ctx); err != nil {
+		return nil, fmt.Errorf("failed to start EVM DA gas price oracle: %w", err)
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return nil, errors.Join(errors.New("EVM chain runtime is closed"), oracle.Close())
+	}
+	return oracle, nil
+}
+
+// TransmitterAddresses returns the addresses of the enabled keys that have the given key name.
+func (c *standaloneChain) TransmitterAddresses(ctx context.Context, ks keystore.Keystore, keyName string) ([]common.Address, error) {
+	if ks == nil {
+		return nil, errors.New("EVM transmitter addresses require a keystore")
+	}
+	coreKeystore := evmkeysv2.NewTxKeyCoreKeystore(ks, evmkeysv2.WithAllowedKeyNames([]string{keyName}))
+	addresses, err := evmkeys.NewChainStore(coreKeystore, c.chainConfig.EVM().ChainID()).EnabledAddresses(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load EVM transmitter key %q: %w", keyName, err)
+	}
+	if len(addresses) == 0 {
+		return nil, fmt.Errorf("EVM transmitter key %q was not found", keyName)
+	}
+	return addresses, nil
 }
 
 // NewContractTransmitter starts chainlink-evm's production TXM v2 and returns
@@ -329,6 +406,68 @@ func (c *standaloneChain) NewContractTransmitter(
 	return transmitter, nil
 }
 
+var _ logPollerRuntime = (*standaloneChain)(nil)
+
+// EVMChainID returns the chain's configured EVM chain ID.
+func (c *standaloneChain) EVMChainID() *big.Int {
+	return c.chainConfig.EVM().ChainID()
+}
+
+// LogPoller builds this chain's LogPoller on the first call and returns the same one afterwards. It
+// does not start it: StartLogPoller does, once the caller holds the EVM database lease.
+func (c *standaloneChain) LogPoller(ctx context.Context, db *sql.DB) (logpoller.LogPoller, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.closed {
+		return nil, errors.New("EVM chain runtime is closed")
+	}
+	if c.logPoller != nil {
+		return c.logPoller, nil
+	}
+	chainID := c.chainConfig.EVM().ChainID()
+	if db == nil {
+		return nil, fmt.Errorf("log poller for chain selector %d (evm_chain_id %s) requires the EVM database", c.selector, chainID)
+	}
+
+	// Building fails the same way on every attempt (metric registration), so the caller skips the chain.
+	lp, err := c.newLogPoller(logPollerInputs{
+		chainID:     chainID,
+		logger:      logger.Named(c.lggr, "LogPoller"),
+		client:      c.chainClient,
+		headTracker: c.headTracker,
+		config:      c.chainConfig.EVM(),
+		db:          db,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to build log poller for chain selector %d (evm_chain_id %s): %w", c.selector, chainID, err)
+	}
+	c.logPoller = lp
+	return lp, nil
+}
+
+// StartLogPoller starts the built LogPoller; later calls do nothing.
+func (c *standaloneChain) StartLogPoller(ctx context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.closed {
+		return errors.New("EVM chain runtime is closed")
+	}
+	if c.logPoller == nil {
+		return fmt.Errorf("log poller for chain selector %d is not built", c.selector)
+	}
+	if c.logPollerStarted {
+		return nil
+	}
+	if err := c.logPoller.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start log poller for chain selector %d (evm_chain_id %s): %w",
+			c.selector, c.chainConfig.EVM().ChainID(), err)
+	}
+	c.logPollerStarted = true
+	return nil
+}
+
 // startOrphanRecovery drives transactions left in the mempool by a previous run of this process to
 // completion, so an address is never blocked indefinitely by work this process cannot see.
 //
@@ -419,6 +558,7 @@ func (c *standaloneChain) Close() error {
 	unsubscribeTXM := c.unsubscribeTXM
 	chainClient := c.chainClient
 	configEmitter := c.configEmitter
+	lp := c.logPoller
 	c.mu.Unlock()
 
 	// Stop the config emitter first: it is independent of the chain services and this stops
@@ -441,6 +581,16 @@ func (c *standaloneChain) Close() error {
 	}
 	c.recoveryWG.Wait()
 
+	// The LogPoller reads heads from the head tracker, so it stops first. A poller something else
+	// stopped, or one that never started because this chain never got the lease, is not an error.
+	if lp != nil {
+		if closeErr := lp.Close(); closeErr != nil &&
+			!errors.Is(closeErr, services.ErrAlreadyStopped) && !errors.Is(closeErr, services.ErrCannotStopUnstarted) {
+			chainID := c.chainConfig.EVM().ChainID().String()
+			err = errors.Join(err, fmt.Errorf("failed to close log poller for chain selector %d (evm_chain_id %s): %w", c.selector, chainID, closeErr))
+		}
+	}
+
 	if headTracker != nil {
 		err = errors.Join(err, headTracker.Close())
 	}
@@ -452,6 +602,12 @@ func (c *standaloneChain) Close() error {
 	}
 	if txm != nil {
 		err = errors.Join(err, txm.Close())
+	}
+	if c.daOracle != nil && c.daOracle.Derived() {
+		// The oracle is derived, so Value returns the cached oracle without any call.
+		if daOracle, _ := c.daOracle.Value(context.Background()); daOracle != nil {
+			err = errors.Join(err, daOracle.Close())
+		}
 	}
 	if mailMonitor != nil {
 		err = errors.Join(err, mailMonitor.Close())

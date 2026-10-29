@@ -30,13 +30,15 @@ func NewAccessorCloserRegistry(lggr logger.Logger, inner chainaccess.Registry) *
 }
 
 // GetAccessor delegates to the inner Registry and tracks the returned Accessor.
+// The delegate call runs outside the mutex so concurrent per-chain construction
+// (verifier/executor factory Start loops) is not serialized by tracking.
 func (t *AccessorCloserRegistry) GetAccessor(ctx context.Context, chainSelector protocol.ChainSelector) (chainaccess.Accessor, error) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
 	a, err := t.inner.GetAccessor(ctx, chainSelector)
 	if err != nil {
 		return nil, err
 	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	t.accessors = append(t.accessors, a)
 	return a, nil
 }

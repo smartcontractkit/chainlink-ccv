@@ -114,9 +114,27 @@ func LaunchStandaloneVerifiers(
 	return nil
 }
 
-// RegisterStandaloneVerifiersWithJD registers standalone verifiers with JD in parallel
-// and waits for each to establish its WSRPC connection.
+// RegisterStandaloneVerifiersWithJD registers standalone verifiers with JD in
+// parallel using the default node connect timeout; it is kept for compatibility.
+// Prefer RegisterStandaloneVerifiersWithJDFromInfra for [jd] node_connect_timeout.
 func RegisterStandaloneVerifiersWithJD(ctx context.Context, verifiers []*Input, jdClient offchain.Client) error {
+	return registerStandaloneVerifiersWithJD(ctx, verifiers, jdClient, jobs.DefaultNodeConnectTimeout)
+}
+
+// RegisterStandaloneVerifiersWithJDFromInfra is RegisterStandaloneVerifiersWithJD
+// with the JD details taken from the infra, so the waits honor its configured
+// [jd] node_connect_timeout.
+func RegisterStandaloneVerifiersWithJDFromInfra(ctx context.Context, verifiers []*Input, jdInfra *jobs.JDInfrastructure) error {
+	if jdInfra == nil || jdInfra.OffchainClient == nil {
+		return nil
+	}
+	return registerStandaloneVerifiersWithJD(ctx, verifiers, jdInfra.OffchainClient, jdInfra.ConnectTimeout())
+}
+
+// registerStandaloneVerifiersWithJD registers standalone verifiers with JD in
+// parallel and waits for each to establish its WSRPC connection within
+// connectTimeout.
+func registerStandaloneVerifiersWithJD(ctx context.Context, verifiers []*Input, jdClient offchain.Client, connectTimeout time.Duration) error {
 	var standalone []*Input
 	for _, ver := range verifiers {
 		if ver.Mode == services.Standalone {
@@ -147,7 +165,7 @@ func RegisterStandaloneVerifiersWithJD(ctx context.Context, verifiers []*Input, 
 			mu.Lock()
 			ver.Out.JDNodeID = reg.NodeID
 			mu.Unlock()
-			if err := jobs.WaitForBootstrapConnection(gCtx, jdClient, reg.NodeID, 60*time.Second); err != nil {
+			if err := jobs.WaitForBootstrapConnection(gCtx, jdClient, reg.NodeID, connectTimeout); err != nil {
 				return fmt.Errorf("bootstrap %s failed to connect to JD: %w", ver.ContainerName, err)
 			}
 			return nil

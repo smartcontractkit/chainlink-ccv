@@ -36,6 +36,9 @@ const (
 	DefaultPollInterval  = 2100 * time.Millisecond
 	DefaultPollTimeout   = 10 * time.Second
 	DefaultMaxBlockRange = 100
+	// DefaultStalenessPollIntervals is how many poll intervals a chain may go without a
+	// successful query before Ready fails; used when SourceConfig.StalenessThreshold is unset.
+	DefaultStalenessPollIntervals = 50
 )
 
 // toBlock of 0 means the range is open-ended (queries up to the latest block).
@@ -61,10 +64,17 @@ type Service struct {
 	curseDetector   common.CurseCheckerService
 	messageRules    common.MessageRulesChecker
 	finalityChecker protocol.FinalityViolationChecker
-	pollInterval    time.Duration
-	pollTimeout     time.Duration
-	maxBlockRange   uint64
-	sourceCfg       verifier.SourceConfig
+	// finalityReporter is the chain's own finality signal, nil when headers are compared instead.
+	finalityReporter chainaccess.FinalityViolationReporter
+	// healthReporter is the chain's own health signal, nil when the chain has no extra health input.
+	healthReporter chainaccess.SourceHealthReporter
+	pollInterval   time.Duration
+	pollTimeout    time.Duration
+	maxBlockRange  uint64
+	sourceCfg      verifier.SourceConfig
+	// stalenessThreshold is how long the chain may go without a successful query
+	// before Ready() fails; 50 poll intervals per the health guidelines.
+	stalenessThreshold time.Duration
 
 	// DB-backed task queue
 	taskQueue jobqueue.JobQueue[verifier.VerificationTask]
@@ -75,7 +85,8 @@ type Service struct {
 	// mutable per-chain state
 	mu                          sync.RWMutex
 	lastProcessedFinalizedBlock atomic.Uint64
-	startBlockInitialized       atomic.Bool // guards lastProcessedFinalizedBlock; unset only in unit tests that skip Start
+	startBlockInitialized       atomic.Bool  // guards lastProcessedFinalizedBlock; set by the background init in Start
+	lastSuccessfulQuery         atomic.Int64 // unix ts of the last successful chain query; drives Ready() staleness
 	pendingTasks                map[string]verifier.VerificationTask
 	pendingSince                map[string]time.Time
 	pendingMetricDestinations   map[protocol.ChainSelector]struct{}
@@ -83,12 +94,32 @@ type Service struct {
 	reorgTracker                *ReorgTracker
 	disabled                    atomic.Bool
 	finalityBlocked             atomic.Bool
+	invariantBlocked            atomic.Bool
 
 	// ChainStatus management
 	chainStatusManager protocol.ChainStatusManager
 
 	recovery *recoveryRuntime
 	filter   chainaccess.MessageFilter
+}
+
+// ServiceOption customizes NewService.
+type ServiceOption func(*serviceOptions)
+
+type serviceOptions struct {
+	finalityReporter chainaccess.FinalityViolationReporter
+	healthReporter   chainaccess.SourceHealthReporter
+}
+
+// WithHealthReporter adds the chain's own health signal to its health; a nil reporter adds nothing.
+func WithHealthReporter(reporter chainaccess.SourceHealthReporter) ServiceOption {
+	return func(o *serviceOptions) { o.healthReporter = reporter }
+}
+
+// WithFinalityReporter makes the service use the chain's own finality signal instead of comparing
+// headers; a nil reporter keeps the header-based checker.
+func WithFinalityReporter(reporter chainaccess.FinalityViolationReporter) ServiceOption {
+	return func(o *serviceOptions) { o.finalityReporter = reporter }
 }
 
 // NewService creates a DB-backed Service that publishes
@@ -105,7 +136,12 @@ func NewService(
 	monitoring verifier.Monitoring,
 	taskQueue jobqueue.JobQueue[verifier.VerificationTask],
 	messageRules common.MessageRulesChecker,
+	opts ...ServiceOption,
 ) (*Service, error) {
+	var options serviceOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
 	if sourceReader == nil {
 		return nil, fmt.Errorf("sourceReader cannot be nil")
 	}
@@ -129,22 +165,16 @@ func NewService(
 	}
 	metrics := monitoring.Metrics()
 
-	var finalityChecker protocol.FinalityViolationChecker
-	var err error
-
-	if sourceCfg.DisableFinalityChecker {
-		lggr.Infow("FinalityViolationChecker is disabled by config", "chainSelector", chainSelector)
-		finalityChecker = &NoOpFinalityViolationChecker{}
-	} else {
-		finalityChecker, err = NewFinalityViolationCheckerService(
-			sourceReader,
-			chainSelector,
-			logger.With(lggr, "component", "FinalityChecker", "chainID", chainSelector),
-			metrics,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create finality checker: %w", err)
-		}
+	finalityChecker, err := newFinalityChecker(
+		sourceCfg,
+		sourceReader,
+		options.finalityReporter,
+		chainSelector,
+		logger.With(lggr, "component", "FinalityChecker", "chainID", chainSelector),
+		metrics,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create finality checker: %w", err)
 	}
 
 	interval := sourceCfg.PollInterval
@@ -162,6 +192,11 @@ func NewService(
 		pollTimeout = DefaultPollTimeout
 	}
 
+	stalenessThreshold := sourceCfg.StalenessThreshold
+	if stalenessThreshold <= 0 {
+		stalenessThreshold = DefaultStalenessPollIntervals * interval
+	}
+
 	return &Service{
 		logger:             logger.With(lggr, "component", "Service", "chain", chainSelector),
 		verifierID:         verifierID,
@@ -172,8 +207,11 @@ func NewService(
 		curseDetector:      curseDetector,
 		messageRules:       messageRules,
 		finalityChecker:    finalityChecker,
+		finalityReporter:   options.finalityReporter,
+		healthReporter:     options.healthReporter,
 		pollInterval:       interval,
 		pollTimeout:        pollTimeout,
+		stalenessThreshold: stalenessThreshold,
 		sourceCfg:          sourceCfg,
 		maxBlockRange:      maxBlockRange,
 		taskQueue:          taskQueue,
@@ -193,18 +231,8 @@ func (r *Service) Start(ctx context.Context) error {
 	return r.StartOnce(r.Name(), func() error {
 		r.logger.Infow("Starting Service")
 
-		startBlock, err := r.initializeStartBlock(ctx)
-		if err != nil {
-			r.logger.Errorw("Failed to initialize start block", "error", err)
-			return err
-		}
-		r.lastProcessedFinalizedBlock.Store(startBlock)
-		r.startBlockInitialized.Store(true)
-		r.metrics().SetSourceReaderLastProcessedFinalizedBlock(ctx, int64(startBlock)) // #nosec G115 -- chain block heights are within int64 range
-		r.logger.Infow("Initialized start block", "block", startBlock)
-
 		r.wg.Go(func() {
-			r.eventMonitoringLoop()
+			r.initializeAndMonitor()
 		})
 
 		r.logger.Infow("Service started")
@@ -212,11 +240,66 @@ func (r *Service) Start(ctx context.Context) error {
 	})
 }
 
+// initializeAndMonitor retries start-block initialization until it succeeds or the
+// service stops, then hands off to the event monitoring loop. Start must not do
+// this inline: the DB/RPC reads can hang or fail on transient errors and must
+// never block or abort process startup (Ready reports the interim state instead).
+func (r *Service) initializeAndMonitor() {
+	ctx, cancel := r.stopCh.NewCtx()
+	defer cancel()
+
+	for {
+		attemptCtx, attemptCancel := context.WithTimeout(ctx, r.pollTimeout)
+		startBlock, err := r.initializeStartBlock(attemptCtx)
+		attemptCancel()
+		if err == nil {
+			r.lastProcessedFinalizedBlock.Store(startBlock)
+			if loader, ok := r.sourceReader.(chainaccess.SourceLoader); ok {
+				loader.LoadFrom(startBlock)
+			}
+			r.startBlockInitialized.Store(true)
+			r.metrics().SetSourceReaderLastProcessedFinalizedBlock(ctx, int64(startBlock)) // #nosec G115 -- chain block heights are within int64 range
+			r.logger.Infow("Initialized start block", "block", startBlock)
+			break
+		}
+		r.logger.Errorw("Failed to initialize start block, will retry", "error", err, "retryIn", r.pollInterval)
+		r.recordChainHealth(ctx)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(r.pollInterval):
+		}
+	}
+
+	// A loading source must not be read, so the monitoring loop starts only once it has loaded. The chain
+	// is unhealthy until then, and healthy as soon as it loads.
+	for {
+		r.recordChainHealth(ctx)
+		if r.sourceLoaded() == nil {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(r.pollInterval):
+		}
+	}
+	// Staleness starts once the source can serve reads, so a long load does not count against it.
+	r.lastSuccessfulQuery.Store(time.Now().Unix())
+
+	r.eventMonitoringLoop()
+}
+
 func (r *Service) Close() error {
 	return r.StopOnce(r.Name(), func() error {
 		r.logger.Infow("Stopping Service")
 		close(r.stopCh)
 		r.wg.Wait()
+		if loader, ok := r.sourceReader.(chainaccess.SourceLoader); ok {
+			if err := loader.Close(); err != nil {
+				r.logger.Warnw("Failed to close source reader", "error", err)
+			}
+		}
 		r.logger.Infow("Service stopped")
 		return nil
 	})
@@ -236,10 +319,54 @@ func (r *Service) Ready() error {
 	if err := r.StateMachine.Ready(); err != nil {
 		return err
 	}
+	return r.readiness()
+}
+
+// readiness is what /health reports. A chain disabled without a finality violation stays ready, as it
+// always did; chainHealth adds that on top for the gauge.
+func (r *Service) readiness() error {
+	if !r.startBlockInitialized.Load() {
+		return errors.New("start block not yet initialized")
+	}
+	if err := r.sourceLoaded(); err != nil {
+		return err
+	}
+	if r.healthReporter != nil {
+		if err := r.healthReporter.Healthy(); err != nil {
+			return fmt.Errorf("source unhealthy: %w", err)
+		}
+	}
 	if r.finalityBlocked.Load() {
 		return errors.New("finality blocked")
 	}
+	if r.invariantBlocked.Load() {
+		return errors.New("source invariant violation")
+	}
+	// A disabled chain is intentionally idle, so staleness does not apply to it.
+	if last := r.lastSuccessfulQuery.Load(); !r.disabled.Load() && last > 0 {
+		if since := time.Since(time.Unix(last, 0)); since > r.stalenessThreshold {
+			return fmt.Errorf("no successful chain query for %s", since.Round(time.Second))
+		}
+	}
 	return nil
+}
+
+// chainHealth is the one function behind the chain's health gauge: nil only when the chain is ready and
+// not disabled. Finality violations reach it through finalityBlocked, never through the health reporter.
+func (r *Service) chainHealth() error {
+	if err := r.readiness(); err != nil {
+		return err
+	}
+	if r.disabled.Load() {
+		return errors.New("chain disabled")
+	}
+	return nil
+}
+
+// recordChainHealth writes chainHealth to the chain health gauge. The gauge keeps the last value written,
+// so rewriting an unchanged value is harmless.
+func (r *Service) recordChainHealth(ctx context.Context) {
+	r.monitoring.RecordChainHealthy(ctx, r.chainSelector, r.chainHealth() == nil)
 }
 
 func (r *Service) eventMonitoringLoop() {
@@ -274,8 +401,12 @@ func (r *Service) eventMonitoringLoop() {
 				}
 				ready, latest, safe, finalized := r.readyToQuery(ctx)
 				if !ready {
+					r.monitoring.RecordChainHealthy(ctx, r.chainSelector, false)
 					return
 				}
+				r.lastSuccessfulQuery.Store(time.Now().Unix())
+				// A successful query is healthy only if the source and the chain's other inputs are too.
+				r.recordChainHealth(ctx)
 				r.recoveryHeartbeat(ctx, &latest.Number)
 				if r.recovery != nil && r.recovery.rebuildingID != "" {
 					if r.checkFinality(ctx, finalized) {
@@ -380,9 +511,18 @@ func (r *Service) processEventCycle(ctx context.Context, latest, finalized *prot
 	r.logger.Debugw("Querying from block", "fromBlock", fromBlock)
 	events, lastQueriedBlock, err := r.loadEvents(logsCtx, fromBlock, latest)
 	if err != nil {
-		r.logger.Warnw("Error when querying logs", "error", err,
-			"fromBlock", fromBlock,
-			"toBlock", "latest")
+		// A disabled source reported a critical invariant violation: disable the chain durably
+		// like a finality violation instead of retrying.
+		if errors.Is(err, chainaccess.ErrSourceReaderDisabled) {
+			r.handleSourceInvariantViolation(ctx)
+			return false
+		}
+		// A source still loading is expected on startup, so it is logged at info; the loop still records poll_error.
+		if errors.Is(err, chainaccess.ErrSourceNotReady) {
+			r.logger.Infow("Source not ready yet, waiting", "fromBlock", fromBlock, "error", err)
+		} else {
+			r.logger.Warnw("Error when querying logs", "error", err, "fromBlock", fromBlock, "toBlock", "latest")
+		}
 
 		// Only return early when no progress was made
 		if lastQueriedBlock == fromBlock {
@@ -1117,7 +1257,12 @@ func (r *Service) isMessageReadyForVerification(
 
 func (r *Service) handleFinalityViolation(ctx context.Context) {
 	r.logger.Errorw("FINALITY VIOLATION - disabling chain")
+	r.disableForFinalityViolation(ctx)
+	// Outside r.mu: health calls into the source's own signal and the metrics exporter.
+	r.recordChainHealth(ctx)
+}
 
+func (r *Service) disableForFinalityViolation(ctx context.Context) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.disabled.Load() {
@@ -1126,29 +1271,66 @@ func (r *Service) handleFinalityViolation(ctx context.Context) {
 	r.finalityBlocked.Store(true)
 	r.disabled.Store(true)
 	r.recordFinalityIncident(ctx)
+	r.flushTasksLocked(ctx,
+		monitoring.MessageTransitionOutcomeFinalityBlocked,
+		monitoring.MessageTransitionReasonFinalityViolation,
+		monitoring.EventFinalityBlocked,
+		"finality violation")
+	r.metrics().SetSourceReaderState(ctx, monitoring.SourceReaderStateFinalityBlocked)
+	r.persistDisabledLocked(ctx, "finality violation")
+}
+
+// handleSourceInvariantViolation disables the chain after the source reader reports a critical
+// invariant violation, with the same durability as a finality violation: pending and sent tasks
+// are dropped and the disabled chainStatus persists until an operator resets the reader.
+func (r *Service) handleSourceInvariantViolation(ctx context.Context) {
+	r.logger.Errorw("CRITICAL SOURCE INVARIANT VIOLATION - disabling chain")
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.disabled.Load() {
+		return
+	}
+	r.invariantBlocked.Store(true)
+	r.disabled.Store(true)
+	r.flushTasksLocked(ctx,
+		monitoring.MessageTransitionOutcomeSourceDisabled,
+		monitoring.MessageTransitionReasonSourceInvariantViolation,
+		monitoring.EventDisabledDropped,
+		"source invariant violation")
+	r.metrics().SetSourceReaderState(ctx, monitoring.SourceReaderStateDisabled)
+	r.persistDisabledLocked(ctx, "source invariant violation")
+}
+
+// flushTasksLocked drops every pending and sent task, recording the drop on each task's metrics
+// and span. The caller must hold r.mu and have already set r.disabled.
+func (r *Service) flushTasksLocked(ctx context.Context, outcome, reason, spanEvent, cause string) {
 	flushed := len(r.pendingTasks)
 	sentFlushed := len(r.sentTasks)
 	for _, task := range r.pendingTasks {
 		r.messageMetrics(task.Message).IncrementMessageTransition(
 			ctx,
 			monitoring.MessageTransitionStagePendingFinality,
-			monitoring.MessageTransitionOutcomeFinalityBlocked,
-			monitoring.MessageTransitionReasonFinalityViolation)
+			outcome,
+			reason)
 
 		// task's span has been open since discovery
 		span := tracing.SpanFromContext(task.TraceContext)
-		span.AddEvent(monitoring.EventFinalityBlocked)
+		span.AddEvent(spanEvent)
 		span.End()
 	}
 	r.pendingTasks = make(map[string]verifier.VerificationTask)
 	r.pendingSince = make(map[string]time.Time)
 	r.sentTasks = make(map[string]verifier.VerificationTask)
-	r.metrics().SetSourceReaderState(ctx, monitoring.SourceReaderStateFinalityBlocked)
 
-	r.logger.Errorw("Flushed all tasks due to finality violation",
+	r.logger.Errorw("Flushed all tasks due to "+cause,
 		"pendingFlushed", flushed,
 		"sentFlushed", sentFlushed)
+}
 
+// persistDisabledLocked writes the disabled chainStatus so the chain stays disabled across
+// restarts until an operator resets it. The caller must hold r.mu.
+func (r *Service) persistDisabledLocked(ctx context.Context, cause string) {
 	err := r.chainStatusManager.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{
 		{
 			ChainSelector:        r.chainSelector,
@@ -1157,7 +1339,7 @@ func (r *Service) handleFinalityViolation(ctx context.Context) {
 		},
 	})
 	if err != nil {
-		r.logger.Errorw("Failed to write disabled chainStatus after finality violation", "error", err)
+		r.logger.Errorw("Failed to write disabled chainStatus after "+cause, "error", err)
 	}
 }
 
@@ -1169,12 +1351,21 @@ func (r *Service) metrics() verifier.MetricLabeler {
 	)
 }
 
+// sourceLoaded returns the source reader's load state: nil for a reader with nothing to load.
+func (r *Service) sourceLoaded() error {
+	if loader, ok := r.sourceReader.(chainaccess.SourceLoader); ok {
+		return loader.Loaded()
+	}
+	return nil
+}
+
 func (r *Service) recordDisabledState(ctx context.Context) {
 	state := monitoring.SourceReaderStateDisabled
 	if r.finalityBlocked.Load() {
 		state = monitoring.SourceReaderStateFinalityBlocked
 	}
 	r.metrics().SetSourceReaderState(ctx, state)
+	r.recordChainHealth(ctx)
 }
 
 func (r *Service) messageMetrics(message protocol.Message) verifier.MetricLabeler {

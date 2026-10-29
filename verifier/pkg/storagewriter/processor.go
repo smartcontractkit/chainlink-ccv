@@ -2,6 +2,7 @@ package storagewriter
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -387,7 +388,8 @@ func (s *Processor) processJobs(ctx context.Context, jobs []jobqueue.Job[protoco
 	successfulJobs := make([]string, 0, len(jobs))
 	retriableFailedJobs := make([]string, 0)
 	nonRetriableFailedJobs := make([]string, 0)
-	failedErrorMap := make(map[string]error)
+	retriableErrorMap := make(map[string]error)
+	nonRetriableErrorMap := make(map[string]error)
 	successfulResults := make([]protocol.VerifierNodeResult, 0, len(results))
 
 	for i, writeResult := range writeResults {
@@ -417,25 +419,29 @@ func (s *Processor) processJobs(ctx context.Context, jobs []jobqueue.Job[protoco
 				monitoring.MessageTransitionOutcomeSucceeded,
 				monitoring.MessageTransitionReasonNone)
 		} else {
-			span.RecordError(writeResult.Error, oteltrace.WithAttributes(attribute.Bool(tracing.RetryableKey, writeResult.Retryable)))
-			span.SetStatus(codes.Error, writeResult.Error.Error())
+			writeErr := writeResult.Error
+			if writeErr == nil {
+				writeErr = errors.New("storage write failed without error detail")
+			}
+			span.RecordError(writeErr, oteltrace.WithAttributes(attribute.Bool(tracing.RetryableKey, writeResult.Retryable)))
+			span.SetStatus(codes.Error, writeErr.Error())
 			if writeResult.Retryable {
 				s.messageMetrics(writeResult.Input.Message).IncrementMessageFailure(
 					ctx,
 					monitoring.MessageTransitionStageStorageWrite,
 					true,
-					monitoring.ClassifyError(writeResult.Error))
+					monitoring.ClassifyError(writeErr))
 				s.messageMetrics(writeResult.Input.Message).IncrementMessageTransition(
 					ctx,
 					monitoring.MessageTransitionStageStorageWrite,
 					monitoring.MessageTransitionOutcomeRetryScheduled,
 					monitoring.MessageTransitionReasonStorageWriteFailed)
 				retriableFailedJobs = append(retriableFailedJobs, jobID)
-				failedErrorMap[jobID] = writeResult.Error
+				retriableErrorMap[jobID] = writeErr
 				s.lggr.Errorw("Write failed for message (retryable)",
 					protocol.LogKeyMessageID, messageID,
 					protocol.LogKeyJobID, jobID,
-					"error", writeResult.Error,
+					"error", writeErr,
 				)
 
 				span.AddEvent(monitoring.EventRetryScheduled, oteltrace.WithAttributes(
@@ -446,18 +452,18 @@ func (s *Processor) processJobs(ctx context.Context, jobs []jobqueue.Job[protoco
 					ctx,
 					monitoring.MessageTransitionStageStorageWrite,
 					false,
-					monitoring.ClassifyError(writeResult.Error))
+					monitoring.ClassifyError(writeErr))
 				s.messageMetrics(writeResult.Input.Message).IncrementMessageTransition(
 					ctx,
 					monitoring.MessageTransitionStageStorageWrite,
 					monitoring.MessageTransitionOutcomePermanentlyFailed,
 					monitoring.MessageTransitionReasonStorageWriteFailed)
 				nonRetriableFailedJobs = append(nonRetriableFailedJobs, jobID)
-				failedErrorMap[jobID] = writeResult.Error
+				nonRetriableErrorMap[jobID] = writeErr
 				s.lggr.Errorw("Write failed for message (non-retryable)",
 					protocol.LogKeyMessageID, messageID,
 					protocol.LogKeyJobID, jobID,
-					"error", writeResult.Error,
+					"error", writeErr,
 				)
 			}
 		}
@@ -473,7 +479,7 @@ func (s *Processor) processJobs(ctx context.Context, jobs []jobqueue.Job[protoco
 
 	// Schedule retry for retriable failed jobs only, backed off per job by attempt count
 	if len(retriableFailedJobs) > 0 {
-		s.scheduleStorageRetries(ctx, jobs, failedErrorMap)
+		s.scheduleStorageRetries(ctx, jobs, retriableErrorMap)
 	}
 
 	// Mark non-retryable failed jobs as failed permanently
@@ -485,7 +491,7 @@ func (s *Processor) processJobs(ctx context.Context, jobs []jobqueue.Job[protoco
 		failCtx, cancel := context.WithTimeout(ctx, verifier.DefaultJobQueueOperationTimeout)
 		defer cancel()
 
-		if failErr := s.resultQueue.Fail(failCtx, failedErrorMap, nonRetriableFailedJobs...); failErr != nil {
+		if failErr := s.resultQueue.Fail(failCtx, nonRetriableErrorMap, nonRetriableFailedJobs...); failErr != nil {
 			s.lggr.Errorw("Failed to mark jobs as failed",
 				"error", failErr,
 				"nonRetriableFailedCount", len(nonRetriableFailedJobs),

@@ -1,13 +1,21 @@
-* @smartcontractkit/ccip-protocol
+# Catch-all: protocol and platform shared ownership
+* @smartcontractkit/ccip-protocol @smartcontractkit/ccip-platform
+
+# Platform direct ownership
 build/devenv @smartcontractkit/ccip-platform
 deployment @smartcontractkit/ccip-platform
 bootstrap @smartcontractkit/ccip-platform
-changelog @smartcontractkit/ccip-platform
 tools @smartcontractkit/ccip-platform
 common/monitoring @smartcontractkit/ccip-platform
 common/jd @smartcontractkit/ccip-platform
 common/metrics @smartcontractkit/ccip-platform
-docs @smartcontractkit/ccip-platform @smartcontractkit/ccip-protocol
-pkg/chainaccess @smartcontractkit/ccip-platform @smartcontractkit/ccip-protocol
-release-please-config.json @smartcontractkit/ccip-platform @smartcontractkit/ccip-protocol
-.release-please-manifest.json @smartcontractkit/ccip-platform @smartcontractkit/ccip-protocol
+
+# Protocol direct ownership
+aggregator @smartcontractkit/ccip-protocol
+cmd @smartcontractkit/ccip-protocol
+executor @smartcontractkit/ccip-protocol
+indexer @smartcontractkit/ccip-protocol
+integration @smartcontractkit/ccip-protocol
+pricer @smartcontractkit/ccip-protocol
+protocol @smartcontractkit/ccip-protocol
+verifier @smartcontractkit/ccip-protocol

@@ -6,11 +6,12 @@ import "github.com/smartcontractkit/chainlink-common/x/config/commentparsing"
 
 func (Config) DocComments() map[string]commentparsing.FieldDoc {
 	return map[string]commentparsing.FieldDoc{
-		"CommitteeConfig":         {Comment: "CommitteeConfig is the generic config needed for SourceReader."},
-		"DisableFinalityCheckers": {Comment: "DisableFinalityCheckers lists chain selectors, as strings, whose finality violation checker\nis disabled. Solana needs it: a skipped slot has no block, which the checker reports as a\nmissing block header. Mirrors commit.Config.DisableFinalityCheckers."},
-		"Monitoring":              {Comment: "Monitoring contains the monitoring configuration for the token verifier, including Beholder settings.\n\nUnlike the commit (committee) verifier and the executor — which now source monitoring from the\noperator-provided bootstrap config (bootstrap.Config.Monitoring) rather than their JD-shipped app\nconfig — the token verifier intentionally keeps monitoring here, in its app config. It runs in\nlocal app-config mode (app_config_mode = \"local_app_config\") with no JD/DB/keystore; its app\nconfig file is already operator-provided (mounted, not JD-shipped), so this field already\nsatisfies the rule that monitoring must be operator-provided and never delivered via a JD-shipped\napp config."},
-		"PyroscopeURL":            {Comment: "PyroscopeURL is the Pyroscope server URL for continuous profiling; empty disables it."},
-		"TokenVerifiers":          {Comment: "TokenVerifiers is a list of token verifier configurations. Each entry defines a token verifier instance with its own type, version and configuration."},
+		"CommitteeConfig":                {Comment: "CommitteeConfig is the generic config needed for SourceReader."},
+		"DisableFinalityCheckers":        {Comment: "DisableFinalityCheckers lists chain selectors, as strings, whose finality violation checker\nis disabled. Solana needs it: a skipped slot has no block, which the checker reports as a\nmissing block header. Mirrors commit.Config.DisableFinalityCheckers."},
+		"Monitoring":                     {Comment: "Monitoring contains the monitoring configuration for the token verifier, including Beholder settings.\n\nUnlike the commit (committee) verifier and the executor — which now source monitoring from the\noperator-provided bootstrap config (bootstrap.Config.Monitoring) rather than their JD-shipped app\nconfig — the token verifier intentionally keeps monitoring here, in its app config. It runs in\nlocal app-config mode (app_config_mode = \"local_app_config\") with no JD/DB/keystore; its app\nconfig file is already operator-provided (mounted, not JD-shipped), so this field already\nsatisfies the rule that monitoring must be operator-provided and never delivered via a JD-shipped\napp config."},
+		"PyroscopeURL":                   {Comment: "PyroscopeURL is the Pyroscope server URL for continuous profiling; empty disables it."},
+		"SourceReaderStalenessThreshold": {Comment: "SourceReaderStalenessThreshold is how long a source chain may go without a successful query\n(head/event fetch) before that chain's source reader reports not-ready, degrading /health.\nZero uses the default of 50 poll intervals."},
+		"TokenVerifiers":                 {Comment: "TokenVerifiers is a list of token verifier configurations. Each entry defines a token verifier instance with its own type, version and configuration."},
 	}
 }
 

@@ -410,4 +410,13 @@ func (a AbstractAggregatedReport) MarshalJSON() ([]byte, error) {
 type ExecutionAttempt struct {
 	Report              AbstractAggregatedReport
 	TransactionGasLimit *big.Int
+	// GasLimitOverride is the gasLimitOverride argument of execute(). Zero or nil means no override.
+	GasLimitOverride *big.Int
+	// HasNonCanonicalGasEnvelope is true if the transaction has an access list, EIP-7702 authorizations,
+	// or calldata that is not the canonical ABI encoding of its execute() arguments.
+	HasNonCanonicalGasEnvelope bool
+	// Failed is true if the OffRamp recorded FAILURE for this attempt.
+	Failed bool
+	// FailureData is the returnData the OffRamp emitted for a failed attempt.
+	FailureData []byte
 }

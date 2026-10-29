@@ -102,7 +102,7 @@ func TestBootstrapDB_RunMigrations(t *testing.T) {
 	require.NoError(t, err)
 	defer dbConn.Close()
 
-	err = db.RunMigrations(dbConn)
+	err = db.RunMigrationsContext(ctx, dbConn)
 	require.NoError(t, err)
 
 	var count int
