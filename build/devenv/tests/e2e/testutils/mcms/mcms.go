@@ -10,8 +10,10 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/deployment/deploy"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/testhelpers"
 	cciputils "github.com/smartcontractkit/chainlink-ccip/deployment/utils"
+	"github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/utils/datastore"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/utils/mcms"
+	evm_contract "github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/operations/contract"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/mcms/types"
 
@@ -29,6 +31,24 @@ func DefaultInput(desc string) mcms.Input {
 		Qualifier:            cciputils.CLLQualifier,
 		Description:          desc,
 	}
+}
+
+// ExecuteWrites proposes the writes the deployer did not execute itself (it is not an allowed
+// caller) through the CLL timelock and executes the proposal. Writes already executed are skipped,
+// so callers can pass every write an operation returned. All writes must target the same chain.
+func ExecuteWrites(t *testing.T, env *deployment.Environment, desc string, writes []evm_contract.WriteOutput) {
+	t.Helper()
+
+	batchOp, err := evm_contract.NewBatchOperationFromWrites(writes)
+	require.NoError(t, err)
+	if len(batchOp.Transactions) == 0 {
+		return
+	}
+	out, err := changesets.NewOutputBuilder(*env, changesets.GetRegistry()).
+		WithBatchOps([]types.BatchOperation{batchOp}).
+		Build(DefaultInput(desc))
+	require.NoError(t, err)
+	testhelpers.ProcessTimelockProposals(t, *env, out.MCMSTimelockProposals, true)
 }
 
 func Deploy(t *testing.T, env *deployment.Environment, selector uint64, qualifiers []string) {
