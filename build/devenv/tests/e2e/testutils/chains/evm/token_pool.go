@@ -33,6 +33,9 @@ const (
 // arguments can pass nil.
 type PoolSpecificPresets struct {
 	BurnAddress string
+	// AcceptLiquidity is required by the v1.5.0 lock-release pools, where it is an immutable
+	// constructor argument.
+	AcceptLiquidity *bool
 }
 
 type TokenPool struct {
@@ -146,6 +149,22 @@ func DeployBurnMintTokenPoolV161(t *testing.T, env *deployment.Environment, sel 
 	return deployTokenPoolWithPresets(t, env, sel, qual, cciputils.BurnMintTokenPool.String(), cciputils.Version_1_6_1, nil)
 }
 
+// DeployBurnMintTokenPoolV150 deploys a plain v1.5.0 BurnMintTokenPool, which unlike the v1.5.0
+// *AndProxy pools has no previous pool to route through.
+func DeployBurnMintTokenPoolV150(t *testing.T, env *deployment.Environment, sel uint64, qual string) tokenpool.TokenPool {
+	t.Helper()
+
+	return deployTokenPoolWithPresets(t, env, sel, qual, cciputils.BurnMintTokenPool.String(), cciputils.Version_1_5_0, nil)
+}
+
+// DeployLockReleaseTokenPoolV150 deploys a plain v1.5.0 LockReleaseTokenPool that does not accept
+// liquidity providers; fund it by transferring tokens to it.
+func DeployLockReleaseTokenPoolV150(t *testing.T, env *deployment.Environment, sel uint64, qual string) tokenpool.TokenPool {
+	t.Helper()
+
+	return deployTokenPoolWithPresets(t, env, sel, qual, cciputils.LockReleaseTokenPool.String(), cciputils.Version_1_5_0, &PoolSpecificPresets{AcceptLiquidity: new(false)})
+}
+
 func DeployBurnMintTokenPoolV151(t *testing.T, env *deployment.Environment, sel uint64, qual string) tokenpool.TokenPool {
 	t.Helper()
 
@@ -196,7 +215,13 @@ func deployTokenPoolWithPresets(
 ) tokenpool.TokenPool {
 	t.Helper()
 
-	var burnAddr string
+	var (
+		burnAddr        string
+		acceptLiquidity *bool
+	)
+	if presets != nil {
+		acceptLiquidity = presets.AcceptLiquidity
+	}
 	if poolType == cciputils.BurnToAddressMintTokenPool.String() {
 		require.NotNil(t, presets, "BurnToAddressMintTokenPool requires presets to be provided")
 		require.NotEmpty(t, presets.BurnAddress, "BurnToAddressMintTokenPool requires a burn address in presets")
@@ -223,6 +248,7 @@ func deployTokenPoolWithPresets(
 					TokenPoolQualifier: qual,
 					PoolType:           poolType,
 					BurnAddress:        burnAddr,
+					AcceptLiquidity:    acceptLiquidity,
 				},
 			},
 		},
