@@ -337,12 +337,14 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		ChainStatusFlushThreshold: chainstatus.DefaultFlushThreshold,
 	}
 
-	signer, _, signerAddress, err := commit.NewSignerFromKeystore(ctx, deps.Keystore, commit.DefaultECDSASigningKeyName)
+	signer, signingPubKey, signerAddress, err := commit.NewSignerFromKeystore(ctx, deps.Keystore, commit.DefaultECDSASigningKeyName)
 	if err != nil {
 		lggr.Errorw("Failed to create signer", "error", err)
 		return fmt.Errorf("failed to create signer: %w", err)
 	}
-	if err := commit.ValidateSignerAddress(config.SignerAddress, signerAddress); err != nil {
+	// Validate the key itself, not the derived address: non-EVM families pin the public key in
+	// signer_address, and ValidateSignerAddress reduces whichever side is a public key to its address.
+	if err := commit.ValidateSignerAddress(config.SignerAddress, signingPubKey); err != nil {
 		lggr.Errorw("Verifier signing key does not match job configuration", "error", err)
 		return err
 	}

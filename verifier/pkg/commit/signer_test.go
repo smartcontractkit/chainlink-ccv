@@ -26,6 +26,8 @@ func TestValidateSignerAddress(t *testing.T) {
 	require.NoError(t, err)
 	cantonPubKey := crypto.FromECDSAPub(&cantonKey.PublicKey)
 	cantonConfigured := hex.EncodeToString(cantonPubKey)
+	cantonAddress := protocol.UnknownAddress(crypto.PubkeyToAddress(cantonKey.PublicKey).Bytes())
+	cantonCompressed := crypto.CompressPubkey(&cantonKey.PublicKey)
 
 	t.Run("matching signer_address is accepted", func(t *testing.T) {
 		tests := []struct {
@@ -38,6 +40,12 @@ func TestValidateSignerAddress(t *testing.T) {
 			{name: "uppercase hex digits", configured: "0x" + strings.ToUpper(strings.TrimPrefix(configured, "0x")), actual: evmAddress},
 			{name: "unprefixed Canton public key", configured: cantonConfigured, actual: protocol.UnknownAddress(cantonPubKey)},
 			{name: "0x-prefixed Canton public key", configured: "0x" + cantonConfigured, actual: protocol.UnknownAddress(cantonPubKey)},
+			// The standalone verifier hands over the keystore's public key, so a job pinning an
+			// address (EVM) still has to match it.
+			{name: "address configured, public key from keystore", configured: "0x" + hex.EncodeToString(cantonAddress), actual: protocol.UnknownAddress(cantonPubKey)},
+			// A Canton deployment built against the previous caller passes the derived address.
+			{name: "public key configured, address from keystore", configured: cantonConfigured, actual: cantonAddress},
+			{name: "compressed public key configured, uncompressed from keystore", configured: hex.EncodeToString(cantonCompressed), actual: protocol.UnknownAddress(cantonPubKey)},
 		}
 
 		for _, tt := range tests {
@@ -83,10 +91,16 @@ func TestValidateSignerAddress(t *testing.T) {
 				wantInErr:  truncatedCanton.String(),
 			},
 			{
-				name:       "Canton public key from a different key",
+				name:       "Canton public key configured, unrelated address from keystore",
 				configured: cantonConfigured,
 				actual:     evmAddress,
 				wantInErr:  evmAddress.String(),
+			},
+			{
+				name:       "EVM address configured, unrelated public key from keystore",
+				configured: configured,
+				actual:     protocol.UnknownAddress(cantonPubKey),
+				wantInErr:  protocol.UnknownAddress(cantonPubKey).String(),
 			},
 		}
 
@@ -392,9 +406,14 @@ func TestNewSignerFromKeystore(t *testing.T) {
 	ks, _ := createTestKeystore(t, keyName)
 
 	ctx := context.Background()
-	signer, _, address, err := NewSignerFromKeystore(ctx, ks, keyName)
+	signer, pubKey, address, err := NewSignerFromKeystore(ctx, ks, keyName)
 	require.NoError(t, err)
 	require.NotNil(t, signer)
+
+	// The public key is what the standalone verifier validates signer_address against, so it must
+	// match both the returned address and a signer_address pinning either encoding.
+	require.NoError(t, ValidateSignerAddress(address.String(), pubKey))
+	require.NoError(t, ValidateSignerAddress(hex.EncodeToString(pubKey), pubKey))
 
 	// Test that the signer actually works
 	hash := crypto.Keccak256([]byte("test message"))
