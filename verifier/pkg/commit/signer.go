@@ -22,28 +22,51 @@ import (
 // it is exclusive — an empty signer_address (the "I forgot to set it" case) is still rejected.
 const AutoSignerAddress = "auto"
 
-// ValidateSignerAddress checks that the key the verifier loaded is the one the job spec declares.
-// Either side may describe the key as a 20-byte EVM address or as a SEC1 public key — EVM pins an
-// address, Canton the 65-byte public key — and configured hex may omit the 0x prefix.
-//
-// [AutoSignerAddress] opts out and adopts whatever the keystore holds (the postgres auto-generate
-// first boot). Empty still errors, so "forgot to set it" is never read as deliberate auto-adoption.
+// ValidateSignerAddress checks that the configured identity and keystore identity describe the same key.
+// Either side may be a 20-byte EVM address or a 33/65-byte SEC1 public key; hex may omit the 0x prefix.
+// [AutoSignerAddress] explicitly opts out; empty remains an error rather than implying auto-adoption.
 func ValidateSignerAddress(configured string, actual protocol.UnknownAddress) error {
 	if configured == AutoSignerAddress {
 		return nil
 	}
-
-	decoded, err := hex.DecodeString(strings.TrimPrefix(configured, "0x"))
+	decoded, err := decodeSignerIdentity(configured)
 	if err != nil {
-		return fmt.Errorf("invalid signer_address %q: %w", configured, err)
+		return err
 	}
-	if len(decoded) == 0 {
-		return fmt.Errorf("invalid signer_address %q: empty address", configured)
-	}
-
 	if keysMatch(decoded, actual.Bytes()) {
 		return nil
 	}
+	return signerIdentityMismatch(configured, actual)
+}
+
+// ResolveSignerIdentity returns the configured identity when it matches publicKey.
+// [AutoSignerAddress] adopts publicKey without deriving a chain-specific address.
+func ResolveSignerIdentity(configured string, publicKey []byte) (protocol.UnknownAddress, error) {
+	if configured == AutoSignerAddress {
+		return publicKey, nil
+	}
+	decoded, err := decodeSignerIdentity(configured)
+	if err != nil {
+		return nil, err
+	}
+	if keysMatch(decoded, publicKey) {
+		return decoded, nil
+	}
+	return nil, signerIdentityMismatch(configured, publicKey)
+}
+
+func decodeSignerIdentity(configured string) (protocol.UnknownAddress, error) {
+	decoded, err := hex.DecodeString(strings.TrimPrefix(configured, "0x"))
+	if err != nil {
+		return nil, fmt.Errorf("invalid signer_address %q: %w", configured, err)
+	}
+	if len(decoded) == 0 {
+		return nil, fmt.Errorf("invalid signer_address %q: empty address", configured)
+	}
+	return decoded, nil
+}
+
+func signerIdentityMismatch(configured string, actual protocol.UnknownAddress) error {
 	return fmt.Errorf(
 		"signing key does not match signer_address: configured %s, keystore %s; "+
 			"check signer_address and, for migration, ensure [key_import] imported the expected verifier signing key before first boot",
@@ -51,9 +74,8 @@ func ValidateSignerAddress(configured string, actual protocol.UnknownAddress) er
 	)
 }
 
-// keysMatch compares a configured key with the keystore's: identical bytes match outright, and
-// otherwise both sides collapse to the EVM address derived from a public key, so a job pinning a
-// public key matches a keystore reporting only its address, and vice versa.
+// keysMatch compares raw bytes first, then compares EVM addresses derived from SEC1 keys.
+// This accepts different encodings of one key without matching truncated or trailing bytes.
 func keysMatch(configured, actual []byte) bool {
 	if bytes.Equal(configured, actual) {
 		return true
@@ -66,9 +88,7 @@ func keysMatch(configured, actual []byte) bool {
 	return ok && bytes.Equal(configuredAddress, actualAddress)
 }
 
-// addressForKey returns the EVM address of an address or SEC1 public key (65-byte uncompressed or
-// 33-byte compressed). Derivation is keccak-based, never truncation, so keys cannot match on shared
-// trailing bytes.
+// addressForKey returns an EVM address unchanged or derives one from a SEC1 public key.
 func addressForKey(key []byte) ([]byte, bool) {
 	if len(key) == common.AddressLength {
 		return key, true
@@ -103,45 +123,34 @@ func NewECDSAMessageSigner(privateKeyBytes []byte) (*ECDSASigner, []byte, protoc
 		return nil, nil, protocol.UnknownAddress{}, fmt.Errorf("private key cannot be empty")
 	}
 
-	// Convert bytes to ECDSA private key
 	privateKey, err := crypto.ToECDSA(privateKeyBytes)
 	if err != nil {
 		return nil, nil, protocol.UnknownAddress{}, fmt.Errorf("failed to convert bytes to ECDSA private key: %w", err)
 	}
 
-	// Derive the address from the private key
 	publicKey := privateKey.Public()
 	publicKeyECDSA, ok := publicKey.(*ecdsa.PublicKey)
 	if !ok {
 		return nil, nil, protocol.UnknownAddress{}, fmt.Errorf("failed to cast public key to ECDSA")
 	}
-
-	address := crypto.PubkeyToAddress(*publicKeyECDSA)
+	publicKeyBytes := crypto.FromECDSAPub(publicKeyECDSA)
+	address, err := EVMAddressFromPublicKey(publicKeyBytes)
+	if err != nil {
+		return nil, nil, nil, err
+	}
 
 	return &ECDSASigner{
 		privateKey: privateKey,
-	}, crypto.FromECDSAPub(publicKeyECDSA), address[:], nil
+	}, publicKeyBytes, address, nil
 }
 
 // Sign signs some data with the new chain-agnostic format.
 func (ecdsa *ECDSASigner) Sign(data []byte) ([]byte, error) {
-	r, s, signerAddress, err := protocol.SignV27(data, ecdsa.privateKey)
+	signature, err := crypto.Sign(data, ecdsa.privateKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign message: %w", err)
 	}
-
-	signature := protocol.Data{
-		R:      r,
-		S:      s,
-		Signer: signerAddress,
-	}
-
-	encodedSignature, err := protocol.EncodeSingleECDSASignature(signature)
-	if err != nil {
-		return nil, fmt.Errorf("failed to encode signature: %w", err)
-	}
-
-	return encodedSignature, nil
+	return normalizeAndEncodeSignature(data, signature)
 }
 
 // ReadPrivateKeyFromString reads a private key from a string and returns the bytes.
@@ -171,23 +180,29 @@ func NewECDSASignerWithKeystoreSigner(keystoreSigner verifier.MessageSigner) *EC
 }
 
 func (s *ECDSASignerWithKeystoreSigner) Sign(data []byte) ([]byte, error) {
-	r32, s32, addr, err := protocol.SignV27WithKeystoreSigner(data, s.keystoreSigner)
+	signature, err := s.keystoreSigner.Sign(data)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign message: %w", err)
 	}
+	return normalizeAndEncodeSignature(data, signature)
+}
 
-	signature := protocol.Data{
-		R:      r32,
-		S:      s32,
-		Signer: addr,
+func normalizeAndEncodeSignature(hash, signature []byte) ([]byte, error) {
+	r, s, err := protocol.NormalizeToV27(signature)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sign message: %w", err)
 	}
-
-	encodedSignature, err := protocol.EncodeSingleECDSASignature(signature)
+	check := make([]byte, 65)
+	copy(check[0:32], r[:])
+	copy(check[32:64], s[:])
+	if _, err = crypto.SigToPub(hash, check); err != nil {
+		return nil, fmt.Errorf("failed to sign message: %w", err)
+	}
+	encoded, err := protocol.EncodeSingleECDSASignature(protocol.Data{R: r, S: s})
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode signature: %w", err)
 	}
-
-	return encodedSignature, nil
+	return encoded, nil
 }
 
 // KeystoreSignerAdapter wraps the keystore.Signer interface to implement verifier.MessageSigner.
@@ -219,37 +234,50 @@ func (a *KeystoreSignerAdapter) Sign(data []byte) ([]byte, error) {
 	return resp.Signature, nil
 }
 
-// NewSignerFromKeystore creates a message signer from a keystore.
-// It loads the key from the keystore and returns a signer that implements verifier.MessageSigner,
-// along with the public key (as UnknownAddress) for use in committee configuration.
-func NewSignerFromKeystore(ctx context.Context, ks keystore.Keystore, keyName string) (signer verifier.MessageSigner, pubKey []byte, address protocol.UnknownAddress, err error) {
-	// Get the key info to retrieve the public key
+// NewECDSASignerFromKeystore returns a signer and its SEC1 uncompressed public key.
+func NewECDSASignerFromKeystore(ctx context.Context, ks keystore.Keystore, keyName string) (verifier.MessageSigner, []byte, error) {
 	//nolint:noeagerio // fail-fast by design: a verifier without its signing key can do no work, so the keystore read happens at startup rather than at first sign
 	keysResp, err := ks.GetKeys(ctx, keystore.GetKeysRequest{KeyNames: []string{keyName}})
 	if err != nil {
-		return nil, nil, protocol.UnknownAddress{}, fmt.Errorf("failed to get key from keystore: %w", err)
+		return nil, nil, fmt.Errorf("failed to get key from keystore: %w", err)
 	}
 	if len(keysResp.Keys) == 0 {
-		return nil, nil, protocol.UnknownAddress{}, fmt.Errorf("key %q not found in keystore", keyName)
+		return nil, nil, fmt.Errorf("key %q not found in keystore", keyName)
 	}
 
 	keyInfo := keysResp.Keys[0].KeyInfo
 	if keyInfo.KeyType != keystore.ECDSA_S256 {
-		return nil, nil, protocol.UnknownAddress{}, fmt.Errorf("key %q has unexpected type %s, expected %s", keyName, keyInfo.KeyType, keystore.ECDSA_S256)
+		return nil, nil, fmt.Errorf("key %q has unexpected type %s, expected %s", keyName, keyInfo.KeyType, keystore.ECDSA_S256)
 	}
-
-	// The public key from keystore is in SEC1 uncompressed format (65 bytes).
-	// We need to derive the Ethereum address from it.
 	if len(keyInfo.PublicKey) != 65 {
-		return nil, nil, protocol.UnknownAddress{}, fmt.Errorf("unexpected public key length %d, expected 65", len(keyInfo.PublicKey))
+		return nil, nil, fmt.Errorf("unexpected public key length %d, expected 65", len(keyInfo.PublicKey))
 	}
 
-	// Convert SEC1 public key to Ethereum address
-	ecdsaPublicKey, err := crypto.UnmarshalPubkey(keyInfo.PublicKey)
+	return NewECDSASignerWithKeystoreSigner(NewKeystoreSignerAdapter(ks, keyName)), keyInfo.PublicKey, nil
+}
+
+// EVMAddressFromPublicKey derives an Ethereum address from a SEC1 uncompressed public key.
+func EVMAddressFromPublicKey(publicKey []byte) (protocol.UnknownAddress, error) {
+	if len(publicKey) != 65 {
+		return nil, fmt.Errorf("unexpected public key length %d, expected 65", len(publicKey))
+	}
+	ecdsaPublicKey, err := crypto.UnmarshalPubkey(publicKey)
 	if err != nil {
-		return nil, nil, protocol.UnknownAddress{}, fmt.Errorf("failed to unmarshal public key: %w", err)
+		return nil, fmt.Errorf("failed to unmarshal public key: %w", err)
 	}
-	address = crypto.PubkeyToAddress(*ecdsaPublicKey).Bytes()
+	address := crypto.PubkeyToAddress(*ecdsaPublicKey)
+	return address.Bytes(), nil
+}
 
-	return NewECDSASignerWithKeystoreSigner(NewKeystoreSignerAdapter(ks, keyName)), keyInfo.PublicKey, address[:], nil
+// NewSignerFromKeystore retains the address-returning API for EVM callers.
+func NewSignerFromKeystore(ctx context.Context, ks keystore.Keystore, keyName string) (verifier.MessageSigner, []byte, protocol.UnknownAddress, error) {
+	signer, publicKey, err := NewECDSASignerFromKeystore(ctx, ks, keyName)
+	if err != nil {
+		return nil, nil, protocol.UnknownAddress{}, err
+	}
+	address, err := EVMAddressFromPublicKey(publicKey)
+	if err != nil {
+		return nil, nil, protocol.UnknownAddress{}, err
+	}
+	return signer, publicKey, address, nil
 }
