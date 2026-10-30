@@ -369,6 +369,72 @@ func (_c *MockCommitVerificationStore_SaveCommitVerification_Call) RunAndReturn(
 	return _c
 }
 
+// TryAcquireOrphanRecoveryLock provides a mock function with given fields: ctx, idleTimeout
+func (_m *MockCommitVerificationStore) TryAcquireOrphanRecoveryLock(ctx context.Context, idleTimeout time.Duration) (func(), bool, error) {
+	ret := _m.Called(ctx, idleTimeout)
+
+	if len(ret) == 0 {
+		panic("no return value specified for TryAcquireOrphanRecoveryLock")
+	}
+
+	var r0 func()
+	var r1 bool
+	var r2 error
+	if rf, ok := ret.Get(0).(func(context.Context, time.Duration) (func(), bool, error)); ok {
+		return rf(ctx, idleTimeout)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, time.Duration) func()); ok {
+		r0 = rf(ctx, idleTimeout)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(func())
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, time.Duration) bool); ok {
+		r1 = rf(ctx, idleTimeout)
+	} else {
+		r1 = ret.Get(1).(bool)
+	}
+
+	if rf, ok := ret.Get(2).(func(context.Context, time.Duration) error); ok {
+		r2 = rf(ctx, idleTimeout)
+	} else {
+		r2 = ret.Error(2)
+	}
+
+	return r0, r1, r2
+}
+
+// MockCommitVerificationStore_TryAcquireOrphanRecoveryLock_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'TryAcquireOrphanRecoveryLock'
+type MockCommitVerificationStore_TryAcquireOrphanRecoveryLock_Call struct {
+	*mock.Call
+}
+
+// TryAcquireOrphanRecoveryLock is a helper method to define mock.On call
+//   - ctx context.Context
+//   - idleTimeout time.Duration
+func (_e *MockCommitVerificationStore_Expecter) TryAcquireOrphanRecoveryLock(ctx interface{}, idleTimeout interface{}) *MockCommitVerificationStore_TryAcquireOrphanRecoveryLock_Call {
+	return &MockCommitVerificationStore_TryAcquireOrphanRecoveryLock_Call{Call: _e.mock.On("TryAcquireOrphanRecoveryLock", ctx, idleTimeout)}
+}
+
+func (_c *MockCommitVerificationStore_TryAcquireOrphanRecoveryLock_Call) Run(run func(ctx context.Context, idleTimeout time.Duration)) *MockCommitVerificationStore_TryAcquireOrphanRecoveryLock_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(time.Duration))
+	})
+	return _c
+}
+
+func (_c *MockCommitVerificationStore_TryAcquireOrphanRecoveryLock_Call) Return(release func(), acquired bool, err error) *MockCommitVerificationStore_TryAcquireOrphanRecoveryLock_Call {
+	_c.Call.Return(release, acquired, err)
+	return _c
+}
+
+func (_c *MockCommitVerificationStore_TryAcquireOrphanRecoveryLock_Call) RunAndReturn(run func(context.Context, time.Duration) (func(), bool, error)) *MockCommitVerificationStore_TryAcquireOrphanRecoveryLock_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewMockCommitVerificationStore creates a new instance of MockCommitVerificationStore. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockCommitVerificationStore(t interface {

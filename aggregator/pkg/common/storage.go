@@ -30,6 +30,10 @@ type CommitVerificationStore interface {
 	// OrphanedKeyStats returns aggregate counts of orphaned (message_id, aggregation_key) pairs
 	// split by a cutoff time, for monitoring the orphan recovery process.
 	OrphanedKeyStats(ctx context.Context, cutoff time.Time) (*model.OrphanStats, error)
+	// TryAcquireOrphanRecoveryLock gets, without blocking, the lock for one orphan scan across replicas.
+	// The caller must call release (safe to call more than once) when the scan ends.
+	// The store frees the lock without release if the holder stays idle for idleTimeout.
+	TryAcquireOrphanRecoveryLock(ctx context.Context, idleTimeout time.Duration) (release func(), acquired bool, err error)
 }
 
 // CommitVerificationAggregatedStore defines an interface for storing and retrieving aggregated reports.

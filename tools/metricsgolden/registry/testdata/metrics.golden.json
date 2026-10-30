@@ -192,6 +192,13 @@
       "labels": []
     },
     {
+      "name": "aggregator_orphan_recovery_skipped",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "Total number of orphan recovery scans skipped because another replica holds the lock",
+      "labels": []
+    },
+    {
       "name": "aggregator_panics",
       "kind": "Int64Counter",
       "unit": "",

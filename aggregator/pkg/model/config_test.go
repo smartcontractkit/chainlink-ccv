@@ -88,6 +88,7 @@ func TestSetDefaults(t *testing.T) {
 		assert.Equal(t, 4*time.Minute, cfg.OrphanRecovery.ScanTimeout)
 		assert.Equal(t, 10000, cfg.OrphanRecovery.MaxOrphansPerScan)
 		assert.Equal(t, 100, cfg.OrphanRecovery.PageSize)
+		assert.Equal(t, 30*time.Second, cfg.OrphanRecovery.LockReleaseMargin)
 	})
 
 	t.Run("does not override existing values", func(t *testing.T) {
@@ -480,8 +481,20 @@ func TestValidateOrphanRecoveryConfig(t *testing.T) {
 	}{
 		{
 			name:        "valid enabled config",
-			config:      OrphanRecoveryConfig{Enabled: true, Interval: 60 * time.Second, MaxAge: 24 * time.Hour, CheckAggregationTimeout: 5 * time.Second, ScanTimeout: 4 * time.Minute, MaxOrphansPerScan: 10000, PageSize: 100},
+			config:      OrphanRecoveryConfig{Enabled: true, Interval: 5 * time.Minute, MaxAge: 24 * time.Hour, CheckAggregationTimeout: 5 * time.Second, ScanTimeout: 4 * time.Minute, MaxOrphansPerScan: 10000, PageSize: 100, LockReleaseMargin: 30 * time.Second},
 			expectError: false,
+		},
+		{
+			name:        "zero lock release margin fails when enabled",
+			config:      OrphanRecoveryConfig{Enabled: true, Interval: 5 * time.Minute, MaxAge: 24 * time.Hour, CheckAggregationTimeout: 5 * time.Second, ScanTimeout: 4 * time.Minute, MaxOrphansPerScan: 10000, PageSize: 100},
+			expectError: true,
+			errorMsg:    "lockReleaseMargin must be greater than 0",
+		},
+		{
+			name:        "scan timeout plus lock release margin equal to interval fails when enabled",
+			config:      OrphanRecoveryConfig{Enabled: true, Interval: 5 * time.Minute, MaxAge: 24 * time.Hour, CheckAggregationTimeout: 5 * time.Second, ScanTimeout: 4 * time.Minute, MaxOrphansPerScan: 10000, PageSize: 100, LockReleaseMargin: time.Minute},
+			expectError: true,
+			errorMsg:    "scanTimeout + orphanRecovery.lockReleaseMargin must be less than orphanRecovery.interval",
 		},
 		{
 			name:        "disabled config skips validation",

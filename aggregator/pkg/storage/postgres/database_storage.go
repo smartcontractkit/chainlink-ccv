@@ -4,12 +4,15 @@ import (
 	"cmp"
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
@@ -54,8 +57,18 @@ func (d *DatabaseStorage) batchGetVerificationRecordIDs(ctx context.Context, mes
 	return recordIDsMap, nil
 }
 
+// DataSource is a sqlutil.DataSource that can also give a dedicated connection. A session-level
+// advisory lock needs one connection for the full time that the lock is held.
+type DataSource interface {
+	sqlutil.DataSource
+	// Conn returns a dedicated connection from the pool. The caller must close it.
+	Conn(ctx context.Context) (*sql.Conn, error)
+}
+
+var _ DataSource = (*sqlx.DB)(nil)
+
 type DatabaseStorage struct {
-	ds           sqlutil.DataSource
+	ds           DataSource
 	pageSize     int
 	queryTimeout time.Duration
 	lggr         logger.SugaredLogger
@@ -71,7 +84,7 @@ var (
 	_ protocol.HealthReporter                     = (*DatabaseStorage)(nil)
 )
 
-func NewDatabaseStorage(ds sqlutil.DataSource, pageSize int, queryTimeout time.Duration, lggr logger.SugaredLogger) *DatabaseStorage {
+func NewDatabaseStorage(ds DataSource, pageSize int, queryTimeout time.Duration, lggr logger.SugaredLogger) *DatabaseStorage {
 	return &DatabaseStorage{
 		ds:           ds,
 		pageSize:     pageSize,
@@ -888,4 +901,62 @@ func (d *DatabaseStorage) OrphanedKeyStats(ctx context.Context, cutoff time.Time
 	}
 
 	return &stats, nil
+}
+
+// orphanRecoveryLockKey is the name of the advisory lock that allows one orphan recovery scan
+// at a time across all aggregator replicas that use the same database.
+const orphanRecoveryLockKey = "aggregator_orphan_recovery"
+
+// orphanRecoveryLockReleaseTimeout bounds the unlock and reset queries in the release function.
+const orphanRecoveryLockReleaseTimeout = 5 * time.Second
+
+// TryAcquireOrphanRecoveryLock holds a session-level advisory lock on a dedicated, idle connection.
+// idle_session_timeout makes the server close the session, and free the lock, if the holder stops.
+// Release unlocks and resets the session, or closes the connection if one of these steps fails.
+func (d *DatabaseStorage) TryAcquireOrphanRecoveryLock(ctx context.Context, idleTimeout time.Duration) (func(), bool, error) {
+	if idleTimeout < time.Millisecond {
+		return nil, false, fmt.Errorf("orphan recovery lock idle timeout must be at least 1ms, got %s", idleTimeout)
+	}
+	ctx, cancel := d.withTimeout(ctx)
+	defer cancel()
+
+	conn, err := d.ds.Conn(ctx)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to get connection for orphan recovery lock: %w", err)
+	}
+
+	var once sync.Once
+	release := func() {
+		once.Do(func() {
+			defer func() { _ = conn.Close() }()
+			releaseCtx, releaseCancel := context.WithTimeout(context.Background(), orphanRecoveryLockReleaseTimeout)
+			defer releaseCancel()
+			if _, err := conn.ExecContext(releaseCtx, `SELECT pg_advisory_unlock(hashtextextended($1, 0))`, orphanRecoveryLockKey); err == nil {
+				if _, err = conn.ExecContext(releaseCtx, `RESET idle_session_timeout`); err == nil {
+					return
+				}
+			}
+			// The session state is not known, so the connection must not go back to the pool.
+			// Returning driver.ErrBadConn makes database/sql close the physical connection.
+			// Closing the session frees the lock.
+			_ = conn.Raw(func(any) error { return driver.ErrBadConn })
+		})
+	}
+
+	timeoutMs := fmt.Sprintf("%d", idleTimeout.Milliseconds())
+	if _, err := conn.ExecContext(ctx, `SELECT set_config('idle_session_timeout', $1, false)`, timeoutMs); err != nil {
+		release()
+		return nil, false, fmt.Errorf("failed to set idle_session_timeout for orphan recovery lock: %w", err)
+	}
+
+	var acquired bool
+	if err := conn.QueryRowContext(ctx, `SELECT pg_try_advisory_lock(hashtextextended($1, 0))`, orphanRecoveryLockKey).Scan(&acquired); err != nil {
+		release()
+		return nil, false, fmt.Errorf("orphan recovery lock query failed: %w", err)
+	}
+	if !acquired {
+		release()
+		return nil, false, nil
+	}
+	return release, true, nil
 }

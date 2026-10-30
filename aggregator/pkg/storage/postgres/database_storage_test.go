@@ -1990,3 +1990,78 @@ func TestListCommitVerificationByMessageID_ErrorsAboveMaximum(t *testing.T) {
 	_, err = storage.ListCommitVerificationByMessageID(ctx, messageID)
 	require.ErrorIs(t, err, pkgcommon.ErrTooManyRecords)
 }
+
+func TestTryAcquireOrphanRecoveryLock(t *testing.T) {
+	storage, cleanup := setupTestDB(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	t.Run("second caller does not get the lock until the first releases it", func(t *testing.T) {
+		release, acquired, err := storage.TryAcquireOrphanRecoveryLock(ctx, time.Minute)
+		require.NoError(t, err)
+		require.True(t, acquired)
+
+		_, acquired2, err := storage.TryAcquireOrphanRecoveryLock(ctx, time.Minute)
+		require.NoError(t, err)
+		require.False(t, acquired2)
+
+		release()
+		release() // safe to call more than once
+
+		release3, acquired3, err := storage.TryAcquireOrphanRecoveryLock(ctx, time.Minute)
+		require.NoError(t, err)
+		require.True(t, acquired3)
+		release3()
+	})
+
+	t.Run("database frees the lock when the holder stays idle longer than the idle timeout", func(t *testing.T) {
+		// The holder never calls release and sends no queries, as a stuck process would.
+		release, acquired, err := storage.TryAcquireOrphanRecoveryLock(ctx, time.Second)
+		require.NoError(t, err)
+		require.True(t, acquired)
+
+		require.Eventually(t, func() bool {
+			r, ok, err := storage.TryAcquireOrphanRecoveryLock(ctx, time.Minute)
+			if err != nil || !ok {
+				return false
+			}
+			r()
+			return true
+		}, 5*time.Second, 100*time.Millisecond)
+
+		// Release on a connection that the server closed must not block or panic.
+		done := make(chan struct{})
+		go func() {
+			release()
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Fatal("release on a closed connection blocked")
+		}
+	})
+
+	t.Run("lock connection goes back to the pool with idle_session_timeout reset", func(t *testing.T) {
+		// With one pool connection, the next query must use the released lock connection.
+		db := storage.ds.(*sqlx.DB)
+		db.SetMaxOpenConns(1)
+		defer db.SetMaxOpenConns(0)
+
+		release, acquired, err := storage.TryAcquireOrphanRecoveryLock(ctx, time.Second)
+		require.NoError(t, err)
+		require.True(t, acquired)
+		release()
+
+		// If the reset did not run, the connection would show 1s or the server would have closed it.
+		time.Sleep(1500 * time.Millisecond)
+		var timeout string
+		require.NoError(t, storage.ds.GetContext(ctx, &timeout, "SHOW idle_session_timeout"))
+		require.Equal(t, "0", timeout)
+	})
+
+	t.Run("rejects an idle timeout below 1ms", func(t *testing.T) {
+		_, _, err := storage.TryAcquireOrphanRecoveryLock(ctx, 0)
+		require.Error(t, err)
+	})
+}
