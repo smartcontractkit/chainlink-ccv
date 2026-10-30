@@ -32,6 +32,8 @@ func (j testJob) JobKey() (chainSelector uint64, messageID []byte) {
 	return j.Chain, j.Message
 }
 
+func (j testJob) DedupKey() string { return jobqueue.MessageDedupKey(j.JobKey()) }
+
 // newTestQueue creates a PostgresJobQueue[testJob] backed by a real Postgres testcontainer.
 // It uses the "ccv_task_verifier_jobs" table which is created by migrations.
 func newTestQueue(t *testing.T, opts ...func(*jobqueue.QueueConfig)) (*jobqueue.PostgresJobQueue[testJob], sqlutil.DataSource) {
@@ -136,8 +138,7 @@ func Test_PostgresQueueOps(t *testing.T) {
 		payloads := map[string]testJob{}
 		for _, j := range consumed {
 			payloads[string(j.Payload.Message)] = j.Payload
-			assert.Equal(t, j.Payload.Chain, j.ChainSelector)
-			assert.Equal(t, j.Payload.Message, j.MessageID)
+			assert.Equal(t, j.Payload.DedupKey(), j.DedupKey)
 			assert.Equal(t, 1, j.AttemptCount)
 			assert.WithinDuration(t, time.Now().Add(time.Hour), j.RetryDeadline, 5*time.Second)
 			assert.NotNil(t, j.StartedAt)

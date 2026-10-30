@@ -1,57 +1,56 @@
-# Chain-neutral signer identity and signature paths
+# Chain-neutral signer identity
 
 ## Executive Summary
 
-- Adds public-key-first keystore construction and exact-match validation against either the uncompressed
-  public key or its derived EVM address.
-- Adds R/S-only signing and encoding APIs so the generic verifier does not construct an Ethereum address.
-- Existing address-returning APIs remain as EVM compatibility wrappers, and the 64-byte `R || S` wire
-  format is unchanged.
+- Adds public-key-first keystore construction so the standalone verifier does not derive an EVM address
+  before it knows which identity encoding the job pins.
+- Resolves `signer_address` against the public key using the key-or-address matching introduced by the
+  hotfix, including 33-byte compressed and 65-byte uncompressed SEC1 keys.
+- Keeps signing and encoding on the existing protocol APIs, without adding parallel R/S-only variants.
+- The 64-byte `R || S` wire format and existing address-returning compatibility APIs are unchanged.
 
 ## AI Adapter Index
 
 | Symbol | Kind | Search | Location | Section |
 |---|---|---|---|---|
-| `commit.ValidateSignerIdentity` | added | `ValidateSignerIdentity\(` | `verifier/pkg/commit/signer.go:34` | [#public-key-validation](#public-key-validation) |
-| `commit.ResolveSignerIdentity` | added | `ResolveSignerIdentity\(` | `verifier/pkg/commit/signer.go:50` | [#public-key-validation](#public-key-validation) |
-| `commit.NewECDSASignerFromKeystore` | added | `NewECDSASignerFromKeystore\(` | `verifier/pkg/commit/signer.go:218` | [#public-key-validation](#public-key-validation) |
-| `commit.EVMAddressFromPublicKey` | added | `EVMAddressFromPublicKey\(` | `verifier/pkg/commit/signer.go:240` | [#public-key-validation](#public-key-validation) |
-| `protocol.SignV27RS` and related R/S APIs | added | `SignV27RS\(|SignV27WithKeystoreSignerRS\(|EncodeSingleECDSASignatureRS\(` | `protocol/signature.go:104` | [#chain-neutral-signing](#chain-neutral-signing) |
-| Standalone verifier signer validation | behavior-changed | `ResolveSignerIdentity\(` | `cmd/verifier/servicefactory.go:345` | [#public-key-validation](#public-key-validation) |
+| `commit.ResolveSignerIdentity` | added | `ResolveSignerIdentity\(` | `verifier/pkg/commit/signer.go:34` | [#public-key-validation](#public-key-validation) |
+| `commit.NewECDSASignerFromKeystore` | added | `NewECDSASignerFromKeystore\(` | `verifier/pkg/commit/signer.go` | [#public-key-validation](#public-key-validation) |
+| `commit.EVMAddressFromPublicKey` | added | `EVMAddressFromPublicKey\(` | `verifier/pkg/commit/signer.go` | [#public-key-validation](#public-key-validation) |
+| `commit.normalizeAndEncodeSignature` | added | `normalizeAndEncodeSignature\(` | `verifier/pkg/commit/signer.go` | [#chain-neutral-signing](#chain-neutral-signing) |
+| Standalone verifier signer validation | behavior-changed | `ResolveSignerIdentity\(` | `cmd/verifier/servicefactory.go` | [#public-key-validation](#public-key-validation) |
 
 ## Breaking Changes
 
 *No breaking changes.* Existing validation, signing, encoding, and node-hosted constructor APIs retain
-their signatures and behavior.
+their signatures and behavior. No new public protocol signing APIs are introduced.
 
 ## Public-key validation
 
-- **Before:** the standalone verifier discarded the keystore public key during validation and compared
-  `signer_address` only with the derived Ethereum address. A 65-byte Canton public key therefore failed.
-- **After:** `NewECDSASignerFromKeystore` returns the signer and SEC1 uncompressed public key without
-  deriving a chain-specific identity. `ResolveSignerIdentity` returns an exact public-key match directly;
-  only a different-length configuration triggers `EVMAddressFromPublicKey` for address comparison.
-- Validation uses raw byte equality with no chain-family conditional or truncation. Empty, malformed, and
-  mismatched values still fail startup; `"auto"` adopts the public key without EVM derivation.
+- **Hotfix baseline:** the standalone verifier validates the keystore public key and accepts either an
+  EVM address or SEC1 public key when both describe the same key.
+- **Permanent change:** `NewECDSASignerFromKeystore` returns the signer and its public key without
+  unconditionally deriving an EVM address. `ResolveSignerIdentity` returns the configured identity after
+  applying the same strict key matching, so downstream logging retains the job's identity encoding.
+- Exact public-key matches use raw byte equality without chain-specific derivation. Different encodings
+  are compared through their derived EVM addresses; truncation and trailing-byte matches are not allowed.
+- Empty, malformed, and mismatched values still fail startup. `"auto"` adopts the public key.
 
 ## Chain-neutral signing
 
-- **Before:** every verifier signing operation recovered an Ethereum address and populated `Data.Signer`,
-  although single-signature encoding emitted only R and S.
-- **After:** the verifier uses `SignV27RS`, `SignV27WithKeystoreSignerRS`, and
-  `EncodeSingleECDSASignatureRS`. These paths perform the same V27 normalization and signature checks
-  without deriving an address.
-- Existing `SignV27`, `SignV27WithKeystoreSigner`, and `EncodeSingleECDSASignature` callers retain their
-  behavior through compatibility wrappers. Aggregate EVM sorting and recovery are unchanged.
+The verifier signs with the private key or keystore, applies `protocol.NormalizeToV27`, verifies that the
+normalized signature recovers a public key, and calls the existing `protocol.EncodeSingleECDSASignature`.
+It no longer derives an Ethereum address merely to discard it during single-signature encoding. The
+existing EVM signing and aggregation APIs remain available unchanged for callers that need addresses.
 
 ## Compatibility & Requirements
 
 - **EVM:** existing 20-byte addresses continue to validate and signatures remain byte-for-byte compatible.
-- **Canton:** the standalone verifier accepts the 65-byte SEC1 uncompressed public key, with or without
-  a `0x` prefix, and signs without requiring an Ethereum address.
+- **Canton:** the standalone verifier accepts SEC1 public keys with or without a `0x` prefix and signs
+  without requiring an Ethereum address.
 - **Node-hosted verifier:** unchanged; it continues to use `ValidateSignerAddress`.
 - **Rollout:** no configuration or downstream API migration is required.
 
 ## References
 
-- Prior changelog entry: `2026-10-29_length_agnostic_signer_address.md`
+- Hotfix: `fix(verifier): match signer_address by key or address` (#1564).
+- Prior changelog entry: `2026-10-29_length_agnostic_signer_address.md`.

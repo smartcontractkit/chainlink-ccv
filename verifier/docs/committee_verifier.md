@@ -65,7 +65,7 @@ signer, pubKey, err := commit.NewECDSASignerFromKeystore(
 signerIdentity, err := commit.ResolveSignerIdentity(config.SignerAddress, pubKey)
 ```
 
-`NewECDSASignerFromKeystore` returns the public key without deriving a chain-specific identity. `ResolveSignerIdentity` returns a matching public key directly and derives an EVM address only when needed for an address-length configuration. Signing delegates to the keystore:
+`NewECDSASignerFromKeystore` returns the public key without deriving a chain-specific identity. `ResolveSignerIdentity` accepts an EVM address or a 33/65-byte SEC1 public key that describes the same key. Signing delegates to the keystore:
 
 ```
 KeystoreSignerAdapter
@@ -73,13 +73,21 @@ KeystoreSignerAdapter
         └── returns raw ECDSA signature bytes
 ECDSASignerWithKeystoreSigner
   └── wraps KeystoreSignerAdapter
-  └── calls protocol.SignV27WithKeystoreSignerRS(data, adapter)
-  └── returns protocol.EncodeSingleECDSASignatureRS(R, S)
+  └── normalizes with protocol.NormalizeToV27 and verifies public-key recovery
+  └── returns protocol.EncodeSingleECDSASignature(R, S)
 ```
 
-The final encoded signature is `(R [32]byte, S [32]byte)` — 64 bytes total.
+The final encoded signature is `(R [32]byte, S [32]byte)` — 64 bytes total. The verifier does not derive an Ethereum address while signing.
 
 For non-node deployments (tests, standalone binaries) `commit.NewECDSAMessageSignerFromString` accepts a raw hex private key and produces the same encoded signature format.
+
+## Signer Address Validation
+
+`commit.ValidateSignerAddress` and `commit.ResolveSignerIdentity` pin the loaded key to the job's
+`signer_address`. Either side may be a 20-byte EVM address or a 33/65-byte SEC1 public key; exact
+byte matches succeed directly, while different encodings of the same key match through their derived
+EVM addresses. The standalone verifier resolves the identity against the public key returned by
+`NewECDSASignerFromKeystore`. `"auto"` skips the check; empty is an error.
 
 ## Receipt Blob Selection
 

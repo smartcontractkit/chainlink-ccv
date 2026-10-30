@@ -1,12 +1,14 @@
 package commit
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"encoding/hex"
 	"fmt"
 	"strings"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -20,18 +22,10 @@ import (
 // it is exclusive — an empty signer_address (the "I forgot to set it" case) is still rejected.
 const AutoSignerAddress = "auto"
 
-// ValidateSignerAddress checks that configured matches the keystore's derived address.
-// Use ValidateSignerIdentity to also accept the uncompressed public key.
+// ValidateSignerAddress checks that the configured identity and keystore identity describe the same key.
+// Either side may be a 20-byte EVM address or a 33/65-byte SEC1 public key; hex may omit the 0x prefix.
+// [AutoSignerAddress] explicitly opts out; empty remains an error rather than implying auto-adoption.
 func ValidateSignerAddress(configured string, actual protocol.UnknownAddress) error {
-	return ValidateSignerIdentity(configured, actual, nil)
-}
-
-// ValidateSignerIdentity checks that configured hex matches either the derived address or public key.
-// This supports EVM addresses and Canton public keys without chain-family-specific handling.
-//
-// [AutoSignerAddress] opts out and adopts whatever the keystore holds (the postgres auto-generate
-// first boot). Empty still errors, so "forgot to set it" is never read as deliberate auto-adoption.
-func ValidateSignerIdentity(configured string, actual protocol.UnknownAddress, publicKey []byte) error {
 	if configured == AutoSignerAddress {
 		return nil
 	}
@@ -39,14 +33,14 @@ func ValidateSignerIdentity(configured string, actual protocol.UnknownAddress, p
 	if err != nil {
 		return err
 	}
-	if actual.Equal(decoded) || protocol.UnknownAddress(publicKey).Equal(decoded) {
+	if keysMatch(decoded, actual.Bytes()) {
 		return nil
 	}
 	return signerIdentityMismatch(configured, actual)
 }
 
-// ResolveSignerIdentity returns the configured identity matching publicKey.
-// EVM derivation occurs only when the configured length differs from the uncompressed public key.
+// ResolveSignerIdentity returns the configured identity when it matches publicKey.
+// [AutoSignerAddress] adopts publicKey without deriving a chain-specific address.
 func ResolveSignerIdentity(configured string, publicKey []byte) (protocol.UnknownAddress, error) {
 	if configured == AutoSignerAddress {
 		return publicKey, nil
@@ -55,17 +49,8 @@ func ResolveSignerIdentity(configured string, publicKey []byte) (protocol.Unknow
 	if err != nil {
 		return nil, err
 	}
-	if protocol.UnknownAddress(publicKey).Equal(decoded) {
-		return publicKey, nil
-	}
-	if len(decoded) != len(publicKey) {
-		address, err := EVMAddressFromPublicKey(publicKey)
-		if err != nil {
-			return nil, err
-		}
-		if address.Equal(decoded) {
-			return address, nil
-		}
+	if keysMatch(decoded, publicKey) {
+		return decoded, nil
 	}
 	return nil, signerIdentityMismatch(configured, publicKey)
 }
@@ -83,10 +68,39 @@ func decodeSignerIdentity(configured string) (protocol.UnknownAddress, error) {
 
 func signerIdentityMismatch(configured string, actual protocol.UnknownAddress) error {
 	return fmt.Errorf(
-		"signing address does not match signer_address: configured %s, keystore %s; "+
+		"signing key does not match signer_address: configured %s, keystore %s; "+
 			"check signer_address and, for migration, ensure [key_import] imported the expected verifier signing key before first boot",
 		configured, actual.String(),
 	)
+}
+
+// keysMatch compares raw bytes first, then compares EVM addresses derived from SEC1 keys.
+// This accepts different encodings of one key without matching truncated or trailing bytes.
+func keysMatch(configured, actual []byte) bool {
+	if bytes.Equal(configured, actual) {
+		return true
+	}
+	configuredAddress, ok := addressForKey(configured)
+	if !ok {
+		return false
+	}
+	actualAddress, ok := addressForKey(actual)
+	return ok && bytes.Equal(configuredAddress, actualAddress)
+}
+
+// addressForKey returns an EVM address unchanged or derives one from a SEC1 public key.
+func addressForKey(key []byte) ([]byte, bool) {
+	if len(key) == common.AddressLength {
+		return key, true
+	}
+	pubKey, err := crypto.UnmarshalPubkey(key)
+	if err != nil {
+		if pubKey, err = crypto.DecompressPubkey(key); err != nil {
+			return nil, false
+		}
+	}
+	address := crypto.PubkeyToAddress(*pubKey)
+	return address.Bytes(), true
 }
 
 // ECDSASigner implements MessageSigner using ECDSA with the new chain-agnostic message format.
@@ -132,17 +146,11 @@ func NewECDSAMessageSigner(privateKeyBytes []byte) (*ECDSASigner, []byte, protoc
 
 // Sign signs some data with the new chain-agnostic format.
 func (ecdsa *ECDSASigner) Sign(data []byte) ([]byte, error) {
-	r, s, err := protocol.SignV27RS(data, ecdsa.privateKey)
+	signature, err := crypto.Sign(data, ecdsa.privateKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign message: %w", err)
 	}
-
-	encodedSignature, err := protocol.EncodeSingleECDSASignatureRS(r, s)
-	if err != nil {
-		return nil, fmt.Errorf("failed to encode signature: %w", err)
-	}
-
-	return encodedSignature, nil
+	return normalizeAndEncodeSignature(data, signature)
 }
 
 // ReadPrivateKeyFromString reads a private key from a string and returns the bytes.
@@ -172,17 +180,29 @@ func NewECDSASignerWithKeystoreSigner(keystoreSigner verifier.MessageSigner) *EC
 }
 
 func (s *ECDSASignerWithKeystoreSigner) Sign(data []byte) ([]byte, error) {
-	r32, s32, err := protocol.SignV27WithKeystoreSignerRS(data, s.keystoreSigner)
+	signature, err := s.keystoreSigner.Sign(data)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign message: %w", err)
 	}
+	return normalizeAndEncodeSignature(data, signature)
+}
 
-	encodedSignature, err := protocol.EncodeSingleECDSASignatureRS(r32, s32)
+func normalizeAndEncodeSignature(hash, signature []byte) ([]byte, error) {
+	r, s, err := protocol.NormalizeToV27(signature)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sign message: %w", err)
+	}
+	check := make([]byte, 65)
+	copy(check[0:32], r[:])
+	copy(check[32:64], s[:])
+	if _, err = crypto.SigToPub(hash, check); err != nil {
+		return nil, fmt.Errorf("failed to sign message: %w", err)
+	}
+	encoded, err := protocol.EncodeSingleECDSASignature(protocol.Data{R: r, S: s})
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode signature: %w", err)
 	}
-
-	return encodedSignature, nil
+	return encoded, nil
 }
 
 // KeystoreSignerAdapter wraps the keystore.Signer interface to implement verifier.MessageSigner.

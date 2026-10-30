@@ -39,26 +39,6 @@ func TestSignV27(t *testing.T) {
 	require.Equal(t, expectedAddress, actualAddress)
 }
 
-func TestSignV27RS(t *testing.T) {
-	privateKey, err := crypto.GenerateKey()
-	require.NoError(t, err)
-	hash := Keccak256([]byte("test message"))
-
-	r, s, err := SignV27RS(hash[:], privateKey)
-	require.NoError(t, err)
-	expectedR, expectedS, _, err := SignV27(hash[:], privateKey)
-	require.NoError(t, err)
-	require.Equal(t, expectedR, r)
-	require.Equal(t, expectedS, s)
-
-	encoded, err := EncodeSingleECDSASignatureRS(r, s)
-	require.NoError(t, err)
-	decodedR, decodedS, err := DecodeSingleECDSASignature(encoded)
-	require.NoError(t, err)
-	require.Equal(t, r, decodedR)
-	require.Equal(t, s, decodedS)
-}
-
 func TestSortSignaturesBySigner(t *testing.T) {
 	// Create test signatures with different signer addresses
 	signatures := []Data{
