@@ -2,6 +2,7 @@ package jobqueue
 
 import (
 	"context"
+	"fmt"
 	"time"
 )
 
@@ -16,19 +17,43 @@ const (
 )
 
 // Jobable is the interface that job payloads must implement to be stored in the queue.
-// It provides chain selector and message ID for database indexing and querying.
 type Jobable interface {
+	// DedupKey identifies the job: a publish with a key that is already queued is dropped.
+	DedupKey() string
+}
+
+// MessageKeyed payloads fill the legacy chain_selector and message_id columns of the verifier
+// tables on insert. The queue never reads these columns back.
+type MessageKeyed interface {
 	// JobKey returns the chain selector and message ID for this job.
-	// These are used for database indexing, querying, and job routing.
-	// chainSelector is a uint64 representing the chain
-	// messageID is a byte slice representing the unique message identifier.
 	JobKey() (chainSelector uint64, messageID []byte)
 }
+
+// MessageDedupKey is the DedupKey of a MessageKeyed payload. The verifier tables keep their
+// (chain_selector, message_id) constraint, so payloads stored there must use this key.
+// The message ID comes first, so a lookup by message ID alone is a prefix match.
+func MessageDedupKey(chainSelector uint64, messageID []byte) string {
+	return fmt.Sprintf("%x:%d", messageID, chainSelector)
+}
+
+// KeyColumns selects the table columns that decide which jobs are duplicates.
+type KeyColumns int
+
+const (
+	// DedupKeyColumn makes dedup_key, filled from DedupKey, the unique key. If T is also
+	// MessageKeyed, the queue also writes the legacy verifier columns.
+	DedupKeyColumn KeyColumns = iota
+	// MessageKeyColumns makes (chain_selector, message_id) the unique key and ignores DedupKey
+	// for duplicates. It is for verifier tables without dedup_key, as on a Chainlink node.
+	MessageKeyColumns
+)
 
 // Job wraps a payload with queue metadata.
 type Job[T Jobable] struct {
 	// Unique job identifier
 	ID string
+	// DedupKey of the payload
+	DedupKey string
 	// The actual payload to process
 	Payload T
 	// Number of times this job has been attempted
@@ -39,15 +64,11 @@ type Job[T Jobable] struct {
 	CreatedAt time.Time
 	// When processing started (nil if not started)
 	StartedAt *time.Time
-	// Chain selector for routing and monitoring (uint64)
-	ChainSelector uint64
-	// Message ID for deduplication and tracking (byte slice)
-	MessageID []byte
 }
 
 // JobQueue defines a generic durable queue interface backed by persistent storage.
 // The queue supports delayed retry, dead letter handling, and concurrent processing.
-// Type T must implement Jobable to provide chain selector and message ID.
+// Type T must implement Jobable to provide the dedup key.
 type JobQueue[T Jobable] interface {
 	// Publish adds one or more jobs to the queue.
 	// Jobs are immediately available for consumption unless a delay is specified.
@@ -112,4 +133,6 @@ type QueueConfig struct {
 	// LockDuration is how long a job can remain in 'processing' before it is
 	// considered stale and automatically reclaimed by the next Consume call.
 	LockDuration time.Duration
+	// KeyColumns selects the unique key of the table. The zero value is DedupKeyColumn.
+	KeyColumns KeyColumns
 }

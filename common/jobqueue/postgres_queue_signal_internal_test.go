@@ -24,6 +24,8 @@ func (j signalJob) JobKey() (chainSelector uint64, messageID []byte) {
 	return j.Chain, j.Message
 }
 
+func (j signalJob) DedupKey() string { return MessageDedupKey(j.JobKey()) }
+
 func signalJobs(n int) []signalJob {
 	jobs := make([]signalJob, n)
 	for i := range jobs {
