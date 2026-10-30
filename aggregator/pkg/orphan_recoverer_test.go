@@ -19,8 +19,13 @@ import (
 
 var errScanFailed = errors.New("scan failed")
 
+func expectOrphanRecoveryLockAcquired(store *mocks.MockCommitVerificationStore) {
+	store.EXPECT().TryAcquireOrphanRecoveryLock(mock.Anything, mock.Anything).Return(func() {}, true, nil).Maybe()
+}
+
 func TestOrphanRecoverer_HealthCheck_NotStarted(t *testing.T) {
 	store := mocks.NewMockCommitVerificationStore(t)
+	expectOrphanRecoveryLockAcquired(store)
 	agg := mocks.NewMockAggregationTriggerer(t)
 	metrics := mocks.NewMockAggregatorMetricLabeler(t)
 
@@ -42,6 +47,7 @@ func TestOrphanRecoverer_HealthCheck_NotStarted(t *testing.T) {
 
 func TestOrphanRecoverer_HealthCheck_ReportsStoppedAfterContextCancellation(t *testing.T) {
 	store := mocks.NewMockCommitVerificationStore(t)
+	expectOrphanRecoveryLockAcquired(store)
 	agg := mocks.NewMockAggregationTriggerer(t)
 	metrics := mocks.NewMockAggregatorMetricLabeler(t)
 
@@ -93,6 +99,7 @@ func TestOrphanRecoverer_HealthCheck_ReportsStoppedAfterContextCancellation(t *t
 
 func TestOrphanRecoverer_RecoversPanicEmitsMetricAndKeepsRunning(t *testing.T) {
 	store := mocks.NewMockCommitVerificationStore(t)
+	expectOrphanRecoveryLockAcquired(store)
 	agg := mocks.NewMockAggregationTriggerer(t)
 	metrics := mocks.NewMockAggregatorMetricLabeler(t)
 
@@ -150,6 +157,7 @@ func TestOrphanRecoverer_RecoversPanicEmitsMetricAndKeepsRunning(t *testing.T) {
 
 func TestOrphanRecoverer_HealthCheck_ReturnsErrorAfterConsecutiveScanFailures(t *testing.T) {
 	store := mocks.NewMockCommitVerificationStore(t)
+	expectOrphanRecoveryLockAcquired(store)
 	agg := mocks.NewMockAggregationTriggerer(t)
 	metrics := mocks.NewMockAggregatorMetricLabeler(t)
 
@@ -232,6 +240,7 @@ func makeOrphanedKey(i int) model.OrphanedKey {
 func setupOrphanRecovererMocks(t *testing.T) (*mocks.MockCommitVerificationStore, *mocks.MockAggregationTriggerer, *mocks.MockAggregatorMetricLabeler) {
 	t.Helper()
 	store := mocks.NewMockCommitVerificationStore(t)
+	expectOrphanRecoveryLockAcquired(store)
 	agg := mocks.NewMockAggregationTriggerer(t)
 	metrics := mocks.NewMockAggregatorMetricLabeler(t)
 
@@ -299,7 +308,7 @@ func TestOrphanRecoverer_RecoverOrphans_MaxOrphansPerScanEnforced(t *testing.T) 
 			}
 
 			recoverer := NewOrphanRecoverer(store, agg, config, logger.Sugared(logger.Test(t)), metrics)
-			err := recoverer.RecoverOrphans(context.Background())
+			_, err := recoverer.RecoverOrphans(context.Background())
 			require.NoError(t, err)
 			require.Equal(t, tc.wantProcessed, int(checkAggCount.Load()))
 		})
@@ -326,7 +335,7 @@ func TestOrphanRecoverer_RecoverOrphans_PassesConfiguredPageSize(t *testing.T) {
 	}
 
 	recoverer := NewOrphanRecoverer(store, agg, config, logger.Sugared(logger.Test(t)), metrics)
-	err := recoverer.RecoverOrphans(context.Background())
+	_, err := recoverer.RecoverOrphans(context.Background())
 	require.NoError(t, err)
 }
 
@@ -364,10 +373,186 @@ func TestOrphanRecoverer_RecoverOrphans_ScanTimeoutCancelsLongScan(t *testing.T)
 
 	recoverer := NewOrphanRecoverer(store, nil, config, logger.Sugared(logger.Test(t)), metrics)
 	start := time.Now()
-	err := recoverer.RecoverOrphans(context.Background())
+	_, err := recoverer.RecoverOrphans(context.Background())
 	duration := time.Since(start)
 
 	require.Error(t, err)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	require.Less(t, duration, 2*scanTimeout)
+}
+
+func TestOrphanRecoverer_SkipsScanWhenLockNotAcquired(t *testing.T) {
+	store := mocks.NewMockCommitVerificationStore(t)
+	agg := mocks.NewMockAggregationTriggerer(t)
+	metrics := mocks.NewMockAggregatorMetricLabeler(t)
+
+	store.EXPECT().TryAcquireOrphanRecoveryLock(mock.Anything, 4*time.Minute+30*time.Second).Return(nil, false, nil)
+	metrics.EXPECT().With("component", "orphan_recoverer").Return(metrics).Maybe()
+	metrics.EXPECT().IncrementOrphanRecoverySkipped(mock.Anything).Times(1)
+
+	config := &model.AggregatorConfig{
+		OrphanRecovery: model.OrphanRecoveryConfig{
+			Enabled:           true,
+			Interval:          5 * time.Minute,
+			MaxAge:            24 * time.Hour,
+			ScanTimeout:       4 * time.Minute,
+			LockReleaseMargin: 30 * time.Second,
+		},
+	}
+
+	recoverer := NewOrphanRecoverer(store, agg, config, logger.Sugared(logger.Test(t)), metrics)
+
+	// OrphanedKeyStats and ListOrphanedKeys have no expectations, so the strict mock fails the test if they are called.
+	scanned, err := recoverer.RecoverOrphans(context.Background())
+	require.NoError(t, err)
+	require.False(t, scanned)
+}
+
+func TestOrphanRecoverer_SkippedScansKeepServiceHealthy(t *testing.T) {
+	store := mocks.NewMockCommitVerificationStore(t)
+	agg := mocks.NewMockAggregationTriggerer(t)
+	metrics := mocks.NewMockAggregatorMetricLabeler(t)
+
+	var attempts atomic.Int32
+	store.EXPECT().TryAcquireOrphanRecoveryLock(mock.Anything, mock.Anything).
+		RunAndReturn(func(context.Context, time.Duration) (func(), bool, error) {
+			attempts.Add(1)
+			return nil, false, nil
+		})
+	metrics.EXPECT().With("component", "orphan_recoverer").Return(metrics).Maybe()
+	metrics.EXPECT().IncrementOrphanRecoverySkipped(mock.Anything)
+
+	config := &model.AggregatorConfig{
+		OrphanRecovery: model.OrphanRecoveryConfig{
+			Enabled:              true,
+			Interval:             10 * time.Millisecond,
+			MaxAge:               24 * time.Hour,
+			ScanTimeout:          4 * time.Minute,
+			MaxConsecutiveErrors: 1,
+		},
+	}
+
+	recoverer := NewOrphanRecoverer(store, agg, config, logger.Sugared(logger.Test(t)), metrics)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		_ = recoverer.Start(ctx)
+		close(done)
+	}()
+
+	require.Eventually(t, func() bool { return attempts.Load() >= 5 }, 2*time.Second, 10*time.Millisecond)
+	require.NoError(t, recoverer.Ready())
+
+	cancel()
+	<-done
+	// A skipped scan records no duration. RecordOrphanRecoveryDuration has no expectation,
+	// so the strict mock fails the test if it is called.
+}
+
+func TestOrphanRecoverer_LockErrorCountsAsScanFailure(t *testing.T) {
+	store := mocks.NewMockCommitVerificationStore(t)
+	agg := mocks.NewMockAggregationTriggerer(t)
+	metrics := mocks.NewMockAggregatorMetricLabeler(t)
+
+	lockErr := errors.New("connection refused")
+	store.EXPECT().TryAcquireOrphanRecoveryLock(mock.Anything, mock.Anything).Return(nil, false, lockErr)
+	metrics.EXPECT().With("component", "orphan_recoverer").Return(metrics).Maybe()
+	metrics.EXPECT().IncrementOrphanRecoveryErrors(mock.Anything)
+	metrics.EXPECT().RecordOrphanRecoveryDuration(mock.Anything, mock.Anything).Maybe()
+
+	config := &model.AggregatorConfig{
+		OrphanRecovery: model.OrphanRecoveryConfig{
+			Enabled:              true,
+			Interval:             10 * time.Millisecond,
+			MaxAge:               24 * time.Hour,
+			ScanTimeout:          4 * time.Minute,
+			MaxConsecutiveErrors: 2,
+		},
+	}
+
+	recoverer := NewOrphanRecoverer(store, agg, config, logger.Sugared(logger.Test(t)), metrics)
+
+	_, err := recoverer.RecoverOrphans(context.Background())
+	require.ErrorIs(t, err, lockErr)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		_ = recoverer.Start(ctx)
+		close(done)
+	}()
+
+	require.Eventually(t, func() bool {
+		err := recoverer.Ready()
+		return err != nil && errors.Is(err, lockErr)
+	}, 2*time.Second, 10*time.Millisecond)
+
+	cancel()
+	<-done
+}
+
+func TestOrphanRecoverer_ReleasesLockOnceWhenScanFails(t *testing.T) {
+	store := mocks.NewMockCommitVerificationStore(t)
+	agg := mocks.NewMockAggregationTriggerer(t)
+	metrics := mocks.NewMockAggregatorMetricLabeler(t)
+
+	var releases atomic.Int32
+	store.EXPECT().TryAcquireOrphanRecoveryLock(mock.Anything, mock.Anything).
+		Return(func() { releases.Add(1) }, true, nil)
+	store.EXPECT().OrphanedKeyStats(mock.Anything, mock.Anything).Return(&model.OrphanStats{}, nil)
+
+	orphansChan := make(chan model.OrphanedKey)
+	errChan := make(chan error, 1)
+	errChan <- errScanFailed
+	store.EXPECT().ListOrphanedKeys(mock.Anything, mock.Anything, mock.Anything).Return(orphansChan, errChan)
+
+	metrics.EXPECT().With("component", "orphan_recoverer").Return(metrics).Maybe()
+	metrics.EXPECT().SetOrphanBacklog(mock.Anything, mock.Anything).Maybe()
+	metrics.EXPECT().SetOrphanExpiredBacklog(mock.Anything, mock.Anything).Maybe()
+	metrics.EXPECT().IncrementOrphanRecoveryErrors(mock.Anything)
+
+	config := &model.AggregatorConfig{
+		OrphanRecovery: model.OrphanRecoveryConfig{
+			Enabled:     true,
+			Interval:    5 * time.Minute,
+			MaxAge:      24 * time.Hour,
+			ScanTimeout: 4 * time.Minute,
+			PageSize:    100,
+		},
+	}
+
+	recoverer := NewOrphanRecoverer(store, agg, config, logger.Sugared(logger.Test(t)), metrics)
+
+	_, err := recoverer.RecoverOrphans(context.Background())
+	require.ErrorIs(t, err, errScanFailed)
+	require.Equal(t, int32(1), releases.Load())
+}
+
+func TestOrphanRecoverer_ReleasesLockOnceWhenScanPanics(t *testing.T) {
+	store := mocks.NewMockCommitVerificationStore(t)
+	agg := mocks.NewMockAggregationTriggerer(t)
+	metrics := mocks.NewMockAggregatorMetricLabeler(t)
+
+	var releases atomic.Int32
+	store.EXPECT().TryAcquireOrphanRecoveryLock(mock.Anything, mock.Anything).
+		Return(func() { releases.Add(1) }, true, nil)
+	store.EXPECT().OrphanedKeyStats(mock.Anything, mock.Anything).
+		Run(func(context.Context, time.Time) { panic("simulated panic in OrphanedKeyStats") }).
+		Return(nil, nil)
+	metrics.EXPECT().With("component", "orphan_recoverer").Return(metrics).Maybe()
+
+	config := &model.AggregatorConfig{
+		OrphanRecovery: model.OrphanRecoveryConfig{
+			Enabled:     true,
+			Interval:    5 * time.Minute,
+			MaxAge:      24 * time.Hour,
+			ScanTimeout: 4 * time.Minute,
+		},
+	}
+
+	recoverer := NewOrphanRecoverer(store, agg, config, logger.Sugared(logger.Test(t)), metrics)
+
+	require.Panics(t, func() { _, _ = recoverer.RecoverOrphans(context.Background()) })
+	require.Equal(t, int32(1), releases.Load())
 }

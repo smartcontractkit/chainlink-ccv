@@ -140,6 +140,10 @@ maxCommitVerifierNodeResultRequestsPerBatch = 100
   # pageSize controls the number of orphaned keys fetched per database page during scans.
   # Defaults to 100.
   pageSize = 100
+  # lockReleaseMargin is added to ScanTimeout to get the longest time a replica can hold the
+  # orphan recovery lock. If the holder stops, the database frees the lock after this time.
+  # ScanTimeout + LockReleaseMargin must be less than Interval. Defaults to 30s.
+  lockReleaseMargin = "30s"
 
 # heartbeat configures the heartbeat monitoring.
 [heartbeat]

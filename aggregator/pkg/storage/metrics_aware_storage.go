@@ -23,6 +23,7 @@ const (
 	submitReportOp           = "SubmitReport"
 	ListOrphanedKeysOp       = "ListOrphanedKeys"
 	orphanedKeyStatsOp       = "OrphanedKeyStats"
+	tryAcquireOrphanLockOp   = "TryAcquireOrphanRecoveryLock"
 
 	createMessageDisablementRuleOp = "CreateMessageDisablementRule"
 	listMessageDisablementRulesOp  = "ListMessageDisablementRules"
@@ -198,6 +199,18 @@ func (s *MetricsAwareStorage) OrphanedKeyStats(ctx context.Context, cutoff time.
 	return captureMetrics(ctx, s.metrics(ctx), s.logger(ctx), s.slowQueryThreshold, orphanedKeyStatsOp, func() (*model.OrphanStats, error) {
 		return s.inner.OrphanedKeyStats(ctx, cutoff)
 	})
+}
+
+func (s *MetricsAwareStorage) TryAcquireOrphanRecoveryLock(ctx context.Context, idleTimeout time.Duration) (func(), bool, error) {
+	type lockResult struct {
+		release  func()
+		acquired bool
+	}
+	res, err := captureMetrics(ctx, s.metrics(ctx), s.logger(ctx), s.slowQueryThreshold, tryAcquireOrphanLockOp, func() (lockResult, error) {
+		release, acquired, err := s.inner.TryAcquireOrphanRecoveryLock(ctx, idleTimeout)
+		return lockResult{release: release, acquired: acquired}, err
+	})
+	return res.release, res.acquired, err
 }
 
 func captureMetrics[T any](ctx context.Context, metrics common.AggregatorMetricLabeler, l logger.SugaredLogger, threshold time.Duration, operation string, fn func() (T, error)) (T, error) {

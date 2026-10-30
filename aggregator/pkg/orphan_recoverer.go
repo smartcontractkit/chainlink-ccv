@@ -61,11 +61,12 @@ func (o *OrphanRecoverer) Start(ctx context.Context) error {
 		now := time.Now()
 		o.logger.Debug("Initiating orphan recovery scan")
 
-		err := func() (err error) {
+		scanned, err := func() (scanned bool, err error) {
 			defer func() {
 				if r := recover(); r != nil {
 					o.logger.Errorw("Panic during orphan recovery scan", "panic", r)
 					o.metrics(ctx).IncrementPanics(ctx)
+					scanned = true
 					err = fmt.Errorf("panic: %v", r)
 				}
 			}()
@@ -82,9 +83,11 @@ func (o *OrphanRecoverer) Start(ctx context.Context) error {
 		o.mu.Unlock()
 
 		duration := time.Since(now)
-		o.metrics(ctx).RecordOrphanRecoveryDuration(ctx, duration)
-		o.logger.Debugw("Orphan recovery scan finished",
-			"duration", duration)
+		if scanned {
+			o.metrics(ctx).RecordOrphanRecoveryDuration(ctx, duration)
+			o.logger.Debugw("Orphan recovery scan finished",
+				"duration", duration)
+		}
 		if duration < orphanRecoveryConfig.Interval {
 			sleepDuration := orphanRecoveryConfig.Interval - duration
 			select {
@@ -102,12 +105,33 @@ func (o *OrphanRecoverer) calculateCutoffFromNow() time.Time {
 }
 
 // RecoverOrphans scans for orphaned verification records and attempts to re-aggregate them.
-// This method is designed to be called periodically to recover from cases where verifications
-// were submitted but aggregation failed due to transient errors.
-func (o *OrphanRecoverer) RecoverOrphans(ctx context.Context) error {
+// Only one replica scans at a time: scanned is false, with a nil error, when another replica
+// holds the orphan recovery lock.
+func (o *OrphanRecoverer) RecoverOrphans(ctx context.Context) (scanned bool, err error) {
 	ctx, cancel := context.WithTimeout(ctx, o.config.OrphanRecovery.ScanTimeout)
 	defer cancel()
 
+	idleTimeout := o.config.OrphanRecovery.ScanTimeout + o.config.OrphanRecovery.LockReleaseMargin
+	release, acquired, err := o.storage.TryAcquireOrphanRecoveryLock(ctx, idleTimeout)
+	if err != nil {
+		o.logger.Errorw("Failed to acquire orphan recovery lock", "error", err)
+		o.metrics(ctx).IncrementOrphanRecoveryErrors(ctx)
+		return false, fmt.Errorf("failed to acquire orphan recovery lock: %w", err)
+	}
+	if !acquired {
+		o.logger.Debug("Orphan recovery lock held by another replica, skipping scan")
+		o.metrics(ctx).IncrementOrphanRecoverySkipped(ctx)
+		return false, nil
+	}
+	defer release()
+	// Release the lock when the scan timeout expires, also if the scan is stuck.
+	stopRelease := context.AfterFunc(ctx, release)
+	defer stopRelease()
+
+	return true, o.scanOrphans(ctx)
+}
+
+func (o *OrphanRecoverer) scanOrphans(ctx context.Context) error {
 	cutoff := o.calculateCutoffFromNow()
 
 	stats, err := o.storage.OrphanedKeyStats(ctx, cutoff)

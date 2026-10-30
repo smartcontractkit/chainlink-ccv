@@ -117,6 +117,10 @@ func (c *NoopAggregatorMetricLabeler) IncrementOrphanRecoveryErrors(ctx context.
 	// No-op
 }
 
+func (c *NoopAggregatorMetricLabeler) IncrementOrphanRecoverySkipped(ctx context.Context) {
+	// No-op
+}
+
 func (c *NoopAggregatorMetricLabeler) IncrementPanics(ctx context.Context) {
 	// No-op
 }

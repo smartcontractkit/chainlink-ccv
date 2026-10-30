@@ -35,6 +35,7 @@ type AggregatorMetrics struct {
 	orphanExpiredBacklog   metric.Int64Gauge
 	orphanRecoveryDuration metric.Float64Histogram
 	orphanRecoveryErrors   metric.Int64Counter
+	orphanRecoverySkipped  metric.Int64Counter
 
 	// Worker health metrics
 	panics metric.Int64Counter
@@ -221,6 +222,14 @@ func InitMetrics() (am *AggregatorMetrics, err error) {
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to register orphan recovery errors counter: %w", err)
+	}
+
+	am.orphanRecoverySkipped, err = beholder.GetMeter().Int64Counter(
+		"aggregator_orphan_recovery_skipped",
+		metric.WithDescription("Total number of orphan recovery scans skipped because another replica holds the lock"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register orphan recovery skipped counter: %w", err)
 	}
 
 	am.panics, err = beholder.GetMeter().Int64Counter(
@@ -418,6 +427,11 @@ func (c *AggregatorMetricLabeler) RecordOrphanRecoveryDuration(ctx context.Conte
 func (c *AggregatorMetricLabeler) IncrementOrphanRecoveryErrors(ctx context.Context) {
 	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
 	c.am.orphanRecoveryErrors.Add(ctx, 1, metric.WithAttributes(otelLabels...))
+}
+
+func (c *AggregatorMetricLabeler) IncrementOrphanRecoverySkipped(ctx context.Context) {
+	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
+	c.am.orphanRecoverySkipped.Add(ctx, 1, metric.WithAttributes(otelLabels...))
 }
 
 func (c *AggregatorMetricLabeler) IncrementPanics(ctx context.Context) {
