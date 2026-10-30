@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.17.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.16.0...v0.17.0) (2026-10-30)
+
+
+### ⚠ BREAKING CHANGES
+
+* token verifier config validation strictness, validate-config CLI ([#1544](https://github.com/smartcontractkit/chainlink-ccv/issues/1544))
+
+### Features
+
+* automate node registration ([#1539](https://github.com/smartcontractkit/chainlink-ccv/issues/1539)) ([a8e8ca2](https://github.com/smartcontractkit/chainlink-ccv/commit/a8e8ca2d1f17b8514d88b4b1265fd2e80b0b3c72))
+* **common:** Generic dedup key ([#1495](https://github.com/smartcontractkit/chainlink-ccv/issues/1495)) ([e7ad8d7](https://github.com/smartcontractkit/chainlink-ccv/commit/e7ad8d70609ff296e9408a21e73bbe210bb12e76))
+* **indexer:** add validate-config subcommand ([#1560](https://github.com/smartcontractkit/chainlink-ccv/issues/1560)) ([91aaa3c](https://github.com/smartcontractkit/chainlink-ccv/commit/91aaa3c95490a907385df5d0b18fd9d54f201cb3))
+* **pricer:** add FeeQuoter writer to EVM accessor ([#1556](https://github.com/smartcontractkit/chainlink-ccv/issues/1556)) ([642017e](https://github.com/smartcontractkit/chainlink-ccv/commit/642017ed968194309f7c14fa2c66f4ab60e056ac))
+* standalone sr log poller ([#1523](https://github.com/smartcontractkit/chainlink-ccv/issues/1523)) ([877e783](https://github.com/smartcontractkit/chainlink-ccv/commit/877e7830280efddcc1a31e5c92b85fe8f9b49894))
+* token verifier config validation strictness, validate-config CLI ([#1544](https://github.com/smartcontractkit/chainlink-ccv/issues/1544)) ([c95a0b2](https://github.com/smartcontractkit/chainlink-ccv/commit/c95a0b2e7833a3010989aef0f548bd695aa8df12))
+* Use advisory lock when running orphan recovery ([#1563](https://github.com/smartcontractkit/chainlink-ccv/issues/1563)) ([51125e9](https://github.com/smartcontractkit/chainlink-ccv/commit/51125e91f2d01d4ad326efa59f8d18beec780862))
+
+
+### Bug Fixes
+
+* improve verification and execution reliability ([#1538](https://github.com/smartcontractkit/chainlink-ccv/issues/1538)) ([07dc6fb](https://github.com/smartcontractkit/chainlink-ccv/commit/07dc6fbeb2f178889c88372cb052ac2f8687930b))
+* **verifier:** match signer_address by key or address ([#1564](https://github.com/smartcontractkit/chainlink-ccv/issues/1564)) ([51e69f3](https://github.com/smartcontractkit/chainlink-ccv/commit/51e69f36a61899c9096151f46e8edcb778bdd697))
+* **verifier:** relaxed signer address validation ([#1561](https://github.com/smartcontractkit/chainlink-ccv/issues/1561)) ([316be49](https://github.com/smartcontractkit/chainlink-ccv/commit/316be49c1030d4fe993bd1891f61f3416d1c0a9b))
+
+
+### Performance Improvements
+
+* **aggregator:** batch DB insert and dedup aggregation trigger in batch write ([#1542](https://github.com/smartcontractkit/chainlink-ccv/issues/1542)) ([d1929f6](https://github.com/smartcontractkit/chainlink-ccv/commit/d1929f6a9e48691cd4fb0b66b7275681eb6126f2))
+
 ## [0.16.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.15.0...v0.16.0) (2026-10-27)
 
 
