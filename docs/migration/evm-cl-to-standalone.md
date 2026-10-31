@@ -21,7 +21,9 @@ You need:
 - Your Chainlink node's API credentials in a file: email on line 1, password on line 2.
 - Your Chainlink node's TOML config file.
 - Three empty Postgres databases: one bootstrap database for each process, plus the verifier's
-  application database. They may share a server, but must be different database names.
+  application database. They may share a server, but must be different database names. The
+  standalone LogPoller reader, if you turn it on later, adds tables to a database of its own or to
+  the application database; see [Source logs](#source-logs-rpc-or-a-logpoller).
 - A bootstrap secrets file for each process and an application secrets file for the verifier, as
   described in step 3.
 - The verifier and executor images.
@@ -70,6 +72,8 @@ the exported key does not carry exactly that address — the decode check alone 
 the wrong OCR2 bundle, because any bundle decodes to a self-consistent identity. If it fails, stop
 and tell Chainlink Labs; do not retry with a different value. A failed export deletes the key and
 password it had already written, so there is nothing left in `./migration/` to mount by accident.
+If your node holds more than one EVM OCR2 bundle, the export also needs `--bundle-id`; the
+`--expected-id` check still rejects any bundle but the registered one.
 
 This writes three files into `./migration/`:
 
@@ -85,8 +89,9 @@ with the node or the flags.
 
 Do all six:
 
-1. Mount your Chainlink node's TOML config file into **both** containers as their EVM config. Do not
-   edit it, apart from a per-chain value you and Chainlink Labs agree on in the settings diff below.
+1. Mount your Chainlink node's TOML config file into **both** containers as their EVM config, at
+   `/etc/evm/config.toml` (`EVM_CONFIG_PATH` overrides the path). Do not edit it, apart from a
+   per-chain value you and Chainlink Labs agree on in the settings diff below.
 2. Mount a different bootstrap secrets file into each process. Its default path is
    `/etc/bootstrap/secrets.toml`; `BOOTSTRAPPER_SECRETS_PATH` overrides the path. Each file contains
    that process's bootstrap `[db].url` and `[keystore].password`.
@@ -145,8 +150,10 @@ finding come out of it, and they are handled differently:
   the startup skip warning stays meaningful.
 - The `warnings` list names settings your node config carries that standalone has no equivalent for
   (`GasEstimator.Mode`, `HeadTracker.HistoryDepth`, send-only nodes, and so on), and
-  `ignored_top_level_sections` names the non-EVM sections (`Log`, `WebServer`, `P2P`, …) the
-  conversion does not read at all. The warnings are read from your file directly, so a setting too
+  `ignored_top_level_sections` names the non-EVM sections (`Log`, `WebServer`, `P2P`, `Feature`,
+  …) the conversion does not read at all. If your node sets `[Feature] LogPoller = true`, its
+  verifier reads source logs through that LogPoller today and the standalone verifier will read
+  them over RPC; see [Source logs](#source-logs-rpc-or-a-logpoller). The warnings are read from your file directly, so a setting too
   new for this tool — or a typo of a real one — is named too. There is nothing to correct in the
   config for these: standalone will not read them whatever you write. Record that you accept each
   one, or raise it with Chainlink Labs if a deviation is not acceptable.
@@ -253,7 +260,9 @@ Using the two CSA public keys from step 6:
 
 1. Repoint the operator's existing JD node record at the verifier's CSA public key. Keep the node ID
    and the NOP alias.
-2. Register the executor as a new JD node under its own name and CSA public key.
+2. Register the executor as a new JD node under its own name and CSA public key, with a label
+   that matches it alone (for example `target=<executor name>`). Step 9 proposes its job by that
+   label.
 
 Wait for JD to report both connected before proposing jobs. A proposal to a record whose new owner
 has not dialed in sits unclaimed.
@@ -261,14 +270,24 @@ has not dialed in sits unclaimed.
 ## Step 9: propose the standalone job specs
 
 1. Set the operator's mode to `standalone` in the topology.
-2. Re-run `ApplyVerifierConfig` and `ApplyExecutorConfig`.
+2. Propose the verifier job: re-run `ApplyVerifierConfig` for this operator only (`targetNops`),
+   with `consolidateAggregators: true` when the committee has more than one aggregator. The flag is
+   read per run. Without it the changeset emits one job per aggregator, and a standalone verifier
+   keeps only the last job it receives, so it would write to one aggregator.
+3. Propose the executor job: take the operator's current executor job spec from the datastore,
+   change its envelope field from `executorConfig` to `appConfig`, and propose it with
+   `jd_propose_job` to the label from step 8. Keep the name, `externalJobID`, and config, so the
+   executor keeps its `executor_id` and its place in the pool. Do not use `ApplyExecutorConfig` for
+   a migrated operator: it proposes by NOP alias, and that alias's record now belongs to the
+   verifier, which rejects the executor job.
 
-**`ApplyVerifierConfig` must produce no contract transaction.** If it proposes a signer change, the
-key the verifier imported is not the one the committee has registered. Stop and recheck the
-operator's step 2.
+**Check the verifier job's `signer_address` against the address read for step 2.**
+`ApplyVerifierConfig` touches no onchain state and never proposes a signer change. It reads the
+signer from what the verifier published to JD and writes it into the job, so that field is where a
+wrong import would show. If it differs, stop and recheck the operator's step 2.
 
-It will also refuse to propose if the chain is not registered in JD for that operator, which means
-the verifier is not reporting its chain configs.
+`ApplyVerifierConfig` also refuses to propose if the chain is not registered in JD for that
+operator, which means the verifier is not reporting its chain configs.
 
 **Check:** the verifier job starts and its log does not report a `signer_address` mismatch. If it
 does, stop and return to the operator's key-import checks; do not propose a replacement signer.
@@ -295,7 +314,9 @@ commands with the same verifier application secrets file so they connect to the 
 ## Step 10: confirm and clean up
 
 1. Send a message across a lane this operator verifies. Confirm it is verified and executed.
-2. Confirm on chain that the committee's signer set for this operator is unchanged.
+2. Confirm the operator's executor is landing transactions: its transmitter's nonce moves on at
+   least one destination chain. The test message alone does not show this, since any executor in
+   the pool can land it.
 3. Tell the operator to remove the CCV job specs from their Chainlink node, and to delete
    `ocr2.json` and `export-password.txt`.
 
@@ -319,6 +340,7 @@ The executor's transaction-manager choice and cutover gates are summarized in th
 | CSA key             | The node's                                   | Each process generates its own                       |
 | EVM RPC config      | The node's TOML                              | The same file, read directly                         |
 | Database            | The node's Postgres                          | One bootstrap database per process, plus the verifier application database |
+| Source events       | `eth_getLogs` per poll, or the node's LogPoller when the node runs one | `eth_getLogs` per poll by default; the verifier's own LogPoller is opt-in per chain (see [Source logs](#source-logs-rpc-or-a-logpoller)) |
 
 ## Executor timing stays aligned
 
@@ -455,6 +477,60 @@ ignores it and always runs finality checkers. Do not set it on an EVM job: the n
 checking, so the cutover must not either. The field exists for chain families whose standalone
 deployments predate this procedure.
 
+## Source logs: RPC or a LogPoller
+
+A CL-mode verifier reads `CCIPMessageSent` logs through the node's LogPoller when the node runs one
+(`[Feature] LogPoller = true`), and uses the LogPoller's finality signal in place of the
+header-based finality checker. Otherwise it issues `eth_getLogs` per poll. The standalone verifier
+does the latter by default: ranges of at most 100 blocks, fed by the in-memory head tracker
+described under [Flagged for update](#flagged-for-update).
+
+The standalone verifier can also run its own LogPoller, per chain. It is off by default, and it
+exists only in the standalone-format EVM config, not in a node TOML:
+
+```toml
+[chains.<selector>]
+log_poller_source_reader_enabled = true
+```
+
+It also needs an EVM secrets file (`EVM_SECRETS_PATH`, default `/etc/evm/secrets.toml`) whose
+`[db].url` names the database for the LogPoller's own `evm` schema. That can be the verifier
+application database or a separate one; the schema and its version table do not collide with the
+verifier's. The process refuses to start if a chain turns the reader on and `[db]` is missing.
+With a node TOML mounted, as this procedure says, every chain reads over RPC, so a node that ran
+its LogPoller changes reader at the cutover.
+
+Nothing migrates across the cutover either way. The node's LogPoller tables are a cache of chain
+data, and the standalone verifier starts without a checkpoint: its first scan begins 500 blocks
+behind the finalized head. Messages finalized after the node stopped but before that block are
+never read by this verifier, whichever reader it runs. On a 12-second chain 500 blocks is well over
+an hour; on a sub-second chain it is a couple of minutes, so most of a cutover window is not
+covered. The rest of the committee verifies those messages; see
+[How many operators can migrate at once](#how-many-operators-can-migrate-at-once).
+
+What changes when the standalone LogPoller is on:
+
+1. Every start replays. The startup load takes the EVM database lease, waits until the
+   checkpoint is finalized, registers the filter, and replays the LogPoller from the checkpoint,
+   normally about one finality depth. Until it finishes, the chain reports not ready and the log
+   says `Source not ready yet, waiting`.
+2. The database named by `[db].url` holds the LogPoller's blocks and 30 days of `CCIPMessageSent`
+   logs per OnRamp. Size it, and its backups, for that.
+3. One writer per EVM database. A second process on the same database waits on the lease, and its
+   LogPoller chains stay not ready until the first one releases it.
+4. Recovery reads the LogPoller's tables. A checkpoint rewound with `chain-statuses
+   set-finalized-height` is refilled over RPC by the next start's replay. A live replay of a range
+   older than the log retention reads nothing. A chain disabled by a LogPoller finality violation
+   is not recovered by `reset-reader` or `replay`; follow
+   [Resolving a Finality Violation](../runbooks/resolving-finality-violation.md), which uses
+   `verifier ccv blocks find-lca` and `remove-blocks`.
+5. A stalled LogPoller pins the reader's heads to its last processed block, so the reader stops
+   advancing. Watch `verifier_source_reader_last_processed_finalized_block` against the chain
+   head. The standalone verifier also reports `source unhealthy` on `/health` when the LogPoller
+   itself reports unhealthy; a CL-mode verifier does not.
+6. Before rolling back to an older image, remove `log_poller_source_reader_enabled`: older binaries
+   reject the key. The `evm` schema's migrations are forward-only, like the verifier's own.
+
 ## Stopping the node mid-flight
 
 The standalone executor reads each message's on-chain execution state before executing, so anything
@@ -470,16 +546,20 @@ the record, and required to be unchanged afterwards. `TestE2EMigration_CLToStand
 that assertion. The pre-cutover read has to come first because the record changes hands in step 8, not
 because publishing stops.
 
-A mistake in the operator's steps surfaces centrally, before any job moves, in one of two ways: the
-verifier changeset wants to change the committee's signer set when it should be a no-op, or it refuses
-to propose because the chain is not registered in JD for that operator.
+A mistake in the operator's steps surfaces in one of two ways. The export or the boot fails its
+`expected_id` check, so a wrong key never reaches JD; or the verifier changeset refuses to propose
+because the chain is not registered in JD for that operator. The changeset itself is offchain-only
+and never proposes a signer change: it writes the signer it reads from JD into the job's
+`signer_address`, which is why step 9 compares that field with the address read before the cutover.
 
 When the job starts, the standalone verifier also compares its keystore address with the job's
 `signer_address` and refuses to run on a mismatch. The error points back to `[key_import]` rather than
 allowing a wrong key to fail later at aggregator quorum.
 
 The import itself runs only when the key is absent, so it is a no-op on every restart after the first.
-Once the verifier has come up once, the export and password files can be unmounted and deleted.
+Once the verifier has come up once, the export and password files can be unmounted and deleted. Keep
+the `[key_import]` block: with the key present the import is skipped, but `expected_id` is still
+checked against the stored key on every boot.
 
 ## Health and readiness endpoints
 
@@ -494,6 +574,13 @@ procedure). Its endpoints are about the job lifecycle, not component health:
   source readers, the coordinator, or the transaction manager can degrade later without `/ready`
   changing.
 - `/keystore/reader/getkeys` is the key hand-off endpoint used in step 6.
+- On images built from chainlink-ccv #1521 on, `/health/live` (a static `alive`) and
+  `/health/ready` (the same as `/ready`) serve the standard probe paths.
+
+This server starts only after the bootstrapper's database migrations, the keystore setup (including
+the key import), and the JD lifecycle start, which on a restart also starts the cached job. The JD
+connection itself is made in the background, so the server comes up before the process is
+registered in JD.
 
 The application's own server carries the real health signal. By default the verifier listens on
 8100 and the executor on 8101; each job's app config can override its own port with
@@ -501,9 +588,16 @@ The application's own server carries the real health signal. By default the veri
 report is healthy, and 503 with the failing component named otherwise. The verifier also serves
 `/stats` on the same port.
 
-For a Kubernetes deployment: point the liveness probe at the application `/health`, and the
-readiness probe at the bootstrapper's `/ready` if you gate rollout on the job having started. Do
-not use the bootstrapper's `/health` for either — it cannot fail while the process runs.
+A stalled LogPoller is the case to watch outside `/health`; see
+[Source logs](#source-logs-rpc-or-a-logpoller).
+
+For a Kubernetes deployment, probe the bootstrapper's port. The application server only starts once
+JD proposes the job (step 9), so a liveness probe on it restarts the pod until then, and a readiness
+probe on `/ready` holds every rollout until then. Use the bootstrapper's `/health` (or
+`/health/live`) for both probes, and add a startup probe with a few minutes of budget to cover the
+boot described above. Neither probe can see a failed component, so watch the application `/health`
+and the bootstrapper's `/ready` from monitoring. Run one replica with a `Recreate` update strategy:
+a rolling update briefly runs two processes on one signing or transmitter key.
 
 ## How many operators can migrate at once
 
@@ -517,6 +611,13 @@ committee size and threshold. Because the signing key carries over, a migrated o
 toward the threshold again as soon as its standalone verifier is up; the window that consumes
 budget is steps 4 to 9.
 
+That holds for new messages only. Each migrating verifier never reads the messages finalized during
+its window beyond its 500-block lookback (see [Source logs](#source-logs-rpc-or-a-logpoller)), and
+those messages never get its signature. With several operators mid-cutover on a fast chain, the
+messages from the overlapping windows are verified by fewer members than usual, and at the full
+budget by exactly `threshold`, so one more failure leaves them unverified until source recovery.
+Keep windows short and stay under the budget rather than at it.
+
 ## Flagged for update
 
 - **CCIP-12871** adds a `ccv migrate` command for step 7: it reads the transmitter address and routes
@@ -527,3 +628,10 @@ budget is steps 4 to 9.
   delta until then: a restart starts the head tracker cold — it re-syncs from RPC instead of
   resuming from persisted heads the way the node did, which costs catch-up time on restart, not
   correctness.
+- **LogPoller from a node TOML.** The standalone LogPoller reader can only be turned on in the
+  standalone-format EVM config, so an operator who mounts their node TOML, as step 3 says, reads
+  over RPC after the cutover even if the node ran its LogPoller. See
+  [Source logs](#source-logs-rpc-or-a-logpoller).
+- **Executor job delivery.** `ApplyExecutorConfig` proposes by NOP alias and cannot reach the
+  executor's separate record, so step 9 proposes the executor job by hand with `jd_propose_job`. A
+  changeset that can target a standalone operator's executor record removes that step.
