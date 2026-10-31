@@ -41,6 +41,8 @@ execute the staging plan's step with the substitutions in "Conventions".
    so there is no external scheduling to respect. Stay one-at-a-time for the first three
    nodes; after that, batches of two or three are reasonable if the soaks are clean.
    Derive the number per batch from the live committee config, not from this paragraph.
+   Batches also overlap the nodes' blind windows (staging validation): messages finalized
+   during a window get no signature from that node, so keep the windows short on fast chains.
 5. **Release images, not `-rc` SHAs.** The standalone pair deployed here should run the
    same release-tagged image (`vX.Y.Z`) that prod-mainnet operators will be given. This
    is the end-to-end validation of the image-publishing path before it becomes external.
@@ -53,10 +55,13 @@ execute the staging plan's step with the substitutions in "Conventions".
 2. Export while the node is up; stop the node before the standalone verifier starts. One
    JD record cannot have two owners.
 3. Never boot the verifier without its `[key_import]` block.
-4. `ApplyVerifierConfig` must produce no contract transaction. A proposed signer change
-   means the imported key is wrong. Stop.
+4. The `signer_address` in the node's new verifier job must equal `$EXPECTED_ID`.
+   `ApplyVerifierConfig` is offchain-only, so that field is where a wrong key shows. Stop.
 5. After the standalone verifier job first starts, re-apply and confirm the disabled flag
    for any chain that was disabled on the node before the cutover.
+6. From P1 on, every EVM `apply-verifier-config` input sets `consolidateAggregators: true`.
+7. Never run `apply-executor-config` for a cut-over node; its executor job goes out through
+   `jd_propose_job`, as in staging step 9, until open question 5 in the staging plan is fixed.
 
 ## Conventions
 
@@ -118,7 +123,10 @@ prod-testnet jobs use two verifier IDs per database (`aggregator-1-default-verif
 `aggregator-2-default-verifier`). Standalone runs one job; legacy `verifier_id`s become
 `secret_name`s. Same changeset input as staging P1, environment `prod_testnet`, dry-run
 first. There is no secondary-committee exception here, but scope the change to the 16
-EVM-serving nodes (open question 1).
+EVM-serving nodes (open question 1). Everything staging P1 says about the side effects
+applies: one JD UI approval per node, a new `verifier_id` that starts without chain status
+(no checkpoint, no disabled flags), and hard rule 6 from then on. Record every node's
+disabled chains before running it.
 
 ### P2. Images
 
@@ -129,18 +137,19 @@ tag matches what the prod-mainnet operator image will be.
 
 ### P3. Charts and config dirs
 
-Charts exist once staging lands them (`committee-verifier-base` and the `executor-evm`
-chart copied from the Solana executor chart). Create the prod-testnet value trees:
+The charts already exist and are shared with the Solana and Canton releases:
+`committee-verifier-base` for the verifiers and `executor-base` for the executors. Create the
+prod-testnet value trees:
 
 - `deploy/config/prod-testnet/committee-verifier-evm/`: common, config, per-instance values.
 - `deploy/config/prod-testnet/executor-evm/`: the same three.
 
 Model them on the staging trees; the only intended differences are environment labels,
-the image tag (P2), and resource sizing if staging's soak showed a need. Probe
-configuration is the same as staging: both `livenessProbe` and `readinessProbe` in Helm
-values target bootstrap `/health` on `9988` (`[server].listen_port`) so pods come up ready
-in Step 6 before JD proposes a job in Step 9 (once the job starts in Step 9, verify
-bootstrap `/ready` on `9988` and app `/health` on `8100`/`8101`).
+the image tag (P2), the per-node `keyImport.expectedId` (P8), and resource sizing if
+staging's soak showed a need. Everything staging P3 lists carries over unchanged: probes on
+bootstrap `/health` (9988) with a `startupProbe`, `strategy: Recreate`, no PDB, no
+ServiceMonitor, and `[key_import]` rendered from `keyImport.expectedId`. After step 9, check
+bootstrap `/ready` on 9988 and the app `/health` on 8100/8101.
 
 ### P4. Databases (3 per migrating node, on their own cluster)
 
@@ -154,12 +163,12 @@ two-way isolation: the rollback path never depends on it. Sizing: the DON cluste
 `db.t4g.medium`. Start at the Canton shape, revisit after the first soak with real
 traffic. Map keys ≤ 43 chars; set `connectionSecret.name` explicitly.
 
-Revisit app-DB sizing again when the EVM logpoller ships: verifier-app databases gain the
-retained log window (30 days by default) of `CCIPMessageSent` logs per OnRamp served — 59
-chains per node here, so the app DB dominates the other two. Its tables arrive as
-forward-only goose migrations the verifier and the `verifier ccv` CLI both run on connect;
-an image downgrade does not roll them back. See the
-[Source logs](evm-cl-to-standalone.md#source-logs-rpc-today-the-logpoller-later) appendix.
+If the standalone LogPoller reader is turned on here (it needs the standalone-format EVM
+config; see the go/no-go), its `evm` schema adds the LogPoller's blocks and 30 days of
+`CCIPMessageSent` logs per OnRamp, 59 chains per node, to the database named by `[db].url`
+in the EVM secrets file. That database then dominates the other three; size it, and its
+backups, before enabling the reader. See
+[Source logs](evm-cl-to-standalone.md#source-logs-rpc-or-a-logpoller).
 
 ### P5. Per-chain config review at 59-chain scale
 
@@ -234,14 +243,14 @@ Every item from staging's validation, here under real traffic:
   stuck message. This is the production gate from the TXM v2 assessment; staging's run
   was rehearsal, this one counts.
 - **Head-tracker cold start** on a busy chain: measure the re-sync cost under real head
-  velocity; decide acceptability. Once the EVM logpoller ships, restarts resume from ingested
-  logs instead, and this measurement is obsolete — re-measure on the new reader before
-  prod-mainnet relies on it.
-- **Logpoller reader, if it ships mid-fleet:** a node cut over to it runs a different source
-  reader than the rest — spot-check at least one node on it before the go/no-go, add the
-  ingestion-lag signal to dashboards (`verifier_source_reader_last_processed_finalized_block`
-  against the chain head; a stalled poller reads healthy and stops advancing, with no
-  `poll_error`), and confirm a restart resumes from ingested logs without a full re-read.
+  velocity; decide acceptability. The head tracker starts cold whichever reader runs, and a
+  LogPoller-backed chain also replays about one finality depth from its checkpoint on every
+  start, so measure both if any node turns the LogPoller on.
+- **LogPoller reader, if any node turns it on:** that node runs a different source reader
+  than the rest, so spot-check it before the go/no-go, put
+  `verifier_source_reader_last_processed_finalized_block` against the chain head on a
+  dashboard (a stalled LogPoller pins the reader's heads), and confirm a restart's replay
+  finishes in reasonable time.
 - **Rollback drill:** repeat once here even though staging drilled it — the prod contexts
   and release names differ, and the people on the prod-mainnet rotation should run it.
 - **Dashboards and alerts:** source-reader head gauges, critical-invariant counter,
@@ -255,15 +264,17 @@ Every item from staging's validation, here under real traffic:
 
 Operator comms for prod-mainnet may start when all of these hold:
 
-- [ ] All 16 EVM-serving nodes cut over and confirmed (message per lane, signer sets
-      unchanged on chain).
+- [ ] All 16 EVM-serving nodes cut over and confirmed: a message per lane, each node's
+      job `signer_address` equal to its P8 address, and each executor's transmitter
+      landing transactions.
 - [ ] Two-week full-fleet soak with no sev and no unexplained transmit failure.
 - [ ] Canary restart, rollback drill, and alert verification results written down.
 - [ ] The per-chain config review (P5) archived; every deviation has an owner.
-- [ ] Source-read mode for prod-mainnet decided and documented in `evm-cl-to-standalone.md`
-      (`eth_getLogs` vs the EVM logpoller — the latter changes verifier app-DB sizing, restart
-      behavior, and the recovery runbook's retention bound and poller rewind), with the
-      operator-facing doc updated to match.
+- [ ] Source-read mode for prod-mainnet decided and documented in `evm-cl-to-standalone.md`:
+      `eth_getLogs` from the node TOML, or the standalone LogPoller, which needs the
+      standalone-format EVM config, an EVM secrets file, and database sizing for its logs.
+- [ ] `apply-executor-config` can target a standalone operator's executor record (staging
+      open question 5), so prod-mainnet executors do not need a hand-proposed job.
 - [ ] Runbook corrections from this environment fed back into
       `evm-cl-to-standalone.md` — prod-mainnet operators get the corrected doc.
 
