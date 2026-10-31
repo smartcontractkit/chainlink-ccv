@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.8.0](https://github.com/smartcontractkit/chainlink-ccv/compare/build/devenv/v0.7.0...build/devenv/v0.8.0) (2026-10-30)
+
+
+### Features
+
+* automate node registration ([#1539](https://github.com/smartcontractkit/chainlink-ccv/issues/1539)) ([a8e8ca2](https://github.com/smartcontractkit/chainlink-ccv/commit/a8e8ca2d1f17b8514d88b4b1265fd2e80b0b3c72))
+* standalone sr log poller ([#1523](https://github.com/smartcontractkit/chainlink-ccv/issues/1523)) ([877e783](https://github.com/smartcontractkit/chainlink-ccv/commit/877e7830280efddcc1a31e5c92b85fe8f9b49894))
+
+
+### Bug Fixes
+
+* **devenv:** respect destination max data limits ([#1557](https://github.com/smartcontractkit/chainlink-ccv/issues/1557)) ([bcee11f](https://github.com/smartcontractkit/chainlink-ccv/commit/bcee11f3a851f0dad4a8f0fa99421cb2f5363861))
+
 ## [0.7.0](https://github.com/smartcontractkit/chainlink-ccv/compare/build/devenv/v0.6.0...build/devenv/v0.7.0) (2026-10-20)
 
 
