@@ -89,6 +89,14 @@ max by (node_id) (
 )
 ```
 
+On a logpoller-backed EVM source reader, a stalled poller does not surface as `poll_error`: the
+reader stays `running` while its latest and finalized heads are pinned to the last ingested
+block, so nothing advances and no error fires. The signal is the query above going stale (or
+`verifier_source_reader_last_processed_finalized_block` flat) while the verifier heartbeat stays
+fresh. Investigate log ingestion and the verifier application database, then the source RPC behind
+it; see the
+[migration appendix](../migration/evm-cl-to-standalone.md#source-logs-rpc-today-the-logpoller-later).
+
 If the state is `disabled`, verify configuration or deliberate operational
 disablements. `finality_blocked` means a finality violation was detected and the
 reader was disabled; it will not clear by waiting for more confirmations. Follow
@@ -141,7 +149,7 @@ Use the latest applicable transition for the alerted message's lane:
 
 | Last transition | Diagnosis | Next action |
 | --- | --- | --- |
-| No `source_read/discovered` | The verifier did not observe the message. | Verify the source event, reader configuration, polling range, and trace/indexer record. |
+| No `source_read/discovered` | The verifier did not observe the message. | Verify the source event, reader configuration, polling range, and trace/indexer record; on a logpoller-backed reader, also check poller ingestion lag (pinned heads) and retained-log coverage. |
 | `pending_finality/queued` | The message entered the finality wait. | Investigate source-chain finality and reorg protection if it has not progressed. |
 | `pending_finality/finality_blocked` with reason `finality_violation` | The reader flushed pending tasks and disabled the chain after a finality violation. | [Detect the violation and scope a rewind](./remediating-stuck-or-dropped-messages.md#detect-and-scope-the-range); ordinary confirmation waiting or job reschedule will not recover those tasks. |
 | `admission/*` | A policy or publication decision blocked progress. | Continue to step 5. |

@@ -21,7 +21,10 @@ You need:
 - Your Chainlink node's API credentials in a file: email on line 1, password on line 2.
 - Your Chainlink node's TOML config file.
 - Three empty Postgres databases: one bootstrap database for each process, plus the verifier's
-  application database. They may share a server, but must be different database names.
+  application database. They may share a server, but must be different database names. The
+  application database is also where the verifier's source-log ingestion will live once the
+  logpoller ships — see [Source logs](#source-logs-rpc-today-the-logpoller-later) before sizing
+  it or scoping its backups.
 - A bootstrap secrets file for each process and an application secrets file for the verifier, as
   described in step 3.
 - The verifier and executor images.
@@ -144,7 +147,10 @@ finding come out of it, and they are handled differently:
   the mounted config. A leftover chain you no longer serve needs nothing, but delete its section so
   the startup skip warning stays meaningful.
 - The `warnings` list names settings your node config carries that standalone has no equivalent for
-  (`GasEstimator.Mode`, `HeadTracker.HistoryDepth`, send-only nodes, and so on), and
+  (`GasEstimator.Mode`, `HeadTracker.HistoryDepth`, send-only nodes, and so on — including the
+  `LogPoller` flag until standalone logpoller support ships, since a chain whose logs came from the
+  node's poller is read over RPC instead; see
+  [Source logs](#source-logs-rpc-today-the-logpoller-later)), and
   `ignored_top_level_sections` names the non-EVM sections (`Log`, `WebServer`, `P2P`, …) the
   conversion does not read at all. The warnings are read from your file directly, so a setting too
   new for this tool — or a typo of a real one — is named too. There is nothing to correct in the
@@ -319,6 +325,7 @@ The executor's transaction-manager choice and cutover gates are summarized in th
 | CSA key             | The node's                                   | Each process generates its own                       |
 | EVM RPC config      | The node's TOML                              | The same file, read directly                         |
 | Database            | The node's Postgres                          | One bootstrap database per process, plus the verifier application database |
+| Source events       | `eth_getLogs` per poll, or the node's logpoller with the `LogPoller` flag | `eth_getLogs` per poll; the verifier's own logpoller is planned — see [Source logs](#source-logs-rpc-today-the-logpoller-later) |
 
 ## Executor timing stays aligned
 
@@ -455,6 +462,68 @@ ignores it and always runs finality checkers. Do not set it on an EVM job: the n
 checking, so the cutover must not either. The field exists for chain families whose standalone
 deployments predate this procedure.
 
+## Source logs: RPC today, the logpoller later
+
+Today the standalone EVM verifier reads `CCIPMessageSent` logs straight off the chain: each poll
+issues `eth_getLogs` over ranges of at most 100 blocks, and the head tracker feeding it is the
+in-memory one described under [Flagged for update](#flagged-for-update). No log state is
+persisted; anything the verifier needs again, it re-reads from the chain.
+
+The planned EVM logpoller moves ingestion into the verifier application database: the verifier
+continuously ingests `CCIPMessageSent` logs into its own tables and reads events from them
+instead of re-querying the chain on every poll. No step in this procedure changes — same database
+as step 3, no new knob for you.
+
+Nothing migrates across the cutover, and nothing needs to. The node's logpoller tables are a
+cache of recent logs, not ledger state — the chain remains the source of truth, and the node's
+copy is simply left behind. The standalone verifier already starts fresh without the logpoller:
+its first scan covers the deliberate ~500-block overlap behind the finalized head, and every
+message not yet finalized when the node stops sits in a block inside that window, so nothing
+observable is lost. The logpoller changes none of that. It adds one startup obligation, borne by
+the verifier itself rather than by you: the fresh poller must be backfilled to that start block
+before the first scan (point 3 below) — a guard, not a migration step. Ranges older than the
+start block matter only for recovery, and recovery re-ingests from the chain, never from the
+node's copy.
+
+The verifier's behavior does change in six ways worth knowing:
+
+1. **Restarts get cheaper.** Ingestion state is durable, so a restarted verifier resumes ingestion
+   where it stopped and re-reads the scan window from the database instead of over RPC. The
+   in-memory head-tracker re-sync cost under "Flagged for update" is unaffected; only the log
+   reads stop repeating.
+2. **The application database grows.** It stops being statuses and queues only: it holds the
+   retained window of `CCIPMessageSent` logs — 30 days by default — for every OnRamp the
+   verifier serves. Revisit the application database's sizing and backup coverage when the
+   logpoller ships; the two bootstrap databases are unaffected.
+3. **A restored database can be missing logs.** A backup restored from before the persisted
+   checkpoint leaves a gap: the checkpoint points into blocks the restored database never
+   ingested. Startup must compare the resume block against the oldest retained log and refuse to
+   treat the gap as "no events" — confirm that refusal, not an empty scan, if you ever restore
+   one. The same guard covers the first start after the migration: a fresh verifier deliberately
+   starts ~500 blocks behind the finalized head, and a fresh poller holds nothing yet, so the
+   poller must be backfilled to the start block before the first scan or that overlap window is
+   silently empty.
+4. **The verifier never reads ahead of its ingestion.** Latest and finalized heads are pinned to
+   the last ingested block, so the checkpoint cannot advance past logs that are not ingested yet.
+   The cost: a stalled poller is silent. No error, no `poll_error` state, a healthy `/health`,
+   and a verifier that simply stops advancing. Watch
+   `verifier_source_reader_last_processed_finalized_block` against the chain head; a fresh
+   heartbeat with a stale gauge means ingestion, not verification, is stuck.
+5. **Recovery gains a bound and a requirement.** Checkpoint recovery re-reads through the reader,
+   which now means the poller's tables: a range is recoverable only while its logs are retained
+   (30 days from ingestion, by default), and a checkpoint rewind must be accompanied by a poller
+   rewind to the same block — otherwise the re-read finds nothing and the checkpoint advances
+   past the very messages the rewind was for. The remediation runbook covers both.
+6. **Schema migrations are forward-only and run on every connect.** The logpoller's tables arrive
+   as migrations the verifier and the `verifier ccv` CLI both run, as today's tables do. An
+   image downgrade does not roll them back; do not point an older image at a database a newer
+   one has migrated.
+
+The `LogPoller` flag in the node EVM config is named in the step 3 diff until the standalone
+support ships — a chain whose logs came from the node's poller is read over RPC in the meantime,
+and the diff says so. Once the support ships, the flag stops being a warning and the diff shows
+the effective source-read mode per chain.
+
 ## Stopping the node mid-flight
 
 The standalone executor reads each message's on-chain execution state before executing, so anything
@@ -501,6 +570,12 @@ The application's own server carries the real health signal. By default the veri
 report is healthy, and 503 with the failing component named otherwise. The verifier also serves
 `/stats` on the same port.
 
+The logpoller adds a case `/health` cannot see: ingestion stalling is not a component failure,
+because the reader pins its heads to the last ingested block and idles while everything reports
+healthy. The signal is the `verifier_source_reader_last_processed_finalized_block` gauge going
+stale against the chain head — see
+[Source logs](#source-logs-rpc-today-the-logpoller-later).
+
 For a Kubernetes deployment: point the liveness probe at the application `/health`, and the
 readiness probe at the bootstrapper's `/ready` if you gate rollout on the job having started. Do
 not use the bootstrapper's `/health` for either — it cannot fail while the process runs.
@@ -527,3 +602,11 @@ budget is steps 4 to 9.
   delta until then: a restart starts the head tracker cold — it re-syncs from RPC instead of
   resuming from persisted heads the way the node did, which costs catch-up time on restart, not
   correctness.
+- **EVM logpoller.** Source logs are read with `eth_getLogs` per poll today. The planned
+  logpoller follow-up ingests them into the verifier application database instead: durable
+  ingestion state across restarts, log retention (30 days by default) sizing the database, heads
+  pinned to the last ingested block (a stalled poller reads healthy and stops advancing — watch
+  `verifier_source_reader_last_processed_finalized_block`), forward-only schema migrations on
+  every connect, and checkpoint recovery that must rewind the poller with the checkpoint and is
+  bounded by retention. See
+  [Source logs](#source-logs-rpc-today-the-logpoller-later).
