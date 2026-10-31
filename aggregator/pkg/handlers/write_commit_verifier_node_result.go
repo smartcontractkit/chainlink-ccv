@@ -50,28 +50,38 @@ func (h *WriteCommitVerifierNodeResultHandler) logger(ctx context.Context) logge
 	return scope.AugmentLogger(ctx, h.l)
 }
 
-// Handle processes the write request and saves the commit verification record.
-func (h *WriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *committeepb.WriteCommitteeVerifierNodeResultRequest) (*committeepb.WriteCommitteeVerifierNodeResultResponse, error) {
+// preparedWrite is a request that passed every pre-storage check and is ready to be inserted.
+// The caller owns span and must end it.
+type preparedWrite struct {
+	ctx            context.Context
+	signerCtx      context.Context
+	span           oteltrace.Span
+	record         *model.CommitVerificationRecord
+	aggregationKey model.AggregationKey
+	callerID       string
+}
+
+func (p *preparedWrite) channelKey() model.ChannelKey {
+	return model.ChannelKey(p.callerID)
+}
+
+// prepare runs every check up to and including aggregation-key derivation. On error it ends any span
+// it started and returns a gRPC status error.
+func (h *WriteCommitVerifierNodeResultHandler) prepare(ctx context.Context, req *committeepb.WriteCommitteeVerifierNodeResultRequest) (*preparedWrite, error) {
 	identity, ok := auth.IdentityFromContext(ctx)
 	if !ok {
-		return &committeepb.WriteCommitteeVerifierNodeResultResponse{
-			Status: committeepb.WriteStatus_FAILED,
-		}, status.Error(codes.Unauthenticated, "unauthenticated: no caller identity in context")
+		return nil, status.Error(codes.Unauthenticated, "unauthenticated: no caller identity in context")
 	}
 	reqLogger := h.logger(ctx)
 	if err := validateWriteRequest(req); err != nil {
 		reqLogger.Warnw("validation error", "error", err)
-		return &committeepb.WriteCommitteeVerifierNodeResultResponse{
-			Status: committeepb.WriteStatus_FAILED,
-		}, status.Error(codes.InvalidArgument, "validation failed: invalid request format")
+		return nil, status.Error(codes.InvalidArgument, "validation failed: invalid request format")
 	}
 
 	record, err := model.CommitVerificationRecordFromProto(req.GetCommitteeVerifierNodeResult())
 	if err != nil {
 		reqLogger.Errorw("Failed to convert proto to domain model", "error", err)
-		return &committeepb.WriteCommitteeVerifierNodeResultResponse{
-			Status: committeepb.WriteStatus_FAILED,
-		}, status.Error(codes.InvalidArgument, "invalid request format")
+		return nil, status.Error(codes.InvalidArgument, "invalid request format")
 	}
 	ctx = scope.WithMessageID(ctx, record.MessageID)
 	reqLogger = h.logger(ctx)
@@ -80,23 +90,20 @@ func (h *WriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *
 		commontracing.AlwaysSampled(),
 		commontracing.WithAttributes(commontracing.CallerIDKey, identity.CallerID),
 	)
-	defer span.End()
 
 	if h.disablementChecker.IsDisabled(record) {
 		reqLogger.Infow("Rejected write: message matched a disablement rule")
 		span.AddEvent(monitoring.EventDisablementRejected)
-		return &committeepb.WriteCommitteeVerifierNodeResultResponse{
-			Status: committeepb.WriteStatus_FAILED,
-		}, status.Error(codes.FailedPrecondition, "message processing is disabled")
+		span.End()
+		return nil, status.Error(codes.FailedPrecondition, "message processing is disabled")
 	}
 
 	validationResult, err := h.signatureValidator.ValidateSignature(ctx, record)
 	if err != nil {
 		reqLogger.Errorw("signature validation failed", "error", err)
 		span.RecordError(err)
-		return &committeepb.WriteCommitteeVerifierNodeResultResponse{
-			Status: committeepb.WriteStatus_FAILED,
-		}, status.Error(codes.InvalidArgument, "signature validation failed")
+		span.End()
+		return nil, status.Error(codes.InvalidArgument, "signature validation failed")
 	}
 	span.AddEvent(monitoring.EventSignatureValidated)
 
@@ -106,53 +113,68 @@ func (h *WriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *
 	if err != nil {
 		reqLogger.Errorw("failed to derive aggregation key", "error", err)
 		span.RecordError(err)
-		return &committeepb.WriteCommitteeVerifierNodeResultResponse{
-			Status: committeepb.WriteStatus_FAILED,
-		}, status.Error(codes.Internal, "failed to process verification record")
+		span.End()
+		return nil, status.Error(codes.Internal, "failed to process verification record")
 	}
 	ctx = scope.WithAggregationKey(ctx, aggregationKey)
 	span.SetAttributes(attribute.String(commontracing.AggregationKeyKey, aggregationKey))
 
-	signerCtx := scope.WithAddress(ctx, validationResult.Signer.Identifier)
-
 	record.SignerIdentifier = validationResult.Signer
 
-	err = h.storage.SaveCommitVerification(signerCtx, record, aggregationKey)
-	if err != nil {
-		h.logger(signerCtx).Errorw("failed to save commit verification record", "error", err)
-		span.RecordError(err)
-		return &committeepb.WriteCommitteeVerifierNodeResultResponse{
-			Status: committeepb.WriteStatus_FAILED,
-		}, status.Error(codes.Internal, "failed to save verification record")
-	}
-	span.AddEvent(monitoring.EventVerificationSaved)
+	return &preparedWrite{
+		ctx:            ctx,
+		signerCtx:      scope.WithAddress(ctx, validationResult.Signer.Identifier),
+		span:           span,
+		record:         record,
+		aggregationKey: aggregationKey,
+		callerID:       identity.CallerID,
+	}, nil
+}
+
+// recordSaved emits the per-item logging and metrics that follow a successful insert.
+func (h *WriteCommitVerifierNodeResultHandler) recordSaved(p *preparedWrite) {
+	p.span.AddEvent(monitoring.EventVerificationSaved)
 	// PER-MESSAGE LOG (status): one per verifier node; quorum may not be met yet.
-	h.logger(signerCtx).Infow("Verification received", protocol.LogTypeKey, protocol.LogTypeMessageStatus, protocol.LogKeyMessageID, protocol.ByteSlice(record.MessageID).String(), "callerID", identity.CallerID)
+	h.logger(p.signerCtx).Infow("Verification received", protocol.LogTypeKey, protocol.LogTypeMessageStatus, protocol.LogKeyMessageID, protocol.ByteSlice(p.record.MessageID).String(), "callerID", p.callerID)
 
-	metrics := h.m.Metrics().With(
-		"caller_id", identity.CallerID,
-		"chain_selector", strconv.FormatUint(uint64(record.Message.SourceChainSelector), 10),
-		"chain_name", record.Message.SourceChainSelector.ChainName(),
-	)
-	metrics.IncrementVerificationsTotal(ctx)
+	h.m.Metrics().With(
+		"caller_id", p.callerID,
+		"chain_selector", strconv.FormatUint(uint64(p.record.Message.SourceChainSelector), 10),
+		"chain_name", p.record.Message.SourceChainSelector.ChainName(),
+	).IncrementVerificationsTotal(p.ctx)
+}
 
-	channelKey := model.ChannelKey(identity.CallerID)
-	if err := h.aggregator.CheckAggregation(ctx, record.MessageID, aggregationKey, channelKey); err != nil {
+// Handle processes the write request and saves the commit verification record.
+func (h *WriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *committeepb.WriteCommitteeVerifierNodeResultRequest) (*committeepb.WriteCommitteeVerifierNodeResultResponse, error) {
+	failed := &committeepb.WriteCommitteeVerifierNodeResultResponse{Status: committeepb.WriteStatus_FAILED}
+
+	p, err := h.prepare(ctx, req)
+	if err != nil {
+		return failed, err
+	}
+	defer p.span.End()
+
+	writes := []model.CommitVerificationWrite{{Record: p.record, AggregationKey: p.aggregationKey}}
+	if err := h.storage.SaveCommitVerification(p.signerCtx, writes); err != nil {
+		h.logger(p.signerCtx).Errorw("failed to save commit verification record", "error", err)
+		p.span.RecordError(err)
+		return failed, status.Error(codes.Internal, "failed to save verification record")
+	}
+	h.recordSaved(p)
+
+	reqLogger := h.logger(p.ctx)
+	channelKey := p.channelKey()
+	if err := h.aggregator.CheckAggregation(p.ctx, p.record.MessageID, p.aggregationKey, channelKey); err != nil {
+		p.span.RecordError(err)
 		if errors.Is(err, common.ErrAggregationChannelFull) {
 			reqLogger.Errorf("Aggregation channel is full")
-			span.RecordError(err)
-			return &committeepb.WriteCommitteeVerifierNodeResultResponse{
-				Status: committeepb.WriteStatus_FAILED,
-			}, status.Error(codes.ResourceExhausted, "service temporarily unavailable: aggregation queue full")
+			return failed, status.Error(codes.ResourceExhausted, "service temporarily unavailable: aggregation queue full")
 		}
 
 		reqLogger.Errorw("failed to trigger aggregation", "error", err)
-		span.RecordError(err)
-		return &committeepb.WriteCommitteeVerifierNodeResultResponse{
-			Status: committeepb.WriteStatus_FAILED,
-		}, status.Error(codes.Internal, "failed to trigger aggregation")
+		return failed, status.Error(codes.Internal, "failed to trigger aggregation")
 	}
-	span.AddEvent(monitoring.EventAggregationEnqueued, oteltrace.WithAttributes(attribute.String(commontracing.ChannelKeyKey, string(channelKey))))
+	p.span.AddEvent(monitoring.EventAggregationEnqueued, oteltrace.WithAttributes(attribute.String(commontracing.ChannelKeyKey, string(channelKey))))
 	reqLogger.Debugf("Triggered aggregation check")
 
 	return &committeepb.WriteCommitteeVerifierNodeResultResponse{

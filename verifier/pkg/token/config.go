@@ -1,7 +1,9 @@
 package token
 
 import (
+	"errors"
 	"fmt"
+	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/cctp"
@@ -29,6 +31,11 @@ type Config struct {
 	// is disabled. Solana needs it: a skipped slot has no block, which the checker reports as a
 	// missing block header. Mirrors commit.Config.DisableFinalityCheckers.
 	DisableFinalityCheckers []string `json:"disable_finality_checkers" toml:"disable_finality_checkers"`
+
+	// SourceReaderStalenessThreshold is how long a source chain may go without a successful query
+	// (head/event fetch) before that chain's source reader reports not-ready, degrading /health.
+	// Zero uses the default of 50 poll intervals.
+	SourceReaderStalenessThreshold time.Duration `json:"source_reader_staleness_threshold" toml:"source_reader_staleness_threshold"`
 
 	// CommitteeConfig is the generic config needed for SourceReader.
 	chainaccess.CommitteeConfig
@@ -119,15 +126,26 @@ func (o *VerifierConfig) UnmarshalTOML(data any) error {
 		return fmt.Errorf("version field is required for VerifierConfig")
 	}
 
+	// Dispatch by type/version, and only fall through to the next implementation
+	// when this one does not handle the type. Any other error is a real config
+	// error (e.g. a duration that is not a quoted string) and must be surfaced as
+	// such — reporting it as "unsupported verifier type" would send operators
+	// chasing the wrong field.
 	var err error
 	o.CCTPConfig, err = cctp.TryParsing(o.Type, o.Version, castedData)
 	if err == nil {
 		return nil
 	}
+	if !errors.Is(err, cctp.ErrUnsupported) {
+		return fmt.Errorf("invalid %s verifier %q: %w", o.Type, o.VerifierID, err)
+	}
 
 	o.LombardConfig, err = lombard.TryParsing(o.Type, o.Version, castedData)
 	if err == nil {
 		return nil
+	}
+	if !errors.Is(err, lombard.ErrUnsupported) {
+		return fmt.Errorf("invalid %s verifier %q: %w", o.Type, o.VerifierID, err)
 	}
 
 	return fmt.Errorf("unsupported verifier type %s and version %s", o.Type, o.Version)

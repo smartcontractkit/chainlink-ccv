@@ -133,7 +133,7 @@ func TestCreateSourceReadersDB_FailsWhenNoServiceCanBeCreated(t *testing.T) {
 	// A nil source reader makes sourcereader.NewService fail for the only chain.
 	_, _, err := createSourceReadersDB(
 		logger.Test(t), config, nil, nil, nil,
-		map[protocol.ChainSelector]chainaccess.SourceReader{chain: nil}, nil, nil,
+		map[protocol.ChainSelector]chainaccess.SourceReader{chain: nil}, nil, nil, nil, nil,
 	)
 	require.ErrorContains(t, err, "no source reader service could be created for 1 configured chain(s)")
 	require.ErrorContains(t, err, "sourceReader cannot be nil")

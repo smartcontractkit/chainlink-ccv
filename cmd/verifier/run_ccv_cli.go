@@ -34,7 +34,9 @@ import (
 // secretsEnvVar/defaultSecretsPath name the calling app's verifier secrets file; the CLI loads it
 // itself (it runs before the service factory) so an operator who has cut over to the file need not
 // re-export CL_DATABASE_URL to run the CLI.
-func RunCCVCLI(args []string, secretsEnvVar, defaultSecretsPath string) {
+//
+// commands adds extra ccv subcommands, such as a chain family's own; building one must do no I/O.
+func RunCCVCLI(args []string, secretsEnvVar, defaultSecretsPath string, commands ...func(logger.Logger) cli.Command) {
 	// The profile and the stderr override are one function because NewWith takes a single
 	// customizer. Logs go to stderr so a caller can pipe the CLI's own output on stdout
 	// without them.
@@ -140,6 +142,9 @@ func RunCCVCLI(args []string, secretsEnvVar, defaultSecretsPath string) {
 				},
 			},
 		},
+	}
+	for _, command := range commands {
+		app.Commands[0].Subcommands = append(app.Commands[0].Subcommands, command(lggr))
 	}
 
 	if err := app.Run(append([]string{app.Name}, args...)); err != nil {

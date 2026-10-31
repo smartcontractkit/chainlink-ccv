@@ -2,18 +2,22 @@ package evm
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
+	"math/big"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 
+	"github.com/smartcontractkit/chainlink-ccv/common/lazy"
 	commonmonitoring "github.com/smartcontractkit/chainlink-ccv/common/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/contracttransmitter"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/pricereader"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/keystore"
@@ -23,9 +27,11 @@ import (
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 	clevmconfig "github.com/smartcontractkit/chainlink-evm/pkg/config"
 	"github.com/smartcontractkit/chainlink-evm/pkg/gas"
+	"github.com/smartcontractkit/chainlink-evm/pkg/gas/rollups"
 	"github.com/smartcontractkit/chainlink-evm/pkg/heads"
 	evmkeys "github.com/smartcontractkit/chainlink-evm/pkg/keys"
 	evmkeysv2 "github.com/smartcontractkit/chainlink-evm/pkg/keys/v2"
+	"github.com/smartcontractkit/chainlink-evm/pkg/logpoller"
 	"github.com/smartcontractkit/chainlink-evm/pkg/txmgr"
 )
 
@@ -76,6 +82,9 @@ func rawNodeURLs(nodes []Node) []map[string]string {
 type chainRuntime interface {
 	ChainClient() (client.Client, error)
 	HeadTracker() (heads.Tracker, error)
+	// DAGasPriceOracle returns nil when the chain type has no data availability fee.
+	DAGasPriceOracle(ctx context.Context) (rollups.L1Oracle, error)
+	TransmitterAddresses(ctx context.Context, ks keystore.Keystore, keyName string) ([]common.Address, error)
 	SourceReaderHeaderFetchBatchSize() int
 	NewContractTransmitter(
 		ctx context.Context,
@@ -84,11 +93,20 @@ type chainRuntime interface {
 		keyName string,
 		offRampAddress common.Address,
 	) (chainaccess.ContractTransmitter, error)
+	// NewFeeQuoterWriter returns a writer that sends price updates to the Fee Quoter through the TXM.
+	NewFeeQuoterWriter(
+		ctx context.Context,
+		ks keystore.Keystore,
+		keyName string,
+		feeQuoterAddress common.Address,
+		tokens *pricereader.TokenMetadataCache,
+	) (chainaccess.FeeQuoterWriter, error)
 	Close() error
 }
 
 type standaloneChain struct {
 	lggr            logger.Logger
+	selector        protocol.ChainSelector
 	chainClient     client.Client
 	chainConfig     *clevmconfig.ChainScoped
 	headBroadcaster heads.Broadcaster
@@ -108,9 +126,19 @@ type standaloneChain struct {
 
 	mu                  sync.Mutex
 	txm                 txmgr.TxManager
+	txmKeyName          string
+	chainKeystore       evmkeys.ChainStore
+	fromAddresses       []common.Address
+	daOracle            *lazy.Lazy[rollups.L1Oracle]
 	unsubscribeTXM      func()
 	contractTransmitter chainaccess.ContractTransmitter
 	closed              bool
+
+	// logPoller is built by the first LogPoller call, through newLogPoller.
+	newLogPoller logPollerBuilder
+	logPoller    logpoller.LogPoller
+	// logPollerStarted is set once StartLogPoller has started logPoller.
+	logPollerStarted bool
 
 	// recoveryStop cancels the orphan recovery goroutine, which spends most of its life in a grace
 	// period sleep and must not outlive the accessor. recoveryWG lets Close wait for it, so the
@@ -119,7 +147,7 @@ type standaloneChain struct {
 	recoveryWG   sync.WaitGroup
 }
 
-func newStandaloneChain(ctx context.Context, info Info, lggr logger.Logger) (*standaloneChain, error) {
+func newStandaloneChain(ctx context.Context, selector protocol.ChainSelector, info Info, lggr logger.Logger) (*standaloneChain, error) {
 	chainClient, chainConfig, err := newMultiNodeClientFromInfo(info, lggr)
 	if err != nil {
 		return nil, err
@@ -167,8 +195,9 @@ func newStandaloneChain(ctx context.Context, info Info, lggr logger.Logger) (*st
 		"nodeCount", len(chainConfig.Nodes()),
 	)
 	txmBlockTime, txmBlockTimeSource := evmconfig.ResolveTXMBlockTime(info)
-	return &standaloneChain{
+	chain := &standaloneChain{
 		lggr:                             lggr,
+		selector:                         selector,
 		chainClient:                      chainClient,
 		chainConfig:                      chainConfig,
 		headBroadcaster:                  headBroadcaster,
@@ -178,8 +207,11 @@ func newStandaloneChain(ctx context.Context, info Info, lggr logger.Logger) (*st
 		txmBlockTime:                     txmBlockTime,
 		txmBlockTimeSource:               txmBlockTimeSource,
 		sourceReaderHeaderFetchBatchSize: sourceReaderHeaderFetchBatchSize(info.SourceReaderHeaderFetchBatchSize),
+		newLogPoller:                     buildLogPoller,
 		recoveryStop:                     make(services.StopChan),
-	}, nil
+	}
+	chain.daOracle = lazy.New(chain.buildDAGasPriceOracle)
+	return chain, nil
 }
 
 // SourceReaderHeaderFetchBatchSize returns the configured source-reader header
@@ -211,6 +243,63 @@ func (c *standaloneChain) HeadTracker() (heads.Tracker, error) {
 	return c.headTracker, nil
 }
 
+// DAGasPriceOracle builds and starts the data availability gas price oracle on the first call.
+// It returns nil for chain types that have no data availability fee.
+func (c *standaloneChain) DAGasPriceOracle(ctx context.Context) (rollups.L1Oracle, error) {
+	if c == nil || c.daOracle == nil {
+		return nil, errors.New("EVM DA gas price oracle is not available")
+	}
+	return c.daOracle.Value(ctx)
+}
+
+// buildDAGasPriceOracle starts the oracle. The start waits for the first RPC read, so it holds no lock.
+func (c *standaloneChain) buildDAGasPriceOracle(ctx context.Context) (rollups.L1Oracle, error) {
+	c.mu.Lock()
+	closed := c.closed
+	c.mu.Unlock()
+	if closed {
+		return nil, errors.New("EVM chain runtime is closed")
+	}
+	oracle, err := rollups.NewL1GasOracle(
+		logger.Named(c.lggr, "DAGasPriceOracle"),
+		c.chainClient,
+		c.chainConfig.EVM().ChainType(),
+		c.chainConfig.EVM().GasEstimator().DAOracle(),
+		nil,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create EVM DA gas price oracle: %w", err)
+	}
+	if oracle == nil {
+		return nil, nil
+	}
+	if err := oracle.Start(ctx); err != nil {
+		return nil, fmt.Errorf("failed to start EVM DA gas price oracle: %w", err)
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return nil, errors.Join(errors.New("EVM chain runtime is closed"), oracle.Close())
+	}
+	return oracle, nil
+}
+
+// TransmitterAddresses returns the addresses of the enabled keys that have the given key name.
+func (c *standaloneChain) TransmitterAddresses(ctx context.Context, ks keystore.Keystore, keyName string) ([]common.Address, error) {
+	if ks == nil {
+		return nil, errors.New("EVM transmitter addresses require a keystore")
+	}
+	coreKeystore := evmkeysv2.NewTxKeyCoreKeystore(ks, evmkeysv2.WithAllowedKeyNames([]string{keyName}))
+	addresses, err := evmkeys.NewChainStore(coreKeystore, c.chainConfig.EVM().ChainID()).EnabledAddresses(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load EVM transmitter key %q: %w", keyName, err)
+	}
+	if len(addresses) == 0 {
+		return nil, fmt.Errorf("EVM transmitter key %q was not found", keyName)
+	}
+	return addresses, nil
+}
+
 // NewContractTransmitter starts chainlink-evm's production TXM v2 and returns
 // the existing TXM-backed CCV transmitter. TXM owns nonce tracking, fee
 // estimation, retries, gas bumping, and multi-node writes.
@@ -230,14 +319,39 @@ func (c *standaloneChain) NewContractTransmitter(
 	if c.contractTransmitter != nil {
 		return c.contractTransmitter, nil
 	}
-	if ks == nil {
-		return nil, errors.New("EVM transaction manager requires a keystore")
-	}
-	if keyName == "" {
-		return nil, errors.New("EVM transaction manager requires a transmitter key name")
-	}
 	if offRampAddress == (common.Address{}) {
 		return nil, errors.New("EVM transaction manager requires an OffRamp address")
+	}
+	if err := c.ensureTXMLocked(ctx, ks, keyName); err != nil {
+		return nil, err
+	}
+	transmitter := contracttransmitter.NewEVMContractTransmitterFromTxm(
+		logger.With(c.lggr, "component", "ContractTransmitter"),
+		chainSelector,
+		c.txm,
+		offRampAddress,
+		c.chainKeystore,
+		c.fromAddresses,
+		monitoring.NewNoopExecutorMonitoring(),
+	)
+	c.contractTransmitter = transmitter
+	return transmitter, nil
+}
+
+// ensureTXMLocked starts the TXM on first use and shares it between the transmitter and the fee
+// quoter writer. The caller holds c.mu.
+func (c *standaloneChain) ensureTXMLocked(ctx context.Context, ks keystore.Keystore, keyName string) error {
+	if c.txm != nil {
+		if c.txmKeyName != keyName {
+			return fmt.Errorf("EVM transaction manager already runs with key %q, not %q", c.txmKeyName, keyName)
+		}
+		return nil
+	}
+	if ks == nil {
+		return errors.New("EVM transaction manager requires a keystore")
+	}
+	if keyName == "" {
+		return errors.New("EVM transaction manager requires a transmitter key name")
 	}
 
 	switch c.txmBlockTimeSource {
@@ -268,10 +382,10 @@ func (c *standaloneChain) NewContractTransmitter(
 	chainKeystore := evmkeys.NewChainStore(coreKeystore, c.chainConfig.EVM().ChainID())
 	fromAddresses, err := chainKeystore.EnabledAddresses(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load EVM transmitter key %q: %w", keyName, err)
+		return fmt.Errorf("failed to load EVM transmitter key %q: %w", keyName, err)
 	}
 	if len(fromAddresses) == 0 {
-		return nil, fmt.Errorf("EVM transmitter key %q was not found", keyName)
+		return fmt.Errorf("EVM transmitter key %q was not found", keyName)
 	}
 
 	estimator, err := gas.NewEstimator(
@@ -283,7 +397,7 @@ func (c *standaloneChain) NewContractTransmitter(
 		nil,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create EVM gas estimator: %w", err)
+		return fmt.Errorf("failed to create EVM gas estimator: %w", err)
 	}
 
 	txm, err := newTxmV2(
@@ -294,11 +408,11 @@ func (c *standaloneChain) NewContractTransmitter(
 		estimator,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create production EVM transaction manager: %w", err)
+		return fmt.Errorf("failed to create production EVM transaction manager: %w", err)
 	}
 	if err := txm.Start(ctx); err != nil {
 		_ = txm.Close()
-		return nil, fmt.Errorf("failed to start production EVM transaction manager: %w", err)
+		return fmt.Errorf("failed to start production EVM transaction manager: %w", err)
 	}
 
 	// Start has registered the transmitter addresses with the store, so recovery can seed into it.
@@ -310,23 +424,104 @@ func (c *standaloneChain) NewContractTransmitter(
 	if currentHead != nil {
 		txm.OnNewLongestChain(ctx, currentHead)
 	}
-	transmitter := contracttransmitter.NewEVMContractTransmitterFromTxm(
-		logger.With(c.lggr, "component", "ContractTransmitter"),
-		chainSelector,
-		txm,
-		offRampAddress,
-		chainKeystore,
-		fromAddresses,
-		monitoring.NewNoopExecutorMonitoring(),
-	)
 	c.txm = txm
+	c.txmKeyName = keyName
+	c.chainKeystore = chainKeystore
+	c.fromAddresses = fromAddresses
 	c.unsubscribeTXM = unsubscribe
-	c.contractTransmitter = transmitter
-	c.lggr.Infow("Started production EVM transaction manager",
-		"chainSelector", chainSelector,
-		"fromAddresses", fromAddresses,
-	)
-	return transmitter, nil
+	c.lggr.Infow("Started production EVM transaction manager", "fromAddresses", fromAddresses)
+	return nil
+}
+
+// NewFeeQuoterWriter returns a TXM-backed Fee Quoter writer, starting the TXM if needed.
+func (c *standaloneChain) NewFeeQuoterWriter(
+	ctx context.Context,
+	ks keystore.Keystore,
+	keyName string,
+	feeQuoterAddress common.Address,
+	tokens *pricereader.TokenMetadataCache,
+) (chainaccess.FeeQuoterWriter, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.closed {
+		return nil, errors.New("EVM chain runtime is closed")
+	}
+	if feeQuoterAddress == (common.Address{}) {
+		return nil, errors.New("EVM fee quoter writer requires a Fee Quoter address")
+	}
+	if err := c.ensureTXMLocked(ctx, ks, keyName); err != nil {
+		return nil, err
+	}
+	return pricereader.NewEVMFeeQuoterWriter(
+		logger.With(c.lggr, "component", "FeeQuoterWriter"),
+		c.chainClient,
+		feeQuoterAddress,
+		pricereader.WithTxm(c.txm, c.chainKeystore, c.fromAddresses),
+		pricereader.WithTokenCache(tokens),
+	), nil
+}
+
+var _ logPollerRuntime = (*standaloneChain)(nil)
+
+// EVMChainID returns the chain's configured EVM chain ID.
+func (c *standaloneChain) EVMChainID() *big.Int {
+	return c.chainConfig.EVM().ChainID()
+}
+
+// LogPoller builds this chain's LogPoller on the first call and returns the same one afterwards. It
+// does not start it: StartLogPoller does, once the caller holds the EVM database lease.
+func (c *standaloneChain) LogPoller(ctx context.Context, db *sql.DB) (logpoller.LogPoller, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.closed {
+		return nil, errors.New("EVM chain runtime is closed")
+	}
+	if c.logPoller != nil {
+		return c.logPoller, nil
+	}
+	chainID := c.chainConfig.EVM().ChainID()
+	if db == nil {
+		return nil, fmt.Errorf("log poller for chain selector %d (evm_chain_id %s) requires the EVM database", c.selector, chainID)
+	}
+
+	// Building fails the same way on every attempt (metric registration), so the caller skips the chain.
+	lp, err := c.newLogPoller(logPollerInputs{
+		chainID:     chainID,
+		logger:      logger.Named(c.lggr, "LogPoller"),
+		client:      c.chainClient,
+		headTracker: c.headTracker,
+		config:      c.chainConfig.EVM(),
+		db:          db,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to build log poller for chain selector %d (evm_chain_id %s): %w", c.selector, chainID, err)
+	}
+	c.logPoller = lp
+	return lp, nil
+}
+
+// StartLogPoller starts the built LogPoller; later calls do nothing.
+func (c *standaloneChain) StartLogPoller(ctx context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.closed {
+		return errors.New("EVM chain runtime is closed")
+	}
+	if c.logPoller == nil {
+		return fmt.Errorf("log poller for chain selector %d is not built", c.selector)
+	}
+	if c.logPollerStarted {
+		return nil
+	}
+	if err := c.logPoller.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start log poller for chain selector %d (evm_chain_id %s): %w",
+			c.selector, c.chainConfig.EVM().ChainID(), err)
+	}
+	c.logPollerStarted = true
+	return nil
 }
 
 // startOrphanRecovery drives transactions left in the mempool by a previous run of this process to
@@ -358,7 +553,12 @@ func (c *standaloneChain) recoverOrphanedTransactions(ctx context.Context, txm *
 		c.lggr.Warnw("Could not check for orphaned transactions", "address", address, "error", err)
 		return
 	}
-	if len(nonceRange(latest, pending)) == 0 {
+	orphans, err := nonceRange(latest, pending)
+	if err != nil {
+		c.lggr.Warnw("Could not determine orphaned transaction nonces", "address", address, "error", err)
+		return
+	}
+	if len(orphans) == 0 {
 		return
 	}
 
@@ -383,7 +583,11 @@ func (c *standaloneChain) recoverOrphanedTransactions(ctx context.Context, txm *
 		c.lggr.Warnw("Could not re-check orphaned transactions after grace period", "address", address, "error", err)
 		return
 	}
-	orphans := nonceRange(latest, pending)
+	orphans, err = nonceRange(latest, pending)
+	if err != nil {
+		c.lggr.Warnw("Could not determine orphaned transaction nonces after grace period", "address", address, "error", err)
+		return
+	}
 	if len(orphans) == 0 {
 		c.lggr.Infow("Orphaned transactions confirmed on their own; no recovery needed", "address", address)
 		return
@@ -419,6 +623,7 @@ func (c *standaloneChain) Close() error {
 	unsubscribeTXM := c.unsubscribeTXM
 	chainClient := c.chainClient
 	configEmitter := c.configEmitter
+	lp := c.logPoller
 	c.mu.Unlock()
 
 	// Stop the config emitter first: it is independent of the chain services and this stops
@@ -441,6 +646,16 @@ func (c *standaloneChain) Close() error {
 	}
 	c.recoveryWG.Wait()
 
+	// The LogPoller reads heads from the head tracker, so it stops first. A poller something else
+	// stopped, or one that never started because this chain never got the lease, is not an error.
+	if lp != nil {
+		if closeErr := lp.Close(); closeErr != nil &&
+			!errors.Is(closeErr, services.ErrAlreadyStopped) && !errors.Is(closeErr, services.ErrCannotStopUnstarted) {
+			chainID := c.chainConfig.EVM().ChainID().String()
+			err = errors.Join(err, fmt.Errorf("failed to close log poller for chain selector %d (evm_chain_id %s): %w", c.selector, chainID, closeErr))
+		}
+	}
+
 	if headTracker != nil {
 		err = errors.Join(err, headTracker.Close())
 	}
@@ -452,6 +667,12 @@ func (c *standaloneChain) Close() error {
 	}
 	if txm != nil {
 		err = errors.Join(err, txm.Close())
+	}
+	if c.daOracle != nil && c.daOracle.Derived() {
+		// The oracle is derived, so Value returns the cached oracle without any call.
+		if daOracle, _ := c.daOracle.Value(context.Background()); daOracle != nil {
+			err = errors.Join(err, daOracle.Close())
+		}
 	}
 	if mailMonitor != nil {
 		err = errors.Join(err, mailMonitor.Close())

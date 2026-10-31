@@ -42,6 +42,32 @@ type tokenVerifierFactory struct {
 	lggr         logger.Logger
 }
 
+var _ bootstrap.ServiceFactoryValidator = (*tokenVerifierFactory)(nil)
+
+// validateTokenJobSpec decodes and validates a token verifier app config. It is
+// the single decode path shared by Start and Validate, so CI validation and the
+// service agree on what a valid config is.
+func validateTokenJobSpec(spec bootstrap.JobSpec) (token.Config, error) {
+	var cfg token.Config
+	if err := spec.GetAppConfig(&cfg); err != nil {
+		return token.Config{}, fmt.Errorf("unable to decode app config: %w", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		return token.Config{}, fmt.Errorf("invalid token verifier config: %w", err)
+	}
+	return cfg, nil
+}
+
+// Validate implements [bootstrap.ServiceFactoryValidator]: it decodes and
+// validates an app config without starting services or allocating runtime
+// resources. The bootstrap lifecycle calls it before replacing a running job, so
+// a bad config is rejected without stopping the current one, and `validate-config`
+// reuses it in CI.
+func (tvf *tokenVerifierFactory) Validate(spec bootstrap.JobSpec) error {
+	_, err := validateTokenJobSpec(spec)
+	return err
+}
+
 // NewTokenVerifierServiceFactory creates a new ServiceFactory for the token verifier service.
 // The factory loads the verifier secrets file itself in Start, so each chain-family binary's
 // main.go stays free of secrets-loading boilerplate.
@@ -82,12 +108,9 @@ func (tvf *tokenVerifierFactory) Stop(_ context.Context) error {
 
 // Start starts the service with the parsed config received from the bootstrapper.
 func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootstrap.ServiceDeps) error {
-	var appConfig token.Config
-	if err := spec.GetAppConfig(&appConfig); err != nil {
-		return fmt.Errorf("unable to decode app config: %w", err)
-	}
-	if err := appConfig.Validate(); err != nil {
-		return fmt.Errorf("invalid token verifier config: %w", err)
+	appConfig, err := validateTokenJobSpec(spec)
+	if err != nil {
+		return err
 	}
 
 	tvf.lggr = deps.Logger
@@ -142,6 +165,7 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 				verifierMonitoring.RecordChainHealthy(ctx, selector, false)
 				return
 			}
+			attachCriticalSourceInvariantCallback(reader, selector, verifierMonitoring)
 			verifierMonitoring.RecordChainHealthy(ctx, selector, true)
 			accessorsMu.Lock()
 			sourceReaders[selector] = reader
@@ -199,6 +223,7 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 				verifierConfig.VerifierID,
 				verifierConfig.LombardConfig,
 				cfg.DisableFinalityCheckers,
+				cfg.SourceReaderStalenessThreshold,
 				tvf.lggr,
 				sourceReaders,
 				storage.NewCCVWriter(
@@ -223,6 +248,7 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 				verifierConfig.VerifierID,
 				verifierConfig.CCTPConfig,
 				cfg.DisableFinalityCheckers,
+				cfg.SourceReaderStalenessThreshold,
 				tvf.lggr,
 				sourceReaders,
 				cctpCodecs,
@@ -332,6 +358,7 @@ func createCCTPCoordinator(
 	verifierID string,
 	cctpConfig *cctp.CCTPConfig,
 	disableFinalityCheckers []string,
+	stalenessThreshold time.Duration,
 	lggr logger.Logger,
 	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
 	cctpCodecs map[protocol.ChainSelector]chainaccess.CCTPCodec,
@@ -341,7 +368,7 @@ func createCCTPCoordinator(
 	chainStatusManager protocol.ChainStatusManager,
 	db sqlutil.DataSource,
 ) (*verifier.Coordinator, error) {
-	cctpSourceConfigs := createSourceConfigs(cctpConfig.ParsedVerifierResolvers, disableFinalityCheckers)
+	cctpSourceConfigs := createSourceConfigs(cctpConfig.ParsedVerifierResolvers, disableFinalityCheckers, stalenessThreshold)
 
 	attestationService, err := cctp.NewAttestationService(lggr, verifierMonitoring, *cctpConfig, cctpCodecs)
 	if err != nil {
@@ -373,6 +400,7 @@ func createCCTPCoordinator(
 		nil,
 		db,
 		verifier.WithSourceRecovery(),
+		verifier.WithDedupKeyColumn(),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create verification coordinator for cctp: %w", err)
@@ -385,6 +413,7 @@ func createLombardCoordinator(
 	verifierID string,
 	lombardConfig *lombard.LombardConfig,
 	disableFinalityCheckers []string,
+	stalenessThreshold time.Duration,
 	lggr logger.Logger,
 	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
 	ccvStorage protocol.CCVNodeDataWriter,
@@ -393,7 +422,7 @@ func createLombardCoordinator(
 	chainStatusManager protocol.ChainStatusManager,
 	db sqlutil.DataSource,
 ) (*verifier.Coordinator, error) {
-	sourceConfigs := createSourceConfigs(lombardConfig.ParsedVerifierResolvers, disableFinalityCheckers)
+	sourceConfigs := createSourceConfigs(lombardConfig.ParsedVerifierResolvers, disableFinalityCheckers, stalenessThreshold)
 	attestationService, err := lombard.NewAttestationService(lggr, verifierMonitoring, *lombardConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Lombard attestation service: %w", err)
@@ -428,6 +457,7 @@ func createLombardCoordinator(
 		nil,
 		db,
 		verifier.WithSourceRecovery(),
+		verifier.WithDedupKeyColumn(),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create verification coordinator for lombard: %w", err)
@@ -439,6 +469,7 @@ func createLombardCoordinator(
 func createSourceConfigs(
 	verifiers map[protocol.ChainSelector]protocol.UnknownAddress,
 	disableFinalityCheckers []string,
+	stalenessThreshold time.Duration,
 ) map[protocol.ChainSelector]verifier.SourceConfig {
 	sourceConfigs := make(map[protocol.ChainSelector]verifier.SourceConfig)
 	for selector, address := range verifiers {
@@ -447,6 +478,7 @@ func createSourceConfigs(
 			VerifierAddress:        address,
 			DefaultExecutorAddress: nil,
 			PollInterval:           verifier.SourceReaderPollInterval,
+			StalenessThreshold:     stalenessThreshold,
 			ChainSelector:          selector,
 			DisableFinalityChecker: slices.Contains(disableFinalityCheckers, strSelector),
 		}

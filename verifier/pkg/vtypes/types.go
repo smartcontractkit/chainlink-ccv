@@ -2,6 +2,7 @@ package vtypes
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -32,7 +33,13 @@ type VerificationTask struct {
 	TraceContext context.Context `json:"-"`
 }
 
-// JobKey implements jobqueue.Jobable interface.
+// DedupKey implements jobqueue.Jobable; it matches jobqueue.MessageDedupKey.
+func (t VerificationTask) DedupKey() string {
+	chainSelector, messageID := t.JobKey()
+	return fmt.Sprintf("%x:%d", messageID, chainSelector)
+}
+
+// JobKey implements jobqueue.MessageKeyed.
 func (t VerificationTask) JobKey() (chainSelector uint64, messageID []byte) {
 	messageIDBytes := t.Message.MustMessageID()
 	return uint64(t.Message.SourceChainSelector), messageIDBytes[:]
@@ -44,10 +51,11 @@ type SourceConfig struct {
 	DefaultExecutorAddress protocol.UnknownAddress `json:"default_executor_address"`
 	ChainSelector          protocol.ChainSelector  `json:"chain_selector"`
 	PollInterval           time.Duration           `json:"poll_interval"`
-	PollTimeout            time.Duration           `json:"poll_timeout"`    // Timeout for head and event-log fetches (default: 10s)
-	BatchSize              int                     `json:"batch_size"`      // Maximum number of verification tasks to batch before sending to verifier (default: 20)
-	BatchTimeout           time.Duration           `json:"batch_timeout"`   // Maximum duration to wait before flushing incomplete verifier batch (default: 100ms)
-	MaxBlockRange          uint64                  `json:"max_block_range"` // Max blocks per RPC query (default: 5000)
+	PollTimeout            time.Duration           `json:"poll_timeout"`        // Timeout for head and event-log fetches (default: 10s)
+	StalenessThreshold     time.Duration           `json:"staleness_threshold"` // How long a chain may go without a successful query before the reader reports not-ready (default: 50 × poll_interval)
+	BatchSize              int                     `json:"batch_size"`          // Maximum number of verification tasks to batch before sending to verifier (default: 20)
+	BatchTimeout           time.Duration           `json:"batch_timeout"`       // Maximum duration to wait before flushing incomplete verifier batch (default: 100ms)
+	MaxBlockRange          uint64                  `json:"max_block_range"`     // Max blocks per RPC query (default: 5000)
 	DisableFinalityChecker bool                    `json:"disable_finality_checker"`
 }
 

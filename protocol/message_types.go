@@ -587,7 +587,12 @@ type VerifierNodeResult struct {
 	TraceContext    context.Context  `json:"-"`
 }
 
-// JobKey implements jobqueue.Jobable interface.
+// DedupKey implements jobqueue.Jobable; it matches jobqueue.MessageDedupKey.
+func (vr VerifierNodeResult) DedupKey() string {
+	return fmt.Sprintf("%x:%d", vr.MessageID[:], uint64(vr.Message.SourceChainSelector))
+}
+
+// JobKey implements jobqueue.MessageKeyed.
 func (vr VerifierNodeResult) JobKey() (chainSelector uint64, messageID []byte) {
 	return uint64(vr.Message.SourceChainSelector), vr.MessageID[:]
 }

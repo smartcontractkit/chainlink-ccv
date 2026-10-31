@@ -39,6 +39,7 @@ type ChainlinkExecutor struct {
 	readerServices         []services.Service
 	curseChecker           common.CurseChecker
 	verifierResultsReader  executor.VerifierResultReader
+	leaderElector          executor.LeaderElector
 	monitoring             monitoring.Monitoring
 	defaultExecutorAddress map[protocol.ChainSelector]protocol.UnknownAddress
 }
@@ -49,6 +50,7 @@ func NewChainlinkExecutor(
 	destinationReaders map[protocol.ChainSelector]chainaccess.DestinationReader,
 	curseChecker common.CurseChecker,
 	verifierResultReader executor.VerifierResultReader,
+	leaderElector executor.LeaderElector,
 	monitoring monitoring.Monitoring,
 	defaultExecutorAddress map[protocol.ChainSelector]protocol.UnknownAddress,
 ) *ChainlinkExecutor {
@@ -70,6 +72,7 @@ func NewChainlinkExecutor(
 		readerServices:         readerServices,
 		curseChecker:           curseChecker,
 		verifierResultsReader:  verifierResultReader,
+		leaderElector:          leaderElector,
 		monitoring:             monitoring,
 		defaultExecutorAddress: defaultExecutorAddress,
 	}
@@ -132,7 +135,36 @@ func (cle *ChainlinkExecutor) Name() string {
 }
 
 func (cle *ChainlinkExecutor) Ready() error {
-	return cle.StateMachine.Ready()
+	if err := cle.StateMachine.Ready(); err != nil {
+		return err
+	}
+	if n := len(cle.destinationReaders); n > 0 && cle.readyDestinationReaders() == 0 {
+		return fmt.Errorf("no destination reader is ready across %d chain(s)", n)
+	}
+	return nil
+}
+
+// Degraded names each destination chain whose reader is not ready (for example its
+// RPC is unreachable); nil when all are. Consulted only when Ready passes, so at
+// least one reader is usable.
+func (cle *ChainlinkExecutor) Degraded() error {
+	var errs []error
+	for _, sel := range slices.Sorted(maps.Keys(cle.destinationReaders)) {
+		if !cle.destinationReaders[sel].IsReady(sel) {
+			errs = append(errs, fmt.Errorf("DestinationReader[%d]: not ready", sel))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func (cle *ChainlinkExecutor) readyDestinationReaders() int {
+	ready := 0
+	for sel, reader := range cle.destinationReaders {
+		if reader.IsReady(sel) {
+			ready++
+		}
+	}
+	return ready
 }
 
 func (cle *ChainlinkExecutor) CheckValidMessage(ctx context.Context, message protocol.Message) error {
@@ -147,7 +179,7 @@ func (cle *ChainlinkExecutor) CheckValidMessage(ctx context.Context, message pro
 	}
 	if err := reader.CheckHealth(destinationChain); err != nil {
 		cle.metricsForMessage(message).IncrementDestinationReaderCriticalFailure(ctx, destinationChain)
-		return fmt.Errorf("destination reader critically failed for chain %d: %w", destinationChain, err)
+		return fmt.Errorf("destination reader critically failed for chain %d: %w", destinationChain, errors.Join(err, executor.ErrDestinationReaderUnhealthy))
 	}
 	return nil
 }
@@ -166,6 +198,10 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 	// Check prerequisites to avoid toctou issues
 	if err := cle.CheckValidMessage(ctx, message); err != nil {
 		span.AddEvent(monitoring.EventInvalidMessageSkipped)
+		if errors.Is(err, executor.ErrDestinationReaderUnhealthy) {
+			// Transient destination reader health failure: retry the message later.
+			return true, err
+		}
 		return false, err
 	}
 	start := time.Now()
@@ -258,20 +294,36 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 
 	// Check if anyone (third-party or other executor) has honestly attempted to execute this message.
 	// If they haven't we can execute it.
-	honestAttempt, err := cle.destinationReaders[destinationChain].HasHonestAttempt(ctx, message, verifierResults, verifierQuorum)
+	attemptCheck, err := cle.destinationReaders[destinationChain].HasHonestAttempt(ctx, message, verifierResults, verifierQuorum)
 	if err != nil {
 		cle.lggr.Errorw("unable to call execution checker, will retry message", "error", err, protocol.LogKeyMessageID, messageID)
 		metrics.IncrementMessageFailure(ctx, monitoring.MessageTransitionStageExecution, true, monitoring.MessageFailureClassHonestAttemptCheck)
 		return true, err
 	}
 
-	// If someone else has already tried to execute this message with the data
-	// that we would execute the message with or deem valid. We won't execute.
-	if honestAttempt {
+	// Do not transmit over an honest attempt. Recheck successful attempts so reorg removal can
+	// reopen execution; deterministic receiver failures remain terminal.
+	if attemptCheck.Honest {
 		cle.lggr.Debugw("skipping execution due to existing honest attempt", protocol.LogKeyMessageID, messageID)
 		span.AddEvent(monitoring.EventSkippedHonestAttemptExists)
 		metrics.IncrementMessageTransition(ctx, monitoring.MessageTransitionStageExecution, monitoring.MessageTransitionOutcomeSkipped, monitoring.MessageTransitionReasonHonestAttempt)
-		return false, nil
+		return !attemptCheck.HonestAttemptFailed, nil
+	}
+
+	// An attempt that is not honest does not stop the pool, but only the first ranked executor may send after it.
+	if attemptCheck.NotHonestAttemptExists {
+		firstRanked, err := cle.leaderElector.IsFirstRanked(messageID, destinationChain)
+		if err != nil {
+			cle.lggr.Errorw("leader elector failed for retry decision, will retry message", "error", err, protocol.LogKeyMessageID, messageID)
+			metrics.IncrementMessageFailure(ctx, monitoring.MessageTransitionStageExecution, true, monitoring.MessageFailureClassHonestAttemptCheck)
+			return true, err
+		}
+		if !firstRanked {
+			cle.lggr.Debugw("skipping execution after attempt that is not honest, this executor is not the first ranked", protocol.LogKeyMessageID, messageID)
+			span.AddEvent(monitoring.EventSkippedNotDesignatedRetrier)
+			metrics.IncrementMessageTransition(ctx, monitoring.MessageTransitionStageExecution, monitoring.MessageTransitionOutcomeSkipped, monitoring.MessageTransitionReasonNotRetrier)
+			return false, nil
+		}
 	}
 
 	// Create the aggregated report and transmit it to the chain.
@@ -351,6 +403,13 @@ func (cle *ChainlinkExecutor) getVerifierResultsAndQuorum(ctx context.Context, m
 				// continue here because it's possible to still meet verifier quorum with some invalid verifier results.
 				continue
 			}
+			if r.MessageID != messageID {
+				cle.lggr.Warnw("Verifier Result message ID does not match requested message ID",
+					"verifierResult", r,
+					"expectedMessageID", messageID.String(),
+				)
+				continue
+			}
 			ccvData = append(ccvData, r)
 		}
 		return nil
@@ -427,69 +486,54 @@ func orderCCVData(
 	latestCCVTimestamp int64,
 	err error,
 ) {
-	orderedCCVData = make([][]byte, 0, len(ccvDatas))
-	orderedCCVOfframps = make([]protocol.UnknownAddress, 0, len(ccvDatas))
-
 	// Map the destination verifier addresses to the CCV data associated with them.
-	// This is to facilitate fast lookups in the loops below.
-	destVerifierToCCVData := make(map[string]protocol.VerifierResult)
+	// This is to facilitate fast lookups in the selection below.
+	destVerifierToCCVData := make(map[string]protocol.VerifierResult, len(ccvDatas))
 	for _, ccvData := range ccvDatas {
 		destVerifierToCCVData[ccvData.VerifierDestAddress.String()] = ccvData
 	}
 
-	// Check that all the required CCVs are present in the CCV data retrieved.
-	var lastRequiredCCVTimestamp int64
-	for _, ccvAddress := range receiverCCVInfo.RequiredCCVs {
-		data, ok := destVerifierToCCVData[ccvAddress.String()]
-		if !ok {
-			// required CCV not found, can't execute.
-			return nil, nil, 0, errors.Join(
-				executor.ErrInsufficientVerifiers,
-				fmt.Errorf("required CCV (%s) not found from ccv data retrieved (%+v), required: %+v",
-					ccvAddress.String(),
-					slices.Collect(maps.Keys(destVerifierToCCVData)),
-					toStrSlice(receiverCCVInfo.RequiredCCVs),
-				),
-			)
-		}
+	selected := protocol.SelectCCVsForExecution(destVerifierToCCVData, receiverCCVInfo)
 
-		orderedCCVData = append(orderedCCVData, data.CCVData)
-		orderedCCVOfframps = append(orderedCCVOfframps, ccvAddress)
-		lastRequiredCCVTimestamp = max(lastRequiredCCVTimestamp, data.Timestamp.UnixMilli())
+	if selected.MissingRequired != nil {
+		// required CCV not found, can't execute.
+		return nil, nil, 0, errors.Join(
+			executor.ErrInsufficientVerifiers,
+			fmt.Errorf("required CCV (%s) not found from ccv data retrieved (%+v), required: %+v",
+				selected.MissingRequired.String(),
+				slices.Collect(maps.Keys(destVerifierToCCVData)),
+				toStrSlice(receiverCCVInfo.RequiredCCVs),
+			),
+		)
 	}
-
-	// Check which optional CCVs are present in the CCV data retrieved.
-	optionalCount := 0
-	optionalCCVTimestamps := make([]int64, 0, len(receiverCCVInfo.OptionalCCVs))
-	for _, ccvAddress := range receiverCCVInfo.OptionalCCVs {
-		if optionalCount >= int(receiverCCVInfo.OptionalThreshold) {
-			break
-		}
-		data, ok := destVerifierToCCVData[ccvAddress.String()]
-		if !ok {
-			// optional CCV not found, but there may be others still.
-			continue
-		}
-
-		// optional CCV found, add to the ordered lists.
-		orderedCCVData = append(orderedCCVData, data.CCVData)
-		orderedCCVOfframps = append(orderedCCVOfframps, ccvAddress)
-		optionalCCVTimestamps = append(optionalCCVTimestamps, data.Timestamp.UnixMilli())
-		optionalCount++
-	}
-
-	// check if we have enough optional CCVs.
-	if optionalCount < int(receiverCCVInfo.OptionalThreshold) {
+	if !selected.Complete {
 		return nil, nil, 0, errors.Join(
 			executor.ErrInsufficientVerifiers,
 			fmt.Errorf(
 				"not enough optional CCVs found (%d) from ccv data retrieved (%+v) (required threshold: %d, optional ccvs: %+v)",
-				optionalCount,
+				len(selected.Optional),
 				slices.Collect(maps.Keys(destVerifierToCCVData)),
 				receiverCCVInfo.OptionalThreshold,
 				toStrSlice(receiverCCVInfo.OptionalCCVs),
 			),
 		)
+	}
+
+	orderedCCVData = make([][]byte, 0, len(selected.Required)+len(selected.Optional))
+	orderedCCVOfframps = make([]protocol.UnknownAddress, 0, len(selected.Required)+len(selected.Optional))
+
+	var lastRequiredCCVTimestamp int64
+	for _, result := range selected.Required {
+		orderedCCVData = append(orderedCCVData, result.CCVData)
+		orderedCCVOfframps = append(orderedCCVOfframps, result.VerifierDestAddress)
+		lastRequiredCCVTimestamp = max(lastRequiredCCVTimestamp, result.Timestamp.UnixMilli())
+	}
+
+	optionalCCVTimestamps := make([]int64, 0, len(selected.Optional))
+	for _, result := range selected.Optional {
+		orderedCCVData = append(orderedCCVData, result.CCVData)
+		orderedCCVOfframps = append(orderedCCVOfframps, result.VerifierDestAddress)
+		optionalCCVTimestamps = append(optionalCCVTimestamps, result.Timestamp.UnixMilli())
 	}
 
 	// metrics: determine the latest timestamp of all the CCV datas.

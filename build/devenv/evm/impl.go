@@ -1509,12 +1509,11 @@ func (m *CCIP17EVMConfig) buildEVMTokenTransferConfig(
 	}
 }
 
+// GetMaxDataBytes reads this chain's own fee quoter dest chain config for the
+// remote — the exact storage that validates sends to it, so it exists for
+// every wired lane by construction.
 func (m *CCIP17EVM) GetMaxDataBytes(ctx context.Context, remoteChainSelector uint64) (uint32, error) {
-	if remoteChainSelector != m.chain.ChainSelector() {
-		return 0, fmt.Errorf("GetMaxDataBytes: chain %d not found in environment chains %v", remoteChainSelector, m.chain.ChainSelector())
-	}
-
-	feeQuoterRef, err := m.ds.Addresses().Get(datastore.NewAddressRefKey(remoteChainSelector, datastore.ContractType(fee_quoter.ContractType), semver.MustParse(fee_quoter.Deploy.Version()), ""))
+	feeQuoterRef, err := m.ds.Addresses().Get(datastore.NewAddressRefKey(m.chain.ChainSelector(), datastore.ContractType(fee_quoter.ContractType), semver.MustParse(fee_quoter.Deploy.Version()), ""))
 	if err != nil {
 		return 0, fmt.Errorf("failed to get fee quoter address: %w", err)
 	}
@@ -1525,6 +1524,12 @@ func (m *CCIP17EVM) GetMaxDataBytes(ctx context.Context, remoteChainSelector uin
 	destChainConfig, err := feeQuoter.GetDestChainConfig(&bind.CallOpts{Context: ctx}, remoteChainSelector)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get dest chain config: %w", err)
+	}
+	// A missing mapping entry returns a zeroed config (MaxDataBytes 0), which
+	// callers would treat as a real limit; refuse it so envs without the lane
+	// wired fail loudly instead of advertising a 0-byte budget.
+	if !destChainConfig.IsEnabled {
+		return 0, fmt.Errorf("dest chain config for %d is not enabled", remoteChainSelector)
 	}
 	return destChainConfig.MaxDataBytes, nil
 }

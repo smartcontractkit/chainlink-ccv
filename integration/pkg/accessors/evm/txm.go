@@ -188,14 +188,21 @@ func (t *txmV2) seedOrphanedNonce(ctx context.Context, address common.Address, n
 	return nil
 }
 
-// nonceRange is the inclusive-exclusive span of orphaned nonces, as a slice for iteration.
-func nonceRange(latest, pending uint64) []uint64 {
+// maxOrphanNonceGap bounds recovery work derived from RPC-reported nonces.
+const maxOrphanNonceGap = 1000
+
+// nonceRange returns the inclusive-exclusive orphaned nonce span, rejecting excessive gaps.
+func nonceRange(latest, pending uint64) ([]uint64, error) {
 	if pending <= latest {
-		return nil
+		return nil, nil
 	}
-	nonces := make([]uint64, 0, pending-latest)
+	gap := pending - latest
+	if gap > maxOrphanNonceGap {
+		return nil, fmt.Errorf("orphan nonce gap %d exceeds maximum %d (latest=%d, pending=%d)", gap, maxOrphanNonceGap, latest, pending)
+	}
+	nonces := make([]uint64, 0, gap)
 	for n := latest; n < pending; n++ {
 		nonces = append(nonces, n)
 	}
-	return nonces
+	return nonces, nil
 }

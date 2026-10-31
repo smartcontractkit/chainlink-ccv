@@ -46,7 +46,8 @@ func (c *component) RunPhase1(
 	}
 
 	infra, err := jobs.StartJDInfrastructure(ctx, jobs.JDInfrastructureConfig{
-		JDInput: input,
+		JDInput:            &input.Input,
+		NodeConnectTimeout: input.NodeConnectTimeout,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("starting JD infrastructure: %w", err)
@@ -55,16 +56,18 @@ func (c *component) RunPhase1(
 	return map[string]any{Key: infra}, nil, nil
 }
 
-// decode round-trips the raw TOML map[string]any into *ctf_jd.Input.
+// decode round-trips the raw TOML map[string]any into *jdConfig.
 // jdConfig embeds the third-party ctf_jd.Input (which we cannot add fields to)
-// and adds the component config version. The embedded Input is inlined by
-// go-toml, so the [jd] table's fields decode normally alongside its version.
+// and adds the version plus devenv-only fields, inlined by go-toml.
 type jdConfig struct {
 	Version int `toml:"version"`
 	ctf_jd.Input
+	// NodeConnectTimeout is the raw [jd] node_connect_timeout value carried
+	// onto the JD infrastructure; empty uses the default.
+	NodeConnectTimeout string `toml:"node_connect_timeout,omitempty"`
 }
 
-func decode(raw any) (*ctf_jd.Input, error) {
+func decode(raw any) (*jdConfig, error) {
 	cfg, err := devenvruntime.DecodeConfig[jdConfig](raw, Key)
 	if err != nil {
 		return nil, err
@@ -72,5 +75,5 @@ func decode(raw any) (*ctf_jd.Input, error) {
 	if err := devenvruntime.CheckConfigVersion(cfg.Version, Version); err != nil {
 		return nil, err
 	}
-	return &cfg.Input, nil
+	return &cfg, nil
 }

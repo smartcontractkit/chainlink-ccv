@@ -349,3 +349,38 @@ func TestFanOutWriter_ForgetsFullyAckedItem(t *testing.T) {
 	assert.Equal(t, 2, a.calls)
 	assert.Equal(t, 2, b.calls)
 }
+
+// TestFanOutWriter_AckCacheEvictionMidBatchPreservesSkippedSuccess verifies that if an item was
+// skipped for aggregator "a" because it was already acked, and a concurrent recordAck during the
+// batch evicts that entry from the bounded ackCache, merge still treats aggregator "a" as
+// WriteSuccess (rather than reading a zero-value non-retryable failure).
+func TestFanOutWriter_AckCacheEvictionMidBatchPreservesSkippedSuccess(t *testing.T) {
+	item0 := item(1)
+	item1 := item(2)
+
+	// Tiny cache of size 1 so recording an ack for item1 evicts item0's prior ack.
+	acks, err := newAckCache(1)
+	require.NoError(t, err)
+	acks.add("a", item0.MessageID.String())
+
+	// On this call:
+	// - item0 is skipped for "a" (already acked in cache); "a" only receives item1 and succeeds,
+	//   which records ("a", item1) and evicts ("a", item0) from the size-1 cache.
+	// - "b" fails retryably on both items.
+	a := &countingStub{results: [][]protocol.WriteResult{{success(item1)}}}
+	b := &countingStub{results: [][]protocol.WriteResult{{failure(item0, true), failure(item1, true)}}}
+	f := &FanOutWriter{
+		writers: []namedWriter{{label: "a", writer: a}, {label: "b", writer: b}},
+		lggr:    logger.Test(t),
+		acks:    acks,
+	}
+
+	got, err := f.WriteCCVNodeData(context.Background(), []protocol.VerifierNodeResult{item0, item1})
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	assert.Equal(t, protocol.WriteFailure, got[0].Status)
+	assert.True(t, got[0].Retryable, "evicted prior ack must not turn a retryable failure into a permanent failure")
+	require.Error(t, got[0].Error)
+	assert.ErrorContains(t, got[0].Error, `aggregator "b"`)
+	assert.NotContains(t, got[0].Error.Error(), `aggregator "a"`)
+}

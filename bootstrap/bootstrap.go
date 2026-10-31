@@ -654,6 +654,9 @@ func (b *Bootstrapper) startLocalService(ctx context.Context, keyStore keystore.
 
 	js := JobSpec{Name: "local", AppConfig: string(appCfg)}
 	if err := b.fac.Start(ctx, js, ServiceDeps{Logger: b.lggr, Keystore: keyStore, Registry: b.accCloser}); err != nil {
+		if stopErr := b.fac.Stop(ctx); stopErr != nil {
+			b.lggr.Warnw("stop factory after failed startLocal", "error", stopErr)
+		}
 		return err
 	}
 	b.applicationReady.Store(true)

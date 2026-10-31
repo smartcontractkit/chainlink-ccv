@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"maps"
 	"math/big"
+	"sync/atomic"
 	"time"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/rpc"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
@@ -34,39 +36,57 @@ var (
 	_ chainaccess.CriticalSourceInvariantCallbackSetter = (*SourceReader)(nil)
 )
 
-type SourceReader struct {
+// SourceReaderParams are the dependencies shared by the RPC and log poller source readers.
+type SourceReaderParams struct {
+	ChainClient   client.Client
+	HeadTracker   heads.Tracker
+	OnRampAddress common.Address
+	// ConfiguredRMNRemoteAddress is DEPRECATED, zero when unset: the RMN Remote address is derived from
+	// the OnRamp's static config. When set and it disagrees, a warning is logged and the derived one used.
+	ConfiguredRMNRemoteAddress common.Address
+	CCIPMessageSentTopic       string
+	ChainSelector              protocol.ChainSelector
+	Logger                     logger.Logger
+	HeaderFetchBatchSize       int
+	OnCriticalInvariant        func(context.Context)
+}
+
+// sourceReaderCore is what both source readers share: block headers, head tracker reads, RMN curse
+// reads and CCIPMessageSent decoding. Each reader adds its own log source on top.
+type sourceReaderCore struct {
 	chainClient   client.Client
 	headTracker   heads.Tracker
 	onRampAddress common.Address
 	// configuredRMNRemoteAddress is the deprecated configured address, zero when unset. The
 	// authoritative address is derived lazily from the OnRamp's static config at query time.
-	configuredRMNRemoteAddress       common.Address
-	rmnRemoteCaller                  *lazy.Lazy[rmn_remote.RMNRemoteCaller]
-	ccipMessageSentTopic             string
-	chainSelector                    protocol.ChainSelector
-	lggr                             logger.Logger
-	onRampABI                        *abi.ABI // Cached ABI to avoid re-parsing
-	onCriticalInvariant              func(context.Context)
+	configuredRMNRemoteAddress  common.Address
+	rmnRemoteCaller             *lazy.Lazy[rmn_remote.RMNRemoteCaller]
+	ccipMessageSentTopic        string
+	chainSelector               protocol.ChainSelector
+	lggr                        logger.Logger
+	onRampABI                   *abi.ABI // Cached ABI to avoid re-parsing
+	onCriticalInvariantCallback func(context.Context)
+	// disabled latches on the first critical invariant violation; message reads then fail
+	// permanently with chainaccess.ErrSourceReaderDisabled. A pointer so copies of the core
+	// (the readers embed it by value) share one latch; nil only in hand-built test cores.
+	disabled                         *atomic.Bool
 	sourceReaderHeaderFetchBatchSize int
 }
 
-func NewEVMSourceReader(
-	ctx context.Context,
-	chainClient client.Client,
-	headTracker heads.Tracker,
-	onRampAddress common.Address,
-	// configuredRMNRemoteAddress is DEPRECATED: the RMN Remote address is derived from the
-	// OnRamp's on-chain static config, which is authoritative. It is still accepted so callers
-	// and configs from before the derivation cutover keep working; pass the zero address when
-	// unconfigured. When set and it disagrees with the derived address, a warning is logged
-	// and the derived address is used.
-	configuredRMNRemoteAddress common.Address,
-	ccipMessageSentTopic string,
-	chainSelector protocol.ChainSelector,
-	lggr logger.Logger,
-	headerFetchBatchSize int,
-	onCriticalInvariant func(context.Context),
-) (chainaccess.SourceReader, error) {
+// SourceReader reads CCIPMessageSent logs over RPC with eth_getLogs.
+type SourceReader struct {
+	sourceReaderCore
+}
+
+func NewEVMSourceReader(ctx context.Context, p SourceReaderParams) (chainaccess.SourceReader, error) {
+	core, err := newSourceReaderCore(p)
+	if err != nil {
+		return nil, err
+	}
+	return &SourceReader{sourceReaderCore: core}, nil
+}
+
+func newSourceReaderCore(p SourceReaderParams) (sourceReaderCore, error) {
 	var errs []error
 	appendIfNil := func(field any, fieldName string) {
 		if field == nil {
@@ -74,33 +94,34 @@ func NewEVMSourceReader(
 		}
 	}
 
-	appendIfNil(chainClient, "chainClient")
-	appendIfNil(headTracker, "headTracker")
-	appendIfNil(lggr, "logger")
+	appendIfNil(p.ChainClient, "chainClient")
+	appendIfNil(p.HeadTracker, "headTracker")
+	appendIfNil(p.Logger, "logger")
 
-	if onRampAddress == (common.Address{}) {
+	if p.OnRampAddress == (common.Address{}) {
 		errs = append(errs, fmt.Errorf("onRampAddress is not set"))
 	}
-	if ccipMessageSentTopic == "" {
+	if p.CCIPMessageSentTopic == "" {
 		errs = append(errs, fmt.Errorf("ccipMessageSentTopic is not set"))
 	}
-	if chainSelector == 0 {
+	if p.ChainSelector == 0 {
 		errs = append(errs, fmt.Errorf("chainSelector is not set"))
 	}
 
 	if len(errs) > 0 {
-		return nil, errors.Join(errs...)
+		return sourceReaderCore{}, errors.Join(errs...)
 	}
 
 	// Bind to the OnRamp contract to derive the RMN Remote address from its static config.
 	// Binding only parses the ABI and issues no RPC; the authoritative RMN Remote address is
 	// read lazily on first GetRMNCursedSubjects so construction never fails on an RPC error.
-	onRampCaller, err := onramp.NewOnRampCaller(onRampAddress, chainClient)
+	onRampCaller, err := onramp.NewOnRampCaller(p.OnRampAddress, p.ChainClient)
 	if err != nil {
-		return nil, fmt.Errorf("failed to bind OnRamp contract at %s: %w",
-			onRampAddress.Hex(), err)
+		return sourceReaderCore{}, fmt.Errorf("failed to bind OnRamp contract at %s: %w",
+			p.OnRampAddress.Hex(), err)
 	}
 
+	lggr := p.Logger
 	// Derive + bind the RMN Remote caller on first use, then cache it. A transient failure is
 	// not cached, so a rate-limited or otherwise unavailable RPC retries on the next call.
 	rmnRemoteCaller := lazy.New(func(ctx context.Context) (rmn_remote.RMNRemoteCaller, error) {
@@ -112,15 +133,15 @@ func NewEVMSourceReader(
 			return rmn_remote.RMNRemoteCaller{}, err
 		}
 		lggr.Infow("Derived RMN Remote address from OnRamp static config",
-			"chainSelector", chainSelector,
+			"chainSelector", p.ChainSelector,
 			"rmnRemoteAddress", rmnRemoteAddress.Hex())
-		if configuredRMNRemoteAddress != (common.Address{}) && configuredRMNRemoteAddress != rmnRemoteAddress {
+		if p.ConfiguredRMNRemoteAddress != (common.Address{}) && p.ConfiguredRMNRemoteAddress != rmnRemoteAddress {
 			lggr.Warnw("Configured RMN Remote address does not match the OnRamp static config; using the derived address",
-				"chainSelector", chainSelector,
-				"configuredRmnRemoteAddress", configuredRMNRemoteAddress.Hex(),
+				"chainSelector", p.ChainSelector,
+				"configuredRmnRemoteAddress", p.ConfiguredRMNRemoteAddress.Hex(),
 				"rmnRemoteAddress", rmnRemoteAddress.Hex())
 		}
-		caller, err := rmn_remote.NewRMNRemoteCaller(rmnRemoteAddress, chainClient)
+		caller, err := rmn_remote.NewRMNRemoteCaller(rmnRemoteAddress, p.ChainClient)
 		if err != nil {
 			return rmn_remote.RMNRemoteCaller{}, fmt.Errorf("failed to bind RMN Remote contract at %s: %w",
 				rmnRemoteAddress.Hex(), err)
@@ -131,23 +152,24 @@ func NewEVMSourceReader(
 	// Get and cache the OnRamp ABI once during initialization
 	onRampABI, err := onramp.OnRampMetaData.GetAbi()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get OnRamp ABI: %w", err)
+		return sourceReaderCore{}, fmt.Errorf("failed to get OnRamp ABI: %w", err)
 	}
 
-	reader := &SourceReader{
-		chainClient:                      chainClient,
-		headTracker:                      headTracker,
-		onRampAddress:                    onRampAddress,
-		configuredRMNRemoteAddress:       configuredRMNRemoteAddress,
+	core := sourceReaderCore{
+		chainClient:                      p.ChainClient,
+		headTracker:                      p.HeadTracker,
+		onRampAddress:                    p.OnRampAddress,
+		configuredRMNRemoteAddress:       p.ConfiguredRMNRemoteAddress,
 		rmnRemoteCaller:                  rmnRemoteCaller,
-		ccipMessageSentTopic:             ccipMessageSentTopic,
-		chainSelector:                    chainSelector,
+		ccipMessageSentTopic:             p.CCIPMessageSentTopic,
+		chainSelector:                    p.ChainSelector,
 		lggr:                             lggr,
 		onRampABI:                        onRampABI,
-		sourceReaderHeaderFetchBatchSize: sourceReaderHeaderFetchBatchSize(headerFetchBatchSize),
+		disabled:                         new(atomic.Bool),
+		sourceReaderHeaderFetchBatchSize: sourceReaderHeaderFetchBatchSize(p.HeaderFetchBatchSize),
 	}
-	reader.SetCriticalSourceInvariantCallback(onCriticalInvariant)
-	return reader, nil
+	core.SetCriticalSourceInvariantCallback(p.OnCriticalInvariant)
+	return core, nil
 }
 
 // onRampStaticConfigGetter is the slice of the OnRamp binding the source reader needs, defined
@@ -172,11 +194,40 @@ func deriveRMNRemoteFromOnRamp(ctx context.Context, onRamp onRampStaticConfigGet
 
 // SetCriticalSourceInvariantCallback attaches the metric callback invoked when source-chain data
 // violates a configured on-chain invariant. It must be called before the reader starts.
-func (r *SourceReader) SetCriticalSourceInvariantCallback(callback func(context.Context)) {
+func (r *sourceReaderCore) SetCriticalSourceInvariantCallback(callback func(context.Context)) {
 	if callback == nil {
 		callback = func(context.Context) {}
 	}
-	r.onCriticalInvariant = callback
+	r.onCriticalInvariantCallback = callback
+}
+
+// onCriticalInvariant reports violated invariants and disables the reader: the chain's data can no
+// longer be trusted, so later message reads fail instead of skipping only the offending message.
+func (r *sourceReaderCore) onCriticalInvariant(ctx context.Context, msg string, keysAndValues ...any) {
+	if r.disabled != nil {
+		r.disabled.Store(true)
+	}
+	if r.onCriticalInvariantCallback != nil {
+		r.onCriticalInvariantCallback(ctx)
+	}
+	logger.Sugared(r.lggr).Helper(1).Criticalw(msg, keysAndValues...)
+}
+
+// onInvariantViolation reports source-chain data that violates expectations without proving the
+// chain untrustworthy: the metric fires and the message is skipped, but the reader keeps serving.
+func (r *sourceReaderCore) onInvariantViolation(ctx context.Context, msg string, keysAndValues ...any) {
+	if r.onCriticalInvariantCallback != nil {
+		r.onCriticalInvariantCallback(ctx)
+	}
+	logger.Sugared(r.lggr).Helper(1).Errorw(msg, keysAndValues...)
+}
+
+// disabledErr returns the permanent read failure once a critical invariant violation disabled the reader.
+func (r *sourceReaderCore) disabledErr() error {
+	if r.disabled == nil || !r.disabled.Load() {
+		return nil
+	}
+	return fmt.Errorf("%w: chain selector %d", chainaccess.ErrSourceReaderDisabled, r.chainSelector)
 }
 
 // GetBlocksHeaders fetches headers for the given block numbers and returns them
@@ -185,7 +236,7 @@ func (r *SourceReader) SetCriticalSourceInvariantCallback(callback func(context.
 // Batches are chunked to avoid an oversized single payload.
 // Zero is a valid height (genesis) and is fetched literally: unlike the former
 // []*big.Int input there is no nil element that silently resolves to "latest".
-func (r *SourceReader) GetBlocksHeaders(ctx context.Context, blockNumbers []uint64) (map[uint64]protocol.BlockHeader, error) {
+func (r *sourceReaderCore) GetBlocksHeaders(ctx context.Context, blockNumbers []uint64) (map[uint64]protocol.BlockHeader, error) {
 	headers := make(map[uint64]protocol.BlockHeader, len(blockNumbers))
 	batchSize := sourceReaderHeaderFetchBatchSize(r.sourceReaderHeaderFetchBatchSize)
 	for bn := 0; bn < len(blockNumbers); bn += batchSize {
@@ -204,50 +255,63 @@ func (r *SourceReader) GetBlocksHeaders(ctx context.Context, blockNumbers []uint
 // and returns the resulting headers keyed by block number. Individual batch
 // element failures are logged and skipped so a single bad block does not discard
 // the whole batch.
-func (r *SourceReader) fetchHeadBatch(ctx context.Context, blockNumbers []uint64) (map[uint64]protocol.BlockHeader, error) {
-	batch := make([]rpc.BatchElem, 0, len(blockNumbers))
-	for _, n := range blockNumbers {
+func (r *sourceReaderCore) fetchHeadBatch(ctx context.Context, blockNumbers []uint64) (map[uint64]protocol.BlockHeader, error) {
+	batch := make([]rpc.BatchElem, len(blockNumbers))
+	for i, n := range blockNumbers {
 		var head *evmtypes.Head
-		batch = append(batch, rpc.BatchElem{
+		batch[i] = rpc.BatchElem{
 			Method: "eth_getBlockByNumber",
 			Args:   []any{client.ToBlockNumArg(new(big.Int).SetUint64(n)), false},
 			Result: &head,
-		})
+		}
 	}
 
 	if err := r.chainClient.BatchCallContext(ctx, batch); err != nil {
 		return nil, err
 	}
 
-	headers := make(map[uint64]protocol.BlockHeader, len(batch))
-	for i, elem := range batch {
-		if elem.Error != nil {
-			r.lggr.Warnw("Failed to get block header", "blockNumber", blockNumbers[i], "error", elem.Error)
+	headers := make(map[uint64]protocol.BlockHeader, len(blockNumbers))
+	for i, n := range blockNumbers {
+		if batch[i].Error != nil {
+			r.lggr.Warnw("Failed to get block header", "blockNumber", n, "error", batch[i].Error)
 			continue
 		}
-		headPtr, ok := elem.Result.(**evmtypes.Head)
+		headPtr, ok := batch[i].Result.(**evmtypes.Head)
 		if !ok || headPtr == nil || *headPtr == nil {
-			r.lggr.Warnw("Nil block header", "blockNumber", blockNumbers[i])
+			r.lggr.Warnw("Nil block header", "blockNumber", n)
 			continue
 		}
-		header := *headPtr
-		if header.Number < 0 {
-			return nil, fmt.Errorf("block number cannot be negative: %d", header.Number)
+		head := *headPtr
+		if head.Number < 0 {
+			return nil, fmt.Errorf("block number cannot be negative: %d", head.Number)
 		}
-		blockNum := uint64(header.Number)
+		blockNum := uint64(head.Number)
 		headers[blockNum] = protocol.BlockHeader{
 			Number:     blockNum,
-			Hash:       protocol.Bytes32(header.Hash),
-			ParentHash: protocol.Bytes32(header.ParentHash),
-			Timestamp:  header.Timestamp,
+			Hash:       protocol.Bytes32(head.Hash),
+			ParentHash: protocol.Bytes32(head.ParentHash),
+			Timestamp:  head.Timestamp,
 		}
 	}
 	return headers, nil
 }
 
 // FetchMessageSentEvents returns MessageSentEvents in the given block range.
-// A toBlock of 0 queries up to the latest block.
+// A toBlock of 0 queries up to the latest block. After a critical invariant violation the reader
+// is disabled and every call fails with chainaccess.ErrSourceReaderDisabled.
 func (r *SourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, toBlock uint64) ([]protocol.MessageSentEvent, error) {
+	if err := r.disabledErr(); err != nil {
+		return nil, err
+	}
+	logs, err := r.rpcLogs(ctx, fromBlock, toBlock)
+	if err != nil {
+		return nil, err
+	}
+	return r.parseMessageSentLogs(ctx, logs), nil
+}
+
+// rpcLogs reads CCIPMessageSent logs in the given block range with eth_getLogs.
+func (r *SourceReader) rpcLogs(ctx context.Context, fromBlock, toBlock uint64) ([]types.Log, error) {
 	// ethereum.FilterQuery uses nil for an open-ended upper bound; the interface's 0 maps to it.
 	var toBlockArg *big.Int
 	if toBlock != 0 {
@@ -264,7 +328,13 @@ func (r *SourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, to
 		r.lggr.Warnw("Failed to filter logs", "error", err)
 		return nil, err
 	}
+	return logs, nil
+}
 
+// parseMessageSentLogs decodes and validates CCIPMessageSent logs. Invalid logs are reported
+// through onInvariantViolation or onCriticalInvariant and skipped; a critical violation also
+// disables the reader, so later FetchMessageSentEvents calls fail with chainaccess.ErrSourceReaderDisabled.
+func (r *sourceReaderCore) parseMessageSentLogs(ctx context.Context, logs []types.Log) []protocol.MessageSentEvent {
 	results := make([]protocol.MessageSentEvent, 0, len(logs))
 
 	// Process found events
@@ -282,8 +352,7 @@ func (r *SourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, to
 
 		// Explicitly check for the expected number of topics
 		if len(log.Topics) < 4 {
-			r.onCriticalInvariant(ctx)
-			r.lggr.Errorw("CCIPMessageSent event has insufficient topics",
+			r.onInvariantViolation(ctx, "CCIPMessageSent event has insufficient topics",
 				"expected", 4,
 				"actual", len(log.Topics),
 				"blockNumber", log.BlockNumber,
@@ -306,10 +375,9 @@ func (r *SourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, to
 		event.DestChainSelector = destChainSelector
 		event.MessageId = messageID
 		event.Sender = sender
-		err = r.onRampABI.UnpackIntoInterface(event, "CCIPMessageSent", log.Data)
+		err := r.onRampABI.UnpackIntoInterface(event, "CCIPMessageSent", log.Data)
 		if err != nil {
-			r.onCriticalInvariant(ctx)
-			r.lggr.Errorw("Failed to unpack CCIPMessageSent event payload", "error", err)
+			r.onInvariantViolation(ctx, "Failed to unpack CCIPMessageSent event payload", "error", err)
 			continue // to next message
 		}
 		r.lggr.Debugw("OnRamp Event Structure",
@@ -321,8 +389,7 @@ func (r *SourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, to
 
 		// Check minimum receipt count: at least 1 CCV + executor + network fees = 3 receipts
 		if len(event.Receipts) < 3 {
-			r.onCriticalInvariant(ctx)
-			r.lggr.Errorw("Insufficient receipts. Expected at least 3 (1 CCV + executor + network fees)",
+			r.onInvariantViolation(ctx, "Insufficient receipts. Expected at least 3 (1 CCV + executor + network fees)",
 				"count", len(event.Receipts),
 				protocol.LogKeyMessageID, protocol.Bytes32(event.MessageId).String())
 			continue // to next message
@@ -352,8 +419,7 @@ func (r *SourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, to
 			protocol.LogKeyMessageID, protocol.Bytes32(event.MessageId).String())
 		decodedMsg, err := protocol.DecodeMessage(event.EncodedMessage)
 		if err != nil {
-			r.onCriticalInvariant(ctx)
-			r.lggr.Errorw("Failed to decode message", "error", err, "rawMessage", event.EncodedMessage)
+			r.onInvariantViolation(ctx, "Failed to decode message", "error", err, "rawMessage", event.EncodedMessage)
 			continue // to next message
 		}
 		r.lggr.Debugw("Decoded message",
@@ -361,43 +427,46 @@ func (r *SourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, to
 
 		// Validate that ccvAndExecutorHash is not zero - it's required
 		if decodedMsg.CcvAndExecutorHash == (protocol.Bytes32{}) {
-			r.onCriticalInvariant(ctx)
-			r.lggr.Errorw("ccvAndExecutorHash is zero in decoded message",
+			r.onInvariantViolation(ctx, "ccvAndExecutorHash is zero in decoded message",
 				protocol.LogKeyMessageID, protocol.Bytes32(event.MessageId).String(),
 				"blockNumber", log.BlockNumber)
 			continue // to next message
 		}
 
+		if decodedMsg.SourceChainSelector != r.chainSelector {
+			r.onCriticalInvariant(ctx, "source chain selector must match the value configured — critical invariant violated; escalate immediately",
+				"expected", r.chainSelector,
+				"actual", decodedMsg.SourceChainSelector,
+				protocol.LogKeyMessageID, protocol.Bytes32(event.MessageId).String())
+			continue // ensure we never process this msg
+		}
+
 		if !decodedMsg.OnRampAddress.Equal(expectedSourceAddressBytes(r.onRampAddress)) {
-			r.onCriticalInvariant(ctx)
-			r.lggr.Fatalw("onRampAddress must match the value configured — critical invariant violated; escalate immediately",
+			r.onCriticalInvariant(ctx, "onRampAddress must match the value configured — critical invariant violated; escalate immediately",
 				protocol.LogKeyMessageID, protocol.Bytes32(event.MessageId).String())
 			continue // ensure we never process this msg
 		}
 
 		if !decodedMsg.Sender.Equal(expectedSourceAddressBytes(event.Sender)) {
-			r.onCriticalInvariant(ctx)
-			r.lggr.Fatalw("sender must match the value emitted from the on-chain event. This should never happen.", "sender", protocol.ByteSlice(event.Sender[:]).String())
+			r.onCriticalInvariant(ctx, "sender must match the value emitted from the on-chain event. This should never happen.", "sender", protocol.ByteSlice(event.Sender[:]).String())
 			continue // ensure we never process this msg
 		}
 
 		if decodedMsg.MustMessageID() != event.MessageId {
-			r.onCriticalInvariant(ctx)
-			r.lggr.Fatalw("computed messageID must match the value emitted from the on-chain event — critical invariant violated; escalate immediately",
+			r.onCriticalInvariant(ctx, "computed messageID must match the value emitted from the on-chain event — critical invariant violated; escalate immediately",
 				protocol.LogKeyMessageID, protocol.Bytes32(event.MessageId).String())
 			continue // ensure we never process this msg
 		}
 
 		if decodedMsg.DestChainSelector != protocol.ChainSelector(event.DestChainSelector) {
-			r.onCriticalInvariant(ctx)
-			r.lggr.Fatalw("destination chain selector must match the value emitted from the on-chain event. This should never happen", protocol.LogKeyMessageID, protocol.Bytes32(event.MessageId).String())
+			r.onCriticalInvariant(ctx, "destination chain selector must match the value emitted from the on-chain event. This should never happen", protocol.LogKeyMessageID, protocol.Bytes32(event.MessageId).String())
 			continue // ensure we never process this msg
 		}
 
 		allReceipts := receiptBlobsFromEvent(event.Receipts, event.VerifierBlobs) // Validate the receipt structure matches expectations
 		// Validate ccvAndExecutorHash
 		if err := protocol.ValidateCCVAndExecutorHash(*decodedMsg, allReceipts); err != nil {
-			r.lggr.Errorw("ccvAndExecutorHash validation failed",
+			r.onInvariantViolation(ctx, "ccvAndExecutorHash validation failed",
 				"error", err,
 				protocol.LogKeyMessageID, protocol.Bytes32(event.MessageId).String(),
 				"blockNumber", log.BlockNumber)
@@ -421,12 +490,24 @@ func (r *SourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, to
 			BlockTimestamp: blockTimestamp,
 		})
 	}
-	return results, nil
+	return results
 }
 
 // LatestAndFinalizedBlock returns the latest and finalized block headers.
 // Implements chainaccess.HeadTracker interface.
 func (r *SourceReader) LatestAndFinalizedBlock(ctx context.Context) (latest, finalized *protocol.BlockHeader, err error) {
+	return r.headTrackerBlocks(ctx)
+}
+
+// LatestSafeBlock returns the latest safe block header.
+// Returns nil without an error when the underlying chain does not support the safe tag.
+// Implements chainaccess.HeadTracker interface.
+func (r *SourceReader) LatestSafeBlock(ctx context.Context) (*protocol.BlockHeader, error) {
+	return r.headTrackerSafeBlock(ctx)
+}
+
+// headTrackerBlocks returns the head tracker's latest and finalized block headers.
+func (r *sourceReaderCore) headTrackerBlocks(ctx context.Context) (latest, finalized *protocol.BlockHeader, err error) {
 	latestHead, finalizedHead, err := r.headTracker.LatestAndFinalizedBlock(ctx)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get latest and finalized blocks: %w", err)
@@ -457,10 +538,9 @@ func (r *SourceReader) LatestAndFinalizedBlock(ctx context.Context) (latest, fin
 	return latest, finalized, nil
 }
 
-// LatestSafeBlock returns the latest safe block header.
-// Returns nil without an error when the underlying chain does not support the safe tag.
-// Implements chainaccess.HeadTracker interface.
-func (r *SourceReader) LatestSafeBlock(ctx context.Context) (*protocol.BlockHeader, error) {
+// headTrackerSafeBlock returns the head tracker's safe block header, nil when the chain does not
+// support the safe tag.
+func (r *sourceReaderCore) headTrackerSafeBlock(ctx context.Context) (*protocol.BlockHeader, error) {
 	safeHead, err := r.headTracker.LatestSafeBlock(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get safe block: %w", err)
@@ -481,7 +561,7 @@ func (r *SourceReader) LatestSafeBlock(ctx context.Context) (*protocol.BlockHead
 
 // GetRMNCursedSubjects queries this source chain's RMN Remote contract.
 // Implements SourceReader and chainaccess.RMNCurseReader interfaces.
-func (r *SourceReader) GetRMNCursedSubjects(ctx context.Context) ([]protocol.Bytes16, error) {
+func (r *sourceReaderCore) GetRMNCursedSubjects(ctx context.Context) ([]protocol.Bytes16, error) {
 	// Resolve the RMN Remote caller lazily (first call derives it on-chain) so construction
 	// performs no RPC and a transient derivation failure is surfaced here to be retried.
 	caller, err := r.rmnRemoteCaller.Value(ctx)

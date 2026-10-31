@@ -85,9 +85,10 @@ func TestE2EMigration_CLToStandalone(t *testing.T) {
 		Aggregators:       in.Aggregator,
 		BlockchainOutputs: blockchainOutputs(in),
 		JDInfra: &jobs.JDInfrastructure{
-			JDOutput:       in.JD.Out,
-			OffchainClient: jdClient,
-			NodeIDMap:      map[string]string{},
+			JDOutput:           in.JD.Out,
+			OffchainClient:     jdClient,
+			NodeIDMap:          map[string]string{},
+			NodeConnectTimeout: in.JD.NodeConnectTimeout,
 		},
 		Topology: in.EnvironmentTopology,
 		WorkDir:  t.TempDir(),

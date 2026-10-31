@@ -11,6 +11,7 @@ package evmconfig
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -50,6 +51,21 @@ type ChainConfig struct {
 	// are sent in a single JSON-RPC batch when the source reader fetches block
 	// headers. Zero uses [DefaultSourceReaderHeaderFetchBatchSize], which is 25.
 	SourceReaderHeaderFetchBatchSize int `toml:"source_reader_header_fetch_batch_size,omitempty"`
+	// LogPollerSourceReaderEnabled makes the committee verifier read this source chain through a LogPoller
+	// instead of RPC. It requires [db] in the EVM secrets file. Defaults to false.
+	LogPollerSourceReaderEnabled bool `toml:"log_poller_source_reader_enabled,omitempty"`
+}
+
+// LogPollerSourceReaderChains returns the selectors of the chains that read through the LogPoller, sorted.
+func (c Config) LogPollerSourceReaderChains() []string {
+	var selectors []string
+	for selector, chain := range c.Chains {
+		if chain.LogPollerSourceReaderEnabled {
+			selectors = append(selectors, selector)
+		}
+	}
+	slices.Sort(selectors)
+	return selectors
 }
 
 // DefaultSourceReaderHeaderFetchBatchSize is the batch size used when the

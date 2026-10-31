@@ -8,7 +8,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -21,6 +23,46 @@ func TestCreateEVMAccessorFactoryUsesLocalConfigInsteadOfBlockchainInfos(t *test
 	factory, err := CreateEVMAccessorFactory(logger.Test(t), genericConfig)
 	require.NoError(t, err)
 	require.NotNil(t, factory)
+}
+
+// writeEVMFiles mounts an EVM config and secrets file with the given contents.
+func writeEVMFiles(t *testing.T, config, secrets string) {
+	t.Helper()
+	dir := t.TempDir()
+	configPath, secretsPath := filepath.Join(dir, "evm.toml"), filepath.Join(dir, "secrets.toml")
+	require.NoError(t, os.WriteFile(configPath, []byte(config), 0o600))
+	require.NoError(t, os.WriteFile(secretsPath, []byte(secrets), 0o600))
+	t.Setenv(EVMConfigPathEnv, configPath)
+	t.Setenv(evmconfig.EVMSecretsPathEnv, secretsPath)
+}
+
+func TestCreateEVMAccessorFactoryLogPollerNeedsTheEVMDatabase(t *testing.T) {
+	writeEVMFiles(t, logPollerOnOneChain, "")
+	_, err := CreateEVMAccessorFactory(logger.Test(t), chainaccess.GenericConfig{})
+	require.ErrorContains(t, err, "log_poller_source_reader_enabled on chain 16015286601757825753")
+	require.ErrorContains(t, err, "requires [db]")
+}
+
+// logPollerOnOneChain turns the LogPoller reader on for the first chain only.
+const logPollerOnOneChain = `[chains.16015286601757825753]
+log_poller_source_reader_enabled = true
+[[chains.16015286601757825753.nodes]]
+name = "primary"
+http_url = "http://localhost:8545"
+[chains.5009297550715157269]
+[[chains.5009297550715157269.nodes]]
+name = "primary"
+http_url = "http://localhost:8546"
+`
+
+func TestCreateEVMAccessorFactoryPassesLogPollerAndVerifierID(t *testing.T) {
+	writeEVMFiles(t, logPollerOnOneChain, "[db]\nurl = \"postgres://localhost:5432/evm\"\n")
+	got, err := CreateEVMAccessorFactory(logger.Test(t), chainaccess.GenericConfig{VerifierID: "verifier-1"})
+	require.NoError(t, err)
+	f := got.(*factory)
+	require.Equal(t, map[protocol.ChainSelector]bool{16015286601757825753: true}, f.logPollerChains)
+	require.Equal(t, "verifier-1", f.verifierID)
+	require.NotNil(t, f.db, "the database is configured but not connected")
 }
 
 func TestCreateAccessorFactoryDoesNotDialRPCDuringConstruction(t *testing.T) {
@@ -39,4 +81,48 @@ func TestCreateAccessorFactoryDoesNotDialRPCDuringConstruction(t *testing.T) {
 	factory, err := CreateAccessorFactory(logger.Test(t), chainaccess.GenericConfig{}, infos)
 	require.NoError(t, err)
 	require.NotNil(t, factory)
+}
+
+func TestCreateAccessorFactoryPassesFeeQuoterAddressesToTheFactory(t *testing.T) {
+	t.Parallel()
+
+	const selector = "5009297550715157269"
+	newFactory := func(t *testing.T, address string) chainaccess.AccessorFactory {
+		t.Helper()
+		generic := chainaccess.GenericConfig{
+			PricerConfig: chainaccess.PricerConfig{FeeQuoterAddresses: map[string]string{selector: address}},
+		}
+		factory, err := CreateAccessorFactory(logger.Test(t), generic, chainaccess.Infos[Info]{})
+		require.NoError(t, err)
+		return factory
+	}
+
+	t.Run("invalid address fails", func(t *testing.T) {
+		t.Parallel()
+		_, err := newFactory(t, "not-an-address").GetAccessor(t.Context(), 5009297550715157269)
+		require.ErrorContains(t, err, "invalid fee quoter address")
+	})
+
+	t.Run("valid address is enough to start the runtime", func(t *testing.T) {
+		t.Parallel()
+		// No chain info exists, so the runtime builder fails. It is called only if the fee quoter address passes.
+		_, err := newFactory(t, validTestFeeQuoterAddress).GetAccessor(t.Context(), 5009297550715157269)
+		require.ErrorContains(t, err, "failed to get EVM config for chain")
+	})
+}
+
+func TestCreateAccessorFactoryPassesNativeTokenDecimalsToTheFactory(t *testing.T) {
+	t.Parallel()
+
+	generic := chainaccess.GenericConfig{
+		PricerConfig: chainaccess.PricerConfig{
+			FeeQuoterAddresses:  map[string]string{"5009297550715157269": validTestFeeQuoterAddress},
+			NativeTokenDecimals: map[string]uint8{"5009297550715157269": 37},
+		},
+	}
+	factory, err := CreateAccessorFactory(logger.Test(t), generic, chainaccess.Infos[Info]{})
+	require.NoError(t, err)
+
+	_, err = factory.GetAccessor(t.Context(), 5009297550715157269)
+	require.ErrorContains(t, err, "invalid native token decimals 37")
 }

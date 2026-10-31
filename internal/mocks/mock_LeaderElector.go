@@ -182,6 +182,63 @@ func (_c *MockLeaderElector_IsExecutorForChain_Call) RunAndReturn(run func(proto
 	return _c
 }
 
+// IsFirstRanked provides a mock function with given fields: messageID, chainSel
+func (_m *MockLeaderElector) IsFirstRanked(messageID protocol.Bytes32, chainSel protocol.ChainSelector) (bool, error) {
+	ret := _m.Called(messageID, chainSel)
+
+	if len(ret) == 0 {
+		panic("no return value specified for IsFirstRanked")
+	}
+
+	var r0 bool
+	var r1 error
+	if rf, ok := ret.Get(0).(func(protocol.Bytes32, protocol.ChainSelector) (bool, error)); ok {
+		return rf(messageID, chainSel)
+	}
+	if rf, ok := ret.Get(0).(func(protocol.Bytes32, protocol.ChainSelector) bool); ok {
+		r0 = rf(messageID, chainSel)
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+
+	if rf, ok := ret.Get(1).(func(protocol.Bytes32, protocol.ChainSelector) error); ok {
+		r1 = rf(messageID, chainSel)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockLeaderElector_IsFirstRanked_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IsFirstRanked'
+type MockLeaderElector_IsFirstRanked_Call struct {
+	*mock.Call
+}
+
+// IsFirstRanked is a helper method to define mock.On call
+//   - messageID protocol.Bytes32
+//   - chainSel protocol.ChainSelector
+func (_e *MockLeaderElector_Expecter) IsFirstRanked(messageID interface{}, chainSel interface{}) *MockLeaderElector_IsFirstRanked_Call {
+	return &MockLeaderElector_IsFirstRanked_Call{Call: _e.mock.On("IsFirstRanked", messageID, chainSel)}
+}
+
+func (_c *MockLeaderElector_IsFirstRanked_Call) Run(run func(messageID protocol.Bytes32, chainSel protocol.ChainSelector)) *MockLeaderElector_IsFirstRanked_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(protocol.Bytes32), args[1].(protocol.ChainSelector))
+	})
+	return _c
+}
+
+func (_c *MockLeaderElector_IsFirstRanked_Call) Return(_a0 bool, _a1 error) *MockLeaderElector_IsFirstRanked_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockLeaderElector_IsFirstRanked_Call) RunAndReturn(run func(protocol.Bytes32, protocol.ChainSelector) (bool, error)) *MockLeaderElector_IsFirstRanked_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewMockLeaderElector creates a new instance of MockLeaderElector. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockLeaderElector(t interface {

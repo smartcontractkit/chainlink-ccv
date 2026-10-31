@@ -47,18 +47,19 @@ var denyFuncs = map[string]string{
 	"github.com/jackc/pgx/v5/pgxpool.Connect":               "opens a database connection",
 	// Repo entrypoints whose I/O happens across a package boundary and so
 	// cannot be found by local taint propagation.
-	"github.com/smartcontractkit/chainlink-ccv/common.EnsureDBConnection":                            "pings the database",
-	"github.com/smartcontractkit/chainlink-ccv/common.EnsureDBConnectionContext":                     "pings the database",
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/db.RunPostgresMigrations":                "runs database migrations",
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/db.RunPostgresMigrationsContext":         "runs database migrations",
-	"github.com/smartcontractkit/chainlink-ccv/bootstrap/db.RunMigrations":                           "runs database migrations",
-	"github.com/smartcontractkit/chainlink-ccv/bootstrap/db.RunMigrationsContext":                    "runs database migrations",
-	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/storage.RunMigrations":                    "runs database migrations",
-	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/storage.RunMigrationsContext":             "runs database migrations",
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/postgres.RunMigrations":        "runs database migrations",
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/postgres.RunMigrationsContext": "runs database migrations",
-	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/storage.NewPostgresStorage":               "opens a database connection",
-	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/replay.NewStoreFromConfig":                "opens a database connection",
+	"github.com/smartcontractkit/chainlink-ccv/common.EnsureDBConnection":                                     "pings the database",
+	"github.com/smartcontractkit/chainlink-ccv/common.EnsureDBConnectionContext":                              "pings the database",
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/db.RunPostgresMigrations":                         "runs database migrations",
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/db.RunPostgresMigrationsContext":                  "runs database migrations",
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm/db.RunPostgresMigrationsContext": "runs database migrations",
+	"github.com/smartcontractkit/chainlink-ccv/bootstrap/db.RunMigrations":                                    "runs database migrations",
+	"github.com/smartcontractkit/chainlink-ccv/bootstrap/db.RunMigrationsContext":                             "runs database migrations",
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/storage.RunMigrations":                             "runs database migrations",
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/storage.RunMigrationsContext":                      "runs database migrations",
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/postgres.RunMigrations":                 "runs database migrations",
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/postgres.RunMigrationsContext":          "runs database migrations",
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/storage.NewPostgresStorage":                        "opens a database connection",
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/replay.NewStoreFromConfig":                         "opens a database connection",
 }
 
 // denyMethods are methods that perform network/DB I/O, matched by name. An

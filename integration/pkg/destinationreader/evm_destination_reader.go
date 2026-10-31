@@ -75,7 +75,10 @@ type Params struct {
 	// the derived address, a warning is logged and the derived address is used.
 	RmnRemoteAddress          string
 	ExecutionVisabilityWindow time.Duration
-	Monitoring                monitoring.Monitoring
+	// ReaderStalenessThreshold overrides the execution-attempt poller's staleness default
+	// (50 poll intervals) when set; zero keeps the default.
+	ReaderStalenessThreshold time.Duration
+	Monitoring               monitoring.Monitoring
 }
 
 func NewEvmDestinationReader(ctx context.Context, params Params) (*EvmDestinationReader, error) {
@@ -146,6 +149,7 @@ func NewEvmDestinationReader(ctx context.Context, params Params) (*EvmDestinatio
 		params.ChainClient,
 		logger.With(params.Lggr, "component", "ExecutionAttemptPoller"),
 		params.ExecutionVisabilityWindow,
+		params.ReaderStalenessThreshold,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create execution attempt poller for chain %d: %w", params.ChainSelector, err)
@@ -321,9 +325,8 @@ func (dr *EvmDestinationReader) IsReady(_ protocol.ChainSelector) bool {
 	return dr.executionAttemptPoller.Ready() == nil
 }
 
-// CheckHealth returns nil when the destination reader and its execution attempt
-// poller are operating normally. A non-nil error indicates an unrecoverable
-// failure such as the poller being unable to determine its start block.
+// CheckHealth reports the destination reader and poller service health. Start-block
+// discovery retries in the background and does not latch an unhealthy state.
 func (dr *EvmDestinationReader) CheckHealth(_ protocol.ChainSelector) error {
 	if err := dr.Healthy(); err != nil {
 		return err
@@ -334,23 +337,32 @@ func (dr *EvmDestinationReader) CheckHealth(_ protocol.ChainSelector) error {
 // HasHonestAttempt reports whether an honest execution attempt has been made
 // for the given message by checking existing on-chain attempts against the
 // provided verifier results.
-func (dr *EvmDestinationReader) HasHonestAttempt(ctx context.Context, message protocol.Message, verifierResults []protocol.VerifierResult, ccvAddressInfo protocol.CCVAddressInfo) (bool, error) {
+func (dr *EvmDestinationReader) HasHonestAttempt(ctx context.Context, message protocol.Message, verifierResults []protocol.VerifierResult, ccvAddressInfo protocol.CCVAddressInfo) (chainaccess.HonestAttemptCheck, error) {
 	attempts, err := dr.GetExecutionAttempts(ctx, message)
 	if err != nil {
-		return false, err
+		return chainaccess.HonestAttemptCheck{}, err
 	}
 
+	notHonestAttemptExists := false
+	honestAttemptFailed := false
 	for _, attempt := range attempts {
 		honestCallData, err := executionchecker.IsHonestCallData(message, attempt, verifierResults, ccvAddressInfo)
-		honestGasLimit := executionchecker.IsHonestGasLimit(message, attempt)
 		if err != nil {
 			continue
 		}
 
-		if honestCallData && honestGasLimit {
-			return true, nil
+		if honestCallData && executionchecker.IsHonestGasLimit(message, attempt) {
+			if !attempt.Failed {
+				return chainaccess.HonestAttemptCheck{Honest: true}, nil
+			}
+			honestAttemptFailed = true
+		} else {
+			notHonestAttemptExists = true
 		}
 	}
 
-	return false, nil
+	if honestAttemptFailed {
+		return chainaccess.HonestAttemptCheck{Honest: true, HonestAttemptFailed: true}, nil
+	}
+	return chainaccess.HonestAttemptCheck{NotHonestAttemptExists: notHonestAttemptExists}, nil
 }

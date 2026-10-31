@@ -28,6 +28,12 @@ executor_id = "executor-1"
 # Defaults to 5 minutes.
 reader_cache_expiry = "5m0s"
 
+# reader_staleness_threshold is how long a destination chain's execution-attempt poller may go
+# without a successful RPC poll before that chain's reader reports not-ready (one such chain
+# degrades /health; when no chain is usable the executor reports not_ready).
+# Defaults to 50 poll intervals (250s at the 5s default poll interval).
+reader_staleness_threshold = "0s"
+
 # max_retry_duration is the maximum duration the executor cluster will retry a message before giving up.
 # Defaults to 8 hours.
 max_retry_duration = "8h0m0s"

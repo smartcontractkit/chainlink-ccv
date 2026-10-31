@@ -43,6 +43,8 @@ verifier ccv chain-statuses disable --chain-selector <selector> --verifier-id <i
 
 ## Operator note
 
-Shut down the node or verifier before running `enable`, `disable`, or `set-finalized-height`. Changes take effect on the next start. These commands remain the offline fallback for deployments without live recovery.
+To reset a chain after a log poller finality violation, follow [Resolving a Finality Violation](../../docs/runbooks/resolving-finality-violation.md). Set `--block-height` to the LCA block itself, not LCA+1.
 
-Upgraded standalone verifiers support [durable live source recovery](../recovery/README.md), including an explicit investigated `reset-reader` for disabled readers. Use that workflow while the service is running so buffered checkpoints and the reader lifecycle are coordinated. Editing a chain-status row alone cannot safely reset a live reader. An unfinished applied live reset must be resumed through its recovery operation; changing only the checkpoint does not release its durable polling pause.
+Shut down the node or verifier before running `enable`, `disable`, or `set-finalized-height`. Changes take effect on the next start. For a log poller finality violation these commands are steps 5 and 6 of the runbook, on a node and on a standalone verifier alike: run both while the service is stopped, then start it.
+
+For a chain that uses the RPC source reader, a standalone verifier can also use [durable live source recovery](../recovery/README.md), including an explicit investigated `reset-reader` for disabled readers. Editing a chain-status row alone cannot safely reset a live reader. An unfinished applied live reset must be resumed through its recovery operation; changing only the checkpoint does not release its durable polling pause. `reset-reader` and `replay` are not the recovery for a log poller chain with a finality violation.

@@ -28,6 +28,12 @@ type OrphanedKey struct {
 	AggregationKey AggregationKey
 }
 
+// CommitVerificationWrite pairs a verification record with the aggregation key it is stored under.
+type CommitVerificationWrite struct {
+	Record         *CommitVerificationRecord
+	AggregationKey AggregationKey
+}
+
 // CommitVerificationRecordIdentifier uniquely identifies a commit verification record.
 type CommitVerificationRecordIdentifier struct {
 	MessageID MessageID

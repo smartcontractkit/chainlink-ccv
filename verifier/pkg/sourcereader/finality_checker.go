@@ -2,8 +2,10 @@ package sourcereader
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -79,9 +81,9 @@ func NewFinalityViolationCheckerService(
 	}, nil
 }
 
-// UpdateFinalized fetches and stores block headers from lastFinalized to finalizedBlock.
-// Validates that any previously stored blocks have not changed.
-// Returns error if headers cannot be fetched or if a finality violation is detected.
+// UpdateFinalized validates and stores headers through finalizedBlock, up to MaxFinalityBlocksStored per call.
+// A capped forward call returns an incomplete check error; subsequent calls resume from its partial cursor.
+// Fetch failures and finality violations are also returned.
 func (f *FinalityViolationCheckerService) UpdateFinalized(ctx context.Context, finalizedBlock uint64) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -160,6 +162,9 @@ func (f *FinalityViolationCheckerService) UpdateFinalized(ctx context.Context, f
 		"storedBlocksCount", len(f.finalizedBlocks))
 
 	f.trimStoredBlocks()
+	if f.lastFinalized < finalizedBlock {
+		return fmt.Errorf("incomplete check: validated through block %d, requested finalized block %d", f.lastFinalized, finalizedBlock)
+	}
 	return nil
 }
 
@@ -168,7 +173,7 @@ func (f *FinalityViolationCheckerService) trimStoredBlocks() {
 		// remove oldest entries to prevent unbounded growth
 		var toDelete []uint64
 		for blockNum := range f.finalizedBlocks {
-			if blockNum < f.lastFinalized-MaxFinalityBlocksStored {
+			if blockNum <= f.lastFinalized-MaxFinalityBlocksStored {
 				toDelete = append(toDelete, blockNum)
 			}
 		}
@@ -303,6 +308,74 @@ func (n *NoOpFinalityViolationChecker) UpdateFinalized(ctx context.Context, fina
 // IsFinalityViolated implements protocol.FinalityViolationChecker.
 func (n *NoOpFinalityViolationChecker) IsFinalityViolated() bool {
 	return false
+}
+
+// logPollerFinalityChecker adapts and latches the log poller's violation signal until recovery.
+// Sampling limitations and accepted risks are documented in the changelog.
+type logPollerFinalityChecker struct {
+	reporter      chainaccess.FinalityViolationReporter
+	chainSelector protocol.ChainSelector
+	lggr          logger.Logger
+	metrics       verifier.FinalityCheckerMetrics
+	violated      atomic.Bool
+}
+
+// UpdateFinalized implements protocol.FinalityViolationChecker. It makes no RPC calls: the log
+// poller already compares finalized blocks against the chain.
+func (c *logPollerFinalityChecker) UpdateFinalized(ctx context.Context, finalized uint64) error {
+	if !c.IsFinalityViolated() && c.reporter.FinalityViolated() {
+		c.latch(ctx, finalized)
+	}
+	if c.IsFinalityViolated() {
+		return errors.New("finality violation reported by the log poller")
+	}
+	return nil
+}
+
+// latch records the violation once, logging the finalized height where it was first observed.
+func (c *logPollerFinalityChecker) latch(ctx context.Context, finalized uint64) {
+	if !c.violated.CompareAndSwap(false, true) {
+		return
+	}
+	c.lggr.Errorw("FINALITY VIOLATION DETECTED - reported by the log poller", "finalizedBlock", finalized)
+	c.metrics.SetVerifierFinalityViolated(ctx, c.chainSelector, true)
+}
+
+// IsFinalityViolated implements protocol.FinalityViolationChecker.
+func (c *logPollerFinalityChecker) IsFinalityViolated() bool {
+	return c.violated.Load()
+}
+
+// newFinalityChecker selects the finality checker for a source chain: DisableFinalityChecker wins, a
+// chain's own finality reporter (the log poller) is used when given, and otherwise headers are compared.
+func newFinalityChecker(
+	cfg verifier.SourceConfig,
+	reader chainaccess.SourceReader,
+	reporter chainaccess.FinalityViolationReporter,
+	chainSelector protocol.ChainSelector,
+	lggr logger.Logger,
+	metrics verifier.FinalityCheckerMetrics,
+) (protocol.FinalityViolationChecker, error) {
+	switch {
+	case cfg.DisableFinalityChecker:
+		lggr.Infow("FinalityViolationChecker is disabled by config", "chainSelector", chainSelector)
+		return &NoOpFinalityViolationChecker{}, nil
+	case reporter != nil:
+		lggr.Infow("Using log poller finality violation checker", "chainSelector", chainSelector)
+		return &logPollerFinalityChecker{
+			reporter:      reporter,
+			chainSelector: chainSelector,
+			lggr:          logger.With(lggr, "component", "LogPollerFinalityChecker", "chain", chainSelector),
+			metrics:       metrics,
+		}, nil
+	default:
+		lggr.Infow("Using header-based finality violation checker", "chainSelector", chainSelector)
+		checker, err := NewFinalityViolationCheckerService(reader, chainSelector, lggr, metrics)
+		if err != nil {
+			return nil, err
+		}
+		return checker, nil
+	}
 }
 
 // FinalityEvidence contains chain-neutral observations already fetched by the checker.

@@ -48,7 +48,8 @@ type TestCase interface {
 	HavePrerequisites(ctx context.Context) bool
 }
 
-// DefaultV3ExecutionGasLimit is the execution gas limit used when SendConfig and MessageOptions omit it.
+// DefaultV3ExecutionGasLimit is used when neither send arguments nor message
+// options provide one and the destination has no size-aware provider.
 const DefaultV3ExecutionGasLimit uint32 = 200_000
 
 // RunConfig holds optional overrides for wait/confirm timeouts in TCAPI Run methods.
@@ -85,11 +86,35 @@ func (r RunConfig) ExecTimeout(fallback time.Duration) time.Duration {
 
 // SendArgs holds pair-level settings for building and sending ExtraArgsV3 CCIP messages in tcapi tests.
 type SendArgs struct {
-	ExecutionGasLimit   uint32 // 0: use opts if set, else DefaultV3ExecutionGasLimit
-	ExtraArgsParams     any    // passed to dest MessageV3Destination.GetExecutorArgs
-	TokenArgsParams     any    // passed to dest GetTokenArgs
-	TokenReceiverParams any    // passed to dest GetTokenReceiver
+	// ExecutionGasLimit 0 means: use opts if set, else ask the destination
+	// family's ExecutionGasLimitProvider for this payload size, else
+	// DefaultV3ExecutionGasLimit.
+	ExecutionGasLimit   uint32
+	ExtraArgsParams     any // passed to dest MessageV3Destination.GetExecutorArgs
+	TokenArgsParams     any // passed to dest GetTokenArgs
+	TokenReceiverParams any // passed to dest GetTokenReceiver
 	SendOption          cciptestinterfaces.ChainSendOption
+}
+
+// defaultExecutionGasLimit resolves the execution gas limit used when neither
+// SendArgs nor MessageOptions set one: the destination family's provider,
+// sized to the message's actual payload, or the cross-family default for
+// families that don't implement the provider.
+func defaultExecutionGasLimit(
+	ctx context.Context,
+	src cciptestinterfaces.V3Source,
+	dst cciptestinterfaces.V3Destination,
+	dataLen int,
+) (uint32, error) {
+	gasLimitProvider, ok := dst.(cciptestinterfaces.ExecutionGasLimitProvider)
+	if !ok {
+		return DefaultV3ExecutionGasLimit, nil
+	}
+	gasLimit, err := gasLimitProvider.GetExecutionGasLimit(ctx, src.ChainSelector(), uint32(dataLen))
+	if err != nil {
+		return 0, fmt.Errorf("failed to get execution gas limit: %w", err)
+	}
+	return gasLimit, nil
 }
 
 // SendV3Message builds and sends a V3 message using BuildV3ExtraArgs, BuildChainMessage, and SendChainMessage.
@@ -104,7 +129,11 @@ func SendV3Message(
 	if sendArgs.ExecutionGasLimit != 0 {
 		opts.ExecutionGasLimit = sendArgs.ExecutionGasLimit
 	} else if opts.ExecutionGasLimit == 0 {
-		opts.ExecutionGasLimit = DefaultV3ExecutionGasLimit
+		gasLimit, err := defaultExecutionGasLimit(ctx, src, dst, len(fields.Data))
+		if err != nil {
+			return cciptestinterfaces.MessageSentEvent{}, nil, err
+		}
+		opts.ExecutionGasLimit = gasLimit
 	}
 
 	extraArgs, err := src.BuildV3ExtraArgs(opts, dst, sendArgs.ExtraArgsParams, sendArgs.TokenReceiverParams, sendArgs.TokenArgsParams)

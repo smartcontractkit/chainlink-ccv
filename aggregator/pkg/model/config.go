@@ -225,6 +225,10 @@ type OrphanRecoveryConfig struct {
 	// PageSize controls the number of orphaned keys fetched per database page during scans.
 	// Defaults to 100.
 	PageSize int `toml:"pageSize"`
+	// LockReleaseMargin is added to ScanTimeout to get the longest time a replica can hold the
+	// orphan recovery lock. If the holder stops, the database frees the lock after this time.
+	// ScanTimeout + LockReleaseMargin must be less than Interval. Defaults to 30s.
+	LockReleaseMargin time.Duration `toml:"lockReleaseMargin"`
 }
 
 type HealthCheckConfig struct {
@@ -771,6 +775,10 @@ func (c *AggregatorConfig) SetDefaults() {
 	if c.OrphanRecovery.PageSize == 0 {
 		c.OrphanRecovery.PageSize = 100
 	}
+	// Default orphan recovery lock release margin: 30 seconds
+	if c.OrphanRecovery.LockReleaseMargin == 0 {
+		c.OrphanRecovery.LockReleaseMargin = 30 * time.Second
+	}
 	// Health check defaults
 	if c.HealthCheck.Port == "" {
 		c.HealthCheck.Port = "8080"
@@ -934,6 +942,12 @@ func (c *AggregatorConfig) ValidateOrphanRecoveryConfig() error {
 	}
 	if c.OrphanRecovery.Interval < 5*time.Second {
 		return errors.New("orphanRecovery.interval must be at least 5 seconds")
+	}
+	if c.OrphanRecovery.LockReleaseMargin <= 0 {
+		return errors.New("orphanRecovery.lockReleaseMargin must be greater than 0")
+	}
+	if c.OrphanRecovery.ScanTimeout+c.OrphanRecovery.LockReleaseMargin >= c.OrphanRecovery.Interval {
+		return errors.New("orphanRecovery.scanTimeout + orphanRecovery.lockReleaseMargin must be less than orphanRecovery.interval")
 	}
 	return nil
 }

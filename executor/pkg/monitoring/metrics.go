@@ -42,7 +42,9 @@ const (
 	MessageTransitionReasonNoVerifierResults  = "no_verifier_results"
 	MessageTransitionReasonQuorumNotMet       = "quorum_not_met"
 	MessageTransitionReasonPollerNotReady     = "poller_not_ready"
+	MessageTransitionReasonReaderUnhealthy    = "reader_unhealthy"
 	MessageTransitionReasonHonestAttempt      = "honest_attempt_exists"
+	MessageTransitionReasonNotRetrier         = "not_designated_retrier"
 
 	MessageFailureClassInvalidMessage       = "invalid_message"
 	MessageFailureClassExecutionStateRead   = "execution_state_read_failed"
@@ -277,7 +279,7 @@ func InitMetrics() (*ExecutorMetrics, error) {
 
 	vm.destinationReaderCriticalFailureCounter, err = beholder.GetMeter().Int64Counter(
 		"executor_destination_reader_critical_failure_total",
-		metric.WithDescription("Total number of messages rejected due to the destination reader being in an unrecoverable failure state"),
+		metric.WithDescription("Total number of destination reader health check failures"),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to register destination reader critical failure counter: %w", err)

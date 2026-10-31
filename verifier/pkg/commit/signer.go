@@ -1,6 +1,7 @@
 package commit
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"encoding/hex"
@@ -8,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -22,46 +22,65 @@ import (
 // it is exclusive — an empty signer_address (the "I forgot to set it" case) is still rejected.
 const AutoSignerAddress = "auto"
 
-// ValidateSignerAddress checks that the key loaded by the verifier is the key declared by the job
-// spec. The configured address uses the same strict 0x-prefixed hex format CL job creation expects.
-// During CL-to-standalone migration a mismatch usually means the wrong exported key was mounted or
-// the verifier started once without [key_import] and generated a replacement.
+// ValidateSignerAddress checks that the key the verifier loaded is the one the job spec declares.
+// Either side may describe the key as a 20-byte EVM address or as a SEC1 public key — EVM pins an
+// address, Canton the 65-byte public key — and configured hex may omit the 0x prefix.
 //
-// A configured value of [AutoSignerAddress] opts out of the check: the operator accepts whatever
-// address the keystore adopted. That is the postgres auto-generate backend's first-boot path, where
-// a fresh volume has no key yet and a random one is created (and persisted, so restarts reuse it).
-// The caller logs the adopted address so the operator can pin it later by replacing "auto" with the
-// actual address; once set, a value is never skipped — a set-but-mismatched address still fails fast
-// and loudly.
-//
-// Any other value, including the empty string, is asserted strictly. Empty is treated as "forgot to
-// set it" and errors, rather than silently adopting, so that forgetting signer_address is never
-// conflated with deliberately choosing auto-adoption.
+// [AutoSignerAddress] opts out and adopts whatever the keystore holds (the postgres auto-generate
+// first boot). Empty still errors, so "forgot to set it" is never read as deliberate auto-adoption.
 func ValidateSignerAddress(configured string, actual protocol.UnknownAddress) error {
 	if configured == AutoSignerAddress {
 		return nil
 	}
 
-	decoded, err := hexutil.Decode(configured)
+	decoded, err := hex.DecodeString(strings.TrimPrefix(configured, "0x"))
 	if err != nil {
 		return fmt.Errorf("invalid signer_address %q: %w", configured, err)
 	}
-	if len(decoded) != common.AddressLength {
-		return fmt.Errorf(
-			"invalid signer_address %q: expected %d bytes, got %d",
-			configured, common.AddressLength, len(decoded),
-		)
+	if len(decoded) == 0 {
+		return fmt.Errorf("invalid signer_address %q: empty address", configured)
 	}
 
-	expected := common.BytesToAddress(decoded)
-	if actual.Equal(protocol.UnknownAddress(expected.Bytes())) {
+	if keysMatch(decoded, actual.Bytes()) {
 		return nil
 	}
 	return fmt.Errorf(
-		"signing address does not match signer_address: configured %s, keystore %s; "+
+		"signing key does not match signer_address: configured %s, keystore %s; "+
 			"check signer_address and, for migration, ensure [key_import] imported the expected verifier signing key before first boot",
 		configured, actual.String(),
 	)
+}
+
+// keysMatch compares a configured key with the keystore's: identical bytes match outright, and
+// otherwise both sides collapse to the EVM address derived from a public key, so a job pinning a
+// public key matches a keystore reporting only its address, and vice versa.
+func keysMatch(configured, actual []byte) bool {
+	if bytes.Equal(configured, actual) {
+		return true
+	}
+	configuredAddress, ok := addressForKey(configured)
+	if !ok {
+		return false
+	}
+	actualAddress, ok := addressForKey(actual)
+	return ok && bytes.Equal(configuredAddress, actualAddress)
+}
+
+// addressForKey returns the EVM address of an address or SEC1 public key (65-byte uncompressed or
+// 33-byte compressed). Derivation is keccak-based, never truncation, so keys cannot match on shared
+// trailing bytes.
+func addressForKey(key []byte) ([]byte, bool) {
+	if len(key) == common.AddressLength {
+		return key, true
+	}
+	pubKey, err := crypto.UnmarshalPubkey(key)
+	if err != nil {
+		if pubKey, err = crypto.DecompressPubkey(key); err != nil {
+			return nil, false
+		}
+	}
+	address := crypto.PubkeyToAddress(*pubKey)
+	return address.Bytes(), true
 }
 
 // ECDSASigner implements MessageSigner using ECDSA with the new chain-agnostic message format.

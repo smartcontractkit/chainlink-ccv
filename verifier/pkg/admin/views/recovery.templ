@@ -6,6 +6,10 @@ import "time"
 // the generated (or echoed) request ID; the fragment carries it as a hidden field so
 // the submit echoes it and a lost response can be retried safely.
 type RecoveryPreviewVM struct {
+	Owner         string
+	Chain         string
+	FromBlock     string
+	ToBlock       string
 	Mode          string
 	SubmitEnabled bool
 	RequestID     string
@@ -81,9 +85,18 @@ type RecoveryEventVM struct {
 	FirstObserved, LastObserved, Expires string
 }
 
+// RecoveryPrefillVM holds optional prefill parameters for the recovery form.
+type RecoveryPrefillVM struct {
+	Owner     string
+	Chain     string
+	FromBlock string
+	ToBlock   string
+	Mode      string
+}
+
 // RecoveryPage is the source-range recovery console: one form for both actions, with
 // evidence and durable operations below. Ordinary replay never clears a finality block.
-templ RecoveryPage(csrfToken string) {
+templ RecoveryPage(csrfToken string, prefill RecoveryPrefillVM) {
 	@Layout("Source recovery") {
 		<h1>Source-range recovery</h1>
 		<p>Re-read a source block range through this verifier's durable recovery machinery — every action is previewed before submission.</p>
@@ -111,23 +124,29 @@ templ RecoveryPage(csrfToken string) {
 			<form id="recovery-form">
 				@CSRFField(csrfToken)
 				<p>
-					<label>Verifier owner <input type="text" name="owner" size="40"/></label>
-					<label>Source chain selector <input type="number" name="chain" min="0" step="1"/></label>
+					<label>Verifier owner <input type="text" name="owner" value={ prefill.Owner } size="40"/></label>
+					<label>Source chain selector <input type="number" name="chain" value={ prefill.Chain } min="0" step="1"/></label>
 				</p>
 				<p>
-					<label>From block (inclusive) <input type="number" name="from_block" min="0" step="1"/></label>
+					<label>From block (inclusive) <input type="number" name="from_block" value={ prefill.FromBlock } min="0" step="1"/></label>
 					<label>
 						To block (inclusive, optional)
-						<input type="number" name="to_block" min="0" step="1"/>
+						<input type="number" name="to_block" value={ prefill.ToBlock } min="0" step="1"/>
 					</label>
 					<br/>
 					<small>Omitting to-block captures the reader's advertised head at submission; the target never follows later chain progress.</small>
 				</p>
 				<fieldset>
 					<legend>Action</legend>
-					<label><input type="radio" name="mode" value="replay" checked/> replay — re-verify a range; does not enable a finality-blocked reader</label>
-					<br/>
-					<label><input type="radio" name="mode" value="reset-reader"/> reset-reader — investigated reset: re-enables a disabled reader and recovers the range</label>
+					if prefill.Mode == "reset-reader" {
+						<label><input type="radio" name="mode" value="replay"/> replay — re-verify a range; does not enable a finality-blocked reader</label>
+						<br/>
+						<label><input type="radio" name="mode" value="reset-reader" checked/> reset-reader — investigated reset: re-enables a disabled reader and recovers the range</label>
+					} else {
+						<label><input type="radio" name="mode" value="replay" checked/> replay — re-verify a range; does not enable a finality-blocked reader</label>
+						<br/>
+						<label><input type="radio" name="mode" value="reset-reader"/> reset-reader — investigated reset: re-enables a disabled reader and recovers the range</label>
+					}
 				</fieldset>
 				<p>
 					<label>
@@ -169,13 +188,13 @@ templ RecoveryPage(csrfToken string) {
 			<small>Read fresh from the verifier's database on every render; the list polls while work is in flight.</small>
 		</p>
 		<form id="recovery-ops-filter">
-			<label>Owner <input type="text" name="owner" size="40"/></label>
-			<label>Source chain <input type="number" name="chain" min="0" step="1"/></label>
+			<label>Owner <input type="text" name="owner" value={ prefill.Owner } size="40"/></label>
+			<label>Source chain <input type="number" name="chain" value={ prefill.Chain } min="0" step="1"/></label>
 			<button type="button" hx-get="/recovery/operations" hx-include="#recovery-ops-filter" hx-target="#recovery-operations" hx-swap="innerHTML">
 				Refresh
 			</button>
 		</form>
-		<div id="recovery-operations" hx-get="/recovery/operations" hx-trigger="load" hx-target="#recovery-operations" hx-swap="innerHTML"></div>
+		<div id="recovery-operations" hx-get="/recovery/operations" hx-include="#recovery-ops-filter" hx-trigger="load" hx-target="#recovery-operations" hx-swap="innerHTML"></div>
 	}
 }
 
@@ -229,6 +248,11 @@ templ RecoveryPreview(vm RecoveryPreviewVM) {
 			<div class="error">{ vm.Finding.BlockedReason }</div>
 		}
 	}
+	<input type="hidden" name="previewed_mode" value={ vm.Mode }/>
+	<input type="hidden" name="previewed_owner" value={ vm.Owner }/>
+	<input type="hidden" name="previewed_chain" value={ vm.Chain }/>
+	<input type="hidden" name="previewed_from_block" value={ vm.FromBlock }/>
+	<input type="hidden" name="previewed_to_block" value={ vm.ToBlock }/>
 	if vm.RequestID != "" {
 		<input type="hidden" name="request_id" value={ vm.RequestID }/>
 		<p>
@@ -239,9 +263,21 @@ templ RecoveryPreview(vm RecoveryPreviewVM) {
 		</p>
 	}
 	if vm.SubmitEnabled {
-		<button type="button" hx-post="/recovery/submit" hx-target="#recovery-submit-result" hx-swap="innerHTML">
-			Submit { vm.Mode }
-		</button>
+		if vm.Mode == "reset-reader" {
+			<button
+				type="button"
+				hx-post="/recovery/submit"
+				hx-target="#recovery-submit-result"
+				hx-swap="innerHTML"
+				hx-confirm="Submit investigated reader reset? This action re-enables a disabled reader, sets the finality boundary to from-block - 1, and pauses normal polling until completion."
+			>
+				Submit reset-reader
+			</button>
+		} else {
+			<button type="button" hx-post="/recovery/submit" hx-target="#recovery-submit-result" hx-swap="innerHTML">
+				Submit { vm.Mode }
+			</button>
+		}
 	} else {
 		<button type="button" disabled>Submit unavailable — resolve the findings above</button>
 	}
@@ -261,14 +297,14 @@ templ RecoverySubmitError(detail string) {
 templ RecoverySubmitResult(result RecoverySubmitVM, requestID string) {
 	<h3>Submission result</h3>
 	<p>
-		Request ID: <code class="mid">{ requestID }</code> — reuse it only to complete a disconnected
+		Request ID: <code class="mid">{ requestID }</code> @CopyButton(requestID) — reuse it only to complete a disconnected
 		submission; do not resubmit after a success.
 	</p>
 	if result.Error != "" {
 		<div class="error">{ result.Error }</div>
 	} else {
 		<p>
-			Operation <code class="mid">{ result.OperationID }</code> — state { result.State }, target to-block
+			Operation <code class="mid">{ result.OperationID }</code> @CopyButton(result.OperationID) — state { result.State }, target to-block
 			{ result.ToBlock }. Track it under Operations below.
 		</p>
 	}
@@ -281,7 +317,13 @@ templ RecoveryOperations(vm RecoveryOperationsVM, csrfToken string) {
 		if vm.InFlight {
 			hx-get="/recovery/operations"
 			hx-include="#recovery-ops-filter"
-			hx-trigger="every 5s"
+			hx-trigger="every 5s, refreshOperations from:body"
+			hx-target="#recovery-operations"
+			hx-swap="innerHTML"
+		} else {
+			hx-get="/recovery/operations"
+			hx-include="#recovery-ops-filter"
+			hx-trigger="refreshOperations from:body"
 			hx-target="#recovery-operations"
 			hx-swap="innerHTML"
 		}
@@ -331,6 +373,7 @@ templ RecoveryOperationRow(op RecoveryOperationVM, csrfToken string) {
 		<tr>
 			<td>
 				<code class="mid">{ op.ID }</code>
+				@CopyButton(op.ID)
 				<br/>
 				<small>actor { op.Actor }</small>
 				if op.Note != "" {
@@ -340,7 +383,7 @@ templ RecoveryOperationRow(op RecoveryOperationVM, csrfToken string) {
 			</td>
 			<td>{ op.Mode }</td>
 			<td>
-				{ op.State }
+				<span class={ "state-" + op.State }>{ op.State }</span>
 				if op.LastError != "" {
 					<br/>
 					<small class="state-unreachable">{ op.LastError }</small>
@@ -413,13 +456,29 @@ templ RecoveryEvidence(vm RecoveryEvidenceVM) {
 					<tbody>
 						for _, r := range vm.Readers {
 							<tr>
-								<td><code>{ r.NodeID }</code></td>
-								<td>{ r.Disabled }</td>
+								<td>
+									<code>{ r.NodeID }</code>
+									@CopyButton(r.NodeID)
+								</td>
+								<td>
+									if r.Disabled == "true" {
+										<span class="state-unreachable">disabled</span>
+									} else {
+										<span class="state-ready">enabled</span>
+									}
+								</td>
 								<td>{ r.LatestBlock }</td>
 								<td><small>{ r.HeadObservedAt }</small></td>
 								<td><small>{ r.LastSeenAt }</small></td>
 								<td><small>{ r.HistoryStartedAt }</small></td>
-								<td><code class="mid">{ r.ActiveResetID }</code></td>
+								<td>
+									if r.ActiveResetID != "—" && r.ActiveResetID != "" {
+										<code class="mid">{ r.ActiveResetID }</code>
+										@CopyButton(r.ActiveResetID)
+									} else {
+										{ r.ActiveResetID }
+									}
+								</td>
 								<td>{ r.AuditFailures }</td>
 							</tr>
 						}
@@ -464,10 +523,30 @@ templ RecoveryEvidence(vm RecoveryEvidenceVM) {
 								<td>{ e.Reason }</td>
 								<td>{ e.Stage }</td>
 								<td>{ e.SourceBlock }</td>
-								<td><code class="mid">{ e.MessageID }</code></td>
-								<td><code class="mid">{ e.TxHash }</code></td>
-								<td><code class="mid">{ e.BlockHash }</code></td>
-								<td><code class="mid">{ e.IncidentID }</code></td>
+								<td>
+									<code class="mid">{ e.MessageID }</code>
+									if e.MessageID != "—" && e.MessageID != "" {
+										@CopyButton(e.MessageID)
+									}
+								</td>
+								<td>
+									<code class="mid">{ e.TxHash }</code>
+									if e.TxHash != "—" && e.TxHash != "" {
+										@CopyButton(e.TxHash)
+									}
+								</td>
+								<td>
+									<code class="mid">{ e.BlockHash }</code>
+									if e.BlockHash != "—" && e.BlockHash != "" {
+										@CopyButton(e.BlockHash)
+									}
+								</td>
+								<td>
+									<code class="mid">{ e.IncidentID }</code>
+									if e.IncidentID != "—" && e.IncidentID != "" {
+										@CopyButton(e.IncidentID)
+									}
+								</td>
 								<td>
 									<small>
 										×{ e.Observations }<br/>

@@ -80,6 +80,14 @@ The final encoded signature is a packed struct of `(R [32]byte, S [32]byte, Sign
 
 For non-node deployments (tests, standalone binaries) `commit.NewECDSAMessageSignerFromString` accepts a raw hex private key and produces the same encoded signature format.
 
+## Signer Address Validation
+
+`commit.ValidateSignerAddress` pins the loaded key to the job's `signer_address`. Both sides may carry
+the key as a 20-byte EVM address or as a SEC1 public key (EVM pins an address, Canton the 65-byte
+public key); when the encodings differ, each side is reduced to the EVM address derived from the key
+before comparing. The standalone verifier validates the public key returned by `NewSignerFromKeystore`
+so a job that pins a raw key compares exactly. `"auto"` skips the check; empty is an error.
+
 ## Receipt Blob Selection
 
 Each `VerificationTask` carries a `ReceiptBlobs` slice — blobs issued by various onchain contracts (the verifier proxy, the default executor, etc.). The committee verifier selects which blob to sign over using this priority:

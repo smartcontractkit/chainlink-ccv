@@ -43,6 +43,15 @@ func TestInfoServerHealthDoesNotRequireApplicationReadiness(t *testing.T) {
 	require.JSONEq(t, `{"status":"ok"}`, recorder.Body.String())
 }
 
+func TestInfoServerLiveness(t *testing.T) {
+	server := newInfoServer(logger.Test(t), nil, 0, new(atomic.Bool))
+
+	recorder := httptest.NewRecorder()
+	server.handleLiveness(recorder, httptest.NewRequest(http.MethodGet, LivenessEndpoint, nil))
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.JSONEq(t, `{"status":"alive"}`, recorder.Body.String())
+}
+
 // createInfoServerKeystore builds an in-memory keystore holding an ECDSA_S256 key and returns it
 // with the derived checksummed address, so tests can assert the endpoint's answer independently.
 func createInfoServerKeystore(t *testing.T, keyName string) (keystore.Keystore, string) {
@@ -86,6 +95,19 @@ func TestInfoServerGetKeyAddressesRejectsMalformedRequest(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	server.handleGetKeyAddresses(recorder, httptest.NewRequest(http.MethodPost, GetKeyAddressesEndpoint, bytes.NewReader([]byte("not json"))))
 	require.Equal(t, http.StatusBadRequest, recorder.Code)
+}
+
+func TestInfoServerRejectsOversizedRequestBody(t *testing.T) {
+	server := newInfoServer(logger.Test(t), nil, 0, new(atomic.Bool))
+	oversized := bytes.Repeat([]byte("a"), maxKeystoreRequestBodyBytes+1)
+
+	recorder := httptest.NewRecorder()
+	server.handleGetKeys(recorder, httptest.NewRequest(http.MethodPost, GetKeysEndpoint, bytes.NewReader(oversized)))
+	require.Equal(t, http.StatusRequestEntityTooLarge, recorder.Code)
+
+	recorder = httptest.NewRecorder()
+	server.handleGetKeyAddresses(recorder, httptest.NewRequest(http.MethodPost, GetKeyAddressesEndpoint, bytes.NewReader(oversized)))
+	require.Equal(t, http.StatusRequestEntityTooLarge, recorder.Code)
 }
 
 func TestRunnerApplicationReadinessTracksJobLifecycle(t *testing.T) {

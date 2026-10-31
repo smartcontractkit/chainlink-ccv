@@ -2,6 +2,7 @@ package chainaccess
 
 import (
 	"context"
+	"errors"
 
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -63,6 +64,40 @@ type CriticalSourceInvariantCallbackSetter interface {
 	SetCriticalSourceInvariantCallback(callback func(context.Context))
 }
 
+// FinalityViolationReporter is a chain's own finality-violation signal, such as the EVM log poller's.
+// The verifier is handed one per chain that has it and uses it instead of comparing block headers.
+type FinalityViolationReporter interface {
+	// FinalityViolated reports whether the data source currently detects a finality violation.
+	FinalityViolated() bool
+}
+
+// SourceHealthReporter is an optional SourceReader capability for a chain's own health signal, such as the
+// EVM log poller's. Finality violations are not part of it: they are reported only through FinalityViolationReporter.
+type SourceHealthReporter interface {
+	// Healthy returns nil when the data source is healthy, otherwise the reason it is not.
+	Healthy() error
+}
+
+// ErrSourceNotReady is returned by SourceReader reads while the source is still loading; callers retry
+// later and must not treat the range as scanned.
+var ErrSourceNotReady = errors.New("source not ready")
+
+// ErrSourceReaderDisabled is returned by SourceReader reads after a critical source-chain invariant
+// violation permanently disabled the reader; the chain stays down until an operator intervenes.
+var ErrSourceReaderDisabled = errors.New("source reader disabled after critical invariant violation")
+
+// SourceLoader is an optional SourceReader capability for readers that must load a local index, such as
+// the EVM log poller, before serving reads.
+type SourceLoader interface {
+	// LoadFrom starts loading from startBlock without blocking; reads return ErrSourceNotReady until done.
+	LoadFrom(startBlock uint64)
+	// Loaded returns nil once loading has finished and an error wrapping ErrSourceNotReady until then, which
+	// the verifier reports in its health.
+	Loaded() error
+	// Close stops loading and releases what LoadFrom set up. Only SourceLoaders are closed by the verifier.
+	Close() error
+}
+
 // ExecutorMonitoringSetter is an optional capability of accessor-provided destination readers and
 // contract transmitters. Accessor factories build these components before the executor's
 // process-level monitoring exists, so they hold a no-op implementation; the executor attaches the
@@ -106,17 +141,18 @@ type CCTPCodec interface {
 	DecodeAddress(address string) (protocol.UnknownAddress, error)
 }
 
-// FeeQuoter provides chain-agnostic access to a chain's Fee Quoter contract.
-// It isolates all chain-specific logic behind this interface so that consumers
-// can interact with any chain family uniformly.
+// FeeQuoterReader reads a chain's Fee Quoter contract.
 //
 // Thread-safety: All methods must be safe for concurrent calls.
-type FeeQuoter interface {
-	// MonitorFQ returns the current Fee Quoter on-chain state and runs a goroutine
-	// that streams a fresh FQState snapshot on the returned channel whenever the
-	// state changes. Errors encountered while monitoring are sent on the error
-	// channel. Both channels are closed when the context is canceled.
-	MonitorFQ(ctx context.Context) (protocol.FQState, <-chan protocol.FQState, <-chan error, error)
+type FeeQuoterReader interface {
+	// GetFQState reads the Fee Quoter's current on-chain state.
+	GetFQState(ctx context.Context) (protocol.FQState, error)
+}
+
+// FeeQuoterWriter updates the prices stored in a chain's Fee Quoter contract.
+//
+// Thread-safety: All methods must be safe for concurrent calls.
+type FeeQuoterWriter interface {
 	// UpdatePrices generates and broadcasts a transaction for the given fee token
 	// and gas token price updates to the chain.
 	UpdatePrices(ctx context.Context, tokenPrices []protocol.FeeTokenPriceUpdate, gasPrices []protocol.GasTokenPriceUpdate) error
@@ -136,7 +172,7 @@ type GasPriceReader interface {
 //
 // A committee/verifier accessor typically provides only SourceReader.
 // An executor accessor typically provides only DestinationReader and ContractTransmitter.
-// A price reporting accessor typically provides only FeeQuoter and GasPriceReader.
+// A price reporting accessor typically provides FeeQuoterReader, FeeQuoterWriter, and GasPriceReader.
 type Accessor interface {
 	// SourceReader returns the SourceReader for this chain, or an error if not available.
 	SourceReader() (SourceReader, error)
@@ -146,12 +182,19 @@ type Accessor interface {
 	ContractTransmitter() (ContractTransmitter, error)
 	// CCTPCodec returns the CCTPCodec for this chain, or an error if not available.
 	CCTPCodec() (CCTPCodec, error)
-	// FeeQuoter returns the FeeQuoter for this chain, or an error if not available.
-	FeeQuoter() (FeeQuoter, error)
+	// FeeQuoterReader returns the FeeQuoterReader for this chain, or an error if not available.
+	FeeQuoterReader() (FeeQuoterReader, error)
+	// FeeQuoterWriter returns the FeeQuoterWriter for this chain, or an error if not available.
+	FeeQuoterWriter() (FeeQuoterWriter, error)
 	// GasPriceReader returns the GasPriceReader for this chain, or an error if not available.
 	GasPriceReader() (GasPriceReader, error)
 	// Close releases any background services the accessor started. Stateless accessors return nil.
 	Close() error
+
+	// Optional hook: health.DegradedReporter
+	//
+	// Accessors that keep working with a missing part (for example, a missing signing key)
+	// should implement Degraded() error. The service that owns the accessor reports it on /health.
 
 	// Optional hook: bootstrap.KeystoreSetter
 	//
@@ -201,12 +244,21 @@ type AttemptChecker interface {
 	// A false return indicates a transient condition (e.g. backfill in progress)
 	// that will resolve on its own; callers should retry later.
 	IsReady(chain protocol.ChainSelector) bool
-	// CheckHealth returns nil when the destination reader is operating normally.
-	// A non-nil error indicates an unrecoverable failure (e.g. the execution
-	// attempt poller could not determine its start block). Messages destined
-	// for an unhealthy chain should be rejected, not retried.
+	// CheckHealth reports current destination reader health. Startup discovery retries in the
+	// background, so callers should treat health failures as retryable unless another error says otherwise.
 	CheckHealth(chain protocol.ChainSelector) error
 	// HasHonestAttempt reports whether an honest execution attempt has been
-	// made for the given message.
-	HasHonestAttempt(ctx context.Context, message protocol.Message, verifierResults []protocol.VerifierResult, ccvAddressInfo protocol.CCVAddressInfo) (bool, error)
+	// made for the given message. If it has not, the result tells if an attempt
+	// that is not honest exists.
+	HasHonestAttempt(ctx context.Context, message protocol.Message, verifierResults []protocol.VerifierResult, ccvAddressInfo protocol.CCVAddressInfo) (HonestAttemptCheck, error)
+}
+
+// HonestAttemptCheck is the result of DestinationReader.HasHonestAttempt.
+type HonestAttemptCheck struct {
+	// Honest is true if an honest execution attempt exists.
+	Honest bool
+	// HonestAttemptFailed is true when all honest attempts failed in the receiver.
+	HonestAttemptFailed bool
+	// NotHonestAttemptExists is true if an attempt exists and none of the attempts is honest.
+	NotHonestAttemptExists bool
 }

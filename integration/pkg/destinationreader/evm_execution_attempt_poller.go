@@ -3,6 +3,7 @@ package destinationreader
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"math/big"
@@ -13,10 +14,12 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/event"
 	"github.com/hashicorp/golang-lru/v2/expirable"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/offramp"
+	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
@@ -27,6 +30,9 @@ import (
 const (
 	// defaultPollInterval is the default interval for polling when WebSocket is not available.
 	defaultPollInterval = 5 * time.Second
+	// stalenessPollIntervals is how many poll intervals without a successful poll Ready
+	// tolerates before reporting not-ready; the default staleness threshold.
+	stalenessPollIntervals = 50
 	// functionSelectorLength is the length of an Ethereum function selector in bytes.
 	functionSelectorLength = 4
 	// expectedParamCount is the expected number of parameters for the execute function.
@@ -43,6 +49,10 @@ const (
 	maxSubscriptionReconnectAttempts = 5
 	// baseReconnectBackoffDuration is the base duration for exponential backoff when reconnecting subscriptions.
 	baseReconnectBackoffDuration = 1 * time.Second
+	// eventKeyLength is the length of a replay-detection key: 32-byte tx hash plus 4-byte log index.
+	eventKeyLength = common.HashLength + 4
+	// seenEventsMaxEntries bounds the replay-detection set; its TTL matches the attempt cache.
+	seenEventsMaxEntries = 10_000
 )
 
 var (
@@ -54,25 +64,43 @@ var (
 	ErrBackfillInProgress = errors.New("execution attempt poller backfill in progress")
 )
 
+type cachedExecutionAttempt struct {
+	attempt  protocol.ExecutionAttempt
+	eventKey [eventKeyLength]byte
+}
+
 // EvmExecutionAttemptPoller polls for execution state changed events and caches execution attempts.
 type EvmExecutionAttemptPoller struct {
 	services.StateMachine
-	lggr             logger.Logger
-	chainSelector    protocol.ChainSelector
-	client           client.Client
-	offRampAddress   common.Address
-	startBlock       uint64
-	offRampFilterer  offramp.OffRampFilterer
-	eventCh          chan *offramp.OffRampExecutionStateChanged
+	lggr            logger.Logger
+	chainSelector   protocol.ChainSelector
+	client          client.Client
+	offRampAddress  common.Address
+	startBlock      uint64
+	offRampFilterer offramp.OffRampFilterer
+	eventCh         chan *offramp.OffRampExecutionStateChanged
+	// subMu guards subscription, which is read and replaced by reconnect and Close.
+	subMu            sync.Mutex
 	subscription     event.Subscription
-	attemptCache     *expirable.LRU[protocol.Bytes32, []protocol.ExecutionAttempt]
+	attemptCache     *expirable.LRU[protocol.Bytes32, []cachedExecutionAttempt]
+	seenEvents       *expirable.LRU[[eventKeyLength]byte, struct{}]
 	cancelFunc       context.CancelFunc
 	runWg            sync.WaitGroup
 	pollInterval     time.Duration
-	lastPolledBlock  uint64
-	lookbackWindow   time.Duration
-	backfillComplete atomic.Bool
-	fatalErr         atomic.Pointer[error]
+	reconnectBackoff time.Duration
+	lastPolledBlock  atomic.Uint64
+	// wsBlockPartial is true when lastPolledBlock was set by a single event rather than a full
+	// block scan, so an HTTP fallback replays that block inclusively.
+	wsBlockPartial atomic.Bool
+	lookbackWindow time.Duration
+	// stalenessThreshold is how long HTTP polling may go without a successful poll before
+	// Ready fails; defaults to stalenessPollIntervals × pollInterval.
+	stalenessThreshold time.Duration
+	backfillComplete   atomic.Bool
+	// pollingMode is true in HTTP polling mode; lastSuccessfulPoll (unix ts) drives
+	// Ready() staleness there. WS mode has no poll loop, so silence is not anomalous.
+	pollingMode        atomic.Bool
+	lastSuccessfulPoll atomic.Int64
 }
 
 func (p *EvmExecutionAttemptPoller) HealthReport() map[string]error {
@@ -81,31 +109,26 @@ func (p *EvmExecutionAttemptPoller) HealthReport() map[string]error {
 	return report
 }
 
-// Ready returns nil when the poller has completed its initial backfill and is
-// fully operational. Returns ErrBackfillInProgress while the backfill is still
-// running, or an errNotStarted error if the service hasn't been started.
+// Ready returns nil after initial backfill, or errNotStarted before startup. It returns
+// ErrBackfillInProgress during startup and reports stale HTTP polling after the staleness threshold.
 func (p *EvmExecutionAttemptPoller) Ready() error {
 	if err := p.StateMachine.Ready(); err != nil {
 		return err
 	}
-	if fatalErr := p.fatalErr.Load(); fatalErr != nil {
-		return *fatalErr
-	}
 	if !p.backfillComplete.Load() {
 		return ErrBackfillInProgress
+	}
+	if last := p.lastSuccessfulPoll.Load(); p.pollingMode.Load() && last > 0 {
+		if since := time.Since(time.Unix(last, 0)); since > p.stalenessThreshold {
+			return fmt.Errorf("no successful execution-attempt poll for %s", since.Round(time.Second))
+		}
 	}
 	return nil
 }
 
-// Healthy returns the recorded fatal error, if any; unlike Ready it stays nil during backfill.
+// Healthy reports service health without treating an in-progress backfill as unhealthy.
 func (p *EvmExecutionAttemptPoller) Healthy() error {
-	if err := p.StateMachine.Healthy(); err != nil {
-		return err
-	}
-	if fatalErr := p.fatalErr.Load(); fatalErr != nil {
-		return *fatalErr
-	}
-	return nil
+	return p.StateMachine.Healthy()
 }
 
 func (p *EvmExecutionAttemptPoller) Name() string {
@@ -121,6 +144,7 @@ func NewEVMExecutionAttemptPoller(
 	client client.Client,
 	lggr logger.Logger,
 	attemptCacheExpiration time.Duration,
+	stalenessThreshold time.Duration,
 ) (*EvmExecutionAttemptPoller, error) {
 	if client == nil {
 		return nil, errNilClient
@@ -128,23 +152,28 @@ func NewEVMExecutionAttemptPoller(
 	if lggr == nil {
 		return nil, errNilLogger
 	}
+	if stalenessThreshold <= 0 {
+		stalenessThreshold = stalenessPollIntervals * defaultPollInterval
+	}
 
 	offRampFilterer, err := offramp.NewOffRampFilterer(offRampAddress, client)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create offramp filterer: %w", err)
 	}
 
-	attemptCache := expirable.NewLRU[protocol.Bytes32, []protocol.ExecutionAttempt](0, nil, attemptCacheExpiration)
+	attemptCache := expirable.NewLRU[protocol.Bytes32, []cachedExecutionAttempt](0, nil, attemptCacheExpiration)
 	return &EvmExecutionAttemptPoller{
-		lggr:            lggr,
-		client:          client,
-		offRampAddress:  offRampAddress,
-		offRampFilterer: *offRampFilterer,
-		eventCh:         make(chan *offramp.OffRampExecutionStateChanged),
-		attemptCache:    attemptCache,
-		lastPolledBlock: 0,
-		pollInterval:    defaultPollInterval,
-		lookbackWindow:  attemptCacheExpiration, // Use cache expiration as lookback window
+		lggr:               lggr,
+		client:             client,
+		offRampAddress:     offRampAddress,
+		offRampFilterer:    *offRampFilterer,
+		eventCh:            make(chan *offramp.OffRampExecutionStateChanged),
+		attemptCache:       attemptCache,
+		seenEvents:         expirable.NewLRU[[eventKeyLength]byte, struct{}](seenEventsMaxEntries, nil, attemptCacheExpiration),
+		pollInterval:       defaultPollInterval,
+		reconnectBackoff:   baseReconnectBackoffDuration,
+		stalenessThreshold: stalenessThreshold,
+		lookbackWindow:     attemptCacheExpiration, // Use cache expiration as lookback window
 	}, nil
 }
 
@@ -165,26 +194,33 @@ func (p *EvmExecutionAttemptPoller) Start(ctx context.Context) error {
 	})
 }
 
-// runStartupSequence performs the full startup: find the start block, backfill
-// historical events, then switch to WS or HTTP polling mode. If getStartBlock
-// fails the error is stored as a fatal error (surfaced via Healthy and Ready)
-// and backfillComplete is never set, so Ready() will continue to return an error.
-// Context cancellation (e.g. from Close) is not treated as a fatal error.
+// runStartupSequence retries start-block discovery until success or cancellation,
+// then backfills historical events and switches to WS or HTTP polling mode.
 func (p *EvmExecutionAttemptPoller) runStartupSequence(ctx context.Context) {
-	if err := p.getStartBlock(ctx, p.lookbackWindow); err != nil {
+	for {
+		err := p.getStartBlock(ctx, p.lookbackWindow)
+		if err == nil {
+			break
+		}
 		if ctx.Err() != nil {
 			p.lggr.Infow("Startup sequence cancelled", "error", err)
 			return
 		}
-		fatalErr := fmt.Errorf("failed to get start block: %w", err)
-		p.lggr.Errorw("Failed to get start block, execution attempt poller permanently failed", "error", fatalErr)
-		p.fatalErr.Store(&fatalErr)
-		return
+
+		p.lggr.Warnw("Failed to get start block, retrying", "error", err, "retryInterval", p.pollInterval)
+		timer := time.NewTimer(p.pollInterval)
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			timer.Stop()
+			p.lggr.Infow("Startup sequence cancelled", "error", ctx.Err())
+			return
+		}
 	}
 
 	if err := p.runBackfill(ctx); err != nil {
 		p.lggr.Errorw("Initial HTTP backfill failed, continuing without complete history", "error", err)
-		p.lastPolledBlock = p.startBlock
+		p.setLastPolledBlock(p.startBlock)
 	}
 
 	p.backfillComplete.Store(true)
@@ -201,7 +237,7 @@ func (p *EvmExecutionAttemptPoller) runBackfill(ctx context.Context) error {
 	p.lggr.Infow("Starting HTTP backfill", "startBlock", p.startBlock, "lookbackWindow", p.lookbackWindow)
 
 	if p.startBlock > 0 {
-		p.lastPolledBlock = p.startBlock - 1
+		p.setLastPolledBlock(p.startBlock - 1)
 	}
 	// When startBlock == 0, lastPolledBlock stays at 0 so pollForEvents begins from block 1.
 
@@ -209,7 +245,7 @@ func (p *EvmExecutionAttemptPoller) runBackfill(ctx context.Context) error {
 		return fmt.Errorf("backfill failed: %w", err)
 	}
 
-	p.lggr.Infow("HTTP backfill complete", "lastPolledBlock", p.lastPolledBlock)
+	p.lggr.Infow("HTTP backfill complete", "lastPolledBlock", p.getLastPolledBlock())
 	return nil
 }
 
@@ -386,7 +422,10 @@ func (p *EvmExecutionAttemptPoller) verifyAndSetStartBlock(ctx context.Context, 
 func (p *EvmExecutionAttemptPoller) startHTTPMode(ctx context.Context) {
 	// lastPolledBlock is already positioned correctly by runBackfill (or its fallback),
 	// so HTTP polling continues from where history coverage ended.
-	p.lggr.Infow("WebSocket subscription not available, continuing with HTTP polling", "lastPolledBlock", p.lastPolledBlock)
+	p.lggr.Infow("WebSocket subscription not available, continuing with HTTP polling", "lastPolledBlock", p.getLastPolledBlock())
+
+	p.pollingMode.Store(true)
+	p.lastSuccessfulPoll.Store(time.Now().Unix())
 
 	p.runWg.Go(func() {
 		p.runPolling(ctx)
@@ -398,7 +437,7 @@ func (p *EvmExecutionAttemptPoller) startHTTPMode(ctx context.Context) {
 func (p *EvmExecutionAttemptPoller) startWSMode(ctx context.Context) error {
 	// Use lastPolledBlock as the subscription start so the WS stream begins exactly
 	// where the backfill left off, preventing duplicate or missed events.
-	startBlock := p.lastPolledBlock
+	startBlock := p.getLastPolledBlock()
 	subscription, err := p.offRampFilterer.WatchExecutionStateChanged(
 		&bind.WatchOpts{Start: &startBlock, Context: ctx},
 		p.eventCh, nil, nil, nil,
@@ -407,7 +446,17 @@ func (p *EvmExecutionAttemptPoller) startWSMode(ctx context.Context) error {
 		return err
 	}
 
+	p.subMu.Lock()
+	if ctx.Err() != nil {
+		p.subMu.Unlock()
+		subscription.Unsubscribe()
+		return ctx.Err()
+	}
 	p.subscription = subscription
+	p.subMu.Unlock()
+
+	// run is started exactly once here and consumes eventCh for the service lifetime;
+	// reconnects restart only monitorSubscription.
 	p.runWg.Go(func() {
 		p.run(ctx)
 	})
@@ -425,15 +474,17 @@ func (p *EvmExecutionAttemptPoller) Close() error {
 	return p.StopOnce("evm.executionattemptpoller.Service", func() error {
 		p.lggr.Infow("Stopping execution attempt poller")
 
-		// Unsubscribe from events first to stop new events from being sent to the channel
-		// (only relevant for WebSocket mode)
-		if p.subscription != nil {
-			p.subscription.Unsubscribe()
-		}
-
+		// Cancel first so reconnect backoff exits on ctx before the subscription is closed.
 		if p.cancelFunc != nil {
 			p.cancelFunc()
 		}
+
+		p.subMu.Lock()
+		if p.subscription != nil {
+			p.subscription.Unsubscribe()
+			p.subscription = nil
+		}
+		p.subMu.Unlock()
 
 		p.runWg.Wait()
 
@@ -456,7 +507,9 @@ func (p *EvmExecutionAttemptPoller) GetExecutionAttempts(ctx context.Context, me
 
 	// Return a copy to prevent external modification
 	result := make([]protocol.ExecutionAttempt, len(attempts))
-	copy(result, attempts)
+	for i, cached := range attempts {
+		result[i] = cached.attempt
+	}
 	return result, nil
 }
 
@@ -488,7 +541,14 @@ func (p *EvmExecutionAttemptPoller) run(ctx context.Context) {
 // to reconnect. If max reconnect attempts are reached, it falls back to HTTP polling mode.
 // Only used in WebSocket mode.
 func (p *EvmExecutionAttemptPoller) monitorSubscription(ctx context.Context) {
+	p.subMu.Lock()
 	subscription := p.subscription
+	p.subMu.Unlock()
+
+	if subscription == nil {
+		p.lggr.Debug("No active subscription to monitor")
+		return
+	}
 
 	select {
 	case err := <-subscription.Err():
@@ -499,6 +559,9 @@ func (p *EvmExecutionAttemptPoller) monitorSubscription(ctx context.Context) {
 
 		p.lggr.Errorw("Subscription error occurred, will attempt to reconnect", "error", err)
 		if err := p.handleReconnection(ctx); err != nil {
+			if ctx.Err() != nil {
+				return
+			}
 			p.lggr.Warn("Unable to reconnect to WS, falling back to HTTP polling")
 			p.startHTTPMode(ctx)
 			return
@@ -528,17 +591,20 @@ func (p *EvmExecutionAttemptPoller) handleReconnection(ctx context.Context) erro
 		select {
 		case <-time.After(backoffDuration):
 			if err := p.reconnectSubscription(ctx); err != nil {
+				if ctx.Err() != nil {
+					return nil
+				}
 				p.lggr.Errorw("Failed to reconnect subscription", "error", err, "reconnectAttempt", reconnectAttempts+1)
 				reconnectAttempts++
 				continue
 			}
+			if ctx.Err() != nil {
+				return nil
+			}
 
 			p.lggr.Infow("Successfully reconnected subscription", "reconnectAttempt", reconnectAttempts+1)
 
-			// Restart the processing and subscription monitoring
-			p.runWg.Go(func() {
-				p.run(ctx)
-			})
+			// run already consumes eventCh for the service lifetime; restart only the monitor.
 			p.runWg.Go(func() {
 				p.monitorSubscription(ctx)
 			})
@@ -552,8 +618,12 @@ func (p *EvmExecutionAttemptPoller) handleReconnection(ctx context.Context) erro
 // calculateReconnectBackoff calculates the exponential backoff duration for reconnection attempts.
 // Uses formula: baseDuration * 2^attempt, with a maximum cap to prevent excessive delays.
 func (p *EvmExecutionAttemptPoller) calculateReconnectBackoff(attempt int) time.Duration {
+	base := p.reconnectBackoff
+	if base <= 0 {
+		base = baseReconnectBackoffDuration
+	}
 	// Exponential backoff: baseDuration * 2^attempt
-	backoffDuration := baseReconnectBackoffDuration * time.Duration(1<<attempt)
+	backoffDuration := base * time.Duration(1<<attempt)
 
 	// Cap at 30 seconds to prevent excessive delays
 	maxBackoff := 30 * time.Second
@@ -567,15 +637,16 @@ func (p *EvmExecutionAttemptPoller) calculateReconnectBackoff(attempt int) time.
 // reconnectSubscription attempts to reconnect the WebSocket subscription.
 // It safely replaces the old subscription with a new one.
 func (p *EvmExecutionAttemptPoller) reconnectSubscription(ctx context.Context) error {
-	// Unsubscribe the old subscription if it exists
+	p.subMu.Lock()
 	if p.subscription != nil {
 		p.subscription.Unsubscribe()
 		p.subscription = nil
 	}
+	p.subMu.Unlock()
 
 	// Resume from lastPolledBlock; fall back to startBlock only as a safety guard if
 	// lastPolledBlock is somehow behind (e.g. WS mode started before backfill completed).
-	startBlock := max(p.lastPolledBlock, p.startBlock)
+	startBlock := max(p.getLastPolledBlock(), p.startBlock)
 
 	// Create a new subscription
 	subscription, err := p.offRampFilterer.WatchExecutionStateChanged(
@@ -586,7 +657,14 @@ func (p *EvmExecutionAttemptPoller) reconnectSubscription(ctx context.Context) e
 		return fmt.Errorf("failed to reconnect subscription: %w", err)
 	}
 
+	p.subMu.Lock()
+	if ctx.Err() != nil {
+		p.subMu.Unlock()
+		subscription.Unsubscribe()
+		return ctx.Err()
+	}
 	p.subscription = subscription
+	p.subMu.Unlock()
 	return nil
 }
 
@@ -604,6 +682,8 @@ func (p *EvmExecutionAttemptPoller) runPolling(ctx context.Context) {
 		case <-ticker.C:
 			if err := p.pollForEvents(ctx); err != nil {
 				p.lggr.Warnw("Failed to poll for execution state changed events", "error", err)
+			} else {
+				p.lastSuccessfulPoll.Store(time.Now().Unix())
 			}
 		}
 	}
@@ -622,13 +702,19 @@ func (p *EvmExecutionAttemptPoller) pollForEvents(ctx context.Context) error {
 
 	toBlock := header.Number.Uint64()
 
-	// If we're already at the latest block, nothing to do
-	if toBlock <= fromBlock {
-		return nil
+	// Process the range in batches if it exceeds maxFilterBlockRange.
+	// If lastPolledBlock was set by a WebSocket event rather than a full block scan,
+	// replay that block inclusively so remaining logs in the block are not skipped.
+	currentFrom := fromBlock + 1
+	if p.wsBlockPartial.Load() {
+		currentFrom = fromBlock
 	}
 
-	// Process the range in batches if it exceeds maxFilterBlockRange
-	currentFrom := fromBlock + 1
+	// If we're already at the latest block, nothing to do
+	if toBlock < currentFrom {
+		return nil
+	}
+	startFrom := currentFrom
 	totalEventCount := 0
 
 	for currentFrom <= toBlock {
@@ -695,7 +781,7 @@ func (p *EvmExecutionAttemptPoller) pollForEvents(ctx context.Context) error {
 
 	if totalEventCount > 0 {
 		p.lggr.Debugw("Polled execution state changed events",
-			"fromBlock", fromBlock+1,
+			"fromBlock", startFrom,
 			"toBlock", toBlock,
 			"totalEventCount", totalEventCount)
 	}
@@ -704,17 +790,79 @@ func (p *EvmExecutionAttemptPoller) pollForEvents(ctx context.Context) error {
 }
 
 func (p *EvmExecutionAttemptPoller) getLastPolledBlock() uint64 {
-	return p.lastPolledBlock
+	return p.lastPolledBlock.Load()
 }
 
 func (p *EvmExecutionAttemptPoller) setLastPolledBlock(block uint64) {
-	p.lastPolledBlock = block
+	p.lastPolledBlock.Store(block)
+	p.wsBlockPartial.Store(false)
 }
 
-// processExecutionStateChanged processes a single execution state changed event.
+// advanceLastPolledBlock moves the cursor forward to block; it never moves backward.
+// Because a single event does not guarantee the entire block has been consumed,
+// wsBlockPartial is set so an HTTP fallback replays that block inclusively.
+func (p *EvmExecutionAttemptPoller) advanceLastPolledBlock(block uint64) {
+	for {
+		current := p.lastPolledBlock.Load()
+		if block < current {
+			return
+		}
+		if block == current {
+			p.wsBlockPartial.Store(true)
+			return
+		}
+		if p.lastPolledBlock.CompareAndSwap(current, block) {
+			p.wsBlockPartial.Store(true)
+			return
+		}
+	}
+}
+
+// eventKey identifies an event by transaction hash and log index for replay detection.
+func eventKey(event *offramp.OffRampExecutionStateChanged) [eventKeyLength]byte {
+	var key [eventKeyLength]byte
+	copy(key[:common.HashLength], event.Raw.TxHash.Bytes())
+	binary.BigEndian.PutUint32(key[common.HashLength:], uint32(event.Raw.Index)) //nolint:gosec // G115: log index is bounded by logs per block
+	return key
+}
+
+func (p *EvmExecutionAttemptPoller) removeCachedAttempt(msgID protocol.Bytes32, key [eventKeyLength]byte) {
+	attempts, exists := p.attemptCache.Get(msgID)
+	if !exists {
+		return
+	}
+
+	for i, cached := range attempts {
+		if cached.eventKey != key {
+			continue
+		}
+		remaining := make([]cachedExecutionAttempt, 0, len(attempts)-1)
+		remaining = append(remaining, attempts[:i]...)
+		remaining = append(remaining, attempts[i+1:]...)
+		if len(remaining) == 0 {
+			p.attemptCache.Remove(msgID)
+		} else {
+			p.attemptCache.Add(msgID, remaining)
+		}
+		return
+	}
+}
+
+// processExecutionStateChanged caches new events, removes reorged attempts, and skips replays.
+// Each successfully processed canonical event advances lastPolledBlock to its block number.
 func (p *EvmExecutionAttemptPoller) processExecutionStateChanged(ctx context.Context, event *offramp.OffRampExecutionStateChanged) error {
 	msgID := event.MessageId
 	txHash := event.Raw.TxHash
+
+	key := eventKey(event)
+	if event.Raw.Removed {
+		p.removeCachedAttempt(msgID, key)
+		p.seenEvents.Remove(key)
+		return nil
+	}
+	if p.seenEvents.Contains(key) {
+		return nil
+	}
 
 	transaction, err := p.client.TransactionByHash(ctx, txHash)
 	if err != nil {
@@ -727,22 +875,28 @@ func (p *EvmExecutionAttemptPoller) processExecutionStateChanged(ctx context.Con
 			txHash.Hex(), txTo, p.offRampAddress.Hex())
 	}
 
-	executionAttempt, err := p.decodeCallDataToExecutionAttempt(transaction.Data(), transaction.Gas())
+	executionAttempt, err := p.decodeCallDataToExecutionAttempt(transaction)
 	if err != nil {
 		return fmt.Errorf("failed to decode call data for transaction %s: %w", txHash.Hex(), err)
 	}
 
-	// Invairant check: assert that computed messageID matches on-chain event emission.
+	// Invariant check: assert that computed messageID matches on-chain event emission.
 	attemptMsgID := executionAttempt.Report.Message.MustMessageID()
 	if !bytes.Equal(msgID[:], attemptMsgID[:]) {
-		p.lggr.Errorw("MessageID from event does not match the computed messageID. This should never happen.", protocol.LogKeyMessageID, protocol.Bytes32(msgID).String(), "computedMessageID", attemptMsgID.String())
+		logger.Sugared(p.lggr).Criticalw("MessageID from event does not match the computed messageID. This should never happen.", protocol.LogKeyMessageID, protocol.Bytes32(msgID).String(), "computedMessageID", attemptMsgID.String())
 		return fmt.Errorf("computed message id does not match event message id")
 	}
 
+	executionAttempt.Failed = executor.MessageExecutionState(event.State) == executor.FAILURE
+	executionAttempt.FailureData = event.ReturnData
+
 	// store the execution attempt in cache
 	attempts, _ := p.attemptCache.Get(msgID)
-	attempts = append(attempts, *executionAttempt)
+	attempts = append(attempts, cachedExecutionAttempt{attempt: *executionAttempt, eventKey: key})
 	p.attemptCache.Add(msgID, attempts)
+
+	p.seenEvents.Add(key, struct{}{})
+	p.advanceLastPolledBlock(event.Raw.BlockNumber)
 
 	p.lggr.Debugw("Cached execution attempt",
 		"messageID", msgID,
@@ -754,7 +908,9 @@ func (p *EvmExecutionAttemptPoller) processExecutionStateChanged(ctx context.Con
 
 // decodeCallDataToExecutionAttempt decodes the transaction call data into an ExecutionAttempt.
 // It validates the function selector, unpacks ABI-encoded parameters, and constructs the attempt.
-func (p *EvmExecutionAttemptPoller) decodeCallDataToExecutionAttempt(callData []byte, gasLimit uint64) (*protocol.ExecutionAttempt, error) {
+func (p *EvmExecutionAttemptPoller) decodeCallDataToExecutionAttempt(tx *types.Transaction) (*protocol.ExecutionAttempt, error) {
+	callData := tx.Data()
+
 	method, ok := offrampABI.Methods[executeMethodName]
 	if !ok {
 		return nil, fmt.Errorf("execute method not found in offramp ABI")
@@ -799,6 +955,11 @@ func (p *EvmExecutionAttemptPoller) decodeCallDataToExecutionAttempt(callData []
 		return nil, fmt.Errorf("invalid type for ccvData: expected [][]byte, got %T", values[2])
 	}
 
+	gasLimitOverride, ok := values[3].(uint32)
+	if !ok {
+		return nil, fmt.Errorf("invalid type for gasLimitOverride: expected uint32, got %T", values[3])
+	}
+
 	// Convert the message bytes into a struct
 	message, err := protocol.DecodeMessage(encodedMsg)
 	if err != nil {
@@ -817,8 +978,21 @@ func (p *EvmExecutionAttemptPoller) decodeCallDataToExecutionAttempt(callData []
 		Message: *message,
 	}
 
+	// Intrinsic gas depends on the destination chain fork, so accept only the envelope the executor produces:
+	// no access list, no EIP-7702 authorizations, and the canonical ABI encoding of the arguments.
+	canonicalArgs, err := method.Inputs.Pack(encodedMsg, contractCcvs, ccvData, gasLimitOverride)
+	if err != nil {
+		return nil, fmt.Errorf("failed to re-encode execute call data for canonical-encoding check: %w", err)
+	}
+	canonicalCallData := append(append([]byte{}, method.ID...), canonicalArgs...)
+	hasNonCanonicalGasEnvelope := len(tx.AccessList()) > 0 ||
+		len(tx.SetCodeAuthorizations()) > 0 ||
+		!bytes.Equal(callData, canonicalCallData)
+
 	return &protocol.ExecutionAttempt{
-		Report:              report,
-		TransactionGasLimit: new(big.Int).SetUint64(gasLimit),
+		Report:                     report,
+		TransactionGasLimit:        new(big.Int).SetUint64(tx.Gas()),
+		GasLimitOverride:           new(big.Int).SetUint64(uint64(gasLimitOverride)),
+		HasNonCanonicalGasEnvelope: hasNonCanonicalGasEnvelope,
 	}, nil
 }

@@ -14,6 +14,7 @@ import (
 	oteltrace "go.opentelemetry.io/otel/trace"
 
 	"github.com/smartcontractkit/chainlink-ccv/common"
+	"github.com/smartcontractkit/chainlink-ccv/common/health"
 	"github.com/smartcontractkit/chainlink-ccv/common/monitoring/tracing"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/message_heap"
 	execmonitoring "github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
@@ -87,6 +88,8 @@ func (ec *Coordinator) Start(ctx context.Context) error {
 		ec.cancel = cancel
 
 		if err := ec.executor.Start(c); err != nil {
+			cancel()
+			ec.cancel = nil
 			ec.lggr.Errorf("unable to start executor coordinator due to error: %w", err)
 			return err
 		}
@@ -163,6 +166,8 @@ func (ec *Coordinator) runStorageStream(ctx context.Context) {
 		case e, ok := <-componentErrors:
 			if !ok {
 				ec.lggr.Errorw("coordinator component errors channel closed")
+				// Nil the channel so the closed channel stops firing in this select.
+				componentErrors = nil
 			} else {
 				ec.lggr.Errorw("error in coordinator component", "error", e)
 			}
@@ -175,20 +180,26 @@ func (ec *Coordinator) runStorageStream(ctx context.Context) {
 
 			msg := streamResult.Message
 			metrics := ec.metricsForMessage(msg)
+			discoveryReason := execmonitoring.MessageTransitionReasonNone
 			err := ec.executor.CheckValidMessage(ctx, msg)
 			if err != nil {
-				ec.lggr.Errorw("invalid message, skipping", "error", err, "message", msg)
-				metrics.IncrementMessageTransition(
-					ctx,
-					execmonitoring.MessageTransitionStageDiscovery,
-					execmonitoring.MessageTransitionOutcomeSkipped,
-					execmonitoring.MessageTransitionReasonInvalidMessage)
-				metrics.IncrementMessageFailure(
-					ctx,
-					execmonitoring.MessageTransitionStageDiscovery,
-					false,
-					execmonitoring.MessageFailureClassInvalidMessage)
-				continue
+				if !errors.Is(err, ErrDestinationReaderUnhealthy) {
+					ec.lggr.Errorw("invalid message, skipping", "error", err, "message", msg)
+					metrics.IncrementMessageTransition(
+						ctx,
+						execmonitoring.MessageTransitionStageDiscovery,
+						execmonitoring.MessageTransitionOutcomeSkipped,
+						execmonitoring.MessageTransitionReasonInvalidMessage)
+					metrics.IncrementMessageFailure(
+						ctx,
+						execmonitoring.MessageTransitionStageDiscovery,
+						false,
+						execmonitoring.MessageFailureClassInvalidMessage)
+					continue
+				}
+				// Unhealthy destination reader is transient: schedule the message normally.
+				ec.lggr.Warnw("destination reader unhealthy, scheduling message for retry", "error", err, protocol.LogKeyMessageID, msg.MustMessageID())
+				discoveryReason = execmonitoring.MessageTransitionReasonReaderUnhealthy
 			}
 
 			id := msg.MustMessageID()
@@ -281,7 +292,7 @@ func (ec *Coordinator) runStorageStream(ctx context.Context) {
 				ctx,
 				execmonitoring.MessageTransitionStageDiscovery,
 				execmonitoring.MessageTransitionOutcomeDiscovered,
-				execmonitoring.MessageTransitionReasonNone)
+				discoveryReason)
 
 			if !ec.delayedMessageHeap.Push(message_heap.MessageWithTimestamps{
 				Message:       &msg,
@@ -328,18 +339,27 @@ func (ec *Coordinator) runProcessingLoop(ctx context.Context) {
 
 			// Process all messages that are ready to be processed.
 			readyMessages := ec.delayedMessageHeap.PopAllReady(currentTime)
+			for _, payload := range readyMessages {
+				// Track all popped messages as in-flight before any send: a worker can
+				// finish before the send on the unbuffered channel returns, and items
+				// waiting their turn in readyMessages must stay visible to inFlightHas.
+				ec.inFlightAdd(payload.MessageID, *payload.Message)
+			}
 			ec.lggr.Debugw("found messages ready for processing",
 				"count", len(readyMessages),
 				"currentTime", currentTime.String(),
 				"readyMessages", readyMessages,
 			)
-			for _, payload := range readyMessages {
-				// If the channel is full, we will block here, but messages will continue to accumulate in the heap.
+			for i, payload := range readyMessages {
 				select {
 				case ec.workerPoolTasks <- payload:
-					ec.inFlightAdd(payload.MessageID, *payload.Message)
 				case <-ctx.Done():
-					ec.lggr.Infow("Processing loop dropping payload to exit")
+					// Requeue undispatched messages so they are not lost on shutdown.
+					for _, remaining := range readyMessages[i:] {
+						ec.inFlightRemove(remaining.MessageID)
+						ec.delayedMessageHeap.Push(remaining)
+					}
+					ec.lggr.Infow("Processing loop requeued undispatched payloads to exit", "count", len(readyMessages)-i)
 					return
 				}
 			}
@@ -357,9 +377,11 @@ func (ec *Coordinator) handleMessage(ctx context.Context) {
 			ec.lggr.Infow("Message handler exiting")
 			return
 		case payload, ok := <-ec.workerPoolTasks:
-			if ok {
-				ec.processPayload(ctx, payload)
+			if !ok {
+				ec.lggr.Infow("Message handler exiting: worker pool tasks channel closed")
+				return
 			}
+			ec.processPayload(ctx, payload)
 		}
 	}
 }
@@ -561,7 +583,14 @@ func (ec *Coordinator) dataNotReadyBackoff(attempt int, capDuration time.Duratio
 		attempt = 30
 	}
 	d := ec.dataNotReadyRetryInterval << (attempt - 1)
-	if d <= 0 || (capDuration > 0 && d > capDuration) {
+	if d <= 0 {
+		// Shift overflow: fall back to the base interval when no cap is set.
+		if capDuration <= 0 {
+			return ec.dataNotReadyRetryInterval
+		}
+		return capDuration
+	}
+	if capDuration > 0 && d > capDuration {
 		return capDuration
 	}
 	return d
@@ -591,11 +620,22 @@ func (ec *Coordinator) validate() error {
 }
 
 // Ready returns nil if the coordinator is ready, or an error otherwise.
+// It includes the executor's readiness, so a coordinator with no usable
+// destination chain reports not-ready instead of serving an empty pipeline.
 func (ec *Coordinator) Ready() error {
 	if !ec.running.Load() {
 		return errors.New("coordinator not running")
 	}
 
+	return ec.executor.Ready()
+}
+
+// Degraded delegates to the executor's per-chain destination reader state when
+// it implements health.DegradedReporter; nil means nothing is degraded.
+func (ec *Coordinator) Degraded() error {
+	if dr, ok := ec.executor.(health.DegradedReporter); ok {
+		return dr.Degraded()
+	}
 	return nil
 }
 

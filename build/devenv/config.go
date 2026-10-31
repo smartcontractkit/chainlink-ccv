@@ -26,6 +26,7 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
 )
@@ -221,6 +222,26 @@ func loadPhasedCfg(data []byte) (*Cfg, error) {
 	}
 	cfg.Aggregator = extra.Aggregators
 	cfg.Verifier = extra.Verifiers
+
+	// The phased [jd] section is a serialized JDInfrastructure (jd_output,
+	// node_id_map), not a JDSection, so the lenient decode above drops its
+	// output; wire it back so JD consumers see the same shape as legacy.
+	var jdSection struct {
+		JD *jobs.JDInfrastructure `toml:"jd"`
+	}
+	if err := toml.Unmarshal(data, &jdSection); err != nil {
+		return nil, fmt.Errorf("failed to decode phased jd output: %w", err)
+	}
+	if jdSection.JD != nil {
+		cfg.JDInfra = jdSection.JD
+		if cfg.JD == nil {
+			cfg.JD = &JDSection{}
+		}
+		cfg.JD.Out = jdSection.JD.JDOutput
+		if cfg.JD.NodeConnectTimeout == "" {
+			cfg.JD.NodeConnectTimeout = jdSection.JD.NodeConnectTimeout
+		}
+	}
 
 	cfg.AggregatorEndpoints = make(map[string]string)
 	cfg.AggregatorCACertFiles = make(map[string]string)

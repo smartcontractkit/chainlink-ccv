@@ -2,6 +2,7 @@ package changesets
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"testing"
@@ -11,6 +12,8 @@ import (
 	"google.golang.org/grpc"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+	mcmstypes "github.com/smartcontractkit/mcms/types"
+
 	cldf_chain "github.com/smartcontractkit/chainlink-deployments-framework/chain"
 	cldfevm "github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -605,6 +608,9 @@ type stubOnchainAdapter struct {
 	onchainOpErr   error
 	finalityCalls  int
 	allowlistCalls int
+	// timelockOwned chains return their writes as batch ops; the rest count as direct deployer-key writes.
+	timelockOwned map[uint64]bool
+	directWrites  []uint64
 }
 
 // stubOffchainClient satisfies offchain.Client. Only the JDClient methods needed by our test
@@ -648,28 +654,43 @@ func (s *stubOnchainAdapter) ScanCommitteeStates(_ context.Context, _ deployment
 	return s.states[chainSelector], nil
 }
 
-func (s *stubOnchainAdapter) ApplySignatureConfigs(_ context.Context, _ deployment.Environment, _ uint64, _ string, change adapters.SignatureConfigChange) error {
+func (s *stubOnchainAdapter) ApplySignatureConfigs(_ context.Context, _ deployment.Environment, sel uint64, _ string, change adapters.SignatureConfigChange) ([]mcmstypes.BatchOperation, error) {
 	if s.applyErr != nil {
-		return s.applyErr
+		return nil, s.applyErr
 	}
 	s.applied = append(s.applied, change)
-	return nil
+	return s.writeOps(sel), nil
 }
 
-func (s *stubOnchainAdapter) SetAllowedFinalityConfig(_ context.Context, _ deployment.Environment, _ uint64, _ string, _, _ bool, _ uint16) error {
+func (s *stubOnchainAdapter) SetAllowedFinalityConfig(_ context.Context, _ deployment.Environment, sel uint64, _ string, _, _ bool, _ uint16) ([]mcmstypes.BatchOperation, error) {
 	if s.onchainOpErr != nil {
-		return s.onchainOpErr
+		return nil, s.onchainOpErr
 	}
 	s.finalityCalls++
-	return nil
+	return s.writeOps(sel), nil
 }
 
-func (s *stubOnchainAdapter) ApplyAllowlistUpdates(_ context.Context, _ deployment.Environment, _ uint64, _ string, _ uint64, _ bool, _, _ []string) error {
+func (s *stubOnchainAdapter) ApplyAllowlistUpdates(_ context.Context, _ deployment.Environment, sel uint64, _ string, _ uint64, _ bool, _, _ []string) ([]mcmstypes.BatchOperation, error) {
 	if s.onchainOpErr != nil {
-		return s.onchainOpErr
+		return nil, s.onchainOpErr
 	}
 	s.allowlistCalls++
-	return nil
+	return s.writeOps(sel), nil
+}
+
+func (s *stubOnchainAdapter) writeOps(sel uint64) []mcmstypes.BatchOperation {
+	if !s.timelockOwned[sel] {
+		s.directWrites = append(s.directWrites, sel)
+		return nil
+	}
+	return []mcmstypes.BatchOperation{{
+		ChainSelector: mcmstypes.ChainSelector(sel),
+		Transactions: []mcmstypes.Transaction{{
+			To:               stubCommitteeVerifierAddr,
+			Data:             []byte{0xde, 0xad, 0xbe, 0xef},
+			AdditionalFields: json.RawMessage(`{"value": 0}`),
+		}},
+	}}
 }
 
 // stubAggregatorAdapter satisfies AggregatorConfigAdapter.
@@ -729,16 +750,16 @@ func (s *stubFullAdapter) ScanCommitteeStates(_ context.Context, _ deployment.En
 	return s.states[chainSelector], nil
 }
 
-func (s *stubFullAdapter) ApplySignatureConfigs(_ context.Context, _ deployment.Environment, _ uint64, _ string, _ adapters.SignatureConfigChange) error {
-	return nil
+func (s *stubFullAdapter) ApplySignatureConfigs(_ context.Context, _ deployment.Environment, _ uint64, _ string, _ adapters.SignatureConfigChange) ([]mcmstypes.BatchOperation, error) {
+	return nil, nil
 }
 
-func (s *stubFullAdapter) SetAllowedFinalityConfig(_ context.Context, _ deployment.Environment, _ uint64, _ string, _, _ bool, _ uint16) error {
-	return nil
+func (s *stubFullAdapter) SetAllowedFinalityConfig(_ context.Context, _ deployment.Environment, _ uint64, _ string, _, _ bool, _ uint16) ([]mcmstypes.BatchOperation, error) {
+	return nil, nil
 }
 
-func (s *stubFullAdapter) ApplyAllowlistUpdates(_ context.Context, _ deployment.Environment, _ uint64, _ string, _ uint64, _ bool, _, _ []string) error {
-	return nil
+func (s *stubFullAdapter) ApplyAllowlistUpdates(_ context.Context, _ deployment.Environment, _ uint64, _ string, _ uint64, _ bool, _, _ []string) ([]mcmstypes.BatchOperation, error) {
+	return nil, nil
 }
 
 func (s *stubFullAdapter) GetDeployedChains(_ datastore.DataStore, _ string) []uint64 {
@@ -746,6 +767,7 @@ func (s *stubFullAdapter) GetDeployedChains(_ datastore.DataStore, _ string) []u
 	for sel := range s.states {
 		chains = append(chains, sel)
 	}
+	slices.Sort(chains)
 	return chains
 }
 

@@ -3,8 +3,10 @@ package admin
 import (
 	"context"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -76,6 +78,66 @@ func (h *handlers) renderDetail(c *gin.Context, src detailSources, msgID []byte)
 	}
 	h.addDetailEvents(ctx, &vm, src)
 	h.addDetailChainStatus(ctx, &vm, src)
+
+	// Interpolate trace URL placeholders if configured.
+	if vm.TraceURL != "" {
+		vm.TraceURL = strings.ReplaceAll(vm.TraceURL, "{message_id}", vm.MessageID)
+		vm.TraceURL = strings.ReplaceAll(vm.TraceURL, "{id}", vm.MessageID)
+		if len(vm.Events) > 0 && vm.Events[0].TxHash != "—" && vm.Events[0].TxHash != "" {
+			vm.TraceURL = strings.ReplaceAll(vm.TraceURL, "{tx_hash}", vm.Events[0].TxHash)
+		}
+	}
+
+	// Build deep-link URL to source recovery if owner, chain, or block are available.
+	vm.RecoveryURL = "/recovery"
+	owner := ""
+	chain := vm.SourceChain
+	block := ""
+	mode := "replay"
+	if len(vm.Events) > 0 {
+		owner = vm.Events[0].OwnerID
+		if vm.Events[0].SourceBlock != "—" {
+			block = vm.Events[0].SourceBlock
+		}
+	} else if len(vm.Failed) > 0 {
+		owner = vm.Failed[0].Job.OwnerID
+	}
+	vm.Owner = owner
+	if views.OwnerChainDisabled(vm.Chains, owner) {
+		mode = "reset-reader"
+	}
+	if owner != "" || chain != "" || block != "" {
+		q := url.Values{}
+		if owner != "" {
+			q.Set("owner", owner)
+		}
+		if chain != "" {
+			q.Set("chain", chain)
+		}
+		if block != "" {
+			q.Set("from_block", block)
+		}
+		if mode != "" {
+			q.Set("mode", mode)
+		}
+		vm.RecoveryURL = "/recovery?" + q.Encode()
+	}
+
+	// Surface recent successful reschedule actions so freshly restored jobs are visible.
+	if len(vm.Failed) == 0 && vm.ArchiveDetail == "" && h.actions != nil {
+		for _, a := range h.actions.List(50, 0) {
+			if a.Action == "reschedule" && a.Outcome == "success" && strings.EqualFold(a.Target, vm.MessageID) {
+				vm.RecentAction = &views.DetailRecentActionVM{
+					Time:    a.CreatedAt.UTC().Format(time.RFC3339),
+					Actor:   a.Actor,
+					Outcome: a.Outcome,
+					Detail:  a.Detail,
+				}
+				break
+			}
+		}
+	}
+
 	h.render(c, http.StatusOK, views.DetailPage(h.csrfToken(c), vm))
 }
 
@@ -141,7 +203,8 @@ func toArchivedJobVM(j jobqueue.ArchivedJob) views.ArchivedJobVM {
 
 func toDropEventVM(e recoverystore.Event) views.DropEventVM {
 	return views.DropEventVM{
-		Kind: e.Kind, Stage: e.Stage, Reason: e.Reason, OwnerID: e.OwnerID,
+		MessageID: detailDeref(e.MessageID),
+		Kind:      e.Kind, Stage: e.Stage, Reason: e.Reason, OwnerID: e.OwnerID,
 		SourceChain: e.SourceChain, SourceBlock: detailDeref(e.SourceBlock),
 		TxHash: detailDeref(e.TxHash), IncidentID: detailDeref(e.IncidentID),
 		Observations:  e.Observations,

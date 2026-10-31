@@ -10,7 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -355,15 +357,13 @@ func TestFinalityViolationChecker_ParentHashMismatch(t *testing.T) {
 func TestFinalityViolationChecker_LargeForwardGapCapped(t *testing.T) {
 	lggr, _ := logger.New()
 
-	// Simulate the scenario where the RPC jumps ahead by millions of blocks.
-	// The checker caps toBlock so it only fetches MaxFinalityBlocksStored blocks per call,
-	// advancing lastFinalized partially and leaving no gaps in validation coverage.
+	// The checker fetches only MaxFinalityBlocksStored blocks and reports that the requested
+	// finalized head remains unchecked.
 	const startBlock = 93154146
 	const newFinalized = 95322726 // gap of ~2.1M blocks
 	const expectedAdvance = uint64(startBlock + MaxFinalityBlocksStored - 1)
 
 	blocks := make(map[uint64]protocol.BlockHeader)
-	// Populate the window the checker should actually fetch: [startBlock, startBlock+999]
 	for i := uint64(startBlock); i <= expectedAdvance; i++ {
 		blocks[i] = protocol.BlockHeader{
 			Number:     i,
@@ -383,12 +383,98 @@ func TestFinalityViolationChecker_LargeForwardGapCapped(t *testing.T) {
 	err = checker.UpdateFinalized(ctx, startBlock)
 	require.NoError(t, err)
 
-	// lastFinalized advances by exactly MaxFinalityBlocksStored, not to newFinalized.
 	err = checker.UpdateFinalized(ctx, newFinalized)
-	require.NoError(t, err)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "incomplete check")
 	assert.False(t, checker.IsFinalityViolated())
 	assert.Equal(t, expectedAdvance, checker.lastFinalized)
 	assert.LessOrEqual(t, len(checker.finalizedBlocks), MaxFinalityBlocksStored)
+}
+
+func TestFinalityViolationChecker_CappedForwardGapCatchUp(t *testing.T) {
+	lggr, _ := logger.New()
+
+	const startBlock uint64 = 100
+	const newFinalized = startBlock + 2*MaxFinalityBlocksStored + 250
+	const firstCursor = startBlock + MaxFinalityBlocksStored - 1
+	const secondCursor = firstCursor + MaxFinalityBlocksStored - 1
+
+	blocks := make(map[uint64]protocol.BlockHeader)
+	for i := startBlock; i <= newFinalized; i++ {
+		blocks[i] = protocol.BlockHeader{
+			Number:     i,
+			Hash:       makeBytes32(fmt.Sprintf("hash%d", i)),
+			ParentHash: makeBytes32(fmt.Sprintf("hash%d", i-1)),
+		}
+	}
+
+	mockSetup := setupMockSourceReaderForFinality(t, blocks)
+	checker, err := NewFinalityViolationCheckerService(
+		mockSetup.Reader, protocol.ChainSelector(1), lggr, &testutil.NoopMetricLabeler{})
+	require.NoError(t, err)
+	require.NoError(t, checker.UpdateFinalized(t.Context(), startBlock))
+
+	err = checker.UpdateFinalized(t.Context(), newFinalized)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "incomplete check")
+	assert.False(t, checker.IsFinalityViolated())
+	assert.Equal(t, firstCursor, checker.lastFinalized)
+	assert.LessOrEqual(t, len(checker.finalizedBlocks), MaxFinalityBlocksStored)
+
+	err = checker.UpdateFinalized(t.Context(), newFinalized)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "incomplete check")
+	assert.False(t, checker.IsFinalityViolated())
+	assert.Equal(t, secondCursor, checker.lastFinalized)
+	assert.LessOrEqual(t, len(checker.finalizedBlocks), MaxFinalityBlocksStored)
+
+	require.NoError(t, checker.UpdateFinalized(t.Context(), newFinalized))
+	assert.False(t, checker.IsFinalityViolated())
+	assert.Equal(t, newFinalized, checker.lastFinalized)
+	assert.LessOrEqual(t, len(checker.finalizedBlocks), MaxFinalityBlocksStored)
+}
+
+func TestFinalityViolationChecker_CappedForwardGapCatchUpDetectsViolation(t *testing.T) {
+	lggr, _ := logger.New()
+
+	const startBlock uint64 = 100
+	const newFinalized = startBlock + MaxFinalityBlocksStored + 100
+	const cappedCursor = startBlock + MaxFinalityBlocksStored - 1
+	const violationBlock = cappedCursor + 1
+
+	blocks := make(map[uint64]protocol.BlockHeader)
+	for i := startBlock; i <= newFinalized; i++ {
+		blocks[i] = protocol.BlockHeader{
+			Number:     i,
+			Hash:       makeBytes32(fmt.Sprintf("hash%d", i)),
+			ParentHash: makeBytes32(fmt.Sprintf("hash%d", i-1)),
+		}
+	}
+	badHeader := blocks[violationBlock]
+	badHeader.ParentHash = makeBytes32("wrong parent")
+	blocks[violationBlock] = badHeader
+
+	mockSetup := setupMockSourceReaderForFinality(t, blocks)
+	checker, err := NewFinalityViolationCheckerService(
+		mockSetup.Reader, protocol.ChainSelector(1), lggr, &testutil.NoopMetricLabeler{})
+	require.NoError(t, err)
+	require.NoError(t, checker.UpdateFinalized(t.Context(), startBlock))
+
+	// The bad parent is beyond the first capped window, so it is not a violation yet.
+	err = checker.UpdateFinalized(t.Context(), newFinalized)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "incomplete check")
+	assert.False(t, checker.IsFinalityViolated())
+	assert.Equal(t, cappedCursor, checker.lastFinalized)
+
+	err = checker.UpdateFinalized(t.Context(), newFinalized)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "finality violation")
+	assert.Contains(t, err.Error(), "parent hash")
+	assert.True(t, checker.IsFinalityViolated())
+	assert.Equal(t, cappedCursor, checker.lastFinalized)
+	require.NotNil(t, checker.Evidence())
+	assert.Equal(t, violationBlock, checker.Evidence().BlockNumber)
 }
 
 func TestFinalityViolationChecker_LargeBackwardGapCapped(t *testing.T) {
@@ -438,4 +524,60 @@ func TestNoOpFinalityViolationChecker(t *testing.T) {
 	err = checker.UpdateFinalized(ctx, 200)
 	require.NoError(t, err)
 	assert.False(t, checker.IsFinalityViolated())
+}
+
+// recordingFinalityMetrics records every SetVerifierFinalityViolated call.
+type recordingFinalityMetrics struct {
+	calls []bool
+}
+
+func (m *recordingFinalityMetrics) SetVerifierFinalityViolated(_ context.Context, _ protocol.ChainSelector, violated bool) {
+	m.calls = append(m.calls, violated)
+}
+
+func TestNewFinalityChecker_Selection(t *testing.T) {
+	tests := []struct {
+		name     string
+		cfg      verifier.SourceConfig
+		reporter chainaccess.FinalityViolationReporter
+		want     any
+	}{
+		{name: "default uses header checker", want: &FinalityViolationCheckerService{}},
+		{name: "a finality reporter uses log poller checker", reporter: &fakeFinalityReporter{}, want: &logPollerFinalityChecker{}},
+		{name: "disabled wins over a finality reporter", cfg: verifier.SourceConfig{DisableFinalityChecker: true}, reporter: &fakeFinalityReporter{}, want: &NoOpFinalityViolationChecker{}},
+		{name: "disabled", cfg: verifier.SourceConfig{DisableFinalityChecker: true}, want: &NoOpFinalityViolationChecker{}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			checker, err := newFinalityChecker(tc.cfg, mocks.NewMockSourceReader(t), tc.reporter, protocol.ChainSelector(1337), logger.Test(t), &recordingFinalityMetrics{})
+			require.NoError(t, err)
+			require.IsType(t, tc.want, checker)
+		})
+	}
+}
+
+func TestLogPollerFinalityChecker_LatchesAndNeverFetchesHeaders(t *testing.T) {
+	ctx := t.Context()
+	// The mock has no expectations, so any GetBlocksHeaders call fails the test.
+	reporter := &fakeFinalityReporter{}
+	metrics := &recordingFinalityMetrics{}
+	checker, err := newFinalityChecker(verifier.SourceConfig{}, mocks.NewMockSourceReader(t), reporter,
+		protocol.ChainSelector(1337), logger.Test(t), metrics)
+	require.NoError(t, err)
+
+	require.NoError(t, checker.UpdateFinalized(ctx, 100))
+	require.False(t, checker.IsFinalityViolated())
+	require.Empty(t, metrics.calls)
+
+	reporter.violated.Store(true)
+	require.Error(t, checker.UpdateFinalized(ctx, 101))
+	require.True(t, checker.IsFinalityViolated())
+	require.Error(t, checker.UpdateFinalized(ctx, 102))
+	require.Equal(t, []bool{true}, metrics.calls, "the violation metric is emitted once")
+
+	// The log poller clears its flag after reconciling; the checker stays violated.
+	reporter.violated.Store(false)
+	require.Error(t, checker.UpdateFinalized(ctx, 103))
+	require.True(t, checker.IsFinalityViolated())
+	require.Equal(t, []bool{true}, metrics.calls)
 }

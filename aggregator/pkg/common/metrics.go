@@ -56,6 +56,9 @@ type AggregatorMetricLabeler interface {
 	RecordOrphanRecoveryDuration(ctx context.Context, duration time.Duration)
 	// IncrementOrphanRecoveryErrors increments the counter for errors during orphan recovery.
 	IncrementOrphanRecoveryErrors(ctx context.Context)
+	// IncrementOrphanRecoverySkipped increments the counter for orphan recovery scans skipped
+	// because another replica holds the orphan recovery lock.
+	IncrementOrphanRecoverySkipped(ctx context.Context)
 	// IncrementPanics increments the counter for panics recovered by background workers.
 	IncrementPanics(ctx context.Context)
 	// SetVerifierHeartbeatScore sets the adaptive heartbeat score gauge for a verifier on a specific chain.
