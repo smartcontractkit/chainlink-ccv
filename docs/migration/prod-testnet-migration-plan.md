@@ -148,7 +148,8 @@ Model them on the staging trees; the only intended differences are environment l
 the image tag (P2), the per-node `keyImport.expectedId` (P8), and resource sizing if
 staging's soak showed a need. Everything staging P3 lists carries over unchanged: probes on
 bootstrap `/health` (9988) with a `startupProbe`, `strategy: Recreate`, no PDB, no
-ServiceMonitor, and `[key_import]` rendered from `keyImport.expectedId`. After step 9, check
+ServiceMonitor, `[key_import]` rendered from `keyImport.expectedId`, and the loopback-only admin
+console (`adminConsole`). After step 9, check
 bootstrap `/ready` on 9988 and the app `/health` on 8100/8101.
 
 ### P4. Databases (3 per migrating node, on their own cluster)

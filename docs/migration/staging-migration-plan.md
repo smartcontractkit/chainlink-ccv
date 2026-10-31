@@ -294,7 +294,7 @@ and is not part of this plan.
 ### P3. Charts and config dirs
 
 Both charts exist in chainlink-ccv-deploy and are shared with the Solana and Canton releases:
-`committee-verifier-base` (v0.1.5) for the verifiers and `executor-base` (v0.1.1, from #456) for
+`committee-verifier-base` (v0.1.6) for the verifiers and `executor-base` (v0.1.1, from #456) for
 the executors. Neither chart has anything EVM-specific; the values carry the image, ports,
 configs, and mounts. The existing `push-helm-charts.yaml` workflow publishes both.
 
@@ -322,11 +322,19 @@ Both processes take their file locations from env vars (`BOOTSTRAPPER_CONFIG_PAT
   import fails and the boot stops. That makes hard rule 3 a property of the config. The block
   stays after the cutover: once the key is in the keystore the import is skipped, but
   `expected_id` is still checked against it on every boot.
+- The admin console (`adminConsole`, new in `committee-verifier-base` v0.1.6). The verifier serves
+  this recovery UI in-process while its job runs, and only when `/etc/ccv-admin/config.toml`
+  exists, which the chart mounts from a ConfigMap. The config is
+  `listen_address = "127.0.0.1:8105"`: on loopback the console needs no `[admin_ui]` credentials
+  and only answers `localhost` requests, so the way in is a port-forward (see Validation), and the
+  chart adds no Service port or route. The console decodes its config strictly, and a config it
+  rejects makes the verifier's job fail to start, so check any change with
+  `verifier ccv admin check-config` from the same image.
 
 Config dirs, one per family chart, named like the releases (scaffolded for node 1):
 
 - `deploy/config/staging/committee-verifier-evm/`: `common.yaml` (image, probes, strategy,
-  resources, labels, sidecar), `config.yaml` (non-secret `configs:` TOMLs),
+  resources, labels, sidecar, admin console), `config.yaml` (non-secret `configs:` TOMLs),
   `committee-verifier-evm-$i.yaml` (`name`, `keyImport.expectedId`, `replicas`, the secret
   volumes).
 - `deploy/config/staging/executor-evm/`: the same three, without `keyImport`.
@@ -929,6 +937,13 @@ faster than expected is a reason to look at transmit failures before the next no
   window length for the first node and confirm every message sent during it was verified.
 - Dashboards: source-reader head gauges, critical-invariant counter, OffRamp read latency,
   transmit failures. Transmitter balances are checked by hand (P9, step 12).
+- Admin console: once step 9's job runs,
+  `kubectl --context $CTX -n $NS port-forward deploy/$VER 8105:8105` and open
+  `http://localhost:8105` (the console refuses other host names). It should load and search this
+  verifier's archive. The verifier logs `admin console listening` at start and
+  `admin console stopped with error` if the console dies, which does not stop the job. Exercise
+  the recovery flows from here, following the
+  [remediation runbook](../runbooks/remediating-stuck-or-dropped-messages.md).
 - Rollback path: scale the verifier and the executor to 0, repoint the JD record at the CSA key
   recorded in P8 (`jd_update_nodes` with the original `csa_key`), take the node's index out of
   `maintenanceMode`, and scale the CL node back up. Exercise it on purpose at least once before the
