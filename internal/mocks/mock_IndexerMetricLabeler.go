@@ -89,6 +89,39 @@ func (_c *MockIndexerMetricLabeler_IncrementActiveRequestsCounter_Call) RunAndRe
 	return _c
 }
 
+// IncrementDiscoveryLeaderChanges provides a mock function with given fields: ctx
+func (_m *MockIndexerMetricLabeler) IncrementDiscoveryLeaderChanges(ctx context.Context) {
+	_m.Called(ctx)
+}
+
+// MockIndexerMetricLabeler_IncrementDiscoveryLeaderChanges_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IncrementDiscoveryLeaderChanges'
+type MockIndexerMetricLabeler_IncrementDiscoveryLeaderChanges_Call struct {
+	*mock.Call
+}
+
+// IncrementDiscoveryLeaderChanges is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *MockIndexerMetricLabeler_Expecter) IncrementDiscoveryLeaderChanges(ctx interface{}) *MockIndexerMetricLabeler_IncrementDiscoveryLeaderChanges_Call {
+	return &MockIndexerMetricLabeler_IncrementDiscoveryLeaderChanges_Call{Call: _e.mock.On("IncrementDiscoveryLeaderChanges", ctx)}
+}
+
+func (_c *MockIndexerMetricLabeler_IncrementDiscoveryLeaderChanges_Call) Run(run func(ctx context.Context)) *MockIndexerMetricLabeler_IncrementDiscoveryLeaderChanges_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *MockIndexerMetricLabeler_IncrementDiscoveryLeaderChanges_Call) Return() *MockIndexerMetricLabeler_IncrementDiscoveryLeaderChanges_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockIndexerMetricLabeler_IncrementDiscoveryLeaderChanges_Call) RunAndReturn(run func(context.Context)) *MockIndexerMetricLabeler_IncrementDiscoveryLeaderChanges_Call {
+	_c.Run(run)
+	return _c
+}
+
 // IncrementGRPCErrors provides a mock function with given fields: ctx, code, method
 func (_m *MockIndexerMetricLabeler) IncrementGRPCErrors(ctx context.Context, code string, method string) {
 	_m.Called(ctx, code, method)
@@ -288,6 +321,40 @@ func (_c *MockIndexerMetricLabeler_RecordCircuitBreakerStatus_Call) Return() *Mo
 }
 
 func (_c *MockIndexerMetricLabeler_RecordCircuitBreakerStatus_Call) RunAndReturn(run func(context.Context, bool)) *MockIndexerMetricLabeler_RecordCircuitBreakerStatus_Call {
+	_c.Run(run)
+	return _c
+}
+
+// RecordDiscoveryLeaderGauge provides a mock function with given fields: ctx, isLeader
+func (_m *MockIndexerMetricLabeler) RecordDiscoveryLeaderGauge(ctx context.Context, isLeader bool) {
+	_m.Called(ctx, isLeader)
+}
+
+// MockIndexerMetricLabeler_RecordDiscoveryLeaderGauge_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RecordDiscoveryLeaderGauge'
+type MockIndexerMetricLabeler_RecordDiscoveryLeaderGauge_Call struct {
+	*mock.Call
+}
+
+// RecordDiscoveryLeaderGauge is a helper method to define mock.On call
+//   - ctx context.Context
+//   - isLeader bool
+func (_e *MockIndexerMetricLabeler_Expecter) RecordDiscoveryLeaderGauge(ctx interface{}, isLeader interface{}) *MockIndexerMetricLabeler_RecordDiscoveryLeaderGauge_Call {
+	return &MockIndexerMetricLabeler_RecordDiscoveryLeaderGauge_Call{Call: _e.mock.On("RecordDiscoveryLeaderGauge", ctx, isLeader)}
+}
+
+func (_c *MockIndexerMetricLabeler_RecordDiscoveryLeaderGauge_Call) Run(run func(ctx context.Context, isLeader bool)) *MockIndexerMetricLabeler_RecordDiscoveryLeaderGauge_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(bool))
+	})
+	return _c
+}
+
+func (_c *MockIndexerMetricLabeler_RecordDiscoveryLeaderGauge_Call) Return() *MockIndexerMetricLabeler_RecordDiscoveryLeaderGauge_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockIndexerMetricLabeler_RecordDiscoveryLeaderGauge_Call) RunAndReturn(run func(context.Context, bool)) *MockIndexerMetricLabeler_RecordDiscoveryLeaderGauge_Call {
 	_c.Run(run)
 	return _c
 }

@@ -3,6 +3,7 @@ package discovery
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -67,6 +68,7 @@ type AggregatorMessageDiscovery struct {
 	aggregatorReader  *readers.ResilientReader
 	registry          *registry.VerifierRegistry
 	storageSink       common.IndexerStorage
+	leadership        LeadershipGate
 	metrics           common.IndexerMetricLabeler
 	tracing           commontracing.Tracing
 	timeProvider      ccvcommon.TimeProvider
@@ -158,6 +160,14 @@ func WithPrimaryWriteNotifier(notifier *PrimaryWriteNotifier) Option {
 	}
 }
 
+// WithLeadershipGate makes the source poll only while this replica is the discovery leader.
+// Each time the replica becomes leader, the source loads its cursor again from storage.
+func WithLeadershipGate(gate LeadershipGate) Option {
+	return func(a *AggregatorMessageDiscovery) {
+		a.leadership = gate
+	}
+}
+
 func NewAggregatorMessageDiscovery(opts ...Option) (common.MessageDiscovery, error) {
 	a := &AggregatorMessageDiscovery{
 		messageCh: make(chan common.VerifierResultWithMetadata),
@@ -238,10 +248,6 @@ func (a *AggregatorMessageDiscovery) Close() error {
 	return nil
 }
 
-func (a *AggregatorMessageDiscovery) Replay(ctx context.Context, start, end uint64) error {
-	return nil
-}
-
 func (a *AggregatorMessageDiscovery) run(ctx context.Context) {
 	defer a.wg.Done()
 
@@ -253,6 +259,9 @@ func (a *AggregatorMessageDiscovery) run(ctx context.Context) {
 	sampleTicker := time.NewTicker(time.Second)
 	defer sampleTicker.Stop()
 
+	// loadedTerm is the leadership term for which the cursor was last loaded from storage.
+	var loadedTerm uint64
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -263,16 +272,48 @@ func (a *AggregatorMessageDiscovery) run(ctx context.Context) {
 			a.metrics.RecordVerificationRecordChannelSizeGauge(ctx, int64(len(a.messageCh)))
 
 		case <-ticker.C:
+			var leaderCtx context.Context
+			if a.leadership != nil {
+				lctx, term, isLeader := a.leadership.LeaderContext()
+				if !isLeader {
+					continue
+				}
+				if term != loadedTerm {
+					if err := a.loadCursor(ctx); err != nil {
+						a.logger.Errorw("Failed to load discovery cursor after election, skipping poll", "error", err)
+						continue
+					}
+					loadedTerm = term
+				}
+				leaderCtx = lctx
+			}
+
 			// Stagger timeouts across discovery instances so they don't all time out
 			// simultaneously when the aggregator is under pressure.
 			readCtx, cancel := context.WithTimeout(ctx, time.Duration(a.config.Timeout)*time.Millisecond+(time.Duration(a.discoveryPriority)*a.priorityStagger))
+			stopOnDemotion := func() bool { return false }
+			if leaderCtx != nil {
+				stopOnDemotion = context.AfterFunc(leaderCtx, cancel)
+			}
 
 			// Consume the reader until there is no more data present from the aggregator
 			// Aim is to allow for quick backfilling of data if needed.
 			a.consumeReader(readCtx)
+			stopOnDemotion()
 			cancel()
 		}
 	}
+}
+
+// loadCursor sets the reader cursor from storage, so a new leader continues where the last leader stopped.
+func (a *AggregatorMessageDiscovery) loadCursor(ctx context.Context) error {
+	seq, err := a.storageSink.GetDiscoverySequenceNumber(ctx, a.config.Address)
+	if err != nil {
+		return fmt.Errorf("failed to get discovery sequence number: %w", err)
+	}
+	a.aggregatorReader.SetSinceValue(int64(seq))
+	a.logger.Infow("Loaded discovery cursor from storage", "address", a.config.Address, "sequenceNumber", seq)
+	return nil
 }
 
 func (a *AggregatorMessageDiscovery) consumeReader(ctx context.Context) {

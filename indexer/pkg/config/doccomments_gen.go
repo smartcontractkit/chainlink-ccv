@@ -27,6 +27,7 @@ func (Config) DocComments() map[string]commentparsing.FieldDoc {
 		"API":                 {Comment: "API is the configuration for the API inside the indexer."},
 		"Discoveries":         {Comment: "Discoveries is the list of discovery configs (aggregators) for message discovery."},
 		"GeneratedConfigPath": {Comment: "GeneratedConfigPath is the path to the auto-generated configuration file.\nIf relative, it is resolved relative to the main config file location."},
+		"LeaderElection":      {Comment: "LeaderElection configures the database lock that allows one replica at a time to run discovery."},
 		"LogLevel":            {Comment: "LogLevel is the logging level (e.g. debug, info, warn, error)."},
 		"MergeBufferSize":     {Comment: "MergeBufferSize is the capacity of the channel that merges messages from multiple discovery sources.\nOnly used when len(Discoveries) > 1. If 0, defaults to len(Discoveries)*2."},
 		"Monitoring":          {Comment: "Monitoring is the configuration for the monitoring system inside the indexer."},
@@ -53,6 +54,14 @@ func (DiscoverySecrets) DocComments() map[string]commentparsing.FieldDoc {
 	return map[string]commentparsing.FieldDoc{
 		"APIKey": {Comment: "APIKey is the discovery aggregator client's API key."},
 		"Secret": {Comment: "Secret is the HMAC secret used to sign discovery aggregator requests."},
+	}
+}
+
+func (LeaderElectionConfig) DocComments() map[string]commentparsing.FieldDoc {
+	return map[string]commentparsing.FieldDoc{
+		"AcquireInterval":   {Comment: "AcquireInterval is how often a follower tries to get the lock. 0 uses the default (5s)."},
+		"HeartbeatInterval": {Comment: "HeartbeatInterval is how often the leader confirms that it holds the lock. Must be less than LeaseTimeout. 0 uses the default (10s)."},
+		"LeaseTimeout":      {Comment: "LeaseTimeout is how long the database keeps the lock after the last heartbeat. 0 uses the default (30s)."},
 	}
 }
 

@@ -55,6 +55,29 @@ type Config struct {
 	// Resilience configures the resilient reader policies (rate limiting, bulkheading,
 	// circuit breaker, and request timeouts).
 	Resilience ResilienceConfig `toml:"Resilience"`
+	// LeaderElection configures the database lock that allows one replica at a time to run discovery.
+	LeaderElection LeaderElectionConfig `toml:"LeaderElection"`
+}
+
+// LeaderElectionConfig configures the discovery leader lock. Zero values fall back to the defaults applied during Validate.
+type LeaderElectionConfig struct {
+	// LeaseTimeout is how long the database keeps the lock after the last heartbeat. 0 uses the default (30s).
+	LeaseTimeout common.Duration `toml:"LeaseTimeout"`
+	// HeartbeatInterval is how often the leader confirms that it holds the lock. Must be less than LeaseTimeout. 0 uses the default (10s).
+	HeartbeatInterval common.Duration `toml:"HeartbeatInterval"`
+	// AcquireInterval is how often a follower tries to get the lock. 0 uses the default (5s).
+	AcquireInterval common.Duration `toml:"AcquireInterval"`
+}
+
+// Validate applies the defaults and checks that HeartbeatInterval is less than LeaseTimeout.
+func (l *LeaderElectionConfig) Validate() error {
+	l.LeaseTimeout = defaultIfNotPositive(l.LeaseTimeout, common.Duration(30*time.Second))
+	l.HeartbeatInterval = defaultIfNotPositive(l.HeartbeatInterval, common.Duration(10*time.Second))
+	l.AcquireInterval = defaultIfNotPositive(l.AcquireInterval, common.Duration(5*time.Second))
+	if l.HeartbeatInterval >= l.LeaseTimeout {
+		return fmt.Errorf("heartbeat interval (%s) must be less than lease timeout (%s)", l.HeartbeatInterval, l.LeaseTimeout)
+	}
+	return nil
 }
 
 // ResilienceConfig provides configuration for the resilient reader policies.
@@ -407,6 +430,10 @@ func (c *Config) validate(withoutSecrets bool) error {
 
 	if err := c.Resilience.Validate(); err != nil {
 		return fmt.Errorf("resilience config validation failed: %w", err)
+	}
+
+	if err := c.LeaderElection.Validate(); err != nil {
+		return fmt.Errorf("leader election config validation failed: %w", err)
 	}
 
 	return nil
