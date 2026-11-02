@@ -7,6 +7,11 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+  # Posts and deletes the coverage comment on the PR.
+  pull-requests: write
+
 jobs:
   test-coverage-report:
     runs-on: runs-on=${{ github.run_id }}/family=c6i/cpu=32+48/ram=64+96/spot=false/image=ubuntu24-full-x64/extras=s3-cache+tmpfs

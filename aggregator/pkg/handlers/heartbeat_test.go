@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -224,6 +225,13 @@ func TestHeartbeatHandler_Handle_StorageFailureDoesNotFailRequest(t *testing.T) 
 	// Should not fail even with noop storage
 	require.NoError(t, err)
 	require.NotNil(t, resp)
+}
+
+func TestClampToInt64(t *testing.T) {
+	assert.Equal(t, int64(0), clampToInt64(0))
+	assert.Equal(t, int64(math.MaxInt64), clampToInt64(math.MaxInt64))
+	assert.Equal(t, int64(math.MaxInt64), clampToInt64(math.MaxInt64+1))
+	assert.Equal(t, int64(math.MaxInt64), clampToInt64(math.MaxUint64))
 }
 
 func TestCalculateAdaptiveScore(t *testing.T) {

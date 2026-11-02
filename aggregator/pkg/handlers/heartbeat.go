@@ -99,12 +99,12 @@ func (h *HeartbeatHandler) Handle(ctx context.Context, req *heartbeatpb.Heartbea
 
 		headsFlat := make([]int64, 0, len(headsAcrossCallers))
 		for _, height := range headsAcrossCallers {
-			headsFlat = append(headsFlat, int64(height)) // #nosec G115 -- block heights are within int64 range
+			headsFlat = append(headsFlat, clampToInt64(height))
 		}
 
 		// Calculate adaptive score
 		currentHeight := req.ChainDetails.BlockHeightsByChain[chainSelector]
-		score := CalculateAdaptiveScore(int64(currentHeight), headsFlat) // #nosec G115 -- block heights are within int64 range
+		score := CalculateAdaptiveScore(clampToInt64(currentHeight), headsFlat)
 		chainBenchmarks[chainSelector] = &heartbeatpb.ChainBenchmark{
 			BlockHeight: maxBlockHeight,
 			Score:       float32(score),
@@ -112,7 +112,7 @@ func (h *HeartbeatHandler) Handle(ctx context.Context, req *heartbeatpb.Heartbea
 
 		// publish per-chain current max head metric
 		h.m.Metrics().With("chain_selector", fmt.Sprintf("%d", chainSelector), "chain_name", protocol.ChainSelector(chainSelector).ChainName()).
-			SetVerifierHeartbeatCurrentMaxChainHead(ctx, int64(maxBlockHeight)) // #nosec G115 -- block heights are within int64 range
+			SetVerifierHeartbeatCurrentMaxChainHead(ctx, clampToInt64(maxBlockHeight))
 	}
 
 	metrics := h.m.Metrics().With("caller_id", callerID)
@@ -141,6 +141,14 @@ func NewHeartbeatHandler(storage heartbeat.Storage, aggregatorID string, committ
 		l:            l,
 		m:            m,
 	}
+}
+
+// clampToInt64 saturates client-reported heights so an out-of-range value cannot wrap negative.
+func clampToInt64(v uint64) int64 {
+	if v > math.MaxInt64 {
+		return math.MaxInt64
+	}
+	return int64(v)
 }
 
 // CalculateAdaptiveScore computes the adaptive score based on the provided block height and all block heights.
