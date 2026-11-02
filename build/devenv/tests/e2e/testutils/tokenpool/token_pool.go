@@ -10,6 +10,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/deployment/finality"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/testhelpers"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
+	cciputils "github.com/smartcontractkit/chainlink-ccip/deployment/utils"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -85,6 +86,33 @@ func ConnectPair(t *testing.T, env *deployment.Environment, version *semver.Vers
 					RemoteChains: map[uint64]tokens.RemoteChainConfig[*datastore.AddressRef, datastore.AddressRef]{
 						connection.PoolA.Selector(): {OutboundRateLimiterConfig: connection.RateLimits.BA},
 					},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+	testhelpers.ProcessTimelockProposals(t, *env, out.MCMSTimelockProposals, true)
+	dsutils.MergeDataStore(t, env, out.DataStore.Seal())
+}
+
+// Activate makes pool the active pool for its token, relying on AutoMigrateRemoteChains alone: unlike
+// ConnectPair it names no remote chain, so every lane pool gets (remote token, remote pools, rate
+// limits) is imported from the pool it replaces, and the remote chains' pools are repointed at pool
+// by reverse propagation rather than by configuring them here.
+func Activate(t *testing.T, env *deployment.Environment, pool TokenPool) {
+	t.Helper()
+
+	env.OperationsBundle = operations.NewBundle(env.OperationsBundle.GetContext, env.OperationsBundle.Logger, operations.NewMemoryReporter())
+	out, err := tokens.TokenExpansion().Apply(*env, tokens.TokenExpansionInput{
+		ChainAdapterVersion: cciputils.Version_2_0_0,
+		MCMS:                mcms.DefaultInput("Activate Pool " + pool.Address()),
+		TokenExpansionInputPerChain: map[uint64]tokens.TokenExpansionInputPerChain{
+			pool.Selector(): {
+				SkipOwnershipTransfer: false,
+				TokenTransferConfig: &tokens.TokenTransferConfig{
+					AutoMigrateRemoteChains: true,
+					TokenPoolRef:            datastore.AddressRef{Address: pool.Address()},
+					TokenRef:                datastore.AddressRef{Address: pool.Token()},
 				},
 			},
 		},
