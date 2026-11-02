@@ -50,6 +50,7 @@ var cctpDomains = map[uint64]uint32{
 	sel.HYPERLIQUID_TESTNET.Selector:                   19,
 	sel.INK_TESTNET_SEPOLIA.Selector:                   21,
 	sel.PLUME_TESTNET.Selector:                         22,
+	sel.PHAROS_ATLANTIC_TESTNET.Selector:               31,
 	// ---------- Domain for local testing ----------
 	sel.GETH_TESTNET.Selector:  100,
 	sel.GETH_DEVNET_2.Selector: 101,
