@@ -30,19 +30,19 @@ jobs:
 
       - name: Setup GitHub Token
         id: setup-github-token
-        uses: smartcontractkit/.github/actions/setup-github-token@ef78fa97bf3c77de6563db1175422703e9e6674f # setup-github-token@0.2.1
+        uses: smartcontractkit/.github/actions/setup-github-token@setup-github-token/v1
         with:
           aws-role-arn: ${{ secrets.GATI_AWS_ROLE_ARN_CHAINLINK_READ_ONLY }}
           aws-lambda-url: ${{ secrets.GATI_LAMBDA_URL_RELENG }}
           aws-region: ${{ secrets.GATI_AWS_REGION }}
           set-git-config: true
-        
+
       - name: Checkout code
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1 
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
 
       - name: Install Just
         uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # v3
@@ -83,7 +83,7 @@ jobs:
       - name: Run CCV environment with config
         run: |
           ccv u ${{ matrix.test.config }}
-          
+
       - name: Run perf test
         working-directory: build/devenv/tests/e2e
         env:
