@@ -30,6 +30,7 @@ var cctpDomains = map[uint64]uint32{
 	sel.HYPERLIQUID_MAINNET.Selector:           19,
 	sel.ETHEREUM_MAINNET_INK_1.Selector:        21,
 	sel.PLUME_MAINNET.Selector:                 22,
+	sel.PHAROS_MAINNET.Selector:                31,
 	// ---------- Testnet Domains ----------
 	sel.ETHEREUM_TESTNET_SEPOLIA.Selector:              0,
 	sel.AVALANCHE_TESTNET_FUJI.Selector:                1,
