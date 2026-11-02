@@ -34,7 +34,6 @@ func newMockMessageDiscoveryWithMessages(t *testing.T, messages []common.Verifie
 		mockSrc.EXPECT().Start(mock.Anything).Return(ch).Maybe()
 	}
 	mockSrc.EXPECT().Close().Return(nil).Once()
-	mockSrc.EXPECT().Replay(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 	return mockSrc
 }
 
@@ -282,7 +281,6 @@ func newMockMessageDiscoveryWithClosingChannel(t *testing.T, messages []common.V
 		close(ch)
 	}()
 	mockSrc.EXPECT().Close().Return(nil).Once()
-	mockSrc.EXPECT().Replay(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 	return mockSrc
 }
 
