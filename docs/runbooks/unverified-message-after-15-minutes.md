@@ -89,6 +89,15 @@ max by (node_id) (
 )
 ```
 
+On a LogPoller-backed EVM source reader, a stalled LogPoller pins the reader's latest and
+finalized heads to its last processed block. Polls keep succeeding against its tables, so the
+query above can stay fresh while nothing advances. The signal is
+`verifier_source_reader_last_processed_finalized_block` going flat against the chain head. A
+standalone verifier also reports `source unhealthy` on `/health` when the LogPoller reports itself
+unhealthy; a CL-mode verifier does not. Investigate the LogPoller (the node's in CL mode, or the
+database in the EVM secrets file for a standalone verifier), then the source RPC behind it; see the
+[migration appendix](../migration/evm-cl-to-standalone.md#source-logs-rpc-or-a-logpoller).
+
 If the state is `disabled`, verify configuration or deliberate operational
 disablements. `finality_blocked` means a finality violation was detected and the
 reader was disabled; it will not clear by waiting for more confirmations. Follow
@@ -141,7 +150,7 @@ Use the latest applicable transition for the alerted message's lane:
 
 | Last transition | Diagnosis | Next action |
 | --- | --- | --- |
-| No `source_read/discovered` | The verifier did not observe the message. | Verify the source event, reader configuration, polling range, and trace/indexer record. |
+| No `source_read/discovered` | The verifier did not observe the message. | Verify the source event, reader configuration, polling range, and trace/indexer record; on a LogPoller-backed reader, also check that the LogPoller is advancing and that the range is within its log retention. |
 | `pending_finality/queued` | The message entered the finality wait. | Investigate source-chain finality and reorg protection if it has not progressed. |
 | `pending_finality/finality_blocked` with reason `finality_violation` | The reader flushed pending tasks and disabled the chain after a finality violation. | [Detect the violation and scope a rewind](./remediating-stuck-or-dropped-messages.md#detect-and-scope-the-range); ordinary confirmation waiting or job reschedule will not recover those tasks. |
 | `admission/*` | A policy or publication decision blocked progress. | Continue to step 5. |

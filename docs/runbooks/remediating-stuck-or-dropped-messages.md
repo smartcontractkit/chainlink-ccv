@@ -1,6 +1,6 @@
 # Runbook: Remediating a Stuck or Dropped Message
 
-_Last reviewed: 2026-09-23._
+_Last reviewed: 2026-10-05._
 
 Use after [unverified-message triage](./unverified-message-after-15-minutes.md) or [unexecuted-message triage](./unexecuted-message-after-15-minutes.md) identifies the affected owner, source and messages. Recovery is per affected committee member and database.
 
@@ -21,9 +21,13 @@ When the [admin console](../verifier/admin-console.md) is deployed, it is the pr
 
 In plain language: use a **reschedule** when the verifier already holds the message — a failed job retained in its archive — and the fix is to run verification and policy (or just persistence) again on the saved payload. Use **source replay** when the verifier never admitted the message (curse/rule drop, missed interval, expired archive) and the source chain must be re-read to decide. Use the **investigated reader reset** for the replay special case of a finality-disabled reader, and **indexer backfill** when the verifier and aggregator are fine and only the indexer's view needs repair (the indexer's own replay tooling; not a console action). [The admin console guide](../verifier/admin-console.md#the-recovery-actions) walks through what each action does and does not do; in the console these are the actions on the message detail and source recovery pages rather than CLI invocations.
 
+On an EVM chain read through a LogPoller (a CL-mode verifier whose node runs one, or a standalone verifier with `log_poller_source_reader_enabled`; see [Source logs](../migration/evm-cl-to-standalone.md#source-logs-rpc-or-a-logpoller)), source recovery reads the LogPoller's tables, not RPC. Every start replays the LogPoller from the verifier's checkpoint, so a checkpoint rewind followed by a restart refills its range over RPC, while a live replay reads only what the LogPoller still holds. Step 4 has the details.
+
 ## 2. Check the Time Windows
 
 Automatic retry remains **7 days**, with non-retryable failures (including policy FAIL) archived immediately. Archive retention remains **30 days after archiving**, swept every 4 hours. The message's creation time does not start that retention window.
+
+On a LogPoller-backed chain, that archive retention is independent of the LogPoller's log retention (30 days by default), and a message can age out of either first. A live replay cannot read a range whose logs the LogPoller has pruned, even while its archive rows are still reschedulable. A restart from a rewound checkpoint can, because the startup replay fetches the range over RPC again.
 
 The Verifier Recovery dashboard reports current retained failed jobs by queue, owner, source and bounded failure category. A warning starts at 23 days of archive age, giving seven days before eligibility for deletion. Collection runs once per minute. Check collection success and freshness before interpreting inventory. [Monitoring reference and provisionable alerts](../monitoring/verifier-recovery.md) include the retention warning and collector-health alert.
 
@@ -88,6 +92,8 @@ Known drops carry message IDs, block numbers and optional reader-provided transa
 
 Read coverage metadata on every query. History starts at upgrade; disabled intervals, downtime, failed audit writes and expired data leave gaps. Unknown curse/rule state and ordinary confirmation waiting are not recorded as confirmed drops. Empty history cannot establish that no messages were affected. Use canonical source events, logs and traces to cover missing intervals.
 
+On a LogPoller-backed EVM reader, logs pruned past the LogPoller's retention are one more gap source: a live replay of that range returns no events even though the chain has them. A LogPoller that is behind does not create a gap, because reads above its last processed block fail and are retried without advancing the checkpoint. A stalled LogPoller pins the reader's heads, so it shows as a stale `verifier_source_reader_last_processed_finalized_block` against the chain head. Corroborate affected ranges against canonical RPC before calling them clean.
+
 Corroborate a finality block with `verifier_source_reader_state{state="finality_blocked"}` or `verifier_source_chain_finality_violated`, and logs `FINALITY VIOLATION DETECTED - block hash changed` / `parent hash mismatch`. Disabled readers now remain present for recovery control, including after startup; their registry state and history distinguish current health from past evidence.
 
 For a finality incident, compare stored/observed hashes with canonical RPC headers to establish a known-good common boundary. The first detected mismatch may be later than the earliest affected block. Include pending messages and messages emitted while the reader was disabled. A disabled checkpoint of zero is not evidence of the fork boundary.
@@ -112,6 +118,8 @@ verifier ccv recovery reset-reader --verifier-id <OWNER> --chain-selector <SOURC
 ```
 
 The reset boundary is `FIRST - 1` (zero for a range beginning at zero). This is an operator decision about canonical history. The live reset coordinates the database, buffered checkpoints and in-memory checker, records the action, and works for readers disabled at startup. An ordinary replay never clears disablement. A new finality violation remains sticky and requires a new investigated reset; resuming an old applied reset cannot clear it.
+
+On a LogPoller-backed EVM reader, both recovery forms read the LogPoller's tables rather than RPC. A range older than the LogPoller's retention returns no events, so recover it from saved payloads (reschedule), from canonical RPC evidence, or through the legacy fallback below, whose restart replays the LogPoller from the rewound checkpoint over RPC. Do not replay such a range into an empty result.
 
 ### Observe completion and control work
 
@@ -141,8 +149,10 @@ Use for a deployment without this recovery capability, including a Chainlink cor
    ```
 
    In CL mode use `chainlink node ccv chain-statuses set-finalized-height` with the same flags. The next start reads `N + 1`; this legacy path has no fixed end height.
+
+   On a LogPoller-backed EVM reader nothing more is needed: the next start replays the LogPoller from `N + 1`, fetching that range over RPC again, including logs the LogPoller had already pruned. After a finality violation, remove the stale blocks first, as [Resolving a Finality Violation](resolving-finality-violation.md) describes (`find-lca`, then `remove-blocks`).
 3. If disabled, also run `ccv chain-statuses enable` for the same owner/source while stopped, then verify both fields with `ccv chain-statuses list`. Enabling a zero checkpoint alone unintentionally starts at block 1.
-4. Start the node. Confirm its logged start block, reader progress and the affected message IDs' results. Restart initializes a fresh checker and cannot recover its prior hash history or undo results.
+4. Start the node. Confirm its logged start block, reader progress and the affected message IDs' results. Restart initializes a fresh checker and cannot recover its prior hash history or undo results. On a LogPoller-backed reader, the chain stays not ready until the startup replay finishes (`Source not ready yet, waiting` in the log), and reader progress starts after that.
 
 See the [live recovery reference](../../cli/recovery/README.md) and [chain-status command reference](../../cli/chainstatuses/README.md).
 
