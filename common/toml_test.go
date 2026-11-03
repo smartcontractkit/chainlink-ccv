@@ -1,11 +1,14 @@
 package common
 
 import (
+	"math"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
 func TestParseDurationOrDefault(t *testing.T) {
@@ -129,5 +132,50 @@ func TestParseIntOrDefault(t *testing.T) {
 			_, err := ParseIntOrDefault(val, 20)
 			require.ErrorContainsf(t, err, "must be a TOML integer", "value %v (%T)", val, val)
 		}
+	})
+}
+
+func TestParseChainDomainMap(t *testing.T) {
+	t.Parallel()
+
+	t.Run("absent value is an empty map", func(t *testing.T) {
+		t.Parallel()
+
+		got, _, err := ParseChainDomainMap(nil)
+		require.NoError(t, err)
+		assert.Empty(t, got)
+	})
+
+	t.Run("integer types are accepted", func(t *testing.T) {
+		t.Parallel()
+
+		for _, domain := range []any{int(7), int64(7), uint32(7), uint64(7)} {
+			got, raw, err := ParseChainDomainMap(map[string]any{"5009297550715157269": domain})
+			require.NoErrorf(t, err, "value %v (%T)", domain, domain)
+			assert.Equal(t, map[protocol.ChainSelector]uint32{5009297550715157269: 7}, got)
+			assert.Equal(t, map[string]any{"5009297550715157269": domain}, raw)
+		}
+	})
+
+	t.Run("invalid entries are rejected", func(t *testing.T) {
+		t.Parallel()
+
+		for name, val := range map[string]map[string]any{
+			"selector is not a number": {"abc": int64(1)},
+			"negative domain":          {"1": int64(-1)},
+			"domain too large":         {"1": int64(math.MaxUint32) + 1},
+			"domain is a string":       {"1": "7"},
+			"domain is a float":        {"1": 1.5},
+		} {
+			_, _, err := ParseChainDomainMap(val)
+			require.Errorf(t, err, name)
+		}
+	})
+
+	t.Run("non-map is rejected", func(t *testing.T) {
+		t.Parallel()
+
+		_, _, err := ParseChainDomainMap([]any{1})
+		require.ErrorContains(t, err, "expected map")
 	})
 }

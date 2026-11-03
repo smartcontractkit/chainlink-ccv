@@ -35,6 +35,10 @@ func Test_Config_Deserialization(t *testing.T) {
 		"1" = "0x1111111111111111111111111111111111111111"
 		2 = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
+		[token_verifiers.cctp_domain_mapping]
+		"1" = 42
+		"2" = 43
+
 		[[token_verifiers]]
 		verifier_id = "lombard-verifier-1"
 		type = "lombard"
@@ -68,6 +72,7 @@ func Test_Config_Deserialization(t *testing.T) {
 		expectedAddr2, err := protocol.NewUnknownAddressFromHex("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 		require.NoError(t, err)
 		assert.Equal(t, expectedAddr2, cctpVerifier.CCTPConfig.ParsedVerifierResolvers[2])
+		assert.Equal(t, map[protocol.ChainSelector]uint32{1: 42, 2: 43}, cctpVerifier.CCTPConfig.ParsedCCTPDomainOverrides)
 
 		lombardVerifier := config.TokenVerifiers[1]
 		assert.Equal(t, "lombard-verifier-1", lombardVerifier.VerifierID)

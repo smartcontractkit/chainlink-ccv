@@ -1,7 +1,9 @@
 package common
 
 import (
+	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"strconv"
 	"time"
@@ -143,6 +145,67 @@ func ParseAddressesMap(val any) (map[protocol.ChainSelector]protocol.UnknownAddr
 		return result, v, nil
 	}
 	return nil, nil, fmt.Errorf("expected map for addresses, got %T", val)
+}
+
+func ParseChainDomainMap(val any) (map[protocol.ChainSelector]uint32, map[string]any, error) {
+	if val == nil {
+		return make(map[protocol.ChainSelector]uint32), nil, nil
+	}
+
+	raw, ok := val.(map[string]any)
+	if !ok {
+		return nil, nil, fmt.Errorf("expected map for domain mapping, got %T", val)
+	}
+
+	result := make(map[protocol.ChainSelector]uint32, len(raw))
+	for key, value := range raw {
+		chainSelector, err := strconv.ParseUint(key, 10, 64)
+		if err != nil {
+			return nil, nil, fmt.Errorf("invalid chain selector %s: %w", key, err)
+		}
+		domain, err := parseCCTPDomain(value)
+		if err != nil {
+			return nil, nil, fmt.Errorf("invalid domain for chain selector %s: %w", key, err)
+		}
+		result[protocol.ChainSelector(chainSelector)] = domain
+	}
+	return result, raw, nil
+}
+
+// parseCCTPDomain converts a decoded TOML (int64) or JSON (float64) number to a uint32 domain.
+func parseCCTPDomain(val any) (uint32, error) {
+	// Out-of-range values are clamped to just outside uint32 so the range check below still rejects them.
+	clamp := func(n int64) int64 { return min(max(n, -1), math.MaxUint32+1) }
+
+	var n int64
+	switch d := val.(type) {
+	case int:
+		n = clamp(int64(d))
+	case int64:
+		n = clamp(d)
+	case uint32:
+		n = int64(d)
+	case uint64:
+		if d > math.MaxUint32 {
+			return 0, errors.New("does not fit in uint32")
+		}
+		n = int64(d)
+	case float64:
+		if d != math.Trunc(d) {
+			return 0, fmt.Errorf("expected an integer, got %v", d)
+		}
+		n = int64(max(min(d, math.MaxUint32+1), -1))
+	default:
+		return 0, fmt.Errorf("expected an integer, got %T", val)
+	}
+
+	switch {
+	case n < 0:
+		return 0, errors.New("must not be negative")
+	case n > math.MaxUint32:
+		return 0, errors.New("does not fit in uint32")
+	}
+	return uint32(n), nil
 }
 
 func AddressesMapToKeyValueMap(addresses map[protocol.ChainSelector]protocol.UnknownAddress) map[string]string {

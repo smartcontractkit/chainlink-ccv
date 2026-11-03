@@ -43,6 +43,12 @@ type CCTPConfig struct {
 	// final values, properly cast to domain values are stored in ParsedVerifierResolvers
 	VerifierResolvers       map[string]any                                     `json:"verifier_resolver_addresses" toml:"verifier_resolver_addresses"`
 	ParsedVerifierResolvers map[protocol.ChainSelector]protocol.UnknownAddress `json:"-"                           toml:"-"`
+	// CCTPDomainOverrides is a map of chain selectors to Circle CCTP domains. It's only used for TOML marshall/unmarshall and then
+	// final values, properly cast to domain values are stored in ParsedCCTPDomainOverrides.
+	// This allows domain mappings to be added at runtime rather than requiring new releases every time a new domain is added.
+	// An entry takes precedence over the built-in table, e.g. integration/pkg/accessors/evm/cctp_domains.go for EVM.
+	CCTPDomainOverrides       map[string]any                    `json:"cctp_domain_mapping,omitempty" toml:"cctp_domain_mapping,omitempty"`
+	ParsedCCTPDomainOverrides map[protocol.ChainSelector]uint32 `json:"-"                             toml:"-"`
 }
 
 // ConfigKeys are the keys TryParsing reads from a [[token_verifiers]] entry for
@@ -67,6 +73,7 @@ var ConfigKeys = []string{
 	"attestation_concurrent_fetchers",
 	"verifier_addresses",
 	"verifier_resolver_addresses",
+	"cctp_domain_mapping",
 }
 
 func TryParsing(t, v string, data map[string]any) (*CCTPConfig, error) {
@@ -129,6 +136,11 @@ func TryParsing(t, v string, data map[string]any) (*CCTPConfig, error) {
 	c.ParsedVerifiers, c.Verifiers, err = common.ParseAddressesMap(data["verifier_addresses"])
 	if err != nil {
 		return nil, fmt.Errorf("invalid verifier_addresses: %w", err)
+	}
+
+	c.ParsedCCTPDomainOverrides, c.CCTPDomainOverrides, err = common.ParseChainDomainMap(data["cctp_domain_mapping"])
+	if err != nil {
+		return nil, fmt.Errorf("invalid cctp_domain_mapping: %w", err)
 	}
 
 	// Parse verifier version hex, default to DefaultVerifierVersion if not specified
