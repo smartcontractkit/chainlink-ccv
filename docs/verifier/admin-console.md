@@ -31,7 +31,10 @@ recovery action against your verifier. The defaults assume it is a personal oper
 tool, and anything beyond that is an explicit, validated choice.
 
 - **Loopback by default.** `listen_address` defaults to `127.0.0.1:8105`. Reach it with
-  an SSH port forward (`ssh -L 8105:127.0.0.1:8105 <host>`) and act as actor `local`.
+  an SSH port forward (`ssh -L 8105:127.0.0.1:8105 <host>`) and act as actor `local`. On
+  Kubernetes, `kubectl port-forward <pod> 8105:8105` does the same; open it as
+  `http://localhost:8105`, since without basic auth the console only answers loopback host
+  names.
 - **Non-loopback requires basic auth.** Serving a page grants privileged actions, so
   the console refuses to start on a non-loopback address unless `[admin_ui]` basic
   auth is configured in the verifier secrets file (the console verifies the
