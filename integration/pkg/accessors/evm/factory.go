@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-ccv/common/lazy"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/contracttransmitter"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/destinationreader"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/pricereader"
@@ -265,6 +267,7 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 		withFeeQuoterAddress(common.HexToAddress(feeQuoterAddress)),
 		withTokenCache(tokenCache),
 	)
+	acc.chainDefaultsErr = chainDefaultsError(evmconfig.ChainDefaultsProblems())
 	acc.sourceParams = sourceParams
 	acc.db = f.db
 	acc.logPollerEnabled = f.logPollerChains[chainSelector]
@@ -287,6 +290,7 @@ type accessor struct {
 	mu                  sync.Mutex
 	serviceAddressesErr error
 	feeQuoterWriterErr  error
+	chainDefaultsErr    error
 
 	// sourceMu guards the lazily built source reader.
 	// sourceParams is nil for an accessor with no source config, such as the executor's.
@@ -489,7 +493,14 @@ func (a *accessor) Degraded() error {
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return errors.Join(a.serviceAddressesErr, a.feeQuoterWriterErr)
+	return errors.Join(a.serviceAddressesErr, a.feeQuoterWriterErr, a.chainDefaultsErr)
+}
+
+func chainDefaultsError(problems []string) error {
+	if len(problems) == 0 {
+		return nil
+	}
+	return fmt.Errorf("skipped EVM chain defaults: %s", strings.Join(problems, "; "))
 }
 
 func (a *accessor) FeeQuoterReader() (chainaccess.FeeQuoterReader, error) {

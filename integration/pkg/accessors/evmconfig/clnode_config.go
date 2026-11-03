@@ -296,7 +296,7 @@ func convertChainlinkNodeConfig(nodeTOML []byte) (Conversion, error) {
 			TXMBlockTime:  txmBlockTimeOverride(cfg),
 			chainlinkEVM:  carriedChainSettings(cfg),
 		}
-		carried, rejected, rejectErr := buildableChainSettings(Info{
+		carried, txmBlockTime, rejected, rejectErr := buildableChainSettings(Info{
 			ChainID:       chainID,
 			Nodes:         chain.Nodes,
 			FinalityDepth: chain.FinalityDepth,
@@ -304,6 +304,7 @@ func convertChainlinkNodeConfig(nodeTOML []byte) (Conversion, error) {
 			chainlinkEVM:  chain.chainlinkEVM,
 		})
 		chain.chainlinkEVM = carried
+		chain.TXMBlockTime = txmBlockTime
 		chains[strconv.FormatUint(details.ChainSelector, 10)] = chain
 
 		// Chain-level warnings come before node warnings, the operator's file order. Only a chain
@@ -385,25 +386,35 @@ func carriedChainSettings(cfg *evmtoml.EVMConfig) *evmtoml.Chain {
 	return &chain
 }
 
-// buildableChainSettings returns the carried settings the chain builds with and the paths of any it
-// dropped, with the validation error that dropped them. A setting this release's chainlink-evm
-// rejects (the node may run a newer one) costs that setting, never the chain.
-func buildableChainSettings(info Info) (*evmtoml.Chain, []string, error) {
+// buildableChainSettings returns the carried settings and block time the chain builds with, plus the
+// paths and validation error for anything dropped. A rejected node setting costs itself, never the chain.
+func buildableChainSettings(info Info) (*evmtoml.Chain, time.Duration, []string, error) {
 	_, buildErr := BuildChainlinkEVMTOML(info)
 	if buildErr == nil || info.chainlinkEVM == nil {
-		return info.chainlinkEVM, nil, nil
+		return info.chainlinkEVM, info.TXMBlockTime, nil, nil
 	}
 	full := info.chainlinkEVM
+	blockTime := info.TXMBlockTime
 	info.chainlinkEVM = nil
+	info.TXMBlockTime = 0
 	if _, err := BuildChainlinkEVMTOML(info); err != nil {
-		return full, nil, nil // Not the node settings' fault; the error surfaces where it always has.
+		return full, blockTime, nil, nil // Not the node settings' fault; the error surfaces where it always has.
 	}
-	// Re-add the settings one at a time, keeping each that still builds. Passes repeat so a setting
-	// that needs a later one (AutoPurge.Enabled needs its Threshold) gets another try.
+	var dropped []string
+	if blockTime != 0 {
+		info.TXMBlockTime = blockTime
+		if _, err := BuildChainlinkEVMTOML(info); err != nil {
+			info.TXMBlockTime = 0
+			dropped = append(dropped, "Transactions.TransactionManagerV2.BlockTime")
+		}
+	}
+
+	// Keep the largest sections that build and expand only rejected ones, preserving dependent settings.
+	// Repeat passes so settings with cross-section dependencies get another try.
 	pending := setChainLeaves(full)
 	var kept []chainLeaf
-	for progress := true; progress && len(pending) > 0; {
-		progress = false
+	for len(pending) > 0 {
+		progress := false
 		var rejected []chainLeaf
 		for _, leaf := range pending {
 			info.chainlinkEVM = withLeaves(full, append(slices.Clone(kept), leaf))
@@ -415,42 +426,58 @@ func buildableChainSettings(info Info) (*evmtoml.Chain, []string, error) {
 			}
 		}
 		pending = rejected
+		if progress {
+			continue
+		}
+		var expanded []chainLeaf
+		hasChildren := false
+		for _, leaf := range pending {
+			expanded = append(expanded, leaf.children...)
+			if len(leaf.children) == 0 {
+				expanded = append(expanded, leaf)
+			} else {
+				hasChildren = true
+			}
+		}
+		if !hasChildren {
+			break
+		}
+		pending = expanded
 	}
-	dropped := make([]string, 0, len(pending))
 	for _, leaf := range pending {
 		dropped = append(dropped, leaf.path)
 	}
-	return withLeaves(full, kept), dropped, buildErr
+	return withLeaves(full, kept), info.TXMBlockTime, dropped, buildErr
 }
 
-// chainLeaf is one setting of a chainlink-evm chain config: its dotted path and its field index.
+// chainLeaf is one setting or settings section, with its immediate children for finer salvage.
 type chainLeaf struct {
-	path  string
-	index []int
+	path     string
+	index    []int
+	children []chainLeaf
 }
 
-// setChainLeaves lists the settings a chain config sets, in field order.
+// setChainLeaves lists the settings and sections a chain config sets, in field order.
 func setChainLeaves(chain *evmtoml.Chain) []chainLeaf {
+	return chainLeaves(reflect.ValueOf(chain).Elem(), "", nil)
+}
+
+func chainLeaves(v reflect.Value, prefix string, index []int) []chainLeaf {
 	var leaves []chainLeaf
-	var walk func(v reflect.Value, prefix string, index []int)
-	walk = func(v reflect.Value, prefix string, index []int) {
-		for i := range v.NumField() {
-			field := v.Type().Field(i)
-			if !field.IsExported() {
-				continue
-			}
-			fieldIndex := append(slices.Clone(index), i)
-			fieldPath := joinSettingPath(prefix, field.Name)
-			value := v.Field(i)
-			switch {
-			case value.Kind() == reflect.Struct && hasExportedField(value.Type()):
-				walk(value, fieldPath, fieldIndex)
-			case !value.IsZero():
-				leaves = append(leaves, chainLeaf{path: fieldPath, index: fieldIndex})
-			}
+	for i := range v.NumField() {
+		field := v.Type().Field(i)
+		value := v.Field(i)
+		if !field.IsExported() || value.IsZero() {
+			continue
 		}
+		fieldIndex := append(slices.Clone(index), i)
+		fieldPath := joinSettingPath(prefix, field.Name)
+		leaf := chainLeaf{path: fieldPath, index: fieldIndex}
+		if value.Kind() == reflect.Struct && hasExportedField(value.Type()) {
+			leaf.children = chainLeaves(value, fieldPath, fieldIndex)
+		}
+		leaves = append(leaves, leaf)
 	}
-	walk(reflect.ValueOf(chain).Elem(), "", nil)
 	return leaves
 }
 
@@ -496,7 +523,7 @@ func chainSettingWarnings(chainID string, cfg *evmtoml.EVMConfig, rawChain *rawC
 	if autoPurgeWithoutThreshold(&effective) {
 		warnings = append(warnings, fmt.Sprintf(
 			"chain %s: turned off Transactions.AutoPurge: TXM v2 detects stuck transactions by "+
-				"Transactions.AutoPurge.Threshold alone, and none is set", chainID))
+				"Transactions.AutoPurge.Threshold alone, and it is missing or zero", chainID))
 	}
 	if len(cfg.KeySpecific) > 0 {
 		warnings = append(warnings, fmt.Sprintf(

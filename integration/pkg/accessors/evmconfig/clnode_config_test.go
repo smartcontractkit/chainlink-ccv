@@ -483,6 +483,62 @@ HTTPURL = 'https://sepolia.example.com'
 	require.NoError(t, err, "the chain builds with what was kept")
 }
 
+func TestConvertChainlinkNodeConfigPreservesDependentSettings(t *testing.T) {
+	t.Parallel()
+
+	got, err := convertChainlinkNodeConfig([]byte(`
+[[EVM]]
+ChainID = '1337'
+ChainType = 'chain-from-the-future'
+[EVM.GasEstimator]
+EIP1559DynamicFees = true
+PriceMax = '50 gwei'
+FeeCapDefault = '50 gwei'
+[[EVM.Nodes]]
+Name = 'primary'
+HTTPURL = 'https://simulated.example.com'
+`))
+	require.NoError(t, err)
+	chain := got.Config.Chains["3379446385462418246"]
+	carried := chain.chainlinkEVM
+	assert.Nil(t, carried.ChainType)
+	require.NotNil(t, carried.GasEstimator.PriceMax)
+	require.NotNil(t, carried.GasEstimator.FeeCapDefault)
+	assert.Equal(t, "50 gwei", carried.GasEstimator.PriceMax.String())
+	assert.Equal(t, "50 gwei", carried.GasEstimator.FeeCapDefault.String())
+
+	infos, err := got.Config.ToInfos()
+	require.NoError(t, err)
+	_, err = BuildChainlinkEVMTOML(infos["3379446385462418246"])
+	require.NoError(t, err)
+}
+
+func TestConvertChainlinkNodeConfigSalvagesRejectedTXMBlockTime(t *testing.T) {
+	t.Parallel()
+
+	got, err := convertChainlinkNodeConfig([]byte(`
+[[EVM]]
+ChainID = '` + sepoliaChainID + `'
+[EVM.Transactions.TransactionManagerV2]
+Enabled = false
+BlockTime = '1s'
+[[EVM.Nodes]]
+Name = 'primary'
+HTTPURL = 'https://sepolia.example.com'
+`))
+	require.NoError(t, err)
+	chain := got.Config.Chains[sepoliaSelector]
+	assert.Zero(t, chain.TXMBlockTime)
+	require.NotEmpty(t, got.Warnings)
+	assert.Contains(t, got.Warnings[len(got.Warnings)-1],
+		"dropped chain-level settings this release rejects: Transactions.TransactionManagerV2.BlockTime")
+
+	infos, err := got.Config.ToInfos()
+	require.NoError(t, err)
+	_, err = BuildChainlinkEVMTOML(infos[sepoliaSelector])
+	require.NoError(t, err)
+}
+
 // KeySpecific entries are keyed to the node's own addresses. The standalone executor transmits from
 // a key it generates, so the entries cannot match anything and are dropped by name.
 func TestConvertChainlinkNodeConfigDropsKeySpecific(t *testing.T) {

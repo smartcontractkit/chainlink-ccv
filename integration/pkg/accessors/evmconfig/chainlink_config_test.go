@@ -117,7 +117,24 @@ HTTPURL = 'https://sepolia.example.com'
 	assert.False(t, *detectionOnly.Transactions.AutoPurge.Enabled)
 	assert.Equal(t, []string{
 		"chain " + sepoliaChainID + ": turned off Transactions.AutoPurge: TXM v2 detects stuck transactions by " +
-			"Transactions.AutoPurge.Threshold alone, and none is set",
+			"Transactions.AutoPurge.Threshold alone, and it is missing or zero",
+	}, conversion.Warnings)
+
+	zeroThreshold, conversion := buildConverted(t, `
+[[EVM]]
+ChainID = '`+sepoliaChainID+`'
+[EVM.Transactions.AutoPurge]
+Enabled = true
+Threshold = 0
+MinAttempts = 3
+[[EVM.Nodes]]
+Name = 'primary'
+HTTPURL = 'https://sepolia.example.com'
+`)
+	assert.False(t, *zeroThreshold.Transactions.AutoPurge.Enabled)
+	assert.Equal(t, []string{
+		"chain " + sepoliaChainID + ": turned off Transactions.AutoPurge: TXM v2 detects stuck transactions by " +
+			"Transactions.AutoPurge.Threshold alone, and it is missing or zero",
 	}, conversion.Warnings)
 
 	withThreshold, conversion := buildConverted(t, `

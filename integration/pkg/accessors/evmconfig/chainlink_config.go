@@ -105,11 +105,12 @@ var standaloneSettings = []standaloneSetting{
 	}},
 }
 
-// autoPurgeWithoutThreshold reports a chain whose AutoPurge relies on a detection API rather than a
-// Threshold (Scroll's TXM v1 mode). TXM v2 detects stuck transactions by Threshold alone.
+// autoPurgeWithoutThreshold reports a chain whose AutoPurge has no usable Threshold. TXM v2 detects
+// stuck transactions by a positive Threshold alone; zero would make pending transactions immediately eligible.
 func autoPurgeWithoutThreshold(chain *evmtoml.Chain) bool {
 	autoPurge := chain.Transactions.AutoPurge
-	return autoPurge.Enabled != nil && *autoPurge.Enabled && autoPurge.Threshold == nil
+	return autoPurge.Enabled != nil && *autoPurge.Enabled &&
+		(autoPurge.Threshold == nil || *autoPurge.Threshold == 0)
 }
 
 // BuildChainlinkEVMTOML builds and validates the full chainlink-evm TOML config for one chain: the
@@ -143,8 +144,8 @@ func BuildChainlinkEVMTOML(info Info) (*evmtoml.EVMConfig, error) {
 		chain.FinalityTagEnabled = new(false)
 		chain.FinalityDepth = new(info.FinalityDepth)
 	}
-	// AutoPurge follows the node config and chain defaults, except without a Threshold, which TXM v2
-	// cannot run. Restart-orphaned transactions are handled without it (recoverOrphanedTransactions).
+	// AutoPurge follows the node config and chain defaults, except without a positive Threshold, which
+	// TXM v2 cannot run. Restart-orphaned transactions are handled without it (recoverOrphanedTransactions).
 	if autoPurgeWithoutThreshold(&chain) {
 		chain.Transactions.AutoPurge.Enabled = new(false)
 	}

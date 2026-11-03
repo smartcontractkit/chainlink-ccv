@@ -728,3 +728,12 @@ func TestSetKeystoreWithoutFeeQuoterWriterDoesNotStartOne(t *testing.T) {
 	require.Error(t, err)
 	require.Empty(t, runtime.gotWriterKey)
 }
+
+func TestAccessorDegradedIncludesSkippedChainDefaults(t *testing.T) {
+	t.Parallel()
+
+	acc := &accessor{chainDefaultsErr: chainDefaultsError([]string{"ccip/Broken.toml: unknown key"})}
+	require.ErrorContains(t, acc.Degraded(), "skipped EVM chain defaults")
+	require.ErrorContains(t, acc.Degraded(), "ccip/Broken.toml: unknown key")
+	require.NoError(t, chainDefaultsError(nil))
+}

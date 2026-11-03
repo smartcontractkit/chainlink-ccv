@@ -75,7 +75,7 @@ this order:
 - `chain <id>: dropped set settings this release cannot decode: <paths>` (chain-level paths, and `Nodes[<i>].<key>` for node settings)
 - `chain <id>: dropped set chain-level settings unknown to this release: <paths>` (keys the typed config has no field for)
 - `chain <id>: standalone sets these itself, overriding the node config: <path> = <value>, ...`
-- `chain <id>: turned off Transactions.AutoPurge: TXM v2 detects stuck transactions by Transactions.AutoPurge.Threshold alone, and none is set`
+- `chain <id>: turned off Transactions.AutoPurge: TXM v2 detects stuck transactions by Transactions.AutoPurge.Threshold alone, and it is missing or zero`
 - `chain <id>: dropped KeySpecific: its entries name the node's own keys, and the standalone executor transmits from a new one`
 - `chain <id>: dropped chain-level settings this release rejects: <paths> (<validation error>)`
 
