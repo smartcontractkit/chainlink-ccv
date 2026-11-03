@@ -30,7 +30,7 @@ defaults:
 # All manual runs use the ref main. The inputs are in the group, so runs for different commit pairs do not cancel
 # each other.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.from }}-${{ inputs.to }}
+  group: ${{ github.workflow }}:${{ github.ref }}:${{ inputs.from }}:${{ inputs.to }}
   cancel-in-progress: true
 
 jobs:
