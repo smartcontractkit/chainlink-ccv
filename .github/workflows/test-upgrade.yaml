@@ -5,6 +5,8 @@ name: E2E Upgrade Test
 # On a PR: from the target branch commit to the PR code. The label upgrade-breaking-change skips the PR jobs.
 # On the Release Please PR of the services: from the latest release tag to the PR code, which becomes the release.
 # On a release tag vX.Y.Z: from the previous release tag to the new tag.
+# On a manual run: from the `from` input to the `to` input.
+run-name: ${{ inputs.from && format('E2E Upgrade Test {0} -> {1}', inputs.from, inputs.to || github.ref_name) || '' }}
 on:
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled]
@@ -25,8 +27,10 @@ defaults:
   run:
     working-directory: build/devenv
 
+# All manual runs use the ref main. The inputs are in the group, so runs for different commit pairs do not cancel
+# each other.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}:${{ github.ref }}:${{ inputs.from }}:${{ inputs.to }}
   cancel-in-progress: true
 
 jobs:
