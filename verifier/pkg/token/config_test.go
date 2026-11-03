@@ -36,7 +36,7 @@ func Test_Config_Deserialization(t *testing.T) {
 		2 = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 		[token_verifiers.cctp_domain_mapping]
-		"1" = 42
+		1 = 42
 		"2" = 43
 
 		[[token_verifiers]]
