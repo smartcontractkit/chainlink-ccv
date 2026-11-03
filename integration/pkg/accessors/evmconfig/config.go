@@ -15,6 +15,8 @@ import (
 	"strings"
 	"time"
 
+	evmtoml "github.com/smartcontractkit/chainlink-evm/pkg/config/toml"
+
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 )
 
@@ -54,6 +56,10 @@ type ChainConfig struct {
 	// LogPollerSourceReaderEnabled makes the committee verifier read this source chain through a LogPoller
 	// instead of RPC. It requires [db] in the EVM secrets file. Defaults to false.
 	LogPollerSourceReaderEnabled bool `toml:"log_poller_source_reader_enabled,omitempty"`
+
+	// chainlinkEVM is a converted node config's chain-level [[EVM]] settings, applied over the chain's
+	// defaults so standalone runs the tuning the node ran. Only a node config can set it.
+	chainlinkEVM *evmtoml.Chain
 }
 
 // LogPollerSourceReaderChains returns the selectors of the chains that read through the LogPoller, sorted.
@@ -82,6 +88,7 @@ func NewConfigFromInfos(infos chainaccess.Infos[Info]) Config {
 			FinalityDepth:                    info.FinalityDepth,
 			TXMBlockTime:                     info.TXMBlockTime,
 			SourceReaderHeaderFetchBatchSize: info.SourceReaderHeaderFetchBatchSize,
+			chainlinkEVM:                     info.chainlinkEVM,
 		}
 	}
 	return Config{Chains: chains}
@@ -126,6 +133,9 @@ type Info struct {
 	FinalityDepth                    uint32        `json:"finality_depth"                        toml:"finality_depth"`
 	TXMBlockTime                     time.Duration `json:"txm_block_time"                        toml:"txm_block_time"`
 	SourceReaderHeaderFetchBatchSize int           `json:"source_reader_header_fetch_batch_size" toml:"source_reader_header_fetch_batch_size"`
+
+	// chainlinkEVM is ChainConfig.chainlinkEVM, carried to BuildChainlinkEVMTOML.
+	chainlinkEVM *evmtoml.Chain
 }
 
 func (bi Info) Empty() bool {

@@ -23,9 +23,10 @@ func inspectConfigCommand() cli.Command {
 		Usage: "Print the effective per-chain EVM settings standalone will run, for the " +
 			"pre-cutover settings diff",
 		Description: "Accepts the Chainlink node's TOML config or a standalone-format EVM config and prints " +
-			"the conversion warnings (what the node config sets that standalone drops), the chains the " +
+			"the conversion warnings (where standalone runs differently from the node config), the chains the " +
 			"conversion skipped whole (failed_chains, with reasons), the top-level sections the " +
-			"conversion ignores, and each chain's effective settings: finality, TXM block time (with " +
+			"conversion ignores, the chain defaults the settings resolve against (chainlink-evm's with CCIP's " +
+			"overrides, as on a ccip node image), and each chain's effective settings: finality, TXM block time (with " +
 			"the default source — operator, curated chain default, or generic 2s fallback), " +
 			"head-tracker persistence, and the RPC node set. " +
 			"RPC URLs are never printed — they can carry API keys. See docs/migration/evm-cl-to-standalone.md.",
@@ -50,8 +51,12 @@ func inspectConfigCommand() cli.Command {
 
 // configReport is what `ccv migrate inspect-config` prints.
 type configReport struct {
-	ConvertedFromNodeConfig bool     `json:"converted_from_node_config"`
-	Warnings                []string `json:"warnings,omitempty"`
+	ConvertedFromNodeConfig bool `json:"converted_from_node_config"`
+	// ChainDefaults names the chain defaults every chain's settings resolve against. The problems are
+	// default files or keys that did not load and were skipped; a release has none.
+	ChainDefaults         string   `json:"chain_defaults"`
+	ChainDefaultsProblems []string `json:"chain_defaults_problems,omitempty"`
+	Warnings              []string `json:"warnings,omitempty"`
 	// IgnoredSections names the node config's top-level sections the conversion does not read.
 	// They are file-level, so --chain-selector narrows the chains and warnings but not this list.
 	IgnoredSections []string `json:"ignored_top_level_sections,omitempty"`
@@ -71,7 +76,12 @@ func buildConfigReport(configPath, chainSelector string) (*configReport, error) 
 		return nil, err
 	}
 
-	report := &configReport{ConvertedFromNodeConfig: conversion != nil, Chains: chains}
+	report := &configReport{
+		ConvertedFromNodeConfig: conversion != nil,
+		ChainDefaults:           evmconfig.ChainDefaultsSource(),
+		ChainDefaultsProblems:   evmconfig.ChainDefaultsProblems(),
+		Chains:                  chains,
+	}
 	if conversion != nil {
 		report.Warnings = conversion.Warnings
 		report.IgnoredSections = conversion.IgnoredSections
