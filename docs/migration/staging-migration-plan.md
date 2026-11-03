@@ -38,6 +38,11 @@ operators. This document adapts it for staging, where one team does both halves.
   conversion warnings. One delta has appeared since: a CL-mode verifier on a node with the
   LogPoller enabled reads source logs through the node's LogPoller (#1482), while the standalone
   verifier reads over RPC unless its own LogPoller is turned on. See open question 4.
+- Chain-setting parity: standalone carries the node config's chain-level settings over and resolves
+  the same chain defaults as the `ccip` node image (chainlink-evm's plus CCIP's, embedded). Compared
+  setting by setting against the DON config, the five committee chains run exactly what the CL nodes
+  run, apart from what standalone fixes itself (heads in memory, TXM v2). It needs an image built
+  after that change merged; see P2.
 - `TestE2EMigration_CLToStandalone` (`build/devenv/tests/e2e/smoke_migration_test.go`) tests the
   key export, the import, and the JD record handoff end to end. It does not test how this plan
   delivers jobs: the test proposes the CL node's existing specs straight to the new records by JD
@@ -269,7 +274,10 @@ the verifier, aggregator, indexer, and executor images for that commit and publi
 `containers/chainlink-ccv-<module>:<sha>-rc` (full 40-char commit SHA) to the primary and
 secondary private ECRs. The staging aggregator and indexer values already pin images this way.
 
-The staging values pin `$IMAGE_SHA-rc` (main at #1563) for both processes. The tag has to be a
+The staging values pin `$IMAGE_SHA-rc` (main at #1563) for both processes. Move both to a main
+commit that includes chain-setting parity (carried node settings and the embedded chain defaults)
+before node 1's window: an image without it runs gas, node-pool and head-tracker settings that
+differ from the CL node's. The tag has to be a
 real main commit: a short SHA padded out to 40 characters names an image that was never built.
 The executor deploys at `replicas: 1` in P7, so its pod pulling the image is the check that the
 build exists, well before any cutover window; the verifier image comes from the same workflow
@@ -339,35 +347,46 @@ Config dirs, one per family chart, named like the releases (scaffolded for node 
   volumes).
 - `deploy/config/staging/executor-evm/`: the same three, without `keyImport`.
 
-### P4. Databases (3 per node, on their own cluster)
+### P4. Databases (3 per node, on the node's own cluster)
 
 Verifier-bootstrap, verifier-app, executor-bootstrap. They cannot share a database (both migration
-runners use goose's default version table). 63 databases if the whole committee migrates;
-provision at least the next node's three before its window.
+runners use goose's default version table). Each node's three go on an Aurora cluster of its own,
+`chainlink-ccv-evm-standalone-$i`: 21 clusters and 63 databases if the whole committee migrates.
+Provision at least the next node's cluster and databases before its window.
 
-Put them on a new Aurora cluster rather than on `chainlink-ccv-dons`, which hosts the 21 CL node
-databases. The reason is isolation in both directions: the standalone processes cannot load the
-DON cluster, and if a standalone database has to be dropped, or the whole cluster wiped after a
-bad cutover, nothing CL-mode is on it, so the rollback path (scale the CL node back up, repoint
-its CSA key) never depends on the new cluster. Both live in
-`$DEPLOY/deploy/config/staging/database-provisioner/database-provisioner.yaml`. The cluster,
-modeled on the `chainlink-ccv-dons` block minus its restore snapshot:
+Not on `chainlink-ccv-dons`, which hosts the 21 CL node databases. The standalone processes
+cannot load the DON cluster, and if a standalone database has to be dropped, or a node's cluster
+wiped after a bad cutover, nothing CL-mode is on it, so the rollback path (scale the CL node back
+up, repoint its CSA key) never depends on the new clusters.
+
+Not on one cluster shared by every migrated node either. Each chain config has 10 members and
+threshold 6, so once five of a chain's members share a cluster, one failover or saturated
+instance stalls attestations on that chain. With a cluster per node the same incident costs one
+signer, which is how a database failure lands for a NOP running its own. Per-node clusters also
+keep one verifier's backlog catch-up or source-range replay from taking CPU or connections from
+the rest (each verifier opens up to 20 app-database connections), and they keep database changes
+on the cutover cadence: a resize, engine upgrade, or wipe touches one node at a time.
+
+Both live in `$DEPLOY/deploy/config/staging/database-provisioner/database-provisioner.yaml`. Node
+1's cluster:
 
 ```yaml
 databaseClusters:
-  chainlink-ccv-evm-standalone:
+  chainlink-ccv-evm-standalone-1:
     engine: aurora-postgresql
     engineVersion: "17.5"
     deletionProtection: true
-    backupRetentionDays: 7
     instances:
       count: 1
       instanceClass: db.t4g.medium
 ```
 
-Instance class and storage type are sizing calls; `db.t4g.medium` is what the two canton
-verifier clusters in the same file use. Revisit after the first soak. Add the cluster in the same
-PR as node 1's databases and confirm it is ready before expecting connection secrets.
+One `db.t4g.medium` is the shape of the Canton and Solana verifier clusters in the same file.
+A single instance has no failover target, which is acceptable when its outage costs one signer.
+Revisit the class after the first soak. Backups default to 7 days (the chart reads
+`backupRetentionPeriod`; the `backupRetentionDays` key on `chainlink-ccv-dons` is ignored). Add
+each node's cluster in the same PR as its databases and confirm it is ready before expecting
+connection secrets.
 
 No fourth database for staging. The standalone LogPoller reader stays off here (open question 4),
 and it is what would need one: its `evm` schema (LogPoller blocks plus 30 days of
@@ -377,8 +396,8 @@ rest, so never point an older image at a database a newer one has migrated. See
 [Source logs](evm-cl-to-standalone.md#source-logs-rpc-or-a-logpoller).
 
 `deletionProtection: true` is enforced by Gatekeeper (`prevent-xr-deletion-protection`). Wiping
-the cluster after a bad cutover first takes a deploy that sets it to `false`; a delete attempted
-before that is denied and can leave the release stuck uninstalling.
+a node's cluster after a bad cutover first takes a deploy that sets it to `false`; a delete
+attempted before that is denied and can leave the release stuck uninstalling.
 
 Database map keys must stay at or under 43 chars (the composition appends `-provider-sql-config`
 and the result is a 63-char k8s label). Set `connectionSecret.name` explicitly. Node 1's block, as
@@ -387,17 +406,17 @@ the model:
 ```yaml
 databases:
   ccv-evm-1-verifier-bootstrap:
-    databaseClusterName: chainlink-ccv-evm-standalone
+    databaseClusterName: chainlink-ccv-evm-standalone-1
     databaseName: ccv_evm_1_verifier_bootstrap
     connectionSecret:
       name: ccv-evm-1-verifier-bootstrap-database-connection
   ccv-evm-1-verifier-app:
-    databaseClusterName: chainlink-ccv-evm-standalone
+    databaseClusterName: chainlink-ccv-evm-standalone-1
     databaseName: ccv_evm_1_verifier_app
     connectionSecret:
       name: ccv-evm-1-verifier-app-database-connection
   ccv-evm-1-executor-bootstrap:
-    databaseClusterName: chainlink-ccv-evm-standalone
+    databaseClusterName: chainlink-ccv-evm-standalone-1
     databaseName: ccv_evm_1_executor_bootstrap
     connectionSecret:
       name: ccv-evm-1-executor-bootstrap-database-connection
@@ -406,7 +425,7 @@ databases:
 Deploy (PR + `.deploy stage`), then verify:
 
 ```sh
-kubectl --context $CTX -n $NS get databasecluster chainlink-ccv-evm-standalone
+kubectl --context $CTX -n $NS get databasecluster chainlink-ccv-evm-standalone-$i
 kubectl --context $CTX -n $NS get secret ccv-evm-$i-verifier-app-database-connection
 ```
 

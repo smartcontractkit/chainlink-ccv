@@ -16,8 +16,8 @@ import (
 //
 // Accepting the node's file directly is what keeps the CL-to-standalone migration free of a
 // conversion step: an operator mounts the config their node already runs with and starts the
-// process. Settings standalone CCV has no equivalent for are dropped, and the conversion's warnings
-// say which, so nothing goes missing silently. Sections outside [[EVM]] are ignored wholesale and
+// process. The node's chain-level settings carry over; the few standalone cannot honor are named in
+// the conversion's warnings, so nothing changes silently. Sections outside [[EVM]] are ignored wholesale and
 // named in the conversion's IgnoredSections. A chain whose [[EVM]] section cannot run standalone —
 // unknown chain ID, no usable RPC endpoint — is skipped rather than failing the load, and named in
 // the conversion's FailedChains; a file where no chain converts at all is still an error.
@@ -130,6 +130,7 @@ func (c Config) ToInfos() (chainaccess.Infos[Info], error) {
 			FinalityDepth:                    chain.FinalityDepth,
 			TXMBlockTime:                     chain.TXMBlockTime,
 			SourceReaderHeaderFetchBatchSize: chain.SourceReaderHeaderFetchBatchSize,
+			chainlinkEVM:                     chain.chainlinkEVM,
 		}
 	}
 	return infos, nil

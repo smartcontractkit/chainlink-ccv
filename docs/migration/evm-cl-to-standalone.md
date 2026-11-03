@@ -139,8 +139,11 @@ docker run --rm -v "$PWD:/cfg" <verifier-image> \
 This runs the same conversion the standalone processes run at startup and prints what each chain
 will effectively run: finality, the TXM block time (`txm_block_time_source` says whether the value
 came from your config, the chain's curated default, or the generic 2s fallback), head-tracker
-persistence, and the RPC node set. Go through the output with Chainlink Labs. Three kinds of
-finding come out of it, and they are handled differently:
+persistence, and the RPC node set. `chain_defaults` names the chain defaults those settings
+resolve against: chainlink-evm's built-ins with CCIP's overrides, the same pair a Chainlink `ccip`
+node image runs with (see [Why the node's TOML is reused as-is](#why-the-nodes-toml-is-reused-as-is)).
+Go through the output with Chainlink Labs. Three kinds of finding come out of it, and they are
+handled differently:
 
 - `failed_chains` names any chain the conversion skipped whole — an unknown chain ID, a node with
   no HTTPURL, an unservable finality mode — with the reason. Those chains will not be served at
@@ -148,19 +151,20 @@ finding come out of it, and they are handled differently:
   processes refuse to boot when a chain declared in the bootstrap `[[chains]]` cannot be served by
   the mounted config. A leftover chain you no longer serve needs nothing, but delete its section so
   the startup skip warning stays meaningful.
-- The `warnings` list names settings your node config carries that standalone has no equivalent for
-  (`GasEstimator.Mode`, `HeadTracker.HistoryDepth`, send-only nodes, and so on), and
-  `ignored_top_level_sections` names the non-EVM sections (`Log`, `WebServer`, `P2P`, `Feature`,
-  …) the conversion does not read at all. If your node sets `[Feature] LogPoller = true`, its
-  verifier reads source logs through that LogPoller today and the standalone verifier will read
-  them over RPC; see [Source logs](#source-logs-rpc-or-a-logpoller). The warnings are read from your file directly, so a setting too
-  new for this tool — or a typo of a real one — is named too. There is nothing to correct in the
-  config for these: standalone will not read them whatever you write. Record that you accept each
-  one, or raise it with Chainlink Labs if a deviation is not acceptable.
-- The per-chain settings standalone does honor are worth changing now if they are wrong. Those are
-  the TXM block time and the finality pair, and they carry over from the node config, so an agreed
-  value goes in as `[EVM.Transactions.TransactionManagerV2] BlockTime` or `FinalityDepth` /
-  `FinalityTagEnabled` under that chain's `[[EVM]]` block before the containers start.
+- The `warnings` list names every place standalone will run differently from your node config:
+  settings it does not recognize (a setting too new for this release, or a typo of a real one),
+  settings it sets itself (the balance monitor, log broadcaster, head persistence, forwarders, and
+  dual broadcast; see [Why the node's TOML is reused as-is](#why-the-nodes-toml-is-reused-as-is)),
+  settings this release's chainlink-evm rejects, `KeySpecific` entries, and send-only nodes and
+  per-node settings beyond the endpoints. `ignored_top_level_sections` names the non-EVM sections
+  (`Log`, `WebServer`, `P2P`, `Feature`, …) the conversion does not read at all. If your node sets
+  `[Feature] LogPoller = true`, its verifier reads source logs through that LogPoller today and the
+  standalone verifier will read them over RPC; see [Source logs](#source-logs-rpc-or-a-logpoller).
+  A typo is worth fixing in the file; the rest is standalone's behavior whatever you write. Record
+  that you accept each one, or raise it with Chainlink Labs if a deviation is not acceptable.
+- Chain-level settings carry over as written, so an agreed change to any of them (the TXM block
+  time, the finality pair, gas estimation, the node pool) goes under that chain's `[[EVM]]` block
+  before the containers start, exactly as it would on the node.
 
 This is the pre-cutover settings review, not an optional extra.
 
@@ -418,20 +422,35 @@ executor published, and the operator's funding in step 7 confirms it is the inte
 
 The `[[EVM]]` and `[[EVM.Nodes]]` sections are translated at startup and chain IDs resolved to chain
 selectors; every other section is ignored, and named both at startup and in the report's
-`ignored_top_level_sections`. Reusing the file rather than rewriting it is what keeps
-finality behavior identical across the cutover — the node's own chain defaults are applied before
-translating, so a chain that was never configured explicitly keeps the behavior it had instead of
-moving onto finality tags.
+`ignored_top_level_sections`. Reusing the file rather than rewriting it is what keeps each chain's
+behavior identical across the cutover: the chain-level settings (gas estimation, node pool, head
+tracker, finality, chain type, RPC error patterns) carry over as written, over the same chain
+defaults the node ran with.
+
+Those defaults come in two layers, both embedded in the verifier and executor: chainlink-evm's
+built-in defaults, and CCIP's overrides of them (`ccip/config/evm` in the chainlink repo). That is
+the pair a Chainlink `ccip` node image runs with, through `CL_CHAIN_DEFAULTS=/ccip-config`. A node
+on the core image with that variable empty runs chainlink-evm's built-ins alone and differs on
+settings its config does not pin, such as an 8,000,000 versus 500,000 gas limit cap. Standalone
+always resolves the CCIP pair, so a chain that was never configured explicitly keeps the behavior
+the `ccip` image gave it. Do not set `CL_CHAIN_DEFAULTS` on the standalone containers: chainlink-evm
+then loads that directory instead, and exits at startup on a file it cannot decode, where the
+embedded defaults skip such a file with a warning.
 
 Per-node `Order` carries over, so a converted node keeps the RPC prioritization the operator set. A
 node with no `Order` stays at the pool's lowest priority, which is how chainlink-evm treats it too.
 
-Chain-level tuning beyond finality — gas estimation, node pool, head tracker, and
-transaction-manager settings — does not carry over, with one exception:
-`Transactions.TransactionManagerV2.BlockTime`. Whatever the node config sets that the conversion
-drops is logged by name at startup, so custom tuning surfaces instead of silently reverting to
-chain defaults. The set-detection reads the file itself, so a setting this tool's chainlink-evm
-version predates — or a typo of a real setting — is named rather than missed.
+A few chain-level settings are fixed by standalone itself, because its runtime has no other mode:
+heads stay in memory (`HeadTracker.PersistenceEnabled = false`), the log broadcaster and balance
+monitor are off, and transactions go through TXM v2 without forwarders or dual broadcast. A node
+config that sets one of these the other way gets a startup warning naming it. So do `KeySpecific`
+entries, which name the node's own keys and cannot match the executor's new one, and a
+`Transactions.AutoPurge` with no `Threshold` (the detection-API mode Scroll's chain defaults use),
+which TXM v2 cannot run, so it is turned off. A setting this release does not recognize, cannot
+decode, or whose chainlink-evm rejects it (the node may run a newer chainlink-evm) is dropped by
+name, and the chain still starts with everything else; an `[[EVM]]` block whose `ChainID` does not
+decode is skipped, and the other chains still start. The set-detection reads the file itself, so a
+typo of a real setting is named rather than missed.
 
 If the node config sets no TXM v2 block time, the value comes from a curated per-chain table when
 the chain's real block interval is above the two-second floor upstream validation enforces —

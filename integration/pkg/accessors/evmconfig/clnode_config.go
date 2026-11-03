@@ -1,12 +1,16 @@
 // Conversion of a Chainlink node's EVM configuration into the standalone operator config. A node
 // operator moving off CL mode mounts the config file their node already runs with; LoadConfigFile
-// detects it and converts it here, so the endpoints and finality behavior carry over without anyone
-// hand-writing a second file.
+// detects it and converts it here, so the endpoints, finality behavior and chain-level tuning carry
+// over without anyone hand-writing a second file.
 package evmconfig
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
 	"net/url"
+	"reflect"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -20,9 +24,10 @@ import (
 )
 
 // Conversion is the converted config together with everything the conversion dropped or decided.
-// Warnings are not failures: they are the settings a Chainlink node accepts that standalone CCV has
-// no equivalent for. CreateEVMAccessorFactory logs them at warn on startup, so an operator who
-// mounted their node's file sees what changed rather than finding out from behavior.
+// Warnings are not failures: they name where standalone CCV runs differently from the node config —
+// settings it cannot read, settings it fixes itself, nodes it drops. CreateEVMAccessorFactory logs
+// them at warn on startup, so an operator who mounted their node's file sees what changed rather
+// than finding out from behavior.
 //
 // Warnings are ordered as the operator wrote the config: by chain, then by node within the chain,
 // with the dropped settings within each sorted. A converted config with no warnings is normal and
@@ -70,37 +75,171 @@ type nodeConfigFile struct {
 	EVM evmtoml.EVMConfigs `toml:"EVM"`
 }
 
+// decodeNodeConfig decodes the [[EVM]] sections. When a value does not decode (a newer node's format,
+// a typo), each block is rebuilt from raw one setting at a time instead, so the value costs itself
+// and not the file; raw["EVM"] is narrowed to match. Returns the dropped paths by chain ID.
+func decodeNodeConfig(nodeTOML []byte, raw map[string]any) (evmtoml.EVMConfigs, map[string][]string, []string, error) {
+	var parsed nodeConfigFile
+	err := toml.Unmarshal(nodeTOML, &parsed)
+	if err == nil || raw == nil {
+		return parsed.EVM, nil, nil, err
+	}
+	var configs evmtoml.EVMConfigs
+	var keptBlocks []any
+	var skipped []string
+	undecodable := make(map[string][]string)
+	for i, block := range rawTables(raw["EVM"]) {
+		cleaned, dropped := salvageRawEVMBlock(block)
+		cfg, err := decodeRawEVMBlock(cleaned)
+		chainID := rawChainID(cleaned)
+		if err != nil || cfg.ChainID == nil || chainID == "" {
+			skipped = append(skipped, fmt.Sprintf("[[EVM]] entry %d: skipped, its ChainID does not decode", i))
+			continue
+		}
+		configs = append(configs, cfg)
+		keptBlocks = append(keptBlocks, cleaned)
+		undecodable[chainID] = append(undecodable[chainID], dropped...)
+	}
+	raw["EVM"] = keptBlocks
+	return configs, undecodable, skipped, nil
+}
+
+// salvageRawEVMBlock keeps each setting of a raw [[EVM]] block that decodes alongside the ones kept
+// before it, node by node for [[EVM.Nodes]], and returns the paths it dropped.
+func salvageRawEVMBlock(block map[string]any) (map[string]any, []string) {
+	cleaned := make(map[string]any)
+	var dropped []string
+	for _, leaf := range rawLeaves(block, nil) {
+		if leaf.keys[0] == "Nodes" {
+			continue
+		}
+		if candidate := withRawLeaf(cleaned, leaf); decodesAsEVMBlock(candidate) {
+			cleaned = candidate
+		} else {
+			dropped = append(dropped, strings.Join(leaf.keys, "."))
+		}
+	}
+	rawNodes := rawTables(block["Nodes"])
+	nodes := make([]any, 0, len(rawNodes))
+	for n, node := range rawNodes {
+		keptNode := make(map[string]any)
+		for _, leaf := range rawLeaves(node, nil) {
+			candidateNode := withRawLeaf(keptNode, leaf)
+			candidate := cloneRawTable(cleaned)
+			candidate["Nodes"] = append(slices.Clone(nodes), candidateNode)
+			if decodesAsEVMBlock(candidate) {
+				keptNode = candidateNode
+			} else {
+				dropped = append(dropped, fmt.Sprintf("Nodes[%d].%s", n, strings.Join(leaf.keys, ".")))
+			}
+		}
+		nodes = append(nodes, keptNode)
+	}
+	if len(nodes) > 0 {
+		cleaned["Nodes"] = nodes
+	}
+	return cleaned, dropped
+}
+
+func decodeRawEVMBlock(block map[string]any) (*evmtoml.EVMConfig, error) {
+	data, err := toml.Marshal(block)
+	if err != nil {
+		return nil, err
+	}
+	var cfg evmtoml.EVMConfig
+	if err := toml.Unmarshal(data, &cfg); err != nil {
+		return nil, err
+	}
+	return &cfg, nil
+}
+
+func decodesAsEVMBlock(block map[string]any) bool {
+	_, err := decodeRawEVMBlock(block)
+	return err == nil
+}
+
+// rawLeaf is one setting of a raw TOML table: its key path and value.
+type rawLeaf struct {
+	keys  []string
+	value any
+}
+
+// rawLeaves lists a raw table's settings in key order; nested tables recurse, anything else is a leaf.
+func rawLeaves(table map[string]any, prefix []string) []rawLeaf {
+	keys := make([]string, 0, len(table))
+	for key := range table {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	var leaves []rawLeaf
+	for _, key := range keys {
+		path := append(slices.Clone(prefix), key)
+		if nested, ok := table[key].(map[string]any); ok {
+			leaves = append(leaves, rawLeaves(nested, path)...)
+			continue
+		}
+		leaves = append(leaves, rawLeaf{keys: path, value: table[key]})
+	}
+	return leaves
+}
+
+// withRawLeaf returns a copy of table with the leaf set, creating its parent tables.
+func withRawLeaf(table map[string]any, leaf rawLeaf) map[string]any {
+	out := cloneRawTable(table)
+	parent := out
+	for _, key := range leaf.keys[:len(leaf.keys)-1] {
+		child, ok := parent[key].(map[string]any)
+		if !ok {
+			child = make(map[string]any)
+			parent[key] = child
+		}
+		parent = child
+	}
+	parent[leaf.keys[len(leaf.keys)-1]] = leaf.value
+	return out
+}
+
+func cloneRawTable(table map[string]any) map[string]any {
+	out := make(map[string]any, len(table))
+	for key, value := range table {
+		if nested, ok := value.(map[string]any); ok {
+			value = cloneRawTable(nested)
+		}
+		out[key] = value
+	}
+	return out
+}
+
 // convertChainlinkNodeConfig reads a Chainlink node TOML configuration and produces the standalone EVM operator
-// config. Chain IDs are resolved to chain selectors. A chain that cannot be converted — an unknown
+// config. Chain IDs are resolved to chain selectors, and each chain's chain-level settings ride
+// along for BuildChainlinkEVMTOML to apply over the chain's defaults. A chain that cannot be converted — an unknown
 // chain ID, no usable RPC endpoint, an unservable finality mode — is skipped and reported in
 // FailedChains rather than failing the whole file, so one leftover or mistyped chain cannot take
-// down every other chain the node runs. The only hard errors are a malformed file and a file with
-// no usable chain at all.
+// down every other chain the node runs. A value this release cannot decode costs that value. The
+// only hard errors are a file that is not TOML and a file with no usable chain at all.
 func convertChainlinkNodeConfig(nodeTOML []byte) (Conversion, error) {
-	var parsed nodeConfigFile
-	if err := toml.Unmarshal(nodeTOML, &parsed); err != nil {
-		return Conversion{}, fmt.Errorf("failed to parse Chainlink node config: %w", err)
-	}
-	if len(parsed.EVM) == 0 {
-		return Conversion{}, fmt.Errorf("config has no [[EVM]] sections: pass the node's TOML config, " +
-			"the one holding [[EVM]] and [[EVM.Nodes]]")
-	}
-
 	// The raw decode drives set-detection: only the file's own keys can say what the operator
 	// actually wrote, including settings the pinned chainlink-evm types have no field for — a
 	// newer node's options, a typo of a real one — and scalars a typed walk cannot tell from
-	// unset. The typed decode above already succeeded, so this cannot fail in practice; if it
-	// ever did, warnings degrade rather than taking a loadable config down.
+	// unset. It is nil only for a file that is not TOML, which the typed decode then reports.
 	raw := decodeRawNodeConfig(nodeTOML)
+	evmConfigs, undecodable, skippedBlocks, err := decodeNodeConfig(nodeTOML, raw)
+	if err != nil {
+		return Conversion{}, fmt.Errorf("failed to parse Chainlink node config: %w", err)
+	}
+	if len(evmConfigs) == 0 && len(skippedBlocks) == 0 {
+		return Conversion{}, fmt.Errorf("config has no [[EVM]] sections: pass the node's TOML config, " +
+			"the one holding [[EVM]] and [[EVM.Nodes]]")
+	}
 	ignoredSections := ignoredTopLevelSections(raw)
 	rawChains := rawChainsByChainID(raw)
 
-	merged, err := mergeByChainID(parsed.EVM)
+	merged, err := mergeByChainID(evmConfigs)
 	if err != nil {
 		return Conversion{}, err
 	}
 
-	var warnings []string
+	warnings := skippedBlocks
 	warningsByChainID := make(map[string][]string, len(merged))
 	var failedChains []ChainFailure
 	var disabledChains []string
@@ -151,23 +290,33 @@ func convertChainlinkNodeConfig(nodeTOML []byte) (Conversion, error) {
 			continue
 		}
 
-		chains[strconv.FormatUint(details.ChainSelector, 10)] = ChainConfig{
+		chain := ChainConfig{
 			Nodes:         nodes,
 			FinalityDepth: finalityDepth,
 			TXMBlockTime:  txmBlockTimeOverride(cfg),
+			chainlinkEVM:  carriedChainSettings(cfg),
 		}
+		carried, rejected, rejectErr := buildableChainSettings(Info{
+			ChainID:       chainID,
+			Nodes:         chain.Nodes,
+			FinalityDepth: chain.FinalityDepth,
+			TXMBlockTime:  chain.TXMBlockTime,
+			chainlinkEVM:  chain.chainlinkEVM,
+		})
+		chain.chainlinkEVM = carried
+		chains[strconv.FormatUint(details.ChainSelector, 10)] = chain
 
-		// The chain-level dropped-settings warning emits ahead of the node warnings to keep the
-		// chain's warnings in the operator's file order: [[EVM]] settings come before its
-		// [[EVM.Nodes]] entries. Only a chain that converted warns about drops — for a skipped
-		// chain everything was dropped, which the skip line already says.
-		var chainWarnings []string
-		if rawChain != nil {
-			if dropped := droppedChainSettingPaths(rawChain.blocks); len(dropped) > 0 {
-				chainWarnings = append(chainWarnings, fmt.Sprintf(
-					"chain %s: dropped set chain-level settings with no standalone equivalent: %s",
-					chainID, strings.Join(dropped, ", ")))
-			}
+		// Chain-level warnings come before node warnings, the operator's file order. Only a chain
+		// that converted warns this way; a skipped chain's skip line already says everything went.
+		chainWarnings := chainSettingWarnings(chainID, cfg, rawChain)
+		if paths := undecodable[chainID]; len(paths) > 0 {
+			chainWarnings = append([]string{fmt.Sprintf("chain %s: dropped set settings this release cannot decode: %s",
+				chainID, strings.Join(paths, ", "))}, chainWarnings...)
+		}
+		if len(rejected) > 0 {
+			chainWarnings = append(chainWarnings, fmt.Sprintf(
+				"chain %s: dropped chain-level settings this release rejects: %s (%s)",
+				chainID, strings.Join(rejected, ", "), strings.Join(strings.Fields(rejectErr.Error()), " ")))
 		}
 		chainWarnings = append(chainWarnings, nodeWarnings...)
 		if len(chainWarnings) > 0 {
@@ -228,18 +377,190 @@ func mergeByChainID(configs evmtoml.EVMConfigs) ([]*evmtoml.EVMConfig, error) {
 	return out, nil
 }
 
-// carriedOverChainSettings lists, by lower-cased dotted path as written in the operator's file,
-// the chain-level keys the conversion reads: ChainID, Enabled and Nodes are read by the conversion
-// itself, the finality pair by convertFinality, and the block time by txmBlockTimeOverride. Every
-// other key present in the file is dropped, so it must surface in a warning rather than disappear
-// quietly.
-var carriedOverChainSettings = map[string]struct{}{
-	"chainid":            {},
-	"enabled":            {},
-	"nodes":              {},
-	"finalitydepth":      {},
-	"finalitytagenabled": {},
-	"transactions.transactionmanagerv2.blocktime": {},
+// carriedChainSettings is the node's chain-level config for BuildChainlinkEVMTOML, minus KeySpecific:
+// those entries name the node's own keys, and the standalone executor transmits from a new one.
+func carriedChainSettings(cfg *evmtoml.EVMConfig) *evmtoml.Chain {
+	chain := cfg.Chain
+	chain.KeySpecific = nil
+	return &chain
+}
+
+// buildableChainSettings returns the carried settings the chain builds with and the paths of any it
+// dropped, with the validation error that dropped them. A setting this release's chainlink-evm
+// rejects (the node may run a newer one) costs that setting, never the chain.
+func buildableChainSettings(info Info) (*evmtoml.Chain, []string, error) {
+	_, buildErr := BuildChainlinkEVMTOML(info)
+	if buildErr == nil || info.chainlinkEVM == nil {
+		return info.chainlinkEVM, nil, nil
+	}
+	full := info.chainlinkEVM
+	info.chainlinkEVM = nil
+	if _, err := BuildChainlinkEVMTOML(info); err != nil {
+		return full, nil, nil // Not the node settings' fault; the error surfaces where it always has.
+	}
+	// Re-add the settings one at a time, keeping each that still builds. Passes repeat so a setting
+	// that needs a later one (AutoPurge.Enabled needs its Threshold) gets another try.
+	pending := setChainLeaves(full)
+	var kept []chainLeaf
+	for progress := true; progress && len(pending) > 0; {
+		progress = false
+		var rejected []chainLeaf
+		for _, leaf := range pending {
+			info.chainlinkEVM = withLeaves(full, append(slices.Clone(kept), leaf))
+			if _, err := BuildChainlinkEVMTOML(info); err == nil {
+				kept = append(kept, leaf)
+				progress = true
+			} else {
+				rejected = append(rejected, leaf)
+			}
+		}
+		pending = rejected
+	}
+	dropped := make([]string, 0, len(pending))
+	for _, leaf := range pending {
+		dropped = append(dropped, leaf.path)
+	}
+	return withLeaves(full, kept), dropped, buildErr
+}
+
+// chainLeaf is one setting of a chainlink-evm chain config: its dotted path and its field index.
+type chainLeaf struct {
+	path  string
+	index []int
+}
+
+// setChainLeaves lists the settings a chain config sets, in field order.
+func setChainLeaves(chain *evmtoml.Chain) []chainLeaf {
+	var leaves []chainLeaf
+	var walk func(v reflect.Value, prefix string, index []int)
+	walk = func(v reflect.Value, prefix string, index []int) {
+		for i := range v.NumField() {
+			field := v.Type().Field(i)
+			if !field.IsExported() {
+				continue
+			}
+			fieldIndex := append(slices.Clone(index), i)
+			fieldPath := joinSettingPath(prefix, field.Name)
+			value := v.Field(i)
+			switch {
+			case value.Kind() == reflect.Struct && hasExportedField(value.Type()):
+				walk(value, fieldPath, fieldIndex)
+			case !value.IsZero():
+				leaves = append(leaves, chainLeaf{path: fieldPath, index: fieldIndex})
+			}
+		}
+	}
+	walk(reflect.ValueOf(chain).Elem(), "", nil)
+	return leaves
+}
+
+// hasExportedField tells a nested config section (recursed into) from a struct-typed value (a leaf).
+func hasExportedField(t reflect.Type) bool {
+	for field := range t.Fields() {
+		if field.IsExported() {
+			return true
+		}
+	}
+	return false
+}
+
+// withLeaves copies only the given settings of src into a new chain config.
+func withLeaves(src *evmtoml.Chain, leaves []chainLeaf) *evmtoml.Chain {
+	var dst evmtoml.Chain
+	from, to := reflect.ValueOf(src).Elem(), reflect.ValueOf(&dst).Elem()
+	for _, leaf := range leaves {
+		to.FieldByIndex(leaf.index).Set(from.FieldByIndex(leaf.index))
+	}
+	return &dst
+}
+
+// chainSettingWarnings names where the converted chain runs differently from the node config: keys
+// this release cannot read, settings standalone fixes itself, and the two settings it removes.
+func chainSettingWarnings(chainID string, cfg *evmtoml.EVMConfig, rawChain *rawChainConfig) []string {
+	var warnings []string
+	if rawChain != nil {
+		if unknown := unknownChainSettingPaths(rawChain.blocks); len(unknown) > 0 {
+			warnings = append(warnings, fmt.Sprintf(
+				"chain %s: dropped set chain-level settings unknown to this release: %s",
+				chainID, strings.Join(unknown, ", ")))
+		}
+		if overridden := overriddenChainSettings(cfg, rawChain.blocks); len(overridden) > 0 {
+			warnings = append(warnings, fmt.Sprintf(
+				"chain %s: standalone sets these itself, overriding the node config: %s",
+				chainID, strings.Join(overridden, ", ")))
+		}
+	}
+	// Checked on the effective config: Scroll's chain defaults enable AutoPurge this way.
+	effective := chainDefaults(cfg.ChainID)
+	effective.SetFrom(&cfg.Chain)
+	if autoPurgeWithoutThreshold(&effective) {
+		warnings = append(warnings, fmt.Sprintf(
+			"chain %s: turned off Transactions.AutoPurge: TXM v2 detects stuck transactions by "+
+				"Transactions.AutoPurge.Threshold alone, and none is set", chainID))
+	}
+	if len(cfg.KeySpecific) > 0 {
+		warnings = append(warnings, fmt.Sprintf(
+			"chain %s: dropped KeySpecific: its entries name the node's own keys, and the standalone "+
+				"executor transmits from a new one", chainID))
+	}
+	return warnings
+}
+
+// unknownChainSettingPaths returns the sorted chain-level keys in the operator's blocks that this
+// release's chainlink-evm has no field for: a newer node's options, or typos. A strict decode of
+// each block is the same check a Chainlink node applies to its own file.
+func unknownChainSettingPaths(blocks []map[string]any) []string {
+	set := make(map[string]struct{})
+	for _, block := range blocks {
+		chainLevel := make(map[string]any, len(block))
+		for key, value := range block {
+			if !strings.EqualFold(key, "Nodes") {
+				chainLevel[key] = value
+			}
+		}
+		encoded, err := toml.Marshal(chainLevel)
+		if err != nil {
+			continue // Warnings degrade; the typed decode of the file already succeeded.
+		}
+		var strict *toml.StrictMissingError
+		err = toml.NewDecoder(bytes.NewReader(encoded)).DisallowUnknownFields().Decode(&evmtoml.EVMConfig{})
+		if !errors.As(err, &strict) {
+			continue
+		}
+		for _, decodeErr := range strict.Errors {
+			set[strings.Join(decodeErr.Key(), ".")] = struct{}{}
+		}
+	}
+	unknown := make([]string, 0, len(set))
+	for path := range set {
+		unknown = append(unknown, path)
+	}
+	sort.Strings(unknown)
+	return unknown
+}
+
+// overriddenChainSettings returns, sorted, each standaloneSettings entry the operator's file sets to
+// the other value, written as the value standalone runs with instead.
+func overriddenChainSettings(cfg *evmtoml.EVMConfig, blocks []map[string]any) []string {
+	set := make(map[string]struct{})
+	for _, block := range blocks {
+		var paths []string
+		flattenSettingPaths(block, "", &paths)
+		for _, path := range paths {
+			set[strings.ToLower(path)] = struct{}{}
+		}
+	}
+	var overridden []string
+	for _, setting := range standaloneSettings {
+		if _, written := set[strings.ToLower(setting.path)]; !written {
+			continue
+		}
+		if value := *setting.field(&cfg.Chain); value != nil && *value != setting.value {
+			overridden = append(overridden, fmt.Sprintf("%s = %t", setting.path, setting.value))
+		}
+	}
+	sort.Strings(overridden)
+	return overridden
 }
 
 // carriedOverNodeSettings is the node-level equivalent: the keys convertNodes reads. SendOnly is
@@ -374,30 +695,6 @@ func flattenSettingPaths(table map[string]any, prefix string, paths *[]string) {
 	}
 }
 
-// droppedChainSettingPaths implements "warn on any set-but-dropped chain-level setting": the
-// sorted union of the set keys across the chain's blocks that the conversion does not carry over.
-// A later block overrides an earlier one but never un-sets a key, matching SetFrom, so the union
-// is the operator's set view.
-func droppedChainSettingPaths(blocks []map[string]any) []string {
-	set := make(map[string]struct{})
-	for _, block := range blocks {
-		var paths []string
-		flattenSettingPaths(block, "", &paths)
-		for _, path := range paths {
-			if _, carried := carriedOverChainSettings[strings.ToLower(path)]; carried {
-				continue
-			}
-			set[path] = struct{}{}
-		}
-	}
-	dropped := make([]string, 0, len(set))
-	for path := range set {
-		dropped = append(dropped, path)
-	}
-	sort.Strings(dropped)
-	return dropped
-}
-
 // droppedNodeSettingPaths returns the sorted set-but-dropped keys of one raw node table.
 func droppedNodeSettingPaths(node map[string]any) []string {
 	var paths []string
@@ -499,11 +796,12 @@ func convertNodes(chainID string, nodes evmtoml.EVMNodes, rawNodes []map[string]
 // zero selects finality-tag mode and a positive value selects confirmation-depth mode. Its error is
 // a bare reason without the chain ID, which the caller prefixes when recording the skip.
 //
-// The node's own defaults are applied first. A chain whose default is confirmation-depth mode
-// behaves that way even when the operator's file says nothing about finality, so reading only the
-// explicit settings would quietly move that chain onto finality tags.
+// The node's own defaults (chainDefaults, as a ccip node image resolves them) are applied first. A
+// chain whose default is confirmation-depth mode behaves that way even when the operator's file says
+// nothing about finality, so reading only the explicit settings would quietly move it onto tags.
 func convertFinality(cfg *evmtoml.EVMConfig) (uint32, error) {
-	effective := evmtoml.Defaults(cfg.ChainID, &cfg.Chain)
+	effective := chainDefaults(cfg.ChainID)
+	effective.SetFrom(&cfg.Chain)
 	if effective.FinalityTagEnabled != nil && *effective.FinalityTagEnabled {
 		return 0, nil
 	}

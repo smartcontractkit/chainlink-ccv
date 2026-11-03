@@ -11,6 +11,7 @@ func (ChainConfig) DocComments() map[string]commentparsing.FieldDoc {
 		"Nodes":                            {Comment: "Nodes are the RPC endpoints used to reach this chain."},
 		"SourceReaderHeaderFetchBatchSize": {Comment: "SourceReaderHeaderFetchBatchSize caps how many eth_getBlockByNumber requests\nare sent in a single JSON-RPC batch when the source reader fetches block\nheaders. Zero uses [DefaultSourceReaderHeaderFetchBatchSize], which is 25."},
 		"TXMBlockTime":                     {Comment: "TXMBlockTime controls TXM v2's retry cadence: a transaction rebroadcasts once it is\nRetryBlockThreshold times this value old, so it should track the chain's real block\ninterval. It is not used outside the transaction manager. Zero takes the chain's curated\ndefault block interval when one exists and DefaultTXMBlockTime otherwise; upstream\nvalidation rejects values below two seconds."},
+		"chainlinkEVM":                     {Comment: "chainlinkEVM is a converted node config's chain-level [[EVM]] settings, applied over the chain's\ndefaults so standalone runs the tuning the node ran. Only a node config can set it."},
 	}
 }
 

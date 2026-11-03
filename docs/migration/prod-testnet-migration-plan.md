@@ -152,23 +152,32 @@ ServiceMonitor, `[key_import]` rendered from `keyImport.expectedId`, and the loo
 console (`adminConsole`). After step 9, check
 bootstrap `/ready` on 9988 and the app `/health` on 8100/8101.
 
-### P4. Databases (3 per migrating node, on their own cluster)
+### P4. Databases (3 per migrating node, on the node's own cluster)
 
 Verifier-bootstrap, verifier-app, executor-bootstrap per node; they cannot share (goose
-version table). 48 databases if nodes 0..15 migrate; 63 if 16..20 join (open question 1).
-Add a new cluster `chainlink-ccv-testnet-evm-standalone` to
+version table). Each migrating node gets its own cluster,
+`chainlink-ccv-testnet-evm-standalone-$i`, in
 `deploy/config/prod-testnet/database-provisioner/database-provisioner.yaml`, modeled on
-the staging cluster — a new cluster, not `chainlink-ccv-testnet-dons`, for the same
-two-way isolation: the rollback path never depends on it. Sizing: the DON cluster runs
-2× `db.r8g.xlarge` on aurora-iopt1; the Canton standalone clusters run a single
-`db.t4g.medium`. Start at the Canton shape, revisit after the first soak with real
-traffic. Map keys ≤ 43 chars; set `connectionSecret.name` explicitly.
+staging's: 16 clusters and 48 databases if nodes 0..15 migrate, 21 and 63 if 16..20 join
+(open question 1). Not on `chainlink-ccv-testnet-dons`, for the same two-way isolation as
+staging (the rollback path never depends on the new clusters), and not on one shared
+cluster: all 59 EVM chains list the same 16 members with threshold 9, so once eight
+migrated members share a cluster, one incident on it stalls attestations on every chain.
+That is the exposure the DON cluster carries today for all 21 nodes. Per node, an incident
+costs one signer.
+
+Sizing: start each at a single `db.t4g.medium`, the shape of the 24 Solana and Canton
+clusters already in that file (one per verifier or executor), and revisit after the first
+soak with real traffic. The DON cluster's 2× `db.r8g.xlarge` on aurora-iopt1 is not the
+reference: it carries the CL nodes' LogPoller, which the standalone verifier does not run
+while it reads source logs over RPC. Map keys ≤ 43 chars; set `connectionSecret.name`
+explicitly.
 
 If the standalone LogPoller reader is turned on here (it needs the standalone-format EVM
 config; see the go/no-go), its `evm` schema adds the LogPoller's blocks and 30 days of
 `CCIPMessageSent` logs per OnRamp, 59 chains per node, to the database named by `[db].url`
-in the EVM secrets file. That database then dominates the other three; size it, and its
-backups, before enabling the reader. See
+in the EVM secrets file. That database then dominates the other three; size each node's
+cluster, and its backups, for it before enabling the reader. See
 [Source logs](evm-cl-to-standalone.md#source-logs-rpc-or-a-logpoller).
 
 ### P5. Per-chain config review at 59-chain scale
@@ -183,6 +192,20 @@ accept-or-correct for every warning and every chain's `txm_block_time` /
 entry that is missing or in `failed_chains`), so `failed_chains` must be empty for all 59
 committee chains. This is one recorded review, reused across nodes, re-run when the
 config changes.
+
+Chain-level settings carry over from the node TOML, over the same chain defaults the `ccip` image
+resolves, so most chains produce no warning. Compared setting by setting against the current DON
+config (`chains.yaml` + `rpcs.yaml`, 63 chains), and leaving aside what standalone fixes on every
+chain (heads in memory, TXM v2, no log broadcaster or balance monitor), one chain runs differently,
+and the conversion warns on four:
+
+- Scroll Sepolia (534351): AutoPurge turned off. Its chain defaults use Scroll's detection API
+  with no `Threshold`, which TXM v2 cannot run; with it on, the executor could not transmit there.
+- Polygon Amoy (80002) and chain 157: `BalanceMonitor.Enabled = false`. Executor funding is the
+  external balance alert instead.
+- Chain 9746: `LogBroadcasterEnabled = false`; nothing standalone runs reads it.
+
+Any other warning on a later run is new and needs a decision.
 
 ### P6. Secrets per node
 
@@ -284,7 +307,8 @@ Operator comms for prod-mainnet may start when all of these hold:
 1. **Nodes 16..20.** Committee chain configs list only `ccv-prod-testnet-0..15`; nodes
    16–20 have no EVM verifier or executor role in the committee, yet the DON runs 21
    nodes. What are they (expansion, standby, decommission candidates)? They do not
-   migrate until this is answered; P4's database count depends on it (48 vs 63).
+   migrate until this is answered; P4's counts depend on it (16 vs 21 clusters, 48 vs 63
+   databases).
 2. **`storage_locations` lists `aggregator-1.testnet.ccip.chain.link` twice** in
    `prod_testnet/topology.toml` — probable typo for aggregator-2. Harmless for the
    cutover (the changesets read the `aggregators` block, which is correct), but fix it

@@ -44,7 +44,7 @@ func CreateEVMAccessorFactory(lggr logger.Logger, genericConfig chainaccess.Gene
 		return nil, fmt.Errorf("failed to load EVM config: %w", err)
 	}
 	// Present only when a Chainlink node config was converted. Logged at warn so an operator who
-	// mounted their node's file sees what standalone CCV could not carry over — including the
+	// mounted their node's file sees where standalone CCV runs differently from it — including the
 	// top-level sections the conversion does not read at all.
 	if conversion != nil {
 		for _, warning := range conversion.Warnings {
@@ -59,7 +59,12 @@ func CreateEVMAccessorFactory(lggr logger.Logger, genericConfig chainaccess.Gene
 	if err != nil {
 		return nil, fmt.Errorf("failed to build EVM chain infos: %w", err)
 	}
-	lggr.Infow("loaded EVM config", "numChains", len(infos), "convertedFromNodeConfig", conversion != nil)
+	lggr.Infow("loaded EVM config", "numChains", len(infos), "convertedFromNodeConfig", conversion != nil,
+		"chainDefaults", evmconfig.ChainDefaultsSource())
+	// A default file or key that does not load is skipped, not fatal; say which so it gets fixed.
+	for _, problem := range evmconfig.ChainDefaultsProblems() {
+		lggr.Warnw("EVM chain defaults", "detail", problem)
+	}
 
 	// Read only here: the database it names is connected and migrated when something first needs it.
 	secrets, err := evmconfig.LoadSecretsFile(evmconfig.ResolveSecretsPath())
