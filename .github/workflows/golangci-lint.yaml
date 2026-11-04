@@ -17,6 +17,7 @@ jobs:
       contents: read
     steps:
       - name: Setup GitHub Token
+        if: github.repository == 'smartcontractkit/chainlink-ccv'
         id: setup-github-token
         uses: smartcontractkit/.github/actions/setup-github-token@setup-github-token/v1
         with:
