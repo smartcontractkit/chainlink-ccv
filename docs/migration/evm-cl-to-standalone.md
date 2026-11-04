@@ -531,8 +531,8 @@ What changes when the standalone LogPoller is on:
 
 1. Every start replays. The startup load takes the EVM database lease, waits until the
    checkpoint is finalized, registers the filter, and replays the LogPoller from the checkpoint,
-   normally about one finality depth. Until it finishes, the chain reports not ready and the log
-   says `Source not ready yet, waiting`.
+   normally about one finality depth. Until it finishes, the chain reports not ready; confirm
+   `Executing replay finished` in the LogPoller log for the requested start block.
 2. The database named by `[db].url` holds the LogPoller's blocks and 30 days of `CCIPMessageSent`
    logs per OnRamp. Size it, and its backups, for that.
 3. One writer per EVM database. A second process on the same database waits on the lease, and its

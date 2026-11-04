@@ -113,6 +113,7 @@ export NS=chainlink-ccv
 CCV=~/dev/dev/chainlink-ccv
 CLD=~/dev/dev/chainlink-deployments
 DEPLOY=~/dev/dev/chainlink-ccv-deploy
+EVM_VALUES=$DEPLOY/deploy/config/staging/committee-verifier-evm/config.yaml
 
 # The chainlink-ccv commit the deployed images were built from (P2). Steps 2 and 3 run the
 # migrate tooling from a worktree at this commit, so it matches what the pods run.
@@ -223,6 +224,10 @@ Two aggregators means each node runs two `ccvcommitteeverifier` jobs for the def
 today; standalone runs one. Aggregator HMAC creds keep working: legacy `verifier_id`s become
 `secret_name`s.
 
+Consolidate in explicit `targetNops` batches of at most three nodes. Each chain has 10 default
+committee members with threshold 6, so no batch can take enough verifiers offline to lose quorum.
+Replace the example names with the current batch, and never run this input unscoped.
+
 ```sh
 cat > $CLD/domains/ccv/staging_testnet/durable_pipelines/inputs/consolidate_verifier_jobs.yaml <<'EOF'
 environment: staging_testnet
@@ -236,6 +241,7 @@ changesets:
         chainFamily: evm
         consolidateAggregators: true
         revokeOrphanedJobs: true
+        targetNops: ["chainlink-ccv-staging-1", "chainlink-ccv-staging-2", "chainlink-ccv-staging-3"]
 EOF
 cd $CLD
 go run ./domains/ccv/cmd durable-pipeline run --environment staging_testnet \
@@ -250,8 +256,8 @@ The EVM DON has not been; its nodes still run one job per aggregator.
 What P1 does to the 21 CL nodes, beyond the job count:
 
 - Each node gets a new job proposal, and a CL node holds proposals until someone approves them
-  in the JD UI, so plan for 21 approvals. `revokeOrphanedJobs` revokes the per-aggregator jobs in
-  the same run.
+  in the JD UI. `revokeOrphanedJobs` revokes the per-aggregator jobs in the same run, so approve
+  every replacement in the current batch and verify each consolidated job before starting another batch.
 - The consolidated job has a new `verifier_id` (`default-verifier` instead of
   `<aggregator>-default-verifier`), and chain status is keyed by `verifier_id`. The new job starts
   with no chain-status rows: no checkpoint and no disabled flags. It scans from 500 blocks behind
@@ -616,7 +622,7 @@ node's config into the deploy values. Run the conversion from the image-commit w
 the diff is exactly what the pods will run:
 
 ```sh
-yq '.configs."evm-config.toml"' $DEPLOY/deploy/config/staging/committee-verifier-evm/config.yaml > /tmp/evm-config.toml
+yq '.configs."evm-config.toml"' "$EVM_VALUES" > /tmp/evm-config.toml
 cd $CCV_IMG
 go run ./cmd/verifier/committee ccv migrate inspect-config --config /tmp/evm-config.toml
 ```
@@ -856,6 +862,10 @@ changesets:
         node_labels:
           target: $EXE
 EOF
+cd $CLD
+go run ./domains/ccv/cmd durable-pipeline run --environment staging_testnet \
+  --input-file executor_job_node_$i.yaml --dry-run
+# then without --dry-run, or commit + /run-pipelines
 ```
 
 `jobspec_path` is relative to the repo root, where both local and CI runs execute. The job goes to
@@ -963,10 +973,16 @@ faster than expected is a reason to look at transmit failures before the next no
   `admin console stopped with error` if the console dies, which does not stop the job. Exercise
   the recovery flows from here, following the
   [remediation runbook](../runbooks/remediating-stuck-or-dropped-messages.md).
-- Rollback path: scale the verifier and the executor to 0, repoint the JD record at the CSA key
-  recorded in P8 (`jd_update_nodes` with the original `csa_key`), take the node's index out of
-  `maintenanceMode`, and scale the CL node back up. Exercise it on purpose at least once before the
-  fleet is deep into the migration.
+- Rollback path (exercise it on purpose at least once before the fleet is deep into the migration):
+  1. Set `replicas: 0` in both standalone values files and deploy that change, so a later deploy
+     cannot restart them. Scale both Deployments to 0 now and wait for both standalone pods to terminate.
+  2. Repoint the JD record at the CSA key recorded in P8 (`jd_update_nodes` with the original
+     `csa_key`) and remove `mode = "standalone"` from the node's topology block. With the CL topology
+     and JD record restored, run `apply-verifier-config` (still with `consolidateAggregators: true`)
+     and `apply-executor-config`, each scoped to `targetNops: ["$NODE"]`, then approve and verify the
+     CL verifier and executor jobs before continuing.
+  3. Take the node's index out of `maintenanceMode` and scale the CL node back up. Commit the values,
+     topology, and pipeline inputs so the restored CL job delivery and zero standalone replicas persist.
 
 ## Open questions for the team
 

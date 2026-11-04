@@ -79,6 +79,7 @@ export NS=chainlink-ccv-testnet
 CCV=~/dev/dev/chainlink-ccv
 CLD=~/dev/dev/chainlink-deployments
 DEPLOY=~/dev/dev/chainlink-ccv-deploy
+EVM_VALUES=$DEPLOY/deploy/config/prod-testnet/committee-verifier-evm/config.yaml
 
 # per cutover; i = 0..15 (nodes 16..20: see open question 1)
 i=1
@@ -122,8 +123,9 @@ Two aggregators means each node runs two `ccvcommitteeverifier` jobs today — t
 prod-testnet jobs use two verifier IDs per database (`aggregator-1-default-verifier`,
 `aggregator-2-default-verifier`). Standalone runs one job; legacy `verifier_id`s become
 `secret_name`s. Same changeset input as staging P1, environment `prod_testnet`, dry-run
-first. There is no secondary-committee exception here, but scope the change to the 16
-EVM-serving nodes (open question 1). Everything staging P1 says about the side effects
+first. There is no secondary-committee exception here, but use staging P1's explicit
+`targetNops` batches of at most three EVM-serving nodes, and approve and verify each batch
+before starting the next (open question 1). Everything staging P1 says about the side effects
 applies: one JD UI approval per node, a new `verifier_id` that starts without chain status
 (no checkpoint, no disabled flags), and hard rule 6 from then on. Record every node's
 disabled chains before running it.
@@ -133,7 +135,14 @@ disabled chains before running it.
 Run the release-tagged image (`vX.Y.Z` from `release-publish.yaml`), not a `-rc` SHA.
 The tag must include the migration tooling and the block-time fallback warning; the
 per-chain values themselves are set in the P3 EVM TOML and reviewed in P5. Confirm the
-tag matches what the prod-mainnet operator image will be.
+tag matches what the prod-mainnet operator image will be. Create the worktree steps 2 and 3
+inherit from staging from that exact release tag before running either step:
+
+```sh
+CCV_IMG=/tmp/ccv-image-prod-testnet
+git -C $CCV fetch origin --tags
+git -C $CCV worktree add --detach $CCV_IMG vX.Y.Z
+```
 
 ### P3. Charts and config dirs
 
