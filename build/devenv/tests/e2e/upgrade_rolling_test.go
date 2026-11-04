@@ -157,7 +157,7 @@ func upgradeServices(t *testing.T) []string {
 		return rolloutOrder
 	}
 	want := make(map[string]bool)
-	for _, s := range strings.Split(val, ",") {
+	for s := range strings.SplitSeq(val, ",") {
 		s = strings.TrimSpace(s)
 		require.True(t, slices.Contains(rolloutOrder, s), "%s: unknown service %q, use one of %v", UpgradeServicesEnv, s, rolloutOrder)
 		want[s] = true
