@@ -76,27 +76,66 @@ func ResolveTXMBlockTime(info Info) (time.Duration, TXMBlockTimeSource) {
 	return DefaultTXMBlockTime, TXMBlockTimeGenericFallback
 }
 
-// BuildChainlinkEVMTOML builds and validates the full chainlink-evm TOML config for one chain,
-// applying CCV's overrides on top of chain-specific upstream defaults. It is exported to the
-// migration tooling through EffectiveChainConfigs, so the pre-cutover settings diff reads exactly
-// what the standalone process will run.
+// standaloneSetting is a chain-level setting standalone CCV fixes whatever the node config says,
+// because the standalone runtime has no other mode. BuildChainlinkEVMTOML applies it; the
+// conversion warns when a node config sets it the other way.
+type standaloneSetting struct {
+	path  string
+	value bool
+	field func(*evmtoml.Chain) **bool
+}
+
+var standaloneSettings = []standaloneSetting{
+	// The standalone database has no evm.heads schema: heads stay in memory, and a restart
+	// re-syncs from RPC where the node resumed from persisted heads (catch-up time, not correctness).
+	{"HeadTracker.PersistenceEnabled", false, func(c *evmtoml.Chain) **bool { return &c.HeadTracker.PersistenceEnabled }},
+	// Nothing standalone runs consumes these. The executor key is new, so funding is a runbook
+	// step with an external balance alert instead of the balance monitor.
+	{"LogBroadcasterEnabled", false, func(c *evmtoml.Chain) **bool { return &c.LogBroadcasterEnabled }},
+	{"BalanceMonitor.Enabled", false, func(c *evmtoml.Chain) **bool { return &c.BalanceMonitor.Enabled }},
+	// Transactions go through TXM v2 alone, without forwarders or dual broadcast (see newTxmV2). The
+	// TXM starts only in NewContractTransmitter, so a source-only verifier never runs one.
+	{"Transactions.Enabled", true, func(c *evmtoml.Chain) **bool { return &c.Transactions.Enabled }},
+	{"Transactions.ForwardersEnabled", false, func(c *evmtoml.Chain) **bool { return &c.Transactions.ForwardersEnabled }},
+	{"Transactions.TransactionManagerV2.Enabled", true, func(c *evmtoml.Chain) **bool {
+		return &c.Transactions.TransactionManagerV2.Enabled
+	}},
+	{"Transactions.TransactionManagerV2.DualBroadcast", false, func(c *evmtoml.Chain) **bool {
+		return &c.Transactions.TransactionManagerV2.DualBroadcast
+	}},
+}
+
+// autoPurgeWithoutThreshold reports a chain whose AutoPurge has no usable Threshold. TXM v2 detects
+// stuck transactions by a positive Threshold alone; zero would make pending transactions immediately eligible.
+func autoPurgeWithoutThreshold(chain *evmtoml.Chain) bool {
+	autoPurge := chain.Transactions.AutoPurge
+	return autoPurge.Enabled != nil && *autoPurge.Enabled &&
+		(autoPurge.Threshold == nil || *autoPurge.Threshold == 0)
+}
+
+// BuildChainlinkEVMTOML builds and validates the full chainlink-evm TOML config for one chain: the
+// chain's defaults (chainDefaults), then a converted node config's own chain-level settings, then
+// what standalone fixes itself (standaloneSettings, finality, the TXM block time). It is exported to
+// the migration tooling through EffectiveChainConfigs, so the pre-cutover settings diff reads
+// exactly what the standalone process will run.
 func BuildChainlinkEVMTOML(info Info) (*evmtoml.EVMConfig, error) {
 	chainID, ok := new(big.Int).SetString(info.ChainID, 10)
 	if !ok {
 		return nil, fmt.Errorf("failed to parse EVM chain ID %q", info.ChainID)
 	}
 	sqlChainID := sqlutil.New(chainID)
-	chain := evmtoml.Defaults(sqlChainID)
+	chain := chainDefaults(sqlChainID)
+	if info.chainlinkEVM != nil {
+		chain.SetFrom(info.chainlinkEVM)
+	}
 
-	// The standalone database does not contain chainlink-core's evm.heads schema,
-	// so use the production tracker with its supported in-memory saver mode. The
-	// known delta: a restart starts the tracker cold — it re-syncs from RPC where
-	// the node resumed from persisted heads, which costs catch-up time on restart,
-	// not correctness.
-	chain.HeadTracker.PersistenceEnabled = new(false)
+	// Assign fresh pointers only: the defaults share pointers with chainlink-evm's and CCIP's.
+	for _, setting := range standaloneSettings {
+		*setting.field(&chain) = new(setting.value)
+	}
 	if info.FinalityDepth == 0 {
-		// chain.FinalityDepth is deliberately left at the chain-specific upstream
-		// default: evmtoml.Chain.ValidateConfig rejects a depth below 1 whether or
+		// chain.FinalityDepth is deliberately left at the node config's value or the
+		// chain default: evmtoml.Chain.ValidateConfig rejects a depth below 1 whether or
 		// not finality tags are enabled, so it cannot be zeroed out here.
 		chain.FinalityTagEnabled = new(true)
 	} else {
@@ -105,31 +144,11 @@ func BuildChainlinkEVMTOML(info Info) (*evmtoml.EVMConfig, error) {
 		chain.FinalityTagEnabled = new(false)
 		chain.FinalityDepth = new(info.FinalityDepth)
 	}
-	// These services are not consumers of the standalone accessor. Disabling
-	// them keeps this lifecycle focused on the production HeadTracker and TXM.
-	//
-	// The balance monitor stays off deliberately: nothing in the standalone
-	// lifecycle constructs chainlink-evm's balance monitor, so the flag has no
-	// consumer here, and the executor's transmitter key is generated fresh at
-	// first boot rather than carried over. Funding is a runbook step with an
-	// external balance alert on the transmitter address instead; see the
-	// migration procedure's "Fund the executor" step.
-	chain.LogBroadcasterEnabled = new(false)
-	chain.BalanceMonitor.Enabled = new(false)
-	// These settings configure TXM v2 but do not start it. standaloneChain builds
-	// and starts a TXM only in NewContractTransmitter, which runs when bootstrap
-	// injects a keystore into an accessor that has an OffRamp address. Source-only
-	// deployments such as the verifier carry no chain_configuration, so they never
-	// construct a TXM and produce no idle TXM goroutines or logs.
-	chain.Transactions.Enabled = new(true)
-	chain.Transactions.ForwardersEnabled = new(false)
-	chain.Transactions.TransactionManagerV2.Enabled = new(true)
-	// AutoPurge is deliberately left at its upstream default of off, which means TXM
-	// v2 runs without a stuck transaction detector. Turning it on is worth doing, but
-	// not here: upstream validation then also requires GasEstimator.BumpThreshold and
-	// AutoPurge.MinAttempts, and both change fee behavior for every transaction
-	// rather than only stuck ones. Restart-orphaned transactions are handled without
-	// it (see standaloneChain.recoverOrphanedTransactions).
+	// AutoPurge follows the node config and chain defaults, except without a positive Threshold, which
+	// TXM v2 cannot run. Restart-orphaned transactions are handled without it (recoverOrphanedTransactions).
+	if autoPurgeWithoutThreshold(&chain) {
+		chain.Transactions.AutoPurge.Enabled = new(false)
+	}
 	blockTime, _ := ResolveTXMBlockTime(info)
 	// A negative operator value must be an error here, not later: MustNewDuration panics on
 	// negatives, and upstream validation would only see the value after it was built. The
@@ -155,7 +174,7 @@ func BuildChainlinkEVMTOML(info Info) (*evmtoml.EVMConfig, error) {
 	if len(nodes) == 0 {
 		return nil, fmt.Errorf("EVM chain %s has no RPC nodes", info.ChainID)
 	}
-	if usesHTTPPolling {
+	if poll := chain.NodePool.NewHeadsPollInterval; usesHTTPPolling && (poll == nil || poll.Duration() == 0) {
 		chain.NodePool.NewHeadsPollInterval = commonconfig.MustNewDuration(DefaultNewHeadsPollInterval)
 	}
 

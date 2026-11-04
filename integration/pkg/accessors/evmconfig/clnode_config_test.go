@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
-	evmtoml "github.com/smartcontractkit/chainlink-evm/pkg/config/toml"
 )
 
 // Chain selectors for the chain IDs used below, so the expectations read as the operator's chain
@@ -200,7 +199,7 @@ IsLoadBalancedRPC = true
 		assert.Len(t, got.Config.Chains[sepoliaSelector].Nodes, 1)
 	})
 
-	t.Run("warns about set chain-level settings with no standalone equivalent", func(t *testing.T) {
+	t.Run("carries chain-level settings over without warning", func(t *testing.T) {
 		t.Parallel()
 		got, err := convertChainlinkNodeConfig([]byte(`
 [[EVM]]
@@ -214,9 +213,11 @@ Name = 'primary'
 HTTPURL = 'https://sepolia.example.com'
 `))
 		require.NoError(t, err)
-		require.Len(t, got.Warnings, 1, "one warning per chain, listing every dropped setting")
-		assert.Equal(t, "chain "+sepoliaChainID+": dropped set chain-level settings with no standalone equivalent: "+
-			"GasEstimator.Mode, HeadTracker.HistoryDepth", got.Warnings[0])
+		assert.Empty(t, got.Warnings, "settings standalone runs as written are not deviations")
+		carried := got.Config.Chains[sepoliaSelector].chainlinkEVM
+		require.NotNil(t, carried)
+		assert.Equal(t, "BlockHistory", *carried.GasEstimator.Mode)
+		assert.Equal(t, uint32(100), *carried.HeadTracker.HistoryDepth)
 	})
 
 	t.Run("carried-over or unset chain-level settings produce no dropped-settings warning", func(t *testing.T) {
@@ -351,7 +352,7 @@ HTTPURLExtraWrite = 'https://sepolia-write.example.com'
 
 // Set-detection reads the operator's file rather than the decoded chainlink-evm struct, so it
 // names settings the typed config has no field for: options a newer node version added, and typos
-// of real ones. Those are exactly the drops an operator cannot otherwise see — a typo of
+// of real ones. Those are the only chain-level settings that cannot carry over — a typo of
 // FinalityDepth silently reverting to the chain default is the case this guards.
 func TestConvertChainlinkNodeConfigWarnsAboutSettingsUnknownToTheTypedConfig(t *testing.T) {
 	t.Parallel()
@@ -370,10 +371,195 @@ FutureNodeSetting = true
 `))
 	require.NoError(t, err)
 	require.Equal(t, []string{
-		"chain " + sepoliaChainID + ": dropped set chain-level settings with no standalone equivalent: " +
-			"FinalityDepht, GasEstimator.FutureEstimatorSetting, GasEstimator.Mode",
+		"chain " + sepoliaChainID + ": dropped set chain-level settings unknown to this release: " +
+			"FinalityDepht, GasEstimator.FutureEstimatorSetting",
 		"chain " + sepoliaChainID + " node primary: dropped FutureNodeSetting, standalone CCV does not expose it",
+	}, got.Warnings, "GasEstimator.Mode is a known setting, so it carries over rather than being named")
+}
+
+// A node config can set what the standalone runtime has no other mode for; standalone keeps its own
+// value and names each one that differs. A setting written with standalone's own value is not named.
+func TestConvertChainlinkNodeConfigNamesSettingsStandaloneFixes(t *testing.T) {
+	t.Parallel()
+
+	got, err := convertChainlinkNodeConfig([]byte(`
+[[EVM]]
+ChainID = '` + sepoliaChainID + `'
+LogBroadcasterEnabled = true
+[EVM.BalanceMonitor]
+Enabled = true
+[EVM.HeadTracker]
+PersistenceEnabled = true
+[EVM.Transactions]
+ForwardersEnabled = false
+[EVM.Transactions.TransactionManagerV2]
+DualBroadcast = true
+[[EVM.Nodes]]
+Name = 'primary'
+HTTPURL = 'https://sepolia.example.com'
+`))
+	require.NoError(t, err)
+	require.Equal(t, []string{
+		"chain " + sepoliaChainID + ": standalone sets these itself, overriding the node config: " +
+			"BalanceMonitor.Enabled = false, HeadTracker.PersistenceEnabled = false, LogBroadcasterEnabled = false, " +
+			"Transactions.TransactionManagerV2.DualBroadcast = false",
 	}, got.Warnings)
+}
+
+// A value this release cannot decode costs that value, not the file: the rest of the chain's
+// settings, its nodes, and every other chain still convert. Some decode errors name their key and
+// some (a duration without a unit) do not, so both kinds are here.
+func TestConvertChainlinkNodeConfigDropsValuesItCannotDecode(t *testing.T) {
+	t.Parallel()
+
+	got, err := convertChainlinkNodeConfig([]byte(`
+[[EVM]]
+ChainID = 'not-a-number'
+[[EVM.Nodes]]
+Name = 'lost'
+HTTPURL = 'https://lost.example.com'
+
+[[EVM]]
+ChainID = '` + sepoliaChainID + `'
+[EVM.GasEstimator]
+PriceMax = 'lots'
+LimitMultiplier = '4'
+[EVM.NodePool]
+PollInterval = 3
+PollFailureThreshold = 2
+[[EVM.Nodes]]
+Name = 'primary'
+HTTPURL = 'https://sepolia.example.com'
+Order = 'first'
+
+[[EVM]]
+ChainID = '` + arbSepChainID + `'
+[[EVM.Nodes]]
+Name = 'arb'
+HTTPURL = 'https://arb.example.com'
+`))
+	require.NoError(t, err)
+	require.Equal(t, []string{
+		"[[EVM]] entry 0: skipped, its ChainID does not decode",
+		"chain " + sepoliaChainID + ": dropped set settings this release cannot decode: " +
+			"GasEstimator.PriceMax, NodePool.PollInterval, Nodes[0].Order",
+	}, got.Warnings)
+	require.Len(t, got.Config.Chains, 2, "both decodable chains convert")
+
+	sepolia := got.Config.Chains[sepoliaSelector]
+	assert.Equal(t, "4", sepolia.chainlinkEVM.GasEstimator.LimitMultiplier.String())
+	assert.Equal(t, uint32(2), *sepolia.chainlinkEVM.NodePool.PollFailureThreshold)
+	assert.Nil(t, sepolia.chainlinkEVM.GasEstimator.PriceMax)
+	require.Len(t, sepolia.Nodes, 1)
+	assert.Equal(t, Node{Name: "primary", HTTPUrl: "https://sepolia.example.com"}, sepolia.Nodes[0],
+		"the node survives without its undecodable Order")
+}
+
+// A setting that decodes but fails this release's chainlink-evm validation (a node on a newer
+// chainlink-evm can hold one) is dropped by name; the chain keeps the rest and still builds.
+func TestConvertChainlinkNodeConfigDropsSettingsValidationRejects(t *testing.T) {
+	t.Parallel()
+
+	got, err := convertChainlinkNodeConfig([]byte(`
+[[EVM]]
+ChainID = '` + sepoliaChainID + `'
+ChainType = 'chain-from-the-future'
+[EVM.GasEstimator]
+LimitMultiplier = '4'
+[[EVM.Nodes]]
+Name = 'primary'
+HTTPURL = 'https://sepolia.example.com'
+`))
+	require.NoError(t, err)
+	require.Len(t, got.Warnings, 1)
+	assert.Contains(t, got.Warnings[0], "chain "+sepoliaChainID+": dropped chain-level settings this release rejects: ChainType (")
+	carried := got.Config.Chains[sepoliaSelector].chainlinkEVM
+	assert.Nil(t, carried.ChainType)
+	assert.Equal(t, "4", carried.GasEstimator.LimitMultiplier.String())
+
+	infos, err := got.Config.ToInfos()
+	require.NoError(t, err)
+	_, err = BuildChainlinkEVMTOML(infos[sepoliaSelector])
+	require.NoError(t, err, "the chain builds with what was kept")
+}
+
+func TestConvertChainlinkNodeConfigPreservesDependentSettings(t *testing.T) {
+	t.Parallel()
+
+	got, err := convertChainlinkNodeConfig([]byte(`
+[[EVM]]
+ChainID = '1337'
+ChainType = 'chain-from-the-future'
+[EVM.GasEstimator]
+EIP1559DynamicFees = true
+PriceMax = '50 gwei'
+FeeCapDefault = '50 gwei'
+[[EVM.Nodes]]
+Name = 'primary'
+HTTPURL = 'https://simulated.example.com'
+`))
+	require.NoError(t, err)
+	chain := got.Config.Chains["3379446385462418246"]
+	carried := chain.chainlinkEVM
+	assert.Nil(t, carried.ChainType)
+	require.NotNil(t, carried.GasEstimator.PriceMax)
+	require.NotNil(t, carried.GasEstimator.FeeCapDefault)
+	assert.Equal(t, "50 gwei", carried.GasEstimator.PriceMax.String())
+	assert.Equal(t, "50 gwei", carried.GasEstimator.FeeCapDefault.String())
+
+	infos, err := got.Config.ToInfos()
+	require.NoError(t, err)
+	_, err = BuildChainlinkEVMTOML(infos["3379446385462418246"])
+	require.NoError(t, err)
+}
+
+func TestConvertChainlinkNodeConfigSalvagesRejectedTXMBlockTime(t *testing.T) {
+	t.Parallel()
+
+	got, err := convertChainlinkNodeConfig([]byte(`
+[[EVM]]
+ChainID = '` + sepoliaChainID + `'
+[EVM.Transactions.TransactionManagerV2]
+Enabled = false
+BlockTime = '1s'
+[[EVM.Nodes]]
+Name = 'primary'
+HTTPURL = 'https://sepolia.example.com'
+`))
+	require.NoError(t, err)
+	chain := got.Config.Chains[sepoliaSelector]
+	assert.Zero(t, chain.TXMBlockTime)
+	require.NotEmpty(t, got.Warnings)
+	assert.Contains(t, got.Warnings[len(got.Warnings)-1],
+		"dropped chain-level settings this release rejects: Transactions.TransactionManagerV2.BlockTime")
+
+	infos, err := got.Config.ToInfos()
+	require.NoError(t, err)
+	_, err = BuildChainlinkEVMTOML(infos[sepoliaSelector])
+	require.NoError(t, err)
+}
+
+// KeySpecific entries are keyed to the node's own addresses. The standalone executor transmits from
+// a key it generates, so the entries cannot match anything and are dropped by name.
+func TestConvertChainlinkNodeConfigDropsKeySpecific(t *testing.T) {
+	t.Parallel()
+
+	got, err := convertChainlinkNodeConfig([]byte(`
+[[EVM]]
+ChainID = '` + sepoliaChainID + `'
+[[EVM.KeySpecific]]
+Key = '0x2a3e23c6f242F5345320814aC8a1b4E58707D292'
+GasEstimator.PriceMax = '79 gwei'
+[[EVM.Nodes]]
+Name = 'primary'
+HTTPURL = 'https://sepolia.example.com'
+`))
+	require.NoError(t, err)
+	require.Equal(t, []string{
+		"chain " + sepoliaChainID + ": dropped KeySpecific: its entries name the node's own keys, and the " +
+			"standalone executor transmits from a new one",
+	}, got.Warnings)
+	assert.Empty(t, got.Config.Chains[sepoliaSelector].chainlinkEVM.KeySpecific)
 }
 
 // A dropped node takes its settings with it, and the migration guide promises every dropped
@@ -430,8 +616,9 @@ HTTPPort = 6688
 }
 
 // A setting written in an earlier [[EVM]] block for the chain is still set after the blocks merge:
-// later blocks override but never un-set, so the dropped-settings warning unions the blocks.
-func TestConvertChainlinkNodeConfigWarnsAboutSettingsFromMergedBlocks(t *testing.T) {
+// later blocks override but never un-set, so the carried settings and the warnings both union the
+// blocks. This is the shape of a node config split into a chains file and an RPCs file.
+func TestConvertChainlinkNodeConfigMergesSettingsFromEveryBlock(t *testing.T) {
 	t.Parallel()
 
 	got, err := convertChainlinkNodeConfig([]byte(`
@@ -439,6 +626,7 @@ func TestConvertChainlinkNodeConfigWarnsAboutSettingsFromMergedBlocks(t *testing
 ChainID = '` + sepoliaChainID + `'
 [EVM.HeadTracker]
 HistoryDepth = 100
+HistoryDept = 5
 [[EVM.Nodes]]
 Name = 'primary'
 HTTPURL = 'https://sepolia.example.com'
@@ -449,8 +637,11 @@ FinalityDepth = 99
 `))
 	require.NoError(t, err)
 	require.Equal(t, []string{
-		"chain " + sepoliaChainID + ": dropped set chain-level settings with no standalone equivalent: HeadTracker.HistoryDepth",
+		"chain " + sepoliaChainID + ": dropped set chain-level settings unknown to this release: HeadTracker.HistoryDept",
 	}, got.Warnings)
+	carried := got.Config.Chains[sepoliaSelector].chainlinkEVM
+	assert.Equal(t, uint32(100), *carried.HeadTracker.HistoryDepth, "the first block's setting survives the merge")
+	assert.Equal(t, uint32(99), *carried.FinalityDepth)
 }
 
 // TestConvertedConfigLoadsStrictly encodes a conversion the way the CLI does and decodes it the way
@@ -488,7 +679,15 @@ HTTPURL = 'https://sepolia-backup.example.com'
 	md, err := toml.Decode(string(encoded), &reloaded)
 	require.NoError(t, err)
 	require.Empty(t, md.Undecoded(), "the standalone loader rejects unknown fields")
-	assert.Equal(t, converted.Config, reloaded, "the config must survive the encode/decode the CLI and container perform")
+
+	// The node's chain-level settings ride in memory only: the standalone format has no field for them.
+	want := Config{Chains: make(map[string]ChainConfig, len(converted.Config.Chains))}
+	for selector, chain := range converted.Config.Chains {
+		require.NotNil(t, chain.chainlinkEVM)
+		chain.chainlinkEVM = nil
+		want.Chains[selector] = chain
+	}
+	assert.Equal(t, want, reloaded, "the config must survive the encode/decode the CLI and container perform")
 }
 
 func TestConvertChainlinkNodeConfigErrors(t *testing.T) {
@@ -734,7 +933,7 @@ HTTPURL = 'https://arb.example.com'
 // moving a confirmation-depth chain onto tags.
 func sepoliaDefaultFinalityDepth(t *testing.T) uint32 {
 	t.Helper()
-	defaults := evmtoml.Defaults(sqlutil.New(big.NewInt(11155111)))
+	defaults := chainDefaults(sqlutil.New(big.NewInt(11155111)))
 	if defaults.FinalityTagEnabled != nil && *defaults.FinalityTagEnabled {
 		t.Log("chainlink-evm defaults Sepolia to finality tags; expecting a zero depth")
 		return 0

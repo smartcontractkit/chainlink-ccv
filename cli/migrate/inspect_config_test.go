@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
 )
 
 func writeConfigFile(t *testing.T, contents string) string {
@@ -16,8 +18,8 @@ func writeConfigFile(t *testing.T, contents string) string {
 	return path
 }
 
-// The report the pre-cutover diff prints: the conversion warnings name what the node config set
-// that standalone drops, and the chain projection shows what standalone will run instead.
+// The report the pre-cutover diff prints: the conversion warnings name where standalone runs
+// differently from the node config, and the chain projection shows what standalone will run.
 func TestBuildConfigReport(t *testing.T) {
 	t.Parallel()
 
@@ -32,6 +34,8 @@ FinalityTagEnabled = false
 BlockTime = '12s'
 [EVM.GasEstimator]
 Mode = 'BlockHistory'
+[EVM.BalanceMonitor]
+Enabled = true
 
 [[EVM.Nodes]]
 Name = 'primary'
@@ -55,8 +59,12 @@ SendOnly = true
 		assert.False(t, chain.TXMBlockTimeIsDefault)
 		require.Len(t, chain.Nodes, 1, "the send-only node is dropped")
 
-		assert.Contains(t, report.Warnings, "chain 11155111: dropped set chain-level settings with no standalone equivalent: GasEstimator.Mode")
-		assert.Contains(t, report.Warnings, "chain 11155111 node send-only: dropped, SendOnly nodes have no standalone equivalent")
+		assert.Equal(t, []string{
+			"chain 11155111: standalone sets these itself, overriding the node config: BalanceMonitor.Enabled = false",
+			"chain 11155111 node send-only: dropped, SendOnly nodes have no standalone equivalent",
+		}, report.Warnings, "GasEstimator.Mode carries over, so it is not a deviation")
+		assert.Equal(t, evmconfig.ChainDefaultsSource(), report.ChainDefaults)
+		assert.Empty(t, report.ChainDefaultsProblems)
 	})
 
 	t.Run("unset block time on a curated chain reports the chain default", func(t *testing.T) {
@@ -103,7 +111,7 @@ http_url = "https://sepolia.example.com"
 [[EVM]]
 ChainID = '11155111'
 [EVM.GasEstimator]
-Mode = 'BlockHistory'
+FutureSetting = 'x'
 [[EVM.Nodes]]
 Name = 'sepolia'
 HTTPURL = 'https://sepolia.example.com'
@@ -111,7 +119,7 @@ HTTPURL = 'https://sepolia.example.com'
 [[EVM]]
 ChainID = '421614'
 [EVM.HeadTracker]
-HistoryDepth = 50
+FutureSetting = 50
 [[EVM.Nodes]]
 Name = 'arb'
 HTTPURL = 'https://arb.example.com'
@@ -126,7 +134,7 @@ HTTPURL = 'https://arb.example.com'
 		require.Len(t, report.Chains, 1)
 		assert.Contains(t, report.Chains, "3478487238524512106")
 		require.Len(t, report.Warnings, 1)
-		assert.Contains(t, report.Warnings[0], "chain 421614: dropped set chain-level settings")
+		assert.Contains(t, report.Warnings[0], "chain 421614: dropped set chain-level settings unknown to this release")
 
 		_, err = buildConfigReport(path, "999")
 		require.ErrorContains(t, err, "not in")
