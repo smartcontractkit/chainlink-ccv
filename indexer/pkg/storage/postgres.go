@@ -10,6 +10,9 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
+
+	"github.com/smartcontractkit/chainlink-ccv/common/pgadvisorylock"
+
 	"github.com/lib/pq"
 
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
@@ -52,12 +55,10 @@ const (
 		message_ccv_addresses = EXCLUDED.message_ccv_addresses`
 )
 
-// DataSource is a sqlutil.DataSource that can also give a dedicated connection.
-// A session-level advisory lock needs one connection for the full time that it is held.
+// DataSource is the storage data source. It also gives a dedicated connection for the discovery lock.
 type DataSource interface {
 	sqlutil.DataSource
-	// Conn returns a dedicated connection from the pool. The caller must close it.
-	Conn(ctx context.Context) (*sql.Conn, error)
+	pgadvisorylock.ConnProvider
 }
 
 var _ DataSource = (*sqlx.DB)(nil)

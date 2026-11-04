@@ -122,6 +122,40 @@ func (_c *MockIndexerMetricLabeler_IncrementDiscoveryLeaderChanges_Call) RunAndR
 	return _c
 }
 
+// IncrementDiscoveryLeaderErrors provides a mock function with given fields: ctx, op
+func (_m *MockIndexerMetricLabeler) IncrementDiscoveryLeaderErrors(ctx context.Context, op string) {
+	_m.Called(ctx, op)
+}
+
+// MockIndexerMetricLabeler_IncrementDiscoveryLeaderErrors_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IncrementDiscoveryLeaderErrors'
+type MockIndexerMetricLabeler_IncrementDiscoveryLeaderErrors_Call struct {
+	*mock.Call
+}
+
+// IncrementDiscoveryLeaderErrors is a helper method to define mock.On call
+//   - ctx context.Context
+//   - op string
+func (_e *MockIndexerMetricLabeler_Expecter) IncrementDiscoveryLeaderErrors(ctx interface{}, op interface{}) *MockIndexerMetricLabeler_IncrementDiscoveryLeaderErrors_Call {
+	return &MockIndexerMetricLabeler_IncrementDiscoveryLeaderErrors_Call{Call: _e.mock.On("IncrementDiscoveryLeaderErrors", ctx, op)}
+}
+
+func (_c *MockIndexerMetricLabeler_IncrementDiscoveryLeaderErrors_Call) Run(run func(ctx context.Context, op string)) *MockIndexerMetricLabeler_IncrementDiscoveryLeaderErrors_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockIndexerMetricLabeler_IncrementDiscoveryLeaderErrors_Call) Return() *MockIndexerMetricLabeler_IncrementDiscoveryLeaderErrors_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockIndexerMetricLabeler_IncrementDiscoveryLeaderErrors_Call) RunAndReturn(run func(context.Context, string)) *MockIndexerMetricLabeler_IncrementDiscoveryLeaderErrors_Call {
+	_c.Run(run)
+	return _c
+}
+
 // IncrementGRPCErrors provides a mock function with given fields: ctx, code, method
 func (_m *MockIndexerMetricLabeler) IncrementGRPCErrors(ctx context.Context, code string, method string) {
 	_m.Called(ctx, code, method)

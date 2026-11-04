@@ -565,6 +565,15 @@
       "labels": []
     },
     {
+      "name": "indexer_discovery_leader_errors",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "Total number of failed discovery lock acquire attempts and heartbeats",
+      "labels": [
+        "op"
+      ]
+    },
+    {
       "name": "indexer_grpc_errors_total",
       "kind": "Int64Counter",
       "unit": "",

@@ -31,6 +31,7 @@ type IndexerMetrics struct {
 	verificationRecordChannelSizeGauge metric.Int64Gauge
 	discoveryLeaderGauge               metric.Int64Gauge
 	discoveryLeaderChanges             metric.Int64Counter
+	discoveryLeaderErrors              metric.Int64Counter
 	activeReadersGauge                 metric.Int64Gauge
 	discoveryLatencySeconds            metric.Float64Histogram
 	timeToIndexSeconds                 metric.Float64Histogram
@@ -122,6 +123,13 @@ func InitMetrics() (im *IndexerMetrics, err error) {
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to register discovery leader changes counter: %w", err)
+	}
+
+	im.discoveryLeaderErrors, err = beholder.GetMeter().Int64Counter("indexer_discovery_leader_errors",
+		metric.WithDescription("Total number of failed discovery lock acquire attempts and heartbeats"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register discovery leader errors counter: %w", err)
 	}
 
 	im.activeReadersGauge, err = beholder.GetMeter().Int64Gauge("indexer_active_readers",
@@ -303,6 +311,12 @@ func (c *IndexerMetricLabeler) RecordDiscoveryLeaderGauge(ctx context.Context, i
 func (c *IndexerMetricLabeler) IncrementDiscoveryLeaderChanges(ctx context.Context) {
 	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
 	c.im.discoveryLeaderChanges.Add(ctx, 1, metric.WithAttributes(otelLabels...))
+}
+
+func (c *IndexerMetricLabeler) IncrementDiscoveryLeaderErrors(ctx context.Context, op string) {
+	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
+	otelLabels = append(otelLabels, attribute.String("op", op))
+	c.im.discoveryLeaderErrors.Add(ctx, 1, metric.WithAttributes(otelLabels...))
 }
 
 func (c *IndexerMetricLabeler) RecordActiveReadersGauge(ctx context.Context, count int64) {

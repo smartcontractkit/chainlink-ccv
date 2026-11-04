@@ -137,16 +137,36 @@ func main() {
 		lggr.Fatalf("Failed to initalize verifier readers: %v", err)
 	}
 
-	leaderElector, err := discovery.NewLeaderElector(discoveryLocker,
-		time.Duration(config.LeaderElection.LeaseTimeout),
-		time.Duration(config.LeaderElection.HeartbeatInterval),
-		time.Duration(config.LeaderElection.AcquireInterval),
-		lggr, indexerMonitoring.Metrics())
-	if err != nil {
-		lggr.Fatalf("Failed to initialize discovery leader elector: %v", err)
+	healthReporters := []protocol.HealthReporter{indexerStorage, startupSkips}
+	// pool is set below; the elector calls the callback only after Start.
+	var pool *worker.Pool
+	var leaderElector *discovery.LeaderElector
+	var leadership discovery.LeadershipGate
+	if config.LeaderElection.Enabled {
+		leaderElector, err = discovery.NewLeaderElector(
+			discoveryLocker,
+			discovery.LeaderElectorConfig{
+				LeaseTimeout:      time.Duration(config.LeaderElection.LeaseTimeout),
+				HeartbeatInterval: time.Duration(config.LeaderElection.HeartbeatInterval),
+				AcquireInterval:   time.Duration(config.LeaderElection.AcquireInterval),
+			},
+			lggr,
+			indexerMonitoring.Metrics(),
+			// Only the discovery leader resumes PROCESSING messages, so replicas do not all take the same work.
+			discovery.WithOnElected(func(ctx context.Context) {
+				if err := pool.Hydrate(ctx); err != nil {
+					lggr.Errorw("Failed to hydrate pending tasks from storage after election", "error", err)
+				}
+			}),
+		)
+		if err != nil {
+			lggr.Fatalf("Failed to initialize discovery leader elector: %v", err)
+		}
+		leadership = leaderElector
+		healthReporters = append(healthReporters, leaderElector)
 	}
 
-	messageDiscovery, err := createDiscovery(ctx, lggr, config, indexerStorage, indexerMonitoring, verifierRegistry, startupSkips, leaderElector)
+	messageDiscovery, err := createDiscovery(ctx, lggr, config, indexerStorage, indexerMonitoring, verifierRegistry, startupSkips, leadership)
 	if err != nil {
 		lggr.Fatalf("Failed to initialize message discovery: %v", err)
 	}
@@ -158,20 +178,23 @@ func main() {
 	scheduler.Start(ctx)
 
 	discoveryCh := messageDiscovery.Start(ctx)
-	pool, err := worker.NewWorkerPool(lggr, config.Pool, discoveryCh, scheduler, verifierRegistry, indexerStorage)
+	pool, err = worker.NewWorkerPool(lggr, config.Pool, discoveryCh, scheduler, verifierRegistry, indexerStorage)
 	if err != nil {
 		lggr.Fatalf("Failed to initalize worker pool: %v", err)
 	}
 	pool.Start(ctx)
-	// Only the discovery leader resumes PROCESSING messages, so replicas do not all take the same work.
-	leaderElector.OnElected(func(ctx context.Context) {
-		if err := pool.Hydrate(ctx); err != nil {
-			lggr.Errorw("Failed to hydrate pending tasks from storage after election", "error", err)
-		}
-	})
-	leaderElector.Start(ctx)
+	if leaderElector != nil {
+		leaderElector.Start(ctx)
+	} else {
+		// Without leader election this replica owns all the PROCESSING messages, as before.
+		go func() {
+			if err := pool.Hydrate(ctx); err != nil {
+				lggr.Errorw("Failed to hydrate pending tasks from storage", "error", err)
+			}
+		}()
+	}
 
-	v1 := api.NewV1API(lggr, config, indexerStorage, indexerMonitoring, []protocol.HealthReporter{indexerStorage, startupSkips})
+	v1 := api.NewV1API(lggr, config, indexerStorage, indexerMonitoring, healthReporters)
 	listenPort := config.API.ListenPort
 	if listenPort == 0 {
 		listenPort = 8100

@@ -10,22 +10,22 @@ import (
 )
 
 type fakeGate struct {
-	mu   sync.Mutex
-	ctx  context.Context
-	term uint64
+	mu            sync.Mutex
+	ctx           context.Context
+	electionCount uint64
 }
 
 func (g *fakeGate) LeaderContext() (context.Context, uint64, bool) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	return g.ctx, g.term, g.ctx != nil
+	return g.ctx, g.electionCount, g.ctx != nil
 }
 
 func (g *fakeGate) elect(ctx context.Context) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.ctx = ctx //nolint:fatcontext // test fake for the elector
-	g.term++
+	g.electionCount++
 }
 
 func (g *fakeGate) demote() {

@@ -259,8 +259,8 @@ func (a *AggregatorMessageDiscovery) run(ctx context.Context) {
 	sampleTicker := time.NewTicker(time.Second)
 	defer sampleTicker.Stop()
 
-	// loadedTerm is the leadership term for which the cursor was last loaded from storage.
-	var loadedTerm uint64
+	// loadedElectionCount is the election for which the cursor was last loaded from storage.
+	var loadedElectionCount uint64
 
 	for {
 		select {
@@ -274,16 +274,16 @@ func (a *AggregatorMessageDiscovery) run(ctx context.Context) {
 		case <-ticker.C:
 			var leaderCtx context.Context
 			if a.leadership != nil {
-				lctx, term, isLeader := a.leadership.LeaderContext()
+				lctx, electionCount, isLeader := a.leadership.LeaderContext()
 				if !isLeader {
 					continue
 				}
-				if term != loadedTerm {
-					if err := a.loadCursor(ctx); err != nil {
+				if electionCount != loadedElectionCount {
+					if err := a.loadCursorForLeader(ctx, lctx); err != nil {
 						a.logger.Errorw("Failed to load discovery cursor after election, skipping poll", "error", err)
 						continue
 					}
-					loadedTerm = term
+					loadedElectionCount = electionCount
 				}
 				leaderCtx = lctx
 			}
@@ -303,6 +303,15 @@ func (a *AggregatorMessageDiscovery) run(ctx context.Context) {
 			cancel()
 		}
 	}
+}
+
+// loadCursorForLeader runs loadCursor with the poll timeout, and stops it when leadership is lost.
+func (a *AggregatorMessageDiscovery) loadCursorForLeader(ctx, leaderCtx context.Context) error {
+	loadCtx, cancel := context.WithTimeout(ctx, time.Duration(a.config.Timeout)*time.Millisecond)
+	defer cancel()
+	stop := context.AfterFunc(leaderCtx, cancel)
+	defer stop()
+	return a.loadCursor(loadCtx)
 }
 
 // loadCursor sets the reader cursor from storage, so a new leader continues where the last leader stopped.

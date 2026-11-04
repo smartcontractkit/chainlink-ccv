@@ -59,9 +59,10 @@ func (DiscoverySecrets) DocComments() map[string]commentparsing.FieldDoc {
 
 func (LeaderElectionConfig) DocComments() map[string]commentparsing.FieldDoc {
 	return map[string]commentparsing.FieldDoc{
-		"AcquireInterval":   {Comment: "AcquireInterval is how often a follower tries to get the lock. 0 uses the default (5s)."},
-		"HeartbeatInterval": {Comment: "HeartbeatInterval is how often the leader confirms that it holds the lock. Must be less than LeaseTimeout. 0 uses the default (10s)."},
-		"LeaseTimeout":      {Comment: "LeaseTimeout is how long the database keeps the lock after the last heartbeat. 0 uses the default (30s)."},
+		"AcquireInterval":   {Comment: "AcquireInterval is how often a follower tries to get the lock. Minimum 1s. 0 uses the default (5s)."},
+		"Enabled":           {Comment: "Enabled turns on the discovery leader lock. When false, this replica always runs discovery, as before."},
+		"HeartbeatInterval": {Comment: "HeartbeatInterval is how often the leader confirms that it holds the lock. Minimum 1s, maximum LeaseTimeout/2. 0 uses the default (10s)."},
+		"LeaseTimeout":      {Comment: "LeaseTimeout is how long the database keeps the lock after the last heartbeat. Minimum 5s. 0 uses the default (30s)."},
 	}
 }
 

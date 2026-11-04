@@ -61,21 +61,41 @@ type Config struct {
 
 // LeaderElectionConfig configures the discovery leader lock. Zero values fall back to the defaults applied during Validate.
 type LeaderElectionConfig struct {
-	// LeaseTimeout is how long the database keeps the lock after the last heartbeat. 0 uses the default (30s).
+	// Enabled turns on the discovery leader lock. When false, this replica always runs discovery, as before.
+	Enabled bool `toml:"Enabled"`
+	// LeaseTimeout is how long the database keeps the lock after the last heartbeat. Minimum 5s. 0 uses the default (30s).
 	LeaseTimeout common.Duration `toml:"LeaseTimeout"`
-	// HeartbeatInterval is how often the leader confirms that it holds the lock. Must be less than LeaseTimeout. 0 uses the default (10s).
+	// HeartbeatInterval is how often the leader confirms that it holds the lock. Minimum 1s, maximum LeaseTimeout/2. 0 uses the default (10s).
 	HeartbeatInterval common.Duration `toml:"HeartbeatInterval"`
-	// AcquireInterval is how often a follower tries to get the lock. 0 uses the default (5s).
+	// AcquireInterval is how often a follower tries to get the lock. Minimum 1s. 0 uses the default (5s).
 	AcquireInterval common.Duration `toml:"AcquireInterval"`
 }
 
-// Validate applies the defaults and checks that HeartbeatInterval is less than LeaseTimeout.
+const (
+	minLeaseTimeout      = 5 * time.Second
+	minHeartbeatInterval = time.Second
+	minAcquireInterval   = time.Second
+)
+
+// Validate applies the defaults and, when Enabled, checks the timing limits.
 func (l *LeaderElectionConfig) Validate() error {
 	l.LeaseTimeout = defaultIfNotPositive(l.LeaseTimeout, common.Duration(30*time.Second))
 	l.HeartbeatInterval = defaultIfNotPositive(l.HeartbeatInterval, common.Duration(10*time.Second))
 	l.AcquireInterval = defaultIfNotPositive(l.AcquireInterval, common.Duration(5*time.Second))
-	if l.HeartbeatInterval >= l.LeaseTimeout {
-		return fmt.Errorf("heartbeat interval (%s) must be less than lease timeout (%s)", l.HeartbeatInterval, l.LeaseTimeout)
+	if !l.Enabled {
+		return nil
+	}
+	if time.Duration(l.LeaseTimeout) < minLeaseTimeout {
+		return fmt.Errorf("lease timeout (%s) must be at least %s", l.LeaseTimeout, minLeaseTimeout)
+	}
+	if time.Duration(l.HeartbeatInterval) < minHeartbeatInterval {
+		return fmt.Errorf("heartbeat interval (%s) must be at least %s", l.HeartbeatInterval, minHeartbeatInterval)
+	}
+	if l.HeartbeatInterval > l.LeaseTimeout/2 {
+		return fmt.Errorf("heartbeat interval (%s) must be at most half of the lease timeout (%s)", l.HeartbeatInterval, l.LeaseTimeout)
+	}
+	if time.Duration(l.AcquireInterval) < minAcquireInterval {
+		return fmt.Errorf("acquire interval (%s) must be at least %s", l.AcquireInterval, minAcquireInterval)
 	}
 	return nil
 }
@@ -434,6 +454,11 @@ func (c *Config) validate(withoutSecrets bool) error {
 
 	if err := c.LeaderElection.Validate(); err != nil {
 		return fmt.Errorf("leader election config validation failed: %w", err)
+	}
+	// The lock keeps one connection for the full leadership, so discovery needs at least one more.
+	if c.LeaderElection.Enabled && c.Storage.Single != nil && c.Storage.Single.Postgres != nil &&
+		c.Storage.Single.Postgres.MaxOpenConnections < 2 {
+		return fmt.Errorf("leader election requires postgres max_open_connections of at least 2, got %d", c.Storage.Single.Postgres.MaxOpenConnections)
 	}
 
 	return nil

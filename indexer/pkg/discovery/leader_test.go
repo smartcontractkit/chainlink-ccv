@@ -18,9 +18,11 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil/pg"
 )
 
-// fakeLocker gives the lock when free is true. Its leases fail the heartbeat when failHeartbeat is true.
+// fakeLocker gives the lock when free is true, and fails acquire when failAcquire is true.
+// Its locks fail the heartbeat when failHeartbeat is true.
 type fakeLocker struct {
 	free          atomic.Bool
+	failAcquire   atomic.Bool
 	failHeartbeat atomic.Bool
 	acquires      atomic.Int32
 	releases      atomic.Int32
@@ -31,7 +33,10 @@ type fakeLease struct {
 	once sync.Once
 }
 
-func (l *fakeLocker) TryAcquireDiscoveryLock(context.Context, time.Duration) (common.DiscoveryLease, bool, error) {
+func (l *fakeLocker) TryAcquireDiscoveryLock(context.Context, time.Duration) (common.DiscoveryLock, bool, error) {
+	if l.failAcquire.Load() {
+		return nil, false, errors.New("database down")
+	}
 	if !l.free.CompareAndSwap(true, false) {
 		return nil, false, nil
 	}
@@ -53,42 +58,58 @@ func (f *fakeLease) Release() {
 	})
 }
 
-func newTestElector(t *testing.T, locker common.DiscoveryLocker, lease, heartbeat, acquire time.Duration) *LeaderElector {
+func newTestElector(t *testing.T, locker common.DiscoveryLocker, lease, heartbeat, acquire time.Duration, opts ...LeaderElectorOption) *LeaderElector {
 	t.Helper()
-	e, err := NewLeaderElector(locker, lease, heartbeat, acquire, logger.Test(t), monitoring.NewNoopIndexerMetricLabeler())
+	cfg := LeaderElectorConfig{LeaseTimeout: lease, HeartbeatInterval: heartbeat, AcquireInterval: acquire}
+	e, err := NewLeaderElector(locker, cfg, logger.Test(t), monitoring.NewNoopIndexerMetricLabeler(), opts...)
 	require.NoError(t, err)
 	return e
 }
 
 func TestNewLeaderElector_RejectsHeartbeatNotLessThanLease(t *testing.T) {
-	_, err := NewLeaderElector(&fakeLocker{}, time.Second, time.Second, time.Second, logger.Test(t), monitoring.NewNoopIndexerMetricLabeler())
+	_, err := NewLeaderElector(&fakeLocker{}, LeaderElectorConfig{LeaseTimeout: time.Second, HeartbeatInterval: time.Second, AcquireInterval: time.Second}, logger.Test(t), monitoring.NewNoopIndexerMetricLabeler())
 	require.Error(t, err)
 }
 
 func TestLeaderElector_FollowerWhenLockIsHeld(t *testing.T) {
 	locker := &fakeLocker{} // not free
-	e := newTestElector(t, locker, time.Second, 100*time.Millisecond, 20*time.Millisecond)
 	var elected atomic.Bool
-	e.OnElected(func(context.Context) { elected.Store(true) })
+	e := newTestElector(t, locker, time.Second, 100*time.Millisecond, 20*time.Millisecond,
+		WithOnElected(func(context.Context) { elected.Store(true) }))
 	e.Start(t.Context())
 	defer e.Close()
 
 	time.Sleep(200 * time.Millisecond)
 	require.False(t, e.IsLeader())
 	require.False(t, elected.Load())
+	require.NoError(t, e.Ready(), "a follower is healthy")
+}
+
+func TestLeaderElector_UnhealthyAfterRepeatedAcquireErrors(t *testing.T) {
+	locker := &fakeLocker{}
+	locker.failAcquire.Store(true)
+	e := newTestElector(t, locker, time.Second, 100*time.Millisecond, 10*time.Millisecond)
+	require.Error(t, e.Ready(), "not ready before Start")
+	e.Start(t.Context())
+	defer e.Close()
+
+	require.Eventually(t, func() bool { return e.Ready() != nil }, time.Second, 5*time.Millisecond)
+	require.ErrorContains(t, e.Ready(), "database down")
+
+	locker.failAcquire.Store(false)
+	require.Eventually(t, func() bool { return e.Ready() == nil }, time.Second, 5*time.Millisecond, "one success makes it healthy again")
 }
 
 func TestLeaderElector_DemotedOnHeartbeatErrorThenElectedAgain(t *testing.T) {
 	locker := &fakeLocker{}
 	locker.free.Store(true)
-	e := newTestElector(t, locker, time.Second, 20*time.Millisecond, 20*time.Millisecond)
-
 	var elections atomic.Int32
 	callbackCtxs := make(chan context.Context, 10)
-	e.OnElected(func(ctx context.Context) {
-		elections.Add(1)
-		callbackCtxs <- ctx
-	})
+	e := newTestElector(t, locker, time.Second, 20*time.Millisecond, 20*time.Millisecond,
+		WithOnElected(func(ctx context.Context) {
+			elections.Add(1)
+			callbackCtxs <- ctx
+		}))
 	e.Start(t.Context())
 	defer e.Close()
 

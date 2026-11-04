@@ -22,78 +22,22 @@ func newTestPostgresStorage(t *testing.T) (*PostgresStorage, *sqlx.DB) {
 	return &PostgresStorage{ds: db, lggr: logger.Test(t), monitoring: monitoring.NewNoopIndexerMonitoring()}, db
 }
 
-func tryLock(t *testing.T, s *PostgresStorage, leaseTimeout time.Duration) (common.DiscoveryLease, bool) {
-	t.Helper()
-	lease, acquired, err := s.TryAcquireDiscoveryLock(t.Context(), leaseTimeout)
-	require.NoError(t, err)
-	return lease, acquired
-}
-
+// The lock behavior is tested in common/pgadvisorylock; this checks the indexer key and wiring.
 func TestTryAcquireDiscoveryLock(t *testing.T) {
-	s, db := newTestPostgresStorage(t)
+	s, _ := newTestPostgresStorage(t)
 
-	t.Run("second caller does not get the lock until the first releases it", func(t *testing.T) {
-		lease, ok := tryLock(t, s, time.Minute)
-		require.True(t, ok)
-		_, ok = tryLock(t, s, time.Minute)
-		require.False(t, ok)
+	lock, ok, err := s.TryAcquireDiscoveryLock(t.Context(), time.Minute)
+	require.NoError(t, err)
+	require.True(t, ok)
+	_, ok, err = s.TryAcquireDiscoveryLock(t.Context(), time.Minute)
+	require.NoError(t, err)
+	require.False(t, ok)
 
-		lease.Release()
-		lease.Release() // safe to call more than once
-
-		lease, ok = tryLock(t, s, time.Minute)
-		require.True(t, ok)
-		lease.Release()
-	})
-
-	t.Run("database frees the lock when no heartbeat comes within the lease timeout", func(t *testing.T) {
-		lease, ok := tryLock(t, s, time.Second)
-		require.True(t, ok)
-
-		require.Eventually(t, func() bool {
-			l, ok, err := s.TryAcquireDiscoveryLock(t.Context(), time.Minute)
-			if err != nil || !ok {
-				return false
-			}
-			l.Release()
-			return true
-		}, 5*time.Second, 100*time.Millisecond)
-
-		require.Error(t, lease.Heartbeat(t.Context()), "heartbeat on a closed session must fail")
-		lease.Release()
-	})
-
-	t.Run("heartbeat keeps the lock past the lease timeout", func(t *testing.T) {
-		lease, ok := tryLock(t, s, time.Second)
-		require.True(t, ok)
-		defer lease.Release()
-
-		for range 6 {
-			time.Sleep(300 * time.Millisecond)
-			require.NoError(t, lease.Heartbeat(t.Context()))
-		}
-		_, ok = tryLock(t, s, time.Minute)
-		require.False(t, ok, "lock must still be held after 1.8s with heartbeats")
-	})
-
-	t.Run("released connection goes back to the pool with idle_session_timeout reset", func(t *testing.T) {
-		db.SetMaxOpenConns(1)
-		defer db.SetMaxOpenConns(0)
-
-		lease, ok := tryLock(t, s, time.Second)
-		require.True(t, ok)
-		lease.Release()
-
-		time.Sleep(1500 * time.Millisecond)
-		var timeout string
-		require.NoError(t, db.GetContext(t.Context(), &timeout, "SHOW idle_session_timeout"))
-		require.Equal(t, "0", timeout)
-	})
-
-	t.Run("rejects a lease timeout below 1ms", func(t *testing.T) {
-		_, _, err := s.TryAcquireDiscoveryLock(t.Context(), 0)
-		require.Error(t, err)
-	})
+	lock.Release()
+	lock, ok, err = s.TryAcquireDiscoveryLock(t.Context(), time.Minute)
+	require.NoError(t, err)
+	require.True(t, ok)
+	lock.Release()
 }
 
 func TestAdvanceDiscoverySequence_NeverMovesBack(t *testing.T) {

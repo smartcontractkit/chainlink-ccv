@@ -2,10 +2,10 @@
 
 ## Executive Summary
 
-- A Postgres advisory lock now selects one indexer replica as the discovery leader. Only the leader reads messages from the aggregators.
+- A Postgres advisory lock can now select one indexer replica as the discovery leader. Only the leader reads messages from the aggregators. The feature is off by default (`[LeaderElection] Enabled`). Devenv turns it on.
 - Before this change, each replica read the same aggregator stream, sent all messages to its own worker pool, and could move the discovery cursor back. This is the first step to run more than one indexer replica in one cluster.
-- This change affects the indexer only: `indexer/pkg/discovery`, `indexer/pkg/storage`, `indexer/pkg/worker`, `indexer/pkg/config` and `indexer/cmd`.
-- It has small breaking changes to Go interfaces and signatures. It adds an optional config table and two metrics.
+- This change affects the indexer (`indexer/pkg/discovery`, `indexer/pkg/storage`, `indexer/pkg/worker`, `indexer/pkg/config`, `indexer/cmd`). It also adds the shared package `common/pgadvisorylock`, which the aggregator orphan recovery lock now uses.
+- It has small breaking changes to Go interfaces and signatures. It adds an optional config table and three metrics.
 
 ## AI Adapter Index
 
@@ -16,19 +16,21 @@
 | `storage.PostgresStorage.UpdateMessageStatus` | behavior-changed | `\.UpdateMessageStatus\(` | `indexer/pkg/storage/postgres.go:610` | [#timeout-does-not-replace-a-final-status](#timeout-does-not-replace-a-final-status) |
 | `indexer.discovery_state.last_sequence_number` | behavior-changed | `discovery_state` | `indexer/pkg/storage/postgres.go:971` | [#discovery-cursor-moves-forward-only](#discovery-cursor-moves-forward-only) |
 | `storage.DataSource` | added | `\bstorage\.DataSource\b` | `indexer/pkg/storage/postgres.go:57` | [#discovery-leader-lock](#discovery-leader-lock) |
-| `common.DiscoveryLocker`, `common.DiscoveryLease` | added | `DiscoveryLocker\|DiscoveryLease` | `indexer/pkg/common/storage.go:77` | [#discovery-leader-lock](#discovery-leader-lock) |
+| `pgadvisorylock.TryAcquire`, `pgadvisorylock.Lock`, `pgadvisorylock.Conner` | added | `pgadvisorylock\.` | `common/pgadvisorylock/lock.go` | [#shared-advisory-lock-package](#shared-advisory-lock-package) |
+| `discovery.MultiSourceMessageDiscovery.Replay`, `common.MessageDiscovery.Replay` | removed | `\.Replay\(ctx` | `indexer/pkg/common/discovery.go:12` | [#replay](#replay) |
+| `common.DiscoveryLocker`, `common.DiscoveryLock` | added | `DiscoveryLocker\|DiscoveryLock\b` | `indexer/pkg/common/storage.go:77` | [#discovery-leader-lock](#discovery-leader-lock) |
 | `storage.PostgresStorage.TryAcquireDiscoveryLock` | added | `TryAcquireDiscoveryLock\(` | `indexer/pkg/storage/leader_lock.go:24` | [#discovery-leader-lock](#discovery-leader-lock) |
-| `discovery.LeaderElector`, `discovery.NewLeaderElector` | added | `NewLeaderElector\(` | `indexer/pkg/discovery/leader.go:40` | [#discovery-leader-lock](#discovery-leader-lock) |
+| `discovery.LeaderElector`, `discovery.NewLeaderElector`, `discovery.LeaderElectorConfig`, `discovery.WithOnElected` | added | `NewLeaderElector\(` | `indexer/pkg/discovery/leader.go:40` | [#discovery-leader-lock](#discovery-leader-lock) |
 | `discovery.LeadershipGate`, `discovery.WithLeadershipGate` | added | `WithLeadershipGate\(` | `indexer/pkg/discovery/message_discovery.go:165` | [#discovery-leader-lock](#discovery-leader-lock) |
 | `worker.Pool.Hydrate` | added | `\.Hydrate\(` | `indexer/pkg/worker/worker_pool.go:77` | [#pool-start-no-longer-hydrates](#pool-start-no-longer-hydrates) |
 | `config.Config.LeaderElection` | added | `LeaderElection` | `indexer/pkg/config/config.go:59` | [#discovery-leader-lock](#discovery-leader-lock) |
-| `indexer_discovery_leader`, `indexer_discovery_leader_changes` | added | `indexer_discovery_leader` | `indexer/pkg/monitoring/metrics.go:113` | [#metrics](#metrics) |
+| `indexer_discovery_leader`, `indexer_discovery_leader_changes`, `indexer_discovery_leader_errors` | added | `indexer_discovery_leader` | `indexer/pkg/monitoring/metrics.go:113` | [#metrics](#metrics) |
 
 ## Breaking Changes
 
 ### IndexerMetricLabeler has new methods
 
-- **What changed:** `common.IndexerMetricLabeler` has two new methods: `RecordDiscoveryLeaderGauge(ctx, isLeader bool)` and `IncrementDiscoveryLeaderChanges(ctx)`.
+- **What changed:** `common.IndexerMetricLabeler` has three new methods: `RecordDiscoveryLeaderGauge(ctx, isLeader bool)`, `IncrementDiscoveryLeaderChanges(ctx)` and `IncrementDiscoveryLeaderErrors(ctx, op string)`.
 - **Why:** The elector records which replica is the leader and how often the leadership changes.
 - **Who is affected:** All implementations. In this repo they are `monitoring.IndexerMetricLabeler`, `monitoring.NoopIndexerMetricLabeler` and `mocks.MockIndexerMetricLabeler`.
 
@@ -36,7 +38,7 @@
 
 - **What changed:** `worker.Pool.Start`.
 - **Before:** `Start` loaded all PROCESSING messages from storage and enqueued them.
-- **After:** `Start` only starts the goroutines. The new method `Pool.Hydrate(ctx) error` loads the PROCESSING messages. `cmd/main.go` calls it from `LeaderElector.OnElected`, so only the new leader takes over the retries of the last leader.
+- **After:** `Start` only starts the goroutines. The new method `Pool.Hydrate(ctx) error` loads the PROCESSING messages. When leader election is on, `cmd/main.go` calls it from the `WithOnElected` callback, so only the new leader takes over the retries of the last leader. When it is off, `cmd/main.go` calls it after `Pool.Start`, as before.
 - **Who is affected:** Code that builds a `worker.Pool` and expects `Start` to resume the PROCESSING messages. Call `Hydrate` to keep the old behavior.
 
 ### TIMEOUT does not replace a final status
@@ -50,10 +52,11 @@
 
 - **What changed:** The cursor update in `PersistDiscoveryBatch` (now `advanceDiscoverySequence`) uses `GREATEST(last_sequence_number, $1)`.
 - **Why:** A slow writer, for example an old leader during a leadership change, cannot move the cursor back.
+- **Operator note:** If the aggregator sequence goes back (for example after an aggregator database reset), the cursor stays at the higher value, and discovery skips the new rows. Reset `indexer.discovery_state.last_sequence_number` by hand in that case.
 
 ## Migration Guide
 
-1. Add `RecordDiscoveryLeaderGauge` and `IncrementDiscoveryLeaderChanges` to custom `IndexerMetricLabeler` implementations.
+1. Add `RecordDiscoveryLeaderGauge`, `IncrementDiscoveryLeaderChanges` and `IncrementDiscoveryLeaderErrors` to custom `IndexerMetricLabeler` implementations.
 2. Regenerate mocks: `just mock`.
 3. If you build a `worker.Pool` yourself, call `Hydrate` where the PROCESSING messages must be resumed:
 
@@ -64,16 +67,17 @@ pool.Start(ctx) // also hydrated
 
 ```go
 // After
+elector, err := discovery.NewLeaderElector(locker, discovery.LeaderElectorConfig{...}, lggr, metrics,
+	discovery.WithOnElected(func(ctx context.Context) {
+		if err := pool.Hydrate(ctx); err != nil {
+			lggr.Errorw("Failed to hydrate", "error", err)
+		}
+	}))
 pool.Start(ctx)
-elector.OnElected(func(ctx context.Context) {
-	if err := pool.Hydrate(ctx); err != nil {
-		lggr.Errorw("Failed to hydrate", "error", err)
-	}
-})
 elector.Start(ctx)
 ```
 
-4. No config change is necessary. The `LeaderElection` table is optional.
+4. No config change is necessary. The feature is off by default. To turn it on, set `[LeaderElection] Enabled = true` and make sure that `MaxOpenConnections` is at least 2.
 
 ## New Features / Additions
 
@@ -89,23 +93,40 @@ elector.Start(ctx)
 
 ```toml
 [LeaderElection]
-  LeaseTimeout = "30s"       # default
-  HeartbeatInterval = "10s"  # default, must be less than LeaseTimeout
-  AcquireInterval = "5s"     # default
+  Enabled = true             # default false
+  LeaseTimeout = "30s"       # default, minimum 5s
+  HeartbeatInterval = "10s"  # default, minimum 1s, maximum LeaseTimeout/2
+  AcquireInterval = "5s"     # default, minimum 1s
 ```
 
-- **Callers that do not set a gate** (for example the replay CLI) work as before: `WithLeadershipGate` is optional, and with no gate the source always polls.
+- **Validation (only when `Enabled = true`):** the limits above, and `Storage.Single.Postgres.MaxOpenConnections >= 2`, because the lock keeps one connection for the full leadership.
+- **Health:** the elector is a health reporter (`indexer.LeaderElector`) when the feature is on. A follower is healthy. After 3 failed lock operations in a row (acquire or heartbeat), it reports not ready.
+- **Cursor load:** a new leader loads the cursor with the poll timeout, and the load stops when leadership is lost.
+
+- **Callers that do not set a gate** work as before: `WithLeadershipGate` is optional, and with no gate the source always polls.
+
+### Shared advisory lock package
+
+- `common/pgadvisorylock` holds the session advisory lock logic: `TryAcquire(ctx, db, key, idleTimeout)`, `Lock.Heartbeat` and `Lock.Release`. It needs only a `Conner` (a type with `Conn(ctx)`), for example `*sql.DB` or `*sqlx.DB`.
+- The indexer discovery lock and the aggregator orphan recovery lock both use it. Each storage keeps its own `DataSource` interface (`sqlutil.DataSource` plus `pgadvisorylock.Conner`). `TryAcquireOrphanRecoveryLock` keeps its signature and its behavior.
+
+### Replay
+
+- `Replay` is removed from `common.MessageDiscovery`, and the no-op `MultiSourceMessageDiscovery.Replay` is removed. Nothing called them.
+- Replay runs with the replay CLI (`indexer/cmd/replay`) as a separate job outside the service. It does not take the discovery lock, so it runs also when a replica holds the lock. It does not read or write `discovery_state`. It competes with the main discovery in the same way as before this change, and the number of replicas has no effect on it.
 
 ### Metrics
 
 - Added the gauge `indexer_discovery_leader` (1 = leader, 0 = follower).
 - Added the counter `indexer_discovery_leader_changes`.
+- Added the counter `indexer_discovery_leader_errors`, with the label `op` (`acquire` or `heartbeat`).
 - No metric was removed or renamed.
 
 ## Compatibility & Requirements
 
 - **Postgres:** Version 14 or later, because `idle_session_timeout` is a Postgres 14 setting. On an older version, each lock attempt fails, and no replica becomes the leader.
 - **Not in scope:** Only the leader polls the verifiers, so the message processing is not shared across replicas yet. A DB queue for message processing is the next step.
+- **Rollout:** Turn on `Enabled` only when all replicas run this version.
 - **Rolling upgrade:** Old replicas do not take the lock and continue to poll. Until all replicas run this version, discovery can run on more than one replica, the same as before this change. The cursor and status guards apply only to the writes of replicas that run the new version.
 
 ## References

@@ -447,3 +447,54 @@ func TestStorageConfigValidate(t *testing.T) {
 		})
 	}
 }
+
+func TestLeaderElectionConfigValidate(t *testing.T) {
+	d := func(v time.Duration) common.Duration { return common.Duration(v) }
+	tests := []struct {
+		name    string
+		cfg     LeaderElectionConfig
+		wantErr string
+	}{
+		{name: "disabled skips the limits", cfg: LeaderElectionConfig{LeaseTimeout: d(10 * time.Millisecond)}},
+		{name: "enabled with defaults passes", cfg: LeaderElectionConfig{Enabled: true}},
+		{name: "lease below minimum", cfg: LeaderElectionConfig{Enabled: true, LeaseTimeout: d(10 * time.Millisecond)}, wantErr: "lease timeout"},
+		{name: "heartbeat below minimum", cfg: LeaderElectionConfig{Enabled: true, HeartbeatInterval: d(500 * time.Millisecond)}, wantErr: "heartbeat interval"},
+		{name: "heartbeat above half the lease", cfg: LeaderElectionConfig{Enabled: true, LeaseTimeout: d(10 * time.Second), HeartbeatInterval: d(6 * time.Second)}, wantErr: "half of the lease timeout"},
+		{name: "acquire below minimum", cfg: LeaderElectionConfig{Enabled: true, AcquireInterval: d(100 * time.Millisecond)}, wantErr: "acquire interval"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.cfg.Validate()
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, tt.wantErr)
+		})
+	}
+}
+
+func TestConfig_Validate_LeaderElectionNeedsTwoConnections(t *testing.T) {
+	newCfg := func(enabled bool, maxOpen int) *Config {
+		pgCfg := validPostgresConfig()
+		pgCfg.MaxOpenConnections = maxOpen
+		pgCfg.MaxIdleConnections = 0
+		return &Config{
+			Scheduler: SchedulerConfig{TickerInterval: 100, VerificationVisibilityWindow: 120, BaseDelay: 1000, MaxDelay: 5000},
+			Discoveries: []DiscoveryConfig{{
+				AggregatorReaderConfig: AggregatorReaderConfig{Address: "http://agg1"},
+				PollInterval:           100,
+				Timeout:                200,
+				NtpServer:              "time.google.com",
+			}},
+			Storage: StorageConfig{
+				Strategy: StorageStrategySingle,
+				Single:   &SingleStorageConfig{Type: StorageBackendTypePostgres, Postgres: pgCfg},
+			},
+			LeaderElection: LeaderElectionConfig{Enabled: enabled},
+		}
+	}
+	require.ErrorContains(t, newCfg(true, 1).Validate(), "max_open_connections of at least 2")
+	require.NoError(t, newCfg(true, 2).Validate())
+	require.NoError(t, newCfg(false, 1).Validate())
+}

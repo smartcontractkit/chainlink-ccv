@@ -77,11 +77,11 @@ type DiscoveryStateWriter interface {
 type DiscoveryLocker interface {
 	// TryAcquireDiscoveryLock gets the lock without blocking. acquired is false when another replica holds it.
 	// The store frees the lock if the holder sends no heartbeat for leaseTimeout.
-	TryAcquireDiscoveryLock(ctx context.Context, leaseTimeout time.Duration) (lease DiscoveryLease, acquired bool, err error)
+	TryAcquireDiscoveryLock(ctx context.Context, leaseTimeout time.Duration) (lock DiscoveryLock, acquired bool, err error)
 }
 
-// DiscoveryLease is a held discovery lock.
-type DiscoveryLease interface {
+// DiscoveryLock is a held discovery lock.
+type DiscoveryLock interface {
 	// Heartbeat keeps the lock. An error means that the lock can be lost.
 	Heartbeat(ctx context.Context) error
 	// Release frees the lock. It is safe to call more than once.

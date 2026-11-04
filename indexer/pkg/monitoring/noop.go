@@ -38,6 +38,7 @@ func (n *NoopIndexerMetricLabeler) RecordVerificationRecordChannelSizeGauge(ctx 
 func (n *NoopIndexerMetricLabeler) RecordActiveReadersGauge(ctx context.Context, count int64)     {}
 func (n *NoopIndexerMetricLabeler) RecordDiscoveryLeaderGauge(ctx context.Context, isLeader bool) {}
 func (n *NoopIndexerMetricLabeler) IncrementDiscoveryLeaderChanges(ctx context.Context)           {}
+func (n *NoopIndexerMetricLabeler) IncrementDiscoveryLeaderErrors(ctx context.Context, op string) {}
 func (n *NoopIndexerMetricLabeler) RecordIndexerMessageDiscoveryLatency(ctx context.Context, latency time.Duration) {
 }
 
