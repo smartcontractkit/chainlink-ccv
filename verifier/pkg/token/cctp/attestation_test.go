@@ -150,6 +150,66 @@ func Test_AttestationFetch(t *testing.T) {
 	})
 }
 
+// emptyCatalogCodec has no built-in domains, as for a chain the release does not know yet.
+type emptyCatalogCodec struct{ evmTestCodec }
+
+func (emptyCatalogCodec) Domain(protocol.ChainSelector) (uint32, bool) { return 0, false }
+
+func Test_AttestationFetchUsesDomainOverrides(t *testing.T) {
+	txHash := internal.MustByteSliceFromHex("0x912f22a13e9ccb979b621500f6952b2afd6e75be7eadaed93fc2625fe11c52a2")
+	sourceChain := protocol.ChainSelector(sel.GETH_TESTNET.Selector)
+	// Same message as Test_AttestationFetch: its messageID is fixed in attestationResponseBody.
+	ccipMessage := protocol.Message{
+		SourceChainSelector: sourceChain,
+		DestChainSelector:   protocol.ChainSelector(sel.GETH_DEVNET_2.Selector),
+	}
+	tests := []struct {
+		name       string
+		codec      chainaccess.CCTPCodec
+		overrides  map[protocol.ChainSelector]uint32
+		wantDomain string
+		wantErr    string
+	}{
+		{name: "override replaces the built-in domain", codec: evmTestCodec{}, overrides: map[protocol.ChainSelector]uint32{sourceChain: 55}, wantDomain: "55"},
+		{name: "override supplies a domain the catalog lacks", codec: emptyCatalogCodec{}, overrides: map[protocol.ChainSelector]uint32{sourceChain: 55}, wantDomain: "55"},
+		{name: "no override uses the built-in domain", codec: evmTestCodec{}, wantDomain: "100"},
+		{name: "no override and no built-in domain fails", codec: emptyCatalogCodec{}, wantErr: "unsupported source chain selector"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var requestedPath string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requestedPath = r.URL.Path
+				w.WriteHeader(http.StatusNotFound)
+			}))
+			t.Cleanup(server.Close)
+
+			service, err := NewAttestationService(
+				logger.Test(t),
+				monitoring.NewFakeVerifierMonitoring(),
+				CCTPConfig{
+					AttestationAPI:            server.URL,
+					AttestationAPITimeout:     1 * time.Minute,
+					AttestationAPICooldown:    5 * time.Minute,
+					VerifierVersion:           DefaultVerifierVersion,
+					ParsedCCTPDomainOverrides: tt.overrides,
+				},
+				map[protocol.ChainSelector]chainaccess.CCTPCodec{sourceChain: tt.codec},
+			)
+			require.NoError(t, err)
+
+			_, err = service.Fetch(t.Context(), txHash, ccipMessage)
+			require.Error(t, err)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				require.Empty(t, requestedPath, "no request is made without a domain")
+				return
+			}
+			require.Equal(t, "/v2/messages/"+tt.wantDomain, requestedPath)
+		})
+	}
+}
+
 func TestNewAttestationErrors(t *testing.T) {
 	ccvVerifierVersion := internal.MustByteSliceFromHex("0x01020304")
 

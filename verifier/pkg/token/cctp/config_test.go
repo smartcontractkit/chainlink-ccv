@@ -1,6 +1,7 @@
 package cctp
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -297,6 +298,179 @@ func Test_TryParsing(t *testing.T) {
 			wantErr: true,
 			errMsg:  "invalid verifier_addresses",
 		},
+		{
+			name: "valid cctp_domain_mapping with TOML int64 values",
+			t:    "cctp",
+			v:    "2.0",
+			data: map[string]any{
+				"attestation_api": "https://iris-api.circle.com",
+				"cctp_domain_mapping": map[string]any{
+					"1": int64(0),
+					"2": int64(7),
+				},
+			},
+			want: &CCTPConfig{
+				AttestationAPI:                "https://iris-api.circle.com",
+				AttestationAPITimeout:         1 * time.Second,
+				AttestationAPIInterval:        100 * time.Millisecond,
+				AttestationAPICooldown:        5 * time.Minute,
+				AttestationNotReadyRetry:      30 * time.Second,
+				AttestationGenericErrorRetry:  5 * time.Second,
+				AttestationConcurrentFetchers: 10,
+				VerifierVersion:               DefaultVerifierVersion,
+				ParsedVerifierResolvers:       map[protocol.ChainSelector]protocol.UnknownAddress{},
+				ParsedVerifiers:               map[protocol.ChainSelector]protocol.UnknownAddress{},
+				ParsedCCTPDomainOverrides:     map[protocol.ChainSelector]uint32{1: 0, 2: 7},
+				CCTPDomainOverrides:           map[string]any{"1": int64(0), "2": int64(7)},
+			},
+		},
+		{
+			name: "valid cctp_domain_mapping with JSON float64 values",
+			t:    "cctp",
+			v:    "2.0",
+			data: map[string]any{
+				"attestation_api": "https://iris-api.circle.com",
+				"cctp_domain_mapping": map[string]any{
+					"3": float64(10),
+				},
+			},
+			want: &CCTPConfig{
+				AttestationAPI:                "https://iris-api.circle.com",
+				AttestationAPITimeout:         1 * time.Second,
+				AttestationAPIInterval:        100 * time.Millisecond,
+				AttestationAPICooldown:        5 * time.Minute,
+				AttestationNotReadyRetry:      30 * time.Second,
+				AttestationGenericErrorRetry:  5 * time.Second,
+				AttestationConcurrentFetchers: 10,
+				VerifierVersion:               DefaultVerifierVersion,
+				ParsedVerifierResolvers:       map[protocol.ChainSelector]protocol.UnknownAddress{},
+				ParsedVerifiers:               map[protocol.ChainSelector]protocol.UnknownAddress{},
+				ParsedCCTPDomainOverrides:     map[protocol.ChainSelector]uint32{3: 10},
+				CCTPDomainOverrides:           map[string]any{"3": float64(10)},
+			},
+		},
+		{
+			name: "cctp_domain_mapping is not a map",
+			t:    "cctp",
+			v:    "2.0",
+			data: map[string]any{
+				"attestation_api":     "https://iris-api.circle.com",
+				"cctp_domain_mapping": "not-a-map",
+			},
+			wantErr: true,
+			errMsg:  "invalid cctp_domain_mapping",
+		},
+		{
+			name: "cctp_domain_mapping has non-numeric chain selector",
+			t:    "cctp",
+			v:    "2.0",
+			data: map[string]any{
+				"attestation_api":     "https://iris-api.circle.com",
+				"cctp_domain_mapping": map[string]any{"abc": int64(1)},
+			},
+			wantErr: true,
+			errMsg:  "invalid chain selector abc",
+		},
+		{
+			name: "cctp_domain_mapping has negative domain",
+			t:    "cctp",
+			v:    "2.0",
+			data: map[string]any{
+				"attestation_api":     "https://iris-api.circle.com",
+				"cctp_domain_mapping": map[string]any{"1": int64(-1)},
+			},
+			wantErr: true,
+			errMsg:  "must not be negative",
+		},
+		{
+			name: "cctp_domain_mapping has domain overflowing uint32",
+			t:    "cctp",
+			v:    "2.0",
+			data: map[string]any{
+				"attestation_api":     "https://iris-api.circle.com",
+				"cctp_domain_mapping": map[string]any{"1": int64(math.MaxUint32) + 1},
+			},
+			wantErr: true,
+			errMsg:  "does not fit in uint32",
+		},
+		{
+			name: "cctp_domain_mapping has string domain",
+			t:    "cctp",
+			v:    "2.0",
+			data: map[string]any{
+				"attestation_api":     "https://iris-api.circle.com",
+				"cctp_domain_mapping": map[string]any{"1": "7"},
+			},
+			wantErr: true,
+			errMsg:  "expected an integer",
+		},
+		{
+			name: "cctp_domain_mapping omitted yields no overrides",
+			t:    "cctp",
+			v:    "2.0",
+			data: map[string]any{
+				"attestation_api": "https://iris-api.circle.com",
+				"verifier_resolver_addresses": map[string]any{
+					"1": testAddr1Hex,
+				},
+			},
+			want: &CCTPConfig{
+				AttestationAPI:                "https://iris-api.circle.com",
+				AttestationAPITimeout:         1 * time.Second,
+				AttestationAPIInterval:        100 * time.Millisecond,
+				AttestationAPICooldown:        5 * time.Minute,
+				AttestationNotReadyRetry:      30 * time.Second,
+				AttestationGenericErrorRetry:  5 * time.Second,
+				AttestationConcurrentFetchers: 10,
+				VerifierVersion:               DefaultVerifierVersion,
+				ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{
+					1: testAddr1,
+				},
+				ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{},
+			},
+		},
+		{
+			name: "cctp_domain_mapping explicitly nil yields no overrides",
+			t:    "cctp",
+			v:    "2.0",
+			data: map[string]any{
+				"attestation_api":     "https://iris-api.circle.com",
+				"cctp_domain_mapping": nil,
+			},
+			want: &CCTPConfig{
+				AttestationAPI:                "https://iris-api.circle.com",
+				AttestationAPITimeout:         1 * time.Second,
+				AttestationAPIInterval:        100 * time.Millisecond,
+				AttestationAPICooldown:        5 * time.Minute,
+				AttestationNotReadyRetry:      30 * time.Second,
+				AttestationGenericErrorRetry:  5 * time.Second,
+				AttestationConcurrentFetchers: 10,
+				VerifierVersion:               DefaultVerifierVersion,
+				ParsedVerifierResolvers:       map[protocol.ChainSelector]protocol.UnknownAddress{},
+				ParsedVerifiers:               map[protocol.ChainSelector]protocol.UnknownAddress{},
+			},
+		},
+		{
+			name: "cctp_domain_mapping empty table yields no overrides",
+			t:    "cctp",
+			v:    "2.0",
+			data: map[string]any{
+				"attestation_api":     "https://iris-api.circle.com",
+				"cctp_domain_mapping": map[string]any{},
+			},
+			want: &CCTPConfig{
+				AttestationAPI:                "https://iris-api.circle.com",
+				AttestationAPITimeout:         1 * time.Second,
+				AttestationAPIInterval:        100 * time.Millisecond,
+				AttestationAPICooldown:        5 * time.Minute,
+				AttestationNotReadyRetry:      30 * time.Second,
+				AttestationGenericErrorRetry:  5 * time.Second,
+				AttestationConcurrentFetchers: 10,
+				VerifierVersion:               DefaultVerifierVersion,
+				ParsedVerifierResolvers:       map[protocol.ChainSelector]protocol.UnknownAddress{},
+				ParsedVerifiers:               map[protocol.ChainSelector]protocol.UnknownAddress{},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -322,6 +496,13 @@ func Test_TryParsing(t *testing.T) {
 				assert.Equal(t, tt.want.VerifierVersion, got.VerifierVersion)
 				assert.Equal(t, tt.want.ParsedVerifierResolvers, got.ParsedVerifierResolvers)
 				assert.Equal(t, tt.want.ParsedVerifiers, got.ParsedVerifiers)
+				if tt.want.ParsedCCTPDomainOverrides == nil {
+					assert.Empty(t, got.ParsedCCTPDomainOverrides)
+					assert.Empty(t, got.CCTPDomainOverrides)
+				} else {
+					assert.Equal(t, tt.want.ParsedCCTPDomainOverrides, got.ParsedCCTPDomainOverrides)
+					assert.Equal(t, tt.want.CCTPDomainOverrides, got.CCTPDomainOverrides)
+				}
 			}
 		})
 	}

@@ -66,6 +66,7 @@ type HTTPAttestationService struct {
 	verifierVersion   protocol.ByteSlice
 	verifierAddresses map[protocol.ChainSelector]protocol.UnknownAddress
 	cctpCodecs        map[protocol.ChainSelector]chainaccess.CCTPCodec
+	domainOverrides   map[protocol.ChainSelector]uint32
 }
 
 func NewAttestationService(
@@ -85,6 +86,7 @@ func NewAttestationService(
 		verifierVersion:   config.VerifierVersion,
 		verifierAddresses: config.ParsedVerifiers,
 		cctpCodecs:        cctpCodecs,
+		domainOverrides:   config.ParsedCCTPDomainOverrides,
 	}, nil
 }
 
@@ -101,7 +103,11 @@ func (h *HTTPAttestationService) Fetch(
 		return Attestation{}, fmt.Errorf("no CCTP chain codec for source chain selector: %d", message.SourceChainSelector)
 	}
 
-	sourceDomain, ok := codec.Domain(message.SourceChainSelector)
+	// cctp_domain_mapping takes precedence over the codec's built-in catalog.
+	sourceDomain, ok := h.domainOverrides[message.SourceChainSelector]
+	if !ok {
+		sourceDomain, ok = codec.Domain(message.SourceChainSelector)
+	}
 	if !ok {
 		return Attestation{}, fmt.Errorf("unsupported source chain selector: %d", message.SourceChainSelector)
 	}
