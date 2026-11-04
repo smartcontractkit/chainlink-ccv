@@ -79,7 +79,8 @@ build-docker-ci:
 build-images-at ref tag services="":
     #!/usr/bin/env bash
     set -euo pipefail
-    want() { [ -z "{{ services }}" ] || [[ ",{{ services }}," == *",$1,"* ]]; }
+    selected_services={{quote(services)}}
+    want() { [ -z "$selected_services" ] || [[ ",$selected_services," == *",$1,"* ]]; }
     dir="$(mktemp -d)"
     trap 'git worktree remove --force "$dir"' EXIT
     git worktree add --detach "$dir" "{{ ref }}" >/dev/null
