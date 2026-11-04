@@ -26,10 +26,12 @@ execute the staging plan's step with the substitutions in "Conventions".
    Cutovers need a posted schedule, a quiet window per node, and a real lane for the
    confirmation message in step 11. Staging's "pick a quiet moment" becomes "announce it,
    then pick a quiet moment."
-2. **59 EVM chains, not 5.** The pre-cutover config diff runs per chain. There is no
-   curated block-time table: every chain flagged `txm_block_time_is_default: true` in
-   the diff gets an explicit value in the EVM TOML or a recorded acceptance. This is
-   the scale test for the config tooling.
+2. **59 EVM chains, not 5.** The pre-cutover config diff runs per chain. While
+   `curatedTXMBlockTimeByChainID` (PR #1461) covers common >2s chains (`txm_block_time_source:
+   "curated_chain_default"`), every chain that still falls back to `txm_block_time_source:
+   "generic_fallback"` (`2s`) in the diff gets an explicit `BlockTime` value in the EVM TOML (if
+   its block time exceeds `2s`) or a recorded acceptance. This is the scale test for the config
+   tooling.
 3. **Balance alerting is mandatory.** Staging skipped it with manual soak checks. Here
    the external alert on each new executor transmitter address, per chain, goes up before
    that node's jobs start. This is the rehearsal for the prod-mainnet alerting
@@ -39,6 +41,8 @@ execute the staging plan's step with the substitutions in "Conventions".
    so there is no external scheduling to respect. Stay one-at-a-time for the first three
    nodes; after that, batches of two or three are reasonable if the soaks are clean.
    Derive the number per batch from the live committee config, not from this paragraph.
+   Batches also overlap the nodes' blind windows (staging validation): messages finalized
+   during a window get no signature from that node, so keep the windows short on fast chains.
 5. **Release images, not `-rc` SHAs.** The standalone pair deployed here should run the
    same release-tagged image (`vX.Y.Z`) that prod-mainnet operators will be given. This
    is the end-to-end validation of the image-publishing path before it becomes external.
@@ -51,10 +55,13 @@ execute the staging plan's step with the substitutions in "Conventions".
 2. Export while the node is up; stop the node before the standalone verifier starts. One
    JD record cannot have two owners.
 3. Never boot the verifier without its `[key_import]` block.
-4. `ApplyVerifierConfig` must produce no contract transaction. A proposed signer change
-   means the imported key is wrong. Stop.
+4. The `signer_address` in the node's new verifier job must equal `$EXPECTED_ID`.
+   `ApplyVerifierConfig` is offchain-only, so that field is where a wrong key shows. Stop.
 5. After the standalone verifier job first starts, re-apply and confirm the disabled flag
    for any chain that was disabled on the node before the cutover.
+6. From P1 on, every EVM `apply-verifier-config` input sets `consolidateAggregators: true`.
+7. Never run `apply-executor-config` for a cut-over node; its executor job goes out through
+   `jd_propose_job`, as in staging step 9, until open question 5 in the staging plan is fixed.
 
 ## Conventions
 
@@ -72,6 +79,7 @@ export NS=chainlink-ccv-testnet
 CCV=~/dev/dev/chainlink-ccv
 CLD=~/dev/dev/chainlink-deployments
 DEPLOY=~/dev/dev/chainlink-ccv-deploy
+EVM_VALUES=$DEPLOY/deploy/config/prod-testnet/committee-verifier-evm/config.yaml
 
 # per cutover; i = 0..15 (nodes 16..20: see open question 1)
 i=1
@@ -115,50 +123,98 @@ Two aggregators means each node runs two `ccvcommitteeverifier` jobs today — t
 prod-testnet jobs use two verifier IDs per database (`aggregator-1-default-verifier`,
 `aggregator-2-default-verifier`). Standalone runs one job; legacy `verifier_id`s become
 `secret_name`s. Same changeset input as staging P1, environment `prod_testnet`, dry-run
-first. There is no secondary-committee exception here, but scope the change to the 16
-EVM-serving nodes (open question 1).
+first. There is no secondary-committee exception here, but use staging P1's explicit
+`targetNops` batches of at most three EVM-serving nodes, and approve and verify each batch
+before starting the next (open question 1). Everything staging P1 says about the side effects
+applies: one JD UI approval per node, a new `verifier_id` that starts without chain status
+(no checkpoint, no disabled flags), and hard rule 6 from then on. Record every node's
+disabled chains before running it.
 
 ### P2. Images
 
 Run the release-tagged image (`vX.Y.Z` from `release-publish.yaml`), not a `-rc` SHA.
 The tag must include the migration tooling and the block-time fallback warning; the
 per-chain values themselves are set in the P3 EVM TOML and reviewed in P5. Confirm the
-tag matches what the prod-mainnet operator image will be.
+tag matches what the prod-mainnet operator image will be. Create the worktree steps 2 and 3
+inherit from staging from that exact release tag before running either step:
+
+```sh
+CCV_IMG=/tmp/ccv-image-prod-testnet
+git -C $CCV fetch origin --tags
+git -C $CCV worktree add --detach $CCV_IMG vX.Y.Z
+```
 
 ### P3. Charts and config dirs
 
-Charts exist once staging lands them (`committee-verifier-base` and the `executor-evm`
-chart copied from the Solana executor chart). Create the prod-testnet value trees:
+The charts already exist and are shared with the Solana and Canton releases:
+`committee-verifier-base` for the verifiers and `executor-base` for the executors. Create the
+prod-testnet value trees:
 
 - `deploy/config/prod-testnet/committee-verifier-evm/`: common, config, per-instance values.
 - `deploy/config/prod-testnet/executor-evm/`: the same three.
 
 Model them on the staging trees; the only intended differences are environment labels,
-the image tag (P2), and resource sizing if staging's soak showed a need. Probe
-configuration is the same (liveness → app `/health` on 8100/8101, readiness → bootstrap
-`/ready` on 9988).
+the image tag (P2), the per-node `keyImport.expectedId` (P8), and resource sizing if
+staging's soak showed a need. Everything staging P3 lists carries over unchanged: probes on
+bootstrap `/health` (9988) with a `startupProbe`, `strategy: Recreate`, no PDB, no
+ServiceMonitor, `[key_import]` rendered from `keyImport.expectedId`, and the loopback-only admin
+console (`adminConsole`). After step 9, check
+bootstrap `/ready` on 9988 and the app `/health` on 8100/8101.
 
-### P4. Databases (3 per migrating node, on their own cluster)
+### P4. Databases (3 per migrating node, on the node's own cluster)
 
 Verifier-bootstrap, verifier-app, executor-bootstrap per node; they cannot share (goose
-version table). 48 databases if nodes 0..15 migrate; 63 if 16..20 join (open question 1).
-Add a new cluster `chainlink-ccv-testnet-evm-standalone` to
+version table). Each migrating node gets its own cluster,
+`chainlink-ccv-testnet-evm-standalone-$i`, in
 `deploy/config/prod-testnet/database-provisioner/database-provisioner.yaml`, modeled on
-the staging cluster — a new cluster, not `chainlink-ccv-testnet-dons`, for the same
-two-way isolation: the rollback path never depends on it. Sizing: the DON cluster runs
-2× `db.r8g.xlarge` on aurora-iopt1; the Canton standalone clusters run a single
-`db.t4g.medium`. Start at the Canton shape, revisit after the first soak with real
-traffic. Map keys ≤ 43 chars; set `connectionSecret.name` explicitly.
+staging's: 16 clusters and 48 databases if nodes 0..15 migrate, 21 and 63 if 16..20 join
+(open question 1). Not on `chainlink-ccv-testnet-dons`, for the same two-way isolation as
+staging (the rollback path never depends on the new clusters), and not on one shared
+cluster: all 59 EVM chains list the same 16 members with threshold 9, so once eight
+migrated members share a cluster, one incident on it stalls attestations on every chain.
+That is the exposure the DON cluster carries today for all 21 nodes. Per node, an incident
+costs one signer.
+
+Sizing: start each at a single `db.t4g.medium`, the shape of the 24 Solana and Canton
+clusters already in that file (one per verifier or executor), and revisit after the first
+soak with real traffic. The DON cluster's 2× `db.r8g.xlarge` on aurora-iopt1 is not the
+reference: it carries the CL nodes' LogPoller, which the standalone verifier does not run
+while it reads source logs over RPC. Map keys ≤ 43 chars; set `connectionSecret.name`
+explicitly.
+
+If the standalone LogPoller reader is turned on here (it needs the standalone-format EVM
+config; see the go/no-go), its `evm` schema adds the LogPoller's blocks and 30 days of
+`CCIPMessageSent` logs per OnRamp, 59 chains per node, to the database named by `[db].url`
+in the EVM secrets file. That database then dominates the other three; size each node's
+cluster, and its backups, for it before enabling the reader. See
+[Source logs](evm-cl-to-standalone.md#source-logs-rpc-or-a-logpoller).
 
 ### P5. Per-chain config review at 59-chain scale
 
 For each of the 59 EVM chains: run `ccv migrate inspect-config` against the node EVM
 TOML (the `chainlink-ccv-testnet` values carry 61 `[[EVM]]` entries; the committee
 serves 59 — reconcile the difference during the first node's diff) and record
-accept-or-correct for every warning and every chain flagged
-`txm_block_time_is_default: true`. A chain that fails to convert fails the whole
-report, so it is a fix, not a review item. This is one recorded review, reused
-across nodes, re-run when the config changes.
+accept-or-correct for every warning and every chain's `txm_block_time` /
+`txm_block_time_source` (`operator`, `curated_chain_default`, or
+`generic_fallback`). Unconvertible `[[EVM]]` entries are reported under `failed_chains`
+(and boot-time `chainaccess.CheckDeclaredChainCoverage` rejects any declared `[[chains]]`
+entry that is missing or in `failed_chains`), so `failed_chains` must be empty for all 59
+committee chains. This is one recorded review, reused across nodes, re-run when the
+config changes.
+
+Chain-level settings carry over from the node TOML, over the same chain defaults the `ccip` image
+resolves, so most chains produce no warning. Compared setting by setting against the current DON
+config (`chains.yaml` + `rpcs.yaml`, 63 chains), and leaving aside what standalone fixes on every
+chain (heads in memory, TXM v2, no log broadcaster or balance monitor), one chain runs differently,
+and the conversion warns on four:
+
+- Scroll Sepolia (534351): AutoPurge turned off. Its chain defaults use Scroll's detection API
+  with no `Threshold`, which TXM v2 cannot run; with it on, the executor could not transmit there.
+- Polygon Amoy (80002) and chain 157: `BalanceMonitor.Enabled = false`. Executor funding is the
+  external balance alert instead.
+- Chain 9746: `LogBroadcasterEnabled = false`; nothing standalone runs reads it.
+
+Any other warning on a later run is new and needs a decision.
 
 ### P6. Secrets per node
 
@@ -220,7 +276,14 @@ Every item from staging's validation, here under real traffic:
   stuck message. This is the production gate from the TXM v2 assessment; staging's run
   was rehearsal, this one counts.
 - **Head-tracker cold start** on a busy chain: measure the re-sync cost under real head
-  velocity; decide acceptability.
+  velocity; decide acceptability. The head tracker starts cold whichever reader runs, and a
+  LogPoller-backed chain also replays about one finality depth from its checkpoint on every
+  start, so measure both if any node turns the LogPoller on.
+- **LogPoller reader, if any node turns it on:** that node runs a different source reader
+  than the rest, so spot-check it before the go/no-go, put
+  `verifier_source_reader_last_processed_finalized_block` against the chain head on a
+  dashboard (a stalled LogPoller pins the reader's heads), and confirm a restart's replay
+  finishes in reasonable time.
 - **Rollback drill:** repeat once here even though staging drilled it — the prod contexts
   and release names differ, and the people on the prod-mainnet rotation should run it.
 - **Dashboards and alerts:** source-reader head gauges, critical-invariant counter,
@@ -234,11 +297,17 @@ Every item from staging's validation, here under real traffic:
 
 Operator comms for prod-mainnet may start when all of these hold:
 
-- [ ] All 16 EVM-serving nodes cut over and confirmed (message per lane, signer sets
-      unchanged on chain).
+- [ ] All 16 EVM-serving nodes cut over and confirmed: a message per lane, each node's
+      job `signer_address` equal to its P8 address, and each executor's transmitter
+      landing transactions.
 - [ ] Two-week full-fleet soak with no sev and no unexplained transmit failure.
 - [ ] Canary restart, rollback drill, and alert verification results written down.
 - [ ] The per-chain config review (P5) archived; every deviation has an owner.
+- [ ] Source-read mode for prod-mainnet decided and documented in `evm-cl-to-standalone.md`:
+      `eth_getLogs` from the node TOML, or the standalone LogPoller, which needs the
+      standalone-format EVM config, an EVM secrets file, and database sizing for its logs.
+- [ ] `apply-executor-config` can target a standalone operator's executor record (staging
+      open question 5), so prod-mainnet executors do not need a hand-proposed job.
 - [ ] Runbook corrections from this environment fed back into
       `evm-cl-to-standalone.md` — prod-mainnet operators get the corrected doc.
 
@@ -247,7 +316,8 @@ Operator comms for prod-mainnet may start when all of these hold:
 1. **Nodes 16..20.** Committee chain configs list only `ccv-prod-testnet-0..15`; nodes
    16–20 have no EVM verifier or executor role in the committee, yet the DON runs 21
    nodes. What are they (expansion, standby, decommission candidates)? They do not
-   migrate until this is answered; P4's database count depends on it (48 vs 63).
+   migrate until this is answered; P4's counts depend on it (16 vs 21 clusters, 48 vs 63
+   databases).
 2. **`storage_locations` lists `aggregator-1.testnet.ccip.chain.link` twice** in
    `prod_testnet/topology.toml` — probable typo for aggregator-2. Harmless for the
    cutover (the changesets read the `aggregators` block, which is correct), but fix it
