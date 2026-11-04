@@ -179,3 +179,34 @@ func TestApplyExecutorConfigInputFromState_BuildsReadyInput(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"http://override:9"}, in2.IndexerAddress)
 }
+
+func TestExecutorPoolInputFromState_MergesChainsAcrossJobs(t *testing.T) {
+	selA := chainsel.TEST_90000001.Selector
+	selB := chainsel.TEST_90000002.Selector
+	adapterCfgs := make(map[string]executor.ChainConfiguration)
+	for _, sel := range []uint64{selA, selB} {
+		adapterCfgs[strconv.FormatUint(sel, 10)] = executor.ChainConfiguration{
+			DestinationChainConfig: chainaccess.DestinationChainConfig{OffRampAddress: "0xofframp"},
+			DefaultExecutorAddress: "0xexec",
+		}
+	}
+	pool := ExecutorPoolInput{
+		ChainConfigs: map[uint64]ChainExecutorPoolMembership{
+			selA: {NOPAliases: []shared.NOPAlias{"nop1", "nop2"}, ExecutionInterval: 30 * time.Second},
+			selB: {NOPAliases: []shared.NOPAlias{"nop2"}, ExecutionInterval: 60 * time.Second},
+		},
+	}
+	specs, _, err := buildExecutorJobSpecs(adapterCfgs, testExecutorQualifier, nil, pool, []string{"http://i"}, "", nil)
+	require.NoError(t, err)
+
+	ds := datastore.NewMemoryDataStore()
+	for alias, byJobID := range specs {
+		for jobID, spec := range byJobID {
+			require.NoError(t, ccvdeployment.SaveJob(ds, shared.JobInfo{JobID: jobID, NOPAlias: alias, Spec: spec}))
+		}
+	}
+
+	got, _, err := ExecutorPoolInputFromState(ds.Seal(), testExecutorQualifier)
+	require.NoError(t, err)
+	assert.Equal(t, pool.ChainConfigs, got.ChainConfigs)
+}

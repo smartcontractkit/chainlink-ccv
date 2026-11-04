@@ -355,6 +355,10 @@ func buildExecutorJobSpecs(
 			if !ok {
 				continue
 			}
+			// Include only the chains where this NOP is a pool member.
+			if !slices.Contains(chainCfg.NOPAliases, nopAlias) {
+				continue
+			}
 			sortedPool := slices.Clone(chainCfg.NOPAliases)
 			slices.Sort(sortedPool)
 			sortedPoolStrs := shared.ConvertNopAliasToString(sortedPool)

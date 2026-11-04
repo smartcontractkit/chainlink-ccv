@@ -227,3 +227,41 @@ func TestBuildExecutorJobSpecs_CLUsesExecutorConfig(t *testing.T) {
 	require.GreaterOrEqual(t, i, 0, "job spec must contain executorConfig")
 	assert.NotContains(t, jobSpec, "appConfig")
 }
+
+func TestBuildExecutorJobSpecs_OnlyIncludesChainsWhereNOPIsPoolMember(t *testing.T) {
+	selA := chainsel.TEST_90000001.Selector
+	selB := chainsel.TEST_90000002.Selector
+	adapterCfgs := make(map[string]executor.ChainConfiguration)
+	for _, sel := range []uint64{selA, selB} {
+		adapterCfgs[strconv.FormatUint(sel, 10)] = executor.ChainConfiguration{
+			DestinationChainConfig: chainaccess.DestinationChainConfig{OffRampAddress: "0xofframp"},
+			DefaultExecutorAddress: "0xexec",
+		}
+	}
+	pool := ExecutorPoolInput{
+		ChainConfigs: map[uint64]ChainExecutorPoolMembership{
+			selA: {NOPAliases: []shared.NOPAlias{"nop1", "nop2"}},
+			selB: {NOPAliases: []shared.NOPAlias{"nop2"}},
+		},
+	}
+
+	specs, _, err := buildExecutorJobSpecs(adapterCfgs, "default-executor", nil, pool,
+		[]string{"http://indexer:1"}, "", nil)
+	require.NoError(t, err)
+
+	chainsFor := func(nop shared.NOPAlias) []string {
+		require.Len(t, specs[nop], 1)
+		var chains []string
+		for _, spec := range specs[nop] {
+			cfg, err := parseExecutorConfigFromSpec(spec)
+			require.NoError(t, err)
+			for sel := range cfg.ChainConfiguration {
+				chains = append(chains, sel)
+			}
+		}
+		return chains
+	}
+
+	assert.ElementsMatch(t, []string{strconv.FormatUint(selA, 10)}, chainsFor("nop1"))
+	assert.ElementsMatch(t, []string{strconv.FormatUint(selA, 10), strconv.FormatUint(selB, 10)}, chainsFor("nop2"))
+}

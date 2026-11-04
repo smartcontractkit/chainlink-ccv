@@ -60,13 +60,12 @@ func ExecutorPoolInputFromState(ds datastore.DataStore, qualifier string) (Execu
 
 	scope := shared.ExecutorJobScope{ExecutorQualifier: qualifier}
 
-	// All of a pool's jobs carry identical pool-wide tuning and the full per-chain
-	// config, so the reconstructed pool is taken from a single job. To keep that
-	// deterministic regardless of datastore iteration order, every other in-scope
-	// job must agree — divergence is drift and is reported as an error rather than
-	// silently resolved to whichever job happened to be visited first.
+	// Jobs must agree on pool-wide tuning and on each chain they share; divergence is reported as drift.
 	var first *executor.Configuration
 	var firstJobID shared.JobID
+	// Each job carries only the chains where its NOP is a pool member, so chains are merged across jobs.
+	chains := make(map[string]executor.ChainConfiguration)
+	chainJobIDs := make(map[string]shared.JobID)
 
 	for _, byJobID := range allJobs {
 		for jobID, info := range byJobID {
@@ -81,11 +80,21 @@ func ExecutorPoolInputFromState(ds datastore.DataStore, qualifier string) (Execu
 				c := cfg
 				first = &c
 				firstJobID = jobID
-				continue
-			}
-			if d := executorConfigDrift(*first, cfg); d != "" {
+			} else if d := executorConfigDrift(*first, cfg); d != "" {
 				return pool, extras, fmt.Errorf(
 					"executor pool %q: job %q diverges from job %q: %s", qualifier, jobID, firstJobID, d)
+			}
+			for sel, cc := range cfg.ChainConfiguration {
+				prev, seen := chains[sel]
+				if !seen {
+					chains[sel] = cc
+					chainJobIDs[sel] = jobID
+					continue
+				}
+				if d := chainConfigurationDrift(sel, prev, cc); d != "" {
+					return pool, extras, fmt.Errorf(
+						"executor pool %q: job %q diverges from job %q: %s", qualifier, jobID, chainJobIDs[sel], d)
+				}
 			}
 		}
 	}
@@ -104,7 +113,7 @@ func ExecutorPoolInputFromState(ds datastore.DataStore, qualifier string) (Execu
 	extras.IndexerAddress = first.IndexerAddress
 	extras.PyroscopeURL = first.PyroscopeURL
 
-	for selStr, cc := range first.ChainConfiguration {
+	for selStr, cc := range chains {
 		sel, perr := strconv.ParseUint(selStr, 10, 64)
 		if perr != nil {
 			return pool, extras, fmt.Errorf("executor pool %q: invalid chain selector key %q: %w", qualifier, selStr, perr)
@@ -119,8 +128,7 @@ func ExecutorPoolInputFromState(ds datastore.DataStore, qualifier string) (Execu
 }
 
 // executorConfigDrift returns a non-empty description when two in-scope executor
-// job configs disagree on any field the pool is reconstructed from (pool-wide
-// tuning, connection settings, or per-chain membership/interval). Empty means the
+// job configs disagree on pool-wide tuning or connection settings. Empty means the
 // two are consistent.
 func executorConfigDrift(a, b executor.Configuration) string {
 	switch {
@@ -143,24 +151,15 @@ func executorConfigDrift(a, b executor.Configuration) string {
 	case strings.Join(a.IndexerAddress, ",") != strings.Join(b.IndexerAddress, ","):
 		return fmt.Sprintf("indexerAddress [%s] != [%s]", strings.Join(a.IndexerAddress, ","), strings.Join(b.IndexerAddress, ","))
 	}
-	return chainConfigurationDrift(a.ChainConfiguration, b.ChainConfiguration)
+	return ""
 }
 
-func chainConfigurationDrift(a, b map[string]executor.ChainConfiguration) string {
-	if len(a) != len(b) {
-		return fmt.Sprintf("chain config count %d != %d", len(a), len(b))
+func chainConfigurationDrift(sel string, ca, cb executor.ChainConfiguration) string {
+	if pa, pb := sortedStrings(ca.ExecutorPool), sortedStrings(cb.ExecutorPool); strings.Join(pa, ",") != strings.Join(pb, ",") {
+		return fmt.Sprintf("chain %s pool [%s] != [%s]", sel, strings.Join(pa, ","), strings.Join(pb, ","))
 	}
-	for sel, ca := range a {
-		cb, ok := b[sel]
-		if !ok {
-			return fmt.Sprintf("chain %s present in one job but not the other", sel)
-		}
-		if pa, pb := sortedStrings(ca.ExecutorPool), sortedStrings(cb.ExecutorPool); strings.Join(pa, ",") != strings.Join(pb, ",") {
-			return fmt.Sprintf("chain %s pool [%s] != [%s]", sel, strings.Join(pa, ","), strings.Join(pb, ","))
-		}
-		if ca.ExecutionInterval != cb.ExecutionInterval {
-			return fmt.Sprintf("chain %s executionInterval %s != %s", sel, ca.ExecutionInterval, cb.ExecutionInterval)
-		}
+	if ca.ExecutionInterval != cb.ExecutionInterval {
+		return fmt.Sprintf("chain %s executionInterval %s != %s", sel, ca.ExecutionInterval, cb.ExecutionInterval)
 	}
 	return ""
 }
