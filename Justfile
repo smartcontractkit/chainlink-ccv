@@ -119,6 +119,11 @@ metrics-golden-check base="origin/main" allow_breaking="false": ensure-go
     git show "{{base}}:{{METRICS_GOLDEN}}" > "$base_file" 2>/dev/null || rm -f "$base_file"
     go run ./tools/metricsgolden/cmd/metricsgolden -base "$base_file" -head {{METRICS_GOLDEN}} -allow-breaking="{{allow_breaking}}"
 
+# Refresh the embedded EVM chain defaults: chainlink-evm's at the go.mod version and, given a chainlink
+# branch, tag, or full commit SHA, CCIP's at that ref.
+sync-chain-defaults ref="":
+    ./tools/bin/sync-chain-defaults.sh {{ref}}
+
 bump-chainlink-ccip sha:
     @echo "Bumping chainlink-ccip dependencies in root..."
     go get github.com/smartcontractkit/chainlink-ccip/chains/evm@{{sha}}
