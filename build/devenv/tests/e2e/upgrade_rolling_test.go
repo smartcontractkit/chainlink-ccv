@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -28,6 +29,9 @@ const UpgradeImageTagEnv = "CCV_UPGRADE_IMAGE_TAG"
 
 // UpgradeFromImageTagEnv is the tag of the images that the environment must run before the upgrade. Default: latest.
 const UpgradeFromImageTagEnv = "CCV_UPGRADE_FROM_IMAGE_TAG"
+
+// UpgradeServicesEnv is a comma-separated list of the services to swap, by image repository. Default: all.
+const UpgradeServicesEnv = "CCV_UPGRADE_SERVICES"
 
 // rolloutOrder is the order in which a deployment upgrades the services, by image repository.
 var rolloutOrder = []string{"indexer", "aggregator", "verifier", "token-verifier", "executor"}
@@ -119,7 +123,7 @@ func newUpgradeEnv(t *testing.T, onTo bool) *upgradeEnv {
 		require.NoError(t, err)
 		env.evmSrc, env.evmDest = evmChains[0].Details.ChainSelector, evmChains[1].Details.ChainSelector
 	}
-	for _, repo := range rolloutOrder {
+	for _, repo := range upgradeServices(t) {
 		names, err := services.RunningContainersByImage(ctx, repo)
 		require.NoError(t, err)
 		for _, name := range names {
@@ -143,6 +147,22 @@ func newUpgradeEnv(t *testing.T, onTo bool) *upgradeEnv {
 	}
 	require.NotEmpty(t, env.steps, "no service container found to upgrade")
 	return env
+}
+
+// upgradeServices returns the services in CCV_UPGRADE_SERVICES in rollout order, or all services if it is not set.
+func upgradeServices(t *testing.T) []string {
+	t.Helper()
+	val := strings.TrimSpace(os.Getenv(UpgradeServicesEnv))
+	if val == "" {
+		return rolloutOrder
+	}
+	want := make(map[string]bool)
+	for _, s := range strings.Split(val, ",") {
+		s = strings.TrimSpace(s)
+		require.True(t, slices.Contains(rolloutOrder, s), "%s: unknown service %q, use one of %v", UpgradeServicesEnv, s, rolloutOrder)
+		want[s] = true
+	}
+	return slices.DeleteFunc(slices.Clone(rolloutOrder), func(s string) bool { return !want[s] })
 }
 
 // happyPath sends a basic message, then a USDC and a Lombard transfer, which need the token verifier.
