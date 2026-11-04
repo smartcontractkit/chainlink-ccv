@@ -75,24 +75,34 @@ build-docker-ci:
     @just ../../aggregator/build
 
 # Build the service images of a git ref with its own Dockerfiles, and tag them <service>:<tag>.
-build-images-at ref tag:
+# services: comma-separated list of services to build (default: all).
+build-images-at ref tag services="":
     #!/usr/bin/env bash
     set -euo pipefail
+    selected_services={{quote(services)}}
+    want() { [ -z "$selected_services" ] || [[ ",$selected_services," == *",$1,"* ]]; }
     dir="$(mktemp -d)"
     trap 'git worktree remove --force "$dir"' EXIT
     git worktree add --detach "$dir" "{{ ref }}" >/dev/null
     echo "Building service images of $(git -C "$dir" rev-parse --short HEAD) as :{{ tag }}"
     for svc in verifier executor indexer aggregator; do
-        docker build -f "$dir/$svc/Dockerfile" -t "$svc:{{ tag }}" "$dir"
+        if want "$svc"; then docker build -f "$dir/$svc/Dockerfile" -t "$svc:{{ tag }}" "$dir"; fi
     done
-    docker build -f "$dir/verifier/Dockerfile" --build-arg VERIFIER_TYPE=token -t "token-verifier:{{ tag }}" "$dir"
+    if want token-verifier; then
+        docker build -f "$dir/verifier/Dockerfile" --build-arg VERIFIER_TYPE=token -t "token-verifier:{{ tag }}" "$dir"
+    fi
 
 # NOTE: the `start` images (upgrade-from or upgrade-to) replace the local :latest service images, because devenv starts :latest.
 # Build the images of `from` and `to`, and run one swap test on them.
+# CCV_UPGRADE_SERVICES (comma-separated) limits the swapped services; the other commit builds only those.
 [private]
 _swap-test test start from to profile timeout:
-    just build-images-at "{{ from }}" upgrade-from
-    just build-images-at "{{ to }}" upgrade-to
+    #!/usr/bin/env bash
+    set -euo pipefail
+    svcs="${CCV_UPGRADE_SERVICES:-}"; svcs="${svcs// /}"
+    if [ "{{ start }}" = upgrade-from ]; then from_svcs=""; to_svcs="$svcs"; else from_svcs="$svcs"; to_svcs=""; fi
+    just build-images-at "{{ from }}" upgrade-from "$from_svcs"
+    just build-images-at "{{ to }}" upgrade-to "$to_svcs"
     for svc in verifier token-verifier executor indexer aggregator; do docker tag "$svc:{{ start }}" "$svc:latest"; done
     CCV_UPGRADE_FROM_IMAGE_TAG=upgrade-from CCV_UPGRADE_IMAGE_TAG=upgrade-to ccv test --profile {{ profile }} --pattern {{ test }} --timeout {{ timeout }} --build=false
 

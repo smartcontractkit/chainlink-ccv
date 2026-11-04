@@ -22,6 +22,10 @@ on:
         description: 'Commit, branch, or tag to upgrade to (default: the commit of the selected branch)'
         required: false
         default: ''
+      services:
+        description: 'Comma-separated services to upgrade: indexer, aggregator, verifier, token-verifier, executor (default: all)'
+        required: false
+        default: ''
 
 defaults:
   run:
@@ -30,7 +34,7 @@ defaults:
 # All manual runs use the ref main. The inputs are in the group, so runs for different commit pairs do not cancel
 # each other.
 concurrency:
-  group: ${{ github.workflow }}:${{ github.ref }}:${{ inputs.from }}:${{ inputs.to }}
+  group: ${{ github.workflow }}:${{ github.ref }}:${{ inputs.from }}:${{ inputs.to }}:${{ inputs.services }}
   cancel-in-progress: true
 
 jobs:
@@ -166,6 +170,7 @@ jobs:
         env:
           DOCKER_BUILDKIT: 1
           JD_IMAGE: ${{ secrets.JD_IMAGE }}
+          CCV_UPGRADE_SERVICES: ${{ inputs.services }}
         run: just ${{ matrix.recipe }} "${{ steps.refs.outputs.from }}" "${{ steps.refs.outputs.to }}" standard.profile 30m
 
       - name: Dump logs
