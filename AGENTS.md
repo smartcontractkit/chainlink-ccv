@@ -4,6 +4,24 @@ Guidance for AI agents working in this repository. Read CONTRIBUTING.md for PR t
 mechanics. This file records conventions that are easy to get wrong by pattern-matching against
 older code that predates them.
 
+## Chain-agnostic core
+
+Treat `protocol`, `common`, `verifier/pkg`, `executor/pkg`, and generic aggregator code as chain-agnostic.
+Do not add imports there from `integration/pkg/accessors/<family>` or chain-family node/SDK packages, and
+do not expose family-specific RPC, transaction, or address types in generic APIs. Existing family-specific
+compatibility helpers are not a reason to add more.
+
+An interface is required when generic code calls behavior with family-specific implementations, including
+chain reads/writes, finality, transaction submission, and address or transaction codecs. Reuse or add a
+focused interface at the consumer boundary (usually `pkg/chainaccess`), implement it in
+`integration/pkg/accessors/<family>`, and wire it in `cmd` or another composition root. Do not branch on
+chain family in generic code.
+
+Interfaces abstract behavior, not imports. Shared cryptographic algorithms and provider-specific wire codecs
+may remain concrete in isolated packages. Do not run family-specific identity or address derivation
+unconditionally in generic paths; preserve public APIs and wire formats with compatibility adapters when
+separating existing code.
+
 ## Credentials: secrets file, not environment variables
 
 New credentials are read from the service's secrets file only. Do not add an environment variable

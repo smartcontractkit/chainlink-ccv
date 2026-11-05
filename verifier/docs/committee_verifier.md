@@ -41,7 +41,7 @@ flowchart TB
     B["Validate HMAC credentials\nfrom environment variables"]
     C["Create AggregatorWriter\ngRPC connection to Aggregator"]
     D["Create SourceReaders\none per configured chain selector"]
-    E["Load signing key\nNewSignerFromKeystore(deps.Keystore)"]
+    E["Load signing key\nNewECDSASignerFromKeystore(deps.Keystore)"]
     F["Create CommitVerifier\ncommit.NewCommitVerifier(config, signerAddress, signer)"]
     G["Create ChainStatusManager\nPostgreSQL-backed checkpoint store"]
     H["Create Coordinator\nverifier.NewCoordinator(...)"]
@@ -57,14 +57,15 @@ flowchart TB
 The committee verifier uses the Chainlink Node keystore exclusively — the raw private key bytes are never exposed to the verifier code.
 
 ```go
-signer, pubKey, signerAddress, err := commit.NewSignerFromKeystore(
+signer, pubKey, err := commit.NewECDSASignerFromKeystore(
     ctx,
     deps.Keystore,
     keys.DefaultECDSASigningKeyName, // "ccip-verifier-signing-key"
 )
+signerIdentity, err := commit.ResolveSignerIdentity(config.SignerAddress, pubKey)
 ```
 
-`NewSignerFromKeystore` loads the key metadata from the keystore, derives the Ethereum address from the public key, and returns a `MessageSigner` that delegates all signing operations back to the keystore:
+`NewECDSASignerFromKeystore` returns the public key without deriving a chain-specific identity. `ResolveSignerIdentity` accepts an EVM address or a 33/65-byte SEC1 public key that describes the same key. Signing delegates to the keystore:
 
 ```
 KeystoreSignerAdapter
@@ -72,21 +73,21 @@ KeystoreSignerAdapter
         └── returns raw ECDSA signature bytes
 ECDSASignerWithKeystoreSigner
   └── wraps KeystoreSignerAdapter
-  └── calls protocol.SignV27WithKeystoreSigner(data, adapter)
-  └── returns protocol.EncodeSingleECDSASignature(R, S, Signer)
+  └── normalizes with protocol.NormalizeToV27 and verifies public-key recovery
+  └── returns protocol.EncodeSingleECDSASignature(R, S)
 ```
 
-The final encoded signature is a packed struct of `(R [32]byte, S [32]byte, Signer [20]byte)` — 84 bytes total.
+The final encoded signature is `(R [32]byte, S [32]byte)` — 64 bytes total. The verifier does not derive an Ethereum address while signing.
 
 For non-node deployments (tests, standalone binaries) `commit.NewECDSAMessageSignerFromString` accepts a raw hex private key and produces the same encoded signature format.
 
 ## Signer Address Validation
 
-`commit.ValidateSignerAddress` pins the loaded key to the job's `signer_address`. Both sides may carry
-the key as a 20-byte EVM address or as a SEC1 public key (EVM pins an address, Canton the 65-byte
-public key); when the encodings differ, each side is reduced to the EVM address derived from the key
-before comparing. The standalone verifier validates the public key returned by `NewSignerFromKeystore`
-so a job that pins a raw key compares exactly. `"auto"` skips the check; empty is an error.
+`commit.ValidateSignerAddress` and `commit.ResolveSignerIdentity` pin the loaded key to the job's
+`signer_address`. Either side may be a 20-byte EVM address or a 33/65-byte SEC1 public key; exact
+byte matches succeed directly, while different encodings of the same key match through their derived
+EVM addresses. The standalone verifier resolves the identity against the public key returned by
+`NewECDSASignerFromKeystore`. `"auto"` skips the check; empty is an error.
 
 ## Receipt Blob Selection
 
