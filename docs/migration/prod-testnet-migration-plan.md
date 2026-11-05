@@ -126,9 +126,10 @@ prod-testnet jobs use two verifier IDs per database (`aggregator-1-default-verif
 first. There is no secondary-committee exception here, but use staging P1's explicit
 `targetNops` batches of at most three EVM-serving nodes, and approve and verify each batch
 before starting the next (open question 1). Everything staging P1 says about the side effects
-applies: one JD UI approval per node, a new `verifier_id` that starts without chain status
-(no checkpoint, no disabled flags), and hard rule 6 from then on. Record every node's
-disabled chains before running it.
+applies: per node, one approval and two cancellations in the node's Feeds Manager tab (JD
+cannot revoke the old jobs), a new `verifier_id` that starts without chain status (no
+checkpoint, no disabled flags), and hard rule 6 from then on. Record every node's disabled
+chains before running it.
 
 ### P2. Images
 

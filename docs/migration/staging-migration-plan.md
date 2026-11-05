@@ -41,8 +41,8 @@ operators. This document adapts it for staging, where one team does both halves.
 - Chain-setting parity: standalone carries the node config's chain-level settings over and resolves
   the same chain defaults as the `ccip` node image (chainlink-evm's plus CCIP's, embedded). Compared
   setting by setting against the DON config, the five committee chains run exactly what the CL nodes
-  run, apart from what standalone fixes itself (heads in memory, TXM v2). It needs an image built
-  after that change merged; see P2.
+  run, apart from what standalone fixes itself (heads in memory, TXM v2). The staging values pin a
+  build that includes it (P2).
 - `TestE2EMigration_CLToStandalone` (`build/devenv/tests/e2e/smoke_migration_test.go`) tests the
   key export, the import, and the JD record handoff end to end. It does not test how this plan
   delivers jobs: the test proposes the CL node's existing specs straight to the new records by JD
@@ -117,7 +117,7 @@ EVM_VALUES=$DEPLOY/deploy/config/staging/committee-verifier-evm/config.yaml
 
 # The chainlink-ccv commit the deployed images were built from (P2). Steps 2 and 3 run the
 # migrate tooling from a worktree at this commit, so it matches what the pods run.
-IMAGE_SHA=51125e91f2d01d4ad326efa59f8d18beec780862
+IMAGE_SHA=45c7148eaaa84fe6cc73f9baa4de12612971c665
 CCV_IMG=/tmp/ccv-image
 
 # per cutover; i = 0..20
@@ -142,8 +142,10 @@ address, and the export fails if the node behind the port-forward holds a differ
 
 Deploys are IssueOps: branch in chainlink-ccv-deploy, open a PR (ready, not draft), comment
 `.deploy stage` on it, thumbs-up the confirmation comment. There is no auto-deploy on merge, and
-the `.deploy` comment deploys every instance in the env. `gcli deploy render -e stage` and
-`gcli helm template -e stage -N <instance> -c griddle.yaml` preview locally.
+the `.deploy` comment deploys every instance in the env, rendered from the branch. Merge main into
+the branch first: a branch behind main rolls back whatever main changed since, other teams'
+releases included. `.noop stage` shows the rendered diff without pushing. `gcli deploy render -e
+stage` and `gcli helm template -e stage -N <instance> -c griddle.yaml` preview locally.
 
 Pipeline runs in chainlink-deployments are either local
 (`go run ./domains/ccv/cmd durable-pipeline run --environment staging_testnet --input-file
@@ -229,10 +231,9 @@ committee members with threshold 6, so no batch can take enough verifiers offlin
 Replace the example names with the current batch, and never run this input unscoped.
 
 ```sh
-cat > $CLD/domains/ccv/staging_testnet/durable_pipelines/inputs/consolidate_verifier_jobs.yaml <<'EOF'
+cat > $CLD/domains/ccv/staging_testnet/durable_pipelines/inputs/evm_consolidate_verifier_jobs.yaml <<'EOF'
 environment: staging_testnet
 domain: ccv
-merge-proposals: true
 changesets:
   - apply-verifier-config:
       payload:
@@ -245,7 +246,7 @@ changesets:
 EOF
 cd $CLD
 go run ./domains/ccv/cmd durable-pipeline run --environment staging_testnet \
-  --input-file consolidate_verifier_jobs.yaml --dry-run
+  --input-file evm_consolidate_verifier_jobs.yaml --dry-run
 # then without --dry-run, or commit + /run-pipelines
 ```
 
@@ -255,9 +256,16 @@ The EVM DON has not been; its nodes still run one job per aggregator.
 
 What P1 does to the 21 CL nodes, beyond the job count:
 
-- Each node gets a new job proposal, and a CL node holds proposals until someone approves them
-  in the JD UI. `revokeOrphanedJobs` revokes the per-aggregator jobs in the same run, so approve
-  every replacement in the current batch and verify each consolidated job before starting another batch.
+- Each node gets a new job proposal and holds it until someone approves it in the node's Feeds
+  Manager tab (operator UI, through step 3's port-forward). CL nodes only auto-approve workflow
+  specs.
+- The per-aggregator jobs keep running. A CL node only revokes pending specs, and JD refused
+  all four approved jobs in the Solana run (`job cannot be revoked`); the changeset logs that
+  and drops the jobs from the datastore anyway. Cancel each node's two old proposals in the same
+  tab, which deletes the jobs and tells JD (`chainlink jobs delete` refuses a feeds-manager job).
+  Approve first, then cancel: the aggregators drop the duplicate signatures
+  (`ON CONFLICT ... DO NOTHING`), while cancelling first stops the node signing until the
+  approval. Finish and verify every node in the batch before starting another.
 - The consolidated job has a new `verifier_id` (`default-verifier` instead of
   `<aggregator>-default-verifier`), and chain status is keyed by `verifier_id`. The new job starts
   with no chain-status rows: no checkpoint and no disabled flags. It scans from 500 blocks behind
@@ -280,10 +288,9 @@ the verifier, aggregator, indexer, and executor images for that commit and publi
 `containers/chainlink-ccv-<module>:<sha>-rc` (full 40-char commit SHA) to the primary and
 secondary private ECRs. The staging aggregator and indexer values already pin images this way.
 
-The staging values pin `$IMAGE_SHA-rc` (main at #1563) for both processes. Move both to a main
-commit that includes chain-setting parity (carried node settings and the embedded chain defaults)
-before node 1's window: an image without it runs gas, node-pool and head-tracker settings that
-differ from the CL node's. The tag has to be a
+The staging values pin `$IMAGE_SHA-rc` (main at #1577) for both processes. That build includes
+chain-setting parity (carried node settings and the embedded chain defaults); an older image runs
+gas, node-pool and head-tracker settings that differ from the CL node's. A later bump has to name a
 real main commit: a short SHA padded out to 40 characters names an image that was never built.
 The executor deploys at `replicas: 1` in P7, so its pod pulling the image is the check that the
 build exists, well before any cutover window; the verifier image comes from the same workflow
@@ -460,10 +467,17 @@ Avalanche Fuji. Verified again in cutover step 2 with `inspect-config`.
 
 ### P6. Secrets per node
 
-Three TOMLs per node: verifier bootstrap secrets (bootstrap DB `[db].url` plus
-`[keystore].password`), verifier app secrets (app DB `[db].url` plus `[[aggregators]]` HMACs,
-reusing the creds the CL jobs use today, keyed by the P1 `secret_name`s), executor bootstrap
-secrets. Schemas: `docs/config/bootstrap/secrets.documented.toml` and
+Two secrets per node before its window and a third during it, all created by hand through
+`$CTX_ENG` and never committed. The names are the ones the node's values files mount.
+
+| Secret | Key | Holds | Must exist before |
+|---|---|---|---|
+| `$EXE-secrets-v1` | `bootstrap-secrets.toml` | executor bootstrap `[db].url`, `[keystore].password` | P7's deploy: the executor starts at once |
+| `$VER-secrets-v1` | `bootstrap-secrets.toml` | verifier bootstrap `[db].url`, `[keystore].password` | step 6 |
+| `$VER-secrets-v1` | `verifier-secrets.toml` | verifier app `[db].url`, one `[[aggregators]]` HMAC pair per aggregator | step 6 |
+| `$VER-keyimport-v1` | `key.json`, `export-password.txt` | the step 3 export | created in step 4 |
+
+Schemas: `docs/config/bootstrap/secrets.documented.toml` and
 `docs/config/verifier/secrets.documented.toml` in chainlink-ccv. Compose the DB URLs from the P4
 connection secrets:
 
@@ -472,20 +486,66 @@ db_url() { kubectl --context $CTX -n $NS get secret "$1" -o go-template='postgre
 db_url ccv-evm-$i-verifier-bootstrap-database-connection
 ```
 
-Create versioned secrets named after the instance (create-not-patch RBAC; a change later means
-`-v2` plus a values repoint, per the canton README workflow):
+Give each process its own keystore password (`openssl rand -hex 32`). The keystore holds the
+process's CSA key, the verifier's imported signing key, and the executor's funded transmitter key,
+so keep a copy of each password outside the cluster.
+
+```toml
+# /tmp/$EXE-bootstrap-secrets.toml. /tmp/$VER-bootstrap-secrets.toml has the same shape, with the
+# verifier bootstrap database and its own password.
+[db]
+url = "<db_url ccv-evm-$i-executor-bootstrap-database-connection>"
+
+[keystore]
+password = "<openssl rand -hex 32>"
+```
+
+```toml
+# /tmp/$VER-app-secrets.toml
+[db]
+url = "<db_url ccv-evm-$i-verifier-app-database-connection>"
+
+[[aggregators]]
+secret_name = "aggregator-1-default-verifier"
+api_key = "<APIKey>"
+secret_key = "<APISecret>"
+
+[[aggregators]]
+secret_name = "aggregator-2-default-verifier"
+api_key = "<APIKey>"
+secret_key = "<APISecret>"
+```
+
+The HMAC pairs are the ones the CL node signs with today: the `[[CCV.AggregatorSecrets]]` entries
+in the node's own secrets file, key `user-secret.toml` of the `$CL-usr-v3` secret. Each entry's
+`VerifierID` is the `secret_name` (P1's consolidated job reuses the per-aggregator verifier IDs),
+`APIKey` is `api_key`, and `APISecret` is `secret_key`. The aggregators already accept these
+pairs, so nothing changes on their side. The same file holds the node's database URL and keystore
+password, so write it to a private file instead of the terminal:
 
 ```sh
+umask 077
+kubectl --context $CTX -n $NS get secret $CL-usr-v3 \
+  -o go-template='{{index .data "user-secret.toml" | base64decode}}' > /tmp/$CL-user-secret.toml
+```
+
+Create versioned secrets named after the instance (create-not-patch RBAC; a change later means
+`-v2` plus a values repoint, per the canton README workflow), then delete the `/tmp` files:
+
+```sh
+kubectl --context $CTX_ENG -n $NS create secret generic $EXE-secrets-v1 \
+  --from-file=bootstrap-secrets.toml=/tmp/$EXE-bootstrap-secrets.toml
 kubectl --context $CTX_ENG -n $NS create secret generic $VER-secrets-v1 \
   --from-file=bootstrap-secrets.toml=/tmp/$VER-bootstrap-secrets.toml \
   --from-file=verifier-secrets.toml=/tmp/$VER-app-secrets.toml
-kubectl --context $CTX_ENG -n $NS create secret generic $EXE-secrets-v1 \
-  --from-file=bootstrap-secrets.toml=/tmp/$EXE-bootstrap-secrets.toml
 ```
 
-There is no EVM secrets file (`EVM_SECRETS_PATH`, default `/etc/evm/secrets.toml`). It holds the
-standalone LogPoller's `[db].url` and is only read when a chain turns that reader on, which
-staging does not.
+Nothing else here is secret. There is no EVM secrets file (`EVM_SECRETS_PATH`, default
+`/etc/evm/secrets.toml`): it holds the standalone LogPoller's `[db].url` and is only read when a
+chain turns that reader on, which staging does not. The staging verifier jobs set no
+`[policy_hook]`, the admin console on loopback needs no `[admin_ui]` credentials, the executor
+reads the indexer over plain HTTP, and the CSA keys that authenticate to JD are generated at
+first boot.
 
 ### P7. Griddle releases, verifiers at zero replicas
 
@@ -522,7 +582,9 @@ infra, and token-verifier releases. Shape:
 ```
 
 The executors may run immediately (`replicas: 1`); they generate their transmitter key and idle
-until step 7 registers them, and their first pull proves the P2 image exists. The verifiers must
+until step 7 registers them, and their first pull proves the P2 image exists. That is why P4
+deploys in its own PR first: `$EXE-secrets-v1` needs P4's connection secrets, and an executor
+release deployed before its secret exists fails its 5-minute install. The verifiers must
 not: a verifier's first boot has to happen inside its node's cutover window, after the CL node
 stops (rule 2) and its key-import secret exists. Set `replicas: 0` in each verifier's values; the
 `keyImport` block would make an early boot fail rather than generate a key, but the CL node still
@@ -601,8 +663,12 @@ therefore includes a manual balance check on the five testnets. Alerts are a pro
 ```sh
 kubectl --context $CTX -n $NS exec deploy/$CL -- chainlink admin login --file /v2Secret/.api
 kubectl --context $CTX -n $NS exec deploy/$CL -- chainlink jobs list
-kubectl --context $CTX -n $NS exec deploy/$CL -- chainlink node ccv chain-statuses list
+kubectl --context $CTX -n $NS exec deploy/$CL -- bash -c 'psql "$(sed -n "/^\[Database\]/,/^\[/p" /v2Secret/secret.toml | grep -E "^\s*URL\s*=" | sed -E "s/^\s*URL\s*=\s*\"([^\"]+)\".*/\1/")" -X -c "SELECT chain_selector, verifier_id, finalized_block_height, disabled FROM ccv_chain_statuses ORDER BY 1, 2"'
 ```
+
+The chain statuses are read with `psql`, using the DB URL extraction from the chart's init container.
+`chainlink node ccv chain-statuses list` does not work here: like every local `chainlink node`
+command it takes the database lease, which the running node holds, so it waits forever.
 
 `/v2Secret/.api` is inside the node container. The `chainlink-cluster` chart mounts the node's
 `$CL-v2` secret at `/v2Secret` and starts the node with `-a /v2Secret/.api`
