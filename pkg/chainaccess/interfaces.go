@@ -71,6 +71,13 @@ type FinalityViolationReporter interface {
 	FinalityViolated() bool
 }
 
+// LogBlockRangeLimiter is an optional SourceReader capability for readers whose log queries must stay within a
+// block span, such as an RPC reader behind a provider that caps eth_getLogs. The verifier sizes its scans to it.
+type LogBlockRangeLimiter interface {
+	// MaxLogBlockRange is the most blocks one log query may span, counting both ends. Zero means no limit.
+	MaxLogBlockRange() uint64
+}
+
 // SourceHealthReporter is an optional SourceReader capability for a chain's own health signal, such as the
 // EVM log poller's. Finality violations are not part of it: they are reported only through FinalityViolationReporter.
 type SourceHealthReporter interface {
