@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	chainsel "github.com/smartcontractkit/chain-selectors"
 	evmtoml "github.com/smartcontractkit/chainlink-evm/pkg/config/toml"
 )
 
@@ -272,6 +273,18 @@ func TestResolveTXMBlockTime(t *testing.T) {
 			wantSource: TXMBlockTimeCuratedDefault,
 		},
 		{
+			name:       "rootstock testnet uses the same curated 30s as mainnet",
+			info:       Info{ChainID: "31"},
+			want:       30 * time.Second,
+			wantSource: TXMBlockTimeCuratedDefault,
+		},
+		{
+			name:       "hoodi uses the curated 12s",
+			info:       Info{ChainID: "560048"},
+			want:       12 * time.Second,
+			wantSource: TXMBlockTimeCuratedDefault,
+		},
+		{
 			// Arbitrum Sepolia's real block interval is far below the 2s floor upstream
 			// validation enforces, so it is deliberately absent from the curated table: the
 			// generic fallback is already its best legal value.
@@ -300,6 +313,16 @@ func TestCuratedTXMBlockTimesRespectTheUpstreamFloor(t *testing.T) {
 	for chainID, blockTime := range curatedTXMBlockTimeByChainID {
 		require.GreaterOrEqual(t, blockTime, DefaultTXMBlockTime,
 			"chain %s: curated values below the 2s validation floor fail upstream validation", chainID)
+	}
+}
+
+// A mistyped chain ID in the curated table would never match, leaving that chain on the 2s fallback.
+func TestCuratedTXMBlockTimesNameKnownEVMChains(t *testing.T) {
+	t.Parallel()
+
+	for chainID := range curatedTXMBlockTimeByChainID {
+		_, err := chainsel.GetChainDetailsByChainIDAndFamily(chainID, chainsel.FamilyEVM)
+		require.NoError(t, err, "curated chain %s has no EVM chain selector", chainID)
 	}
 }
 
