@@ -5,12 +5,13 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/encoding"
+	"google.golang.org/grpc/mem"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
 func TestDeterministicCodec_IsRegistered(t *testing.T) {
-	codec := encoding.GetCodec("proto")
-	require.NotNil(t, codec, "proto codec should be registered")
+	codec := encoding.GetCodecV2("proto")
+	require.NotNil(t, codec, "proto CodecV2 should be registered")
 
 	_, ok := codec.(DeterministicCodec)
 	require.True(t, ok, "registered codec should be DeterministicCodec")
@@ -27,7 +28,7 @@ func TestDeterministicCodec_MarshalUnmarshal(t *testing.T) {
 
 	data, err := codec.Marshal(original)
 	require.NoError(t, err)
-	require.NotEmpty(t, data)
+	require.NotZero(t, data.Len())
 
 	result := &wrapperspb.StringValue{}
 	err = codec.Unmarshal(data, result)
@@ -45,7 +46,7 @@ func TestDeterministicCodec_MarshalProducesDeterministicOutput(t *testing.T) {
 	data2, err := codec.Marshal(msg)
 	require.NoError(t, err)
 
-	require.Equal(t, data1, data2, "multiple marshals should produce identical bytes")
+	require.Equal(t, data1.Materialize(), data2.Materialize(), "multiple marshals should produce identical bytes")
 }
 
 func TestDeterministicCodec_MarshalNonProtoMessageReturnsError(t *testing.T) {
@@ -60,7 +61,7 @@ func TestDeterministicCodec_UnmarshalNonProtoMessageReturnsError(t *testing.T) {
 	codec := DeterministicCodec{}
 
 	var notProto string
-	err := codec.Unmarshal([]byte{}, &notProto)
+	err := codec.Unmarshal(mem.BufferSlice{}, &notProto)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "not a proto.Message")
 }
