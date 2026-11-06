@@ -2,15 +2,15 @@
 
 Audience: CCV team. Scope: the `prod_testnet` environment, meaning the 21-node
 `chainlink-ccv-testnet` DON in the prod cluster (namespace `chainlink-ccv-testnet`, JD
-aliases `ccv-prod-testnet-0..20`). The `default` committee serves 60 chain configs: 59
+aliases `ccv-prod-testnet-0..20`). The `default` committee serves 63 chain configs: 61
 EVM chains, each listing the same 16 members (`ccv-prod-testnet-0..15`) with threshold 9,
-plus one Canton chain served by the four `chainlink-canton-committee-verifier-N` nodes,
-which already run `mode = "standalone"`. The two aggregators are the public pair,
-`aggregator-1.testnet.ccip.chain.link` and `aggregator-2.testnet.ccip.chain.link`.
+plus Canton and Solana chains, whose standalone components are already separate. The two
+aggregators are the public pair, `aggregator-1.testnet.ccip.chain.link` and
+`aggregator-2.testnet.ccip.chain.link`.
 
 This is the third and final CLL-controlled environment, and the dress rehearsal for
 prod-mainnet. Staging proves the cutover mechanics; prod-testnet proves them under
-production load at ~60-chain scale; prod-mainnet proves the external-operator path.
+production load at ~61-chain scale; prod-mainnet proves the external-operator path.
 Nothing in this document unblocks an external operator — that is a separate program, and
 it starts only after the go/no-go at the bottom of this one.
 
@@ -26,7 +26,7 @@ execute the staging plan's step with the substitutions in "Conventions".
    Cutovers need a posted schedule, a quiet window per node, and a real lane for the
    confirmation message in step 11. Staging's "pick a quiet moment" becomes "announce it,
    then pick a quiet moment."
-2. **59 EVM chains, not 5.** The pre-cutover config diff runs per chain. While
+2. **61 EVM chains, not 5.** The pre-cutover config diff runs per chain. While
    `curatedTXMBlockTimeByChainID` (PR #1461) covers common >2s chains (`txm_block_time_source:
    "curated_chain_default"`), every chain that still falls back to `txm_block_time_source:
    "generic_fallback"` (`2s`) in the diff gets an explicit `BlockTime` value in the EVM TOML (if
@@ -36,7 +36,7 @@ execute the staging plan's step with the substitutions in "Conventions".
    the external alert on each new executor transmitter address, per chain, goes up before
    that node's jobs start. This is the rehearsal for the prod-mainnet alerting
    requirement.
-4. **Small parallel batches become possible.** Each node serves all 59 EVM chains, so one
+4. **Small parallel batches become possible.** Each node serves all 61 EVM chains, so one
    node down leaves every chain at 15 of 9 — a wide margin, and CLL controls every node,
    so there is no external scheduling to respect. Stay one-at-a-time for the first three
    nodes; after that, batches of two or three are reasonable if the soaks are clean.
@@ -171,7 +171,7 @@ version table). Each migrating node gets its own cluster,
 staging's: 16 clusters and 48 databases if nodes 0..15 migrate, 21 and 63 if 16..20 join
 (open question 1). Not on `chainlink-ccv-testnet-dons`, for the same two-way isolation as
 staging (the rollback path never depends on the new clusters), and not on one shared
-cluster: all 59 EVM chains list the same 16 members with threshold 9, so once eight
+cluster: all 61 EVM chains list the same 16 members with threshold 9, so once eight
 migrated members share a cluster, one incident on it stalls attestations on every chain.
 That is the exposure the DON cluster carries today for all 21 nodes. Per node, an incident
 costs one signer.
@@ -185,21 +185,20 @@ explicitly.
 
 If the standalone LogPoller reader is turned on here (it needs the standalone-format EVM
 config; see the go/no-go), its `evm` schema adds the LogPoller's blocks and 30 days of
-`CCIPMessageSent` logs per OnRamp, 59 chains per node, to the database named by `[db].url`
+`CCIPMessageSent` logs per OnRamp, 61 chains per node, to the database named by `[db].url`
 in the EVM secrets file. That database then dominates the other three; size each node's
 cluster, and its backups, for it before enabling the reader. See
 [Source logs](evm-cl-to-standalone.md#source-logs-rpc-or-a-logpoller).
 
-### P5. Per-chain config review at 59-chain scale
+### P5. Per-chain config review at 61-chain scale
 
-For each of the 59 EVM chains: run `ccv migrate inspect-config` against the node EVM
-TOML (the `chainlink-ccv-testnet` values carry 61 `[[EVM]]` entries; the committee
-serves 59 — reconcile the difference during the first node's diff) and record
+For each of the 61 EVM chains: run `ccv migrate inspect-config` against the node EVM
+TOML (both the `chainlink-ccv-testnet` values and the committee currently list 61) and record
 accept-or-correct for every warning and every chain's `txm_block_time` /
 `txm_block_time_source` (`operator`, `curated_chain_default`, or
 `generic_fallback`). Unconvertible `[[EVM]]` entries are reported under `failed_chains`
 (and boot-time `chainaccess.CheckDeclaredChainCoverage` rejects any declared `[[chains]]`
-entry that is missing or in `failed_chains`), so `failed_chains` must be empty for all 59
+entry that is missing or in `failed_chains`), so `failed_chains` must be empty for all 61
 committee chains. This is one recorded review, reused across nodes, re-run when the
 config changes.
 
@@ -221,7 +220,7 @@ Any other warning on a later run is new and needs a decision.
 
 As in staging P6: three TOMLs per node (verifier bootstrap, verifier app with the
 aggregator HMACs under the P1 `secret_name`s, executor bootstrap), DB URLs composed from
-the P4 connection secrets, created via `$CTX_ENG` with `-v1` naming.
+the P4 connection secrets, created via `$CTX_ENG` with `-v2` naming.
 
 ### P7. Griddle releases, verifiers at zero replicas
 
@@ -239,15 +238,18 @@ go run ./domains/ccv/cmd validate nop-support -e prod_testnet
 ```
 
 Record each node's `OnchainSigningAddress` (`$EXPECTED_ID` in step 3) and current CSA
-key (rollback). Note `nodes.json` holds 25 records: the 21 CL DON nodes plus the four
-Canton standalone verifiers — do not touch the Canton records.
+key (rollback). `nodes.json` also holds standalone Canton and Solana records; do not touch those
+records when adding EVM executors.
 
 ### P9. Funding source and balance alerts
 
-Identify what funds the per-chain transmitter accounts today across ~60 public testnets
-and who sends from it. Unlike staging, balance alerts are in scope: each new executor
-transmitter address gets an external balance alert per chain before its jobs start.
-Wherever the alert lives, it must page someone who can fund.
+Inventory what funds the per-chain transmitter accounts today across the 61 public testnets and who
+sends from it. The [Internal Faucets API](https://smartcontract-it.atlassian.net/wiki/spaces/dapp/pages/585924700/Internal+Faucets+API)
+can top up the migration wallet: request only the native-token shortfall to 2.5 per chain, using
+`activeNetwork` and `nativeTokenToSend`, with no LINK and no blind retries on empty or unsupported
+faucets. Fund each new executor 0.15 per chain, then verify receipts and balances. Unlike staging,
+balance alerts are in scope: each new executor transmitter address gets an external balance alert
+per chain before its jobs start. Wherever the alert lives, it must page someone who can fund.
 
 ## The cutover, per node
 
@@ -260,7 +262,7 @@ additions:
 | `chainlink-ccv-staging-$i` / `chainlink-ccv-$i` | `ccv-prod-testnet-$i` / `chainlink-ccv-testnet-$i` |
 | `flux suspend helmrelease chainlink-ccv` | `flux suspend helmrelease chainlink-ccv-testnet` |
 | `maintenanceMode.specificNodes` in staging `overrides.yaml` | same mechanism in `deploy/config/prod-testnet/chainlink-ccv-testnet/overrides.yaml` (chart supports it; this env introduces it, as staging does) |
-| five testnets for funding and balance checks | the node's ~60 chains (script the balance check; manual does not scale) |
+| five testnets for funding and balance checks | the node's ~61 chains (script the balance check; manual does not scale) |
 | step 11 confirmation message on a staging lane | a real lane this node verifies; announce the window first |
 | soak: manual balance check | soak: balance alerts live, TXM v2 metrics on dashboards, transmit-failure review |
 
@@ -323,10 +325,10 @@ Operator comms for prod-mainnet may start when all of these hold:
    `prod_testnet/topology.toml` — probable typo for aggregator-2. Harmless for the
    cutover (the changesets read the `aggregators` block, which is correct), but fix it
    before prod-mainnet config generation treats it as truth.
-3. Funding source per chain (P9) — inventory the ~60 testnet funders before the first
+3. Funding source per chain (P9) — inventory the ~61 testnet funders before the first
    node.
-4. The 61 vs 59 `[[EVM]]` entries vs committee chains (P5) — name the two chains the
-   nodes serve that the committee does not, or the reverse.
+4. *(Resolved)* The node values and committee both list 61 EVM chains (P5); re-check this
+   comparison whenever either side changes.
 
 ## What prod-testnet does not decide
 

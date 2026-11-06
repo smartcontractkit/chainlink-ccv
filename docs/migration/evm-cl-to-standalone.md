@@ -24,8 +24,9 @@ You need:
   application database. They may share a server, but must be different database names. The
   standalone LogPoller reader, if you turn it on later, adds tables to a database of its own or to
   the application database; see [Source logs](#source-logs-rpc-or-a-logpoller).
-- A bootstrap secrets file for each process and an application secrets file for the verifier, as
-  described in step 3.
+- A bootstrap config and a bootstrap secrets file for each process, and an application secrets file
+  for the verifier, as described in step 3.
+- The Job Distributor's WebSocket URL and its CSA public key. Chainlink Labs gives you both.
 - The verifier and executor images.
 
 Fill these in once and reuse them in the commands below:
@@ -40,8 +41,13 @@ Fill these in once and reuse them in the commands below:
 
 ```sh
 chainlink jobs list
-chainlink node ccv chain-statuses list
+psql "<node-database-url>" -X -c \
+  "SELECT chain_selector, verifier_id, finalized_block_height, disabled FROM ccv_chain_statuses ORDER BY 1, 2"
 ```
+
+`<node-database-url>` is the `[Database] URL` in your node's secrets TOML. Read the table with `psql`
+rather than `chainlink node ccv chain-statuses list`: that command opens the node's database
+itself, waits on the lease the running node holds, and hangs.
 
 **Check:** exactly one `ccvcommitteeverifier` job. If you see more than one, stop and contact
 Chainlink Labs — do not continue.
@@ -49,22 +55,26 @@ Chainlink Labs — do not continue.
 You will also see a `ccvexecutor` job. That is expected: CCIP 2.0 runs two job specs on your node, one
 per component.
 
-Check the `disabled` column in the chain-status output. Normally every row is `false`. If any row is
+Check the `disabled` column in the query output. Normally every row is `false`. If any row is
 `true`, record its chain selector and tell Chainlink Labs; do not enable it. You must restore the
 disabled state after the standalone job first starts in step 9 before the cutover can be confirmed.
 
 ## Step 2: export the signing key
 
-Put your API credentials file at `./migration/api-creds.txt`, then run:
+Create `./migration/`, put your API credentials file at `./migration/api-creds.txt`, then run:
 
 ```sh
-docker run --rm --network host -v "$PWD/migration:/out" <verifier-image> \
+docker run --rm --network host --user "$(id -u):$(id -g)" -v "$PWD/migration:/out" <verifier-image> \
   ccv migrate export \
     --node-url <node-url> \
     --api-creds /out/api-creds.txt \
     --out-dir /out \
     --expected-id <jd-signing-address>
 ```
+
+The image runs as UID 65532, which cannot write into a directory you own, so the command runs as your
+own user. `--network host` works on Linux only; on Docker Desktop, drop it and point `--node-url` at
+`host.docker.internal`.
 
 `<jd-signing-address>` is your signing address as Chainlink Labs reads it from your JD record
 (`OnchainSigningAddress`); they send it to you when the cutover is scheduled. The export fails if
@@ -77,8 +87,8 @@ If your node holds more than one EVM OCR2 bundle, the export also needs `--bundl
 
 This writes three files into `./migration/`:
 
-- `ocr2.json` — your key.
-- `export-password.txt` — its password.
+- `ocr2.json` — your key (mode 0600, owned by you).
+- `export-password.txt` — its password (mode 0600, owned by you).
 - `verifier.key_import.toml` — a config snippet to paste in step 3.
 
 **Check:** the command printed a signing address that matches `<jd-signing-address>`, and all three
@@ -87,22 +97,32 @@ with the node or the flags.
 
 ## Step 3: configure the verifier and executor
 
-Do all six:
+Do all seven:
 
 1. Mount your Chainlink node's TOML config file into **both** containers as their EVM config, at
    `/etc/evm/config.toml` (`EVM_CONFIG_PATH` overrides the path). Do not edit it, apart from a
    per-chain value you and Chainlink Labs agree on in the settings diff below.
-2. Mount a different bootstrap secrets file into each process. Its default path is
+2. Write a bootstrap config for each process, starting from the
+   [bootstrap config reference](../config/bootstrap/config.documented.toml), and mount it at
+   `/etc/config.toml` (`BOOTSTRAPPER_CONFIG_PATH` overrides the path). It needs `[jd]` with the Job
+   Distributor's WebSocket URL and CSA public key, `[server]` with `listen_port`, and one `[[chains]]`
+   entry (`type = "EVM"` and the chain ID) for every EVM chain that process serves. `[Monitoring]` is
+   optional.
+3. Mount a different bootstrap secrets file into each process. Its default path is
    `/etc/bootstrap/secrets.toml`; `BOOTSTRAPPER_SECRETS_PATH` overrides the path. Each file contains
    that process's bootstrap `[db].url` and `[keystore].password`.
-3. Mount the verifier application secrets at `/etc/committee-verifier/secrets.toml`;
+4. Mount the verifier application secrets at `/etc/committee-verifier/secrets.toml`;
    `COMMITTEE_VERIFIER_SECRETS_PATH` overrides the path. Its `[db].url` points to the third database,
    not the verifier bootstrap database, and its `[[aggregators]]` entries hold the HMAC credentials.
-4. Mount `ocr2.json` into the **verifier** at `/etc/ccv/migration/key.json` (note the rename).
-5. Mount `export-password.txt` into the **verifier** at
+   Each entry's `secret_name` must be the verifier ID your node's secrets already use for that
+   aggregator, which is `<aggregator name>-<committee>-verifier`, for example
+   `aggregator-1-default-verifier`. The consolidated job looks credentials up by those names, so copy
+   each aggregator's key pair under its existing ID and do not rename it.
+5. Mount `ocr2.json` into the **verifier** at `/etc/ccv/migration/key.json` (note the rename).
+6. Mount `export-password.txt` into the **verifier** at
    `/etc/ccv/migration/export-password.txt`.
-6. Copy the `[key_import]` block out of `verifier.key_import.toml` and paste it into the verifier's
-   bootstrap config. It looks like this, with your address already filled in:
+7. Copy the `[key_import]` block out of `verifier.key_import.toml` and paste it into the verifier's
+   bootstrap config from item 2. It looks like this, with your address already filled in:
 
 ```toml
 [key_import]
@@ -112,6 +132,13 @@ expected_id   = "0x..."
 ```
 
 Do not retype the address. Do not add `[key_import]` to the executor.
+
+The verifier image runs as UID 65532 and the two exported files are mode 0600 and owned by you, so the
+verifier cannot read them as it stands. Either run the verifier container as the same user
+(`--user "$(id -u):$(id -g)"`), or `chown` the two files to 65532 before mounting them. On Kubernetes,
+set `runAsUser` to your UID or `chown` to 65532; `fsGroup` alone does not make a 0600 file owned by a
+different UID readable. Do this before the `ccv migrate inspect` check below, and run that check as
+the same user as the verifier.
 
 The complete schemas are in the [bootstrap secrets reference](../config/bootstrap/secrets.documented.toml)
 and [verifier secrets reference](../config/verifier/secrets.documented.toml). For backwards
@@ -603,9 +630,11 @@ registered in JD.
 
 The application's own server carries the real health signal. By default the verifier listens on
 8100 and the executor on 8101; each job's app config can override its own port with
-`http_listen_port`. Its `/health` is 200 only when every component in the coordinator's health
-report is healthy, and 503 with the failing component named otherwise. The verifier also serves
-`/stats` on the same port.
+`http_listen_port`. Its `/health` returns 200 with `status: "ready"` when healthy, or 200 with
+`status: "degraded"` and the skipped component named. A process with no usable chain or component
+returns 503. Degraded can be expected during startup or for intentionally unsupported chains, so
+read the component report rather than treating any degraded response as a failure. The verifier also
+serves `/stats` on the same port.
 
 A stalled LogPoller is the case to watch outside `/health`; see
 [Source logs](#source-logs-rpc-or-a-logpoller).
@@ -622,11 +651,13 @@ a rolling update briefly runs two processes on one signing or transmitter key.
 
 The committee keeps verifying as long as `threshold` members are up. From step 4 (node stopped)
 until the standalone verifier is confirmed (steps 9 and 10), an operator counts toward neither side,
-so the number that can be mid-cutover at once is the committee size minus the threshold — for the
-default committee, 16 − 9 = 7.
+so the number that can be mid-cutover at once is the committee size minus the threshold. The
+default committee has a threshold of 9 on every chain in `prod_mainnet`, but its size is 14, 15 or 16
+depending on the chain, so the budget is 5 to 7. Use the smallest committee any of the operator's
+chains belongs to.
 
-Derive the number from the committee's live configuration rather than reusing 7: it moves with
-committee size and threshold. Because the signing key carries over, a migrated operator counts
+Derive the number from the committee's live configuration rather than reusing one of these: it moves
+with committee size and threshold. Because the signing key carries over, a migrated operator counts
 toward the threshold again as soon as its standalone verifier is up; the window that consumes
 budget is steps 4 to 9.
 
