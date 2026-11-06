@@ -11,6 +11,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/grafana/pyroscope-go"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
@@ -300,6 +302,9 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	healthManager.Register(f.coordinator)
 	healthManager.Register(startupSkips)
 	health.RegisterOn(healthManager, router)
+	// chainlink-evm's per-chain series (txm_*, RPC pool, head tracker) are Prometheus-only.
+	router.GET("/metrics", gin.WrapH(promhttp.HandlerFor(prometheus.DefaultGatherer,
+		promhttp.HandlerOpts{EnableOpenMetrics: true})))
 
 	server := &http.Server{
 		Addr:         ":" + strconv.Itoa(executorConfig.HTTPListenPort),
