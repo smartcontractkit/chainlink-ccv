@@ -1,6 +1,7 @@
 package cctp
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -206,6 +207,61 @@ func Test_AttestationFetchUsesDomainOverrides(t *testing.T) {
 				return
 			}
 			require.Equal(t, "/v2/messages/"+tt.wantDomain, requestedPath)
+		})
+	}
+}
+
+func Test_NewAttestationServiceValidatesDomains(t *testing.T) {
+	known := protocol.ChainSelector(sel.GETH_TESTNET.Selector)
+	unknown := protocol.ChainSelector(sel.GETH_DEVNET_3.Selector)
+	destOnly := protocol.ChainSelector(sel.GETH_DEVNET_2.Selector)
+	addr := internal.MustUnknownAddressFromHex("0xca9142d0b9804ef5e239d3bc1c7aa0d1c74e7350")
+	addrs := func(selectors ...protocol.ChainSelector) map[protocol.ChainSelector]protocol.UnknownAddress {
+		m := make(map[protocol.ChainSelector]protocol.UnknownAddress)
+		for _, s := range selectors {
+			m[s] = addr
+		}
+		return m
+	}
+	codecs := map[protocol.ChainSelector]chainaccess.CCTPCodec{known: evmTestCodec{}, unknown: emptyCatalogCodec{}}
+
+	tests := []struct {
+		name      string
+		verifiers map[protocol.ChainSelector]protocol.UnknownAddress
+		resolvers map[protocol.ChainSelector]protocol.UnknownAddress
+		overrides map[protocol.ChainSelector]uint32
+		wantErr   string
+	}{
+		{name: "built-in domains cover every chain", verifiers: addrs(known), resolvers: addrs(known, destOnly)},
+		{name: "no addresses configured", verifiers: addrs(), resolvers: addrs()},
+		{name: "override covers a chain the catalog lacks", verifiers: addrs(unknown), overrides: map[protocol.ChainSelector]uint32{unknown: 9}},
+		{name: "resolver-only chain without a codec is not checked", verifiers: addrs(known), resolvers: addrs(known, destOnly)},
+		{name: "verifier_addresses chain without a domain", verifiers: addrs(known, unknown), wantErr: fmt.Sprintf("[%d]", unknown)},
+		{name: "verifier_addresses chain without a codec or override", verifiers: addrs(destOnly), wantErr: fmt.Sprintf("[%d]", destOnly)},
+		{name: "resolver chain with a codec but no domain", resolvers: addrs(unknown), wantErr: fmt.Sprintf("[%d]", unknown)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := NewAttestationService(
+				logger.Test(t),
+				monitoring.NewFakeVerifierMonitoring(),
+				CCTPConfig{
+					AttestationAPI:            "https://iris-api.circle.com",
+					AttestationAPITimeout:     time.Second,
+					AttestationAPICooldown:    time.Minute,
+					VerifierVersion:           DefaultVerifierVersion,
+					ParsedVerifiers:           tt.verifiers,
+					ParsedVerifierResolvers:   tt.resolvers,
+					ParsedCCTPDomainOverrides: tt.overrides,
+				},
+				codecs,
+			)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, "no CCTP domain for chain selectors")
+			require.ErrorContains(t, err, tt.wantErr)
 		})
 	}
 }
