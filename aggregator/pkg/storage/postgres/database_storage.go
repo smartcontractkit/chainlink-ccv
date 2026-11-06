@@ -4,22 +4,24 @@ import (
 	"cmp"
 	"context"
 	"database/sql"
-	"database/sql/driver"
 	"errors"
 	"fmt"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/jmoiron/sqlx"
+
+	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
+
+	"github.com/smartcontractkit/chainlink-ccv/common/pgadvisorylock"
+
 	"github.com/lib/pq"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
 	pkgcommon "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 )
@@ -57,12 +59,10 @@ func (d *DatabaseStorage) batchGetVerificationRecordIDs(ctx context.Context, mes
 	return recordIDsMap, nil
 }
 
-// DataSource is a sqlutil.DataSource that can also give a dedicated connection. A session-level
-// advisory lock needs one connection for the full time that the lock is held.
+// DataSource is the storage data source. It also gives a dedicated connection for the orphan recovery lock.
 type DataSource interface {
 	sqlutil.DataSource
-	// Conn returns a dedicated connection from the pool. The caller must close it.
-	Conn(ctx context.Context) (*sql.Conn, error)
+	pgadvisorylock.ConnProvider
 }
 
 var _ DataSource = (*sqlx.DB)(nil)
@@ -907,56 +907,16 @@ func (d *DatabaseStorage) OrphanedKeyStats(ctx context.Context, cutoff time.Time
 // at a time across all aggregator replicas that use the same database.
 const orphanRecoveryLockKey = "aggregator_orphan_recovery"
 
-// orphanRecoveryLockReleaseTimeout bounds the unlock and reset queries in the release function.
-const orphanRecoveryLockReleaseTimeout = 5 * time.Second
-
 // TryAcquireOrphanRecoveryLock holds a session-level advisory lock on a dedicated, idle connection.
 // idle_session_timeout makes the server close the session, and free the lock, if the holder stops.
 // Release unlocks and resets the session, or closes the connection if one of these steps fails.
 func (d *DatabaseStorage) TryAcquireOrphanRecoveryLock(ctx context.Context, idleTimeout time.Duration) (func(), bool, error) {
-	if idleTimeout < time.Millisecond {
-		return nil, false, fmt.Errorf("orphan recovery lock idle timeout must be at least 1ms, got %s", idleTimeout)
-	}
 	ctx, cancel := d.withTimeout(ctx)
 	defer cancel()
 
-	conn, err := d.ds.Conn(ctx)
-	if err != nil {
-		return nil, false, fmt.Errorf("failed to get connection for orphan recovery lock: %w", err)
+	lock, acquired, err := pgadvisorylock.TryAcquire(ctx, d.ds, orphanRecoveryLockKey, idleTimeout)
+	if err != nil || !acquired {
+		return nil, acquired, err
 	}
-
-	var once sync.Once
-	release := func() {
-		once.Do(func() {
-			defer func() { _ = conn.Close() }()
-			releaseCtx, releaseCancel := context.WithTimeout(context.Background(), orphanRecoveryLockReleaseTimeout)
-			defer releaseCancel()
-			if _, err := conn.ExecContext(releaseCtx, `SELECT pg_advisory_unlock(hashtextextended($1, 0))`, orphanRecoveryLockKey); err == nil {
-				if _, err = conn.ExecContext(releaseCtx, `RESET idle_session_timeout`); err == nil {
-					return
-				}
-			}
-			// The session state is not known, so the connection must not go back to the pool.
-			// Returning driver.ErrBadConn makes database/sql close the physical connection.
-			// Closing the session frees the lock.
-			_ = conn.Raw(func(any) error { return driver.ErrBadConn })
-		})
-	}
-
-	timeoutMs := fmt.Sprintf("%d", idleTimeout.Milliseconds())
-	if _, err := conn.ExecContext(ctx, `SELECT set_config('idle_session_timeout', $1, false)`, timeoutMs); err != nil {
-		release()
-		return nil, false, fmt.Errorf("failed to set idle_session_timeout for orphan recovery lock: %w", err)
-	}
-
-	var acquired bool
-	if err := conn.QueryRowContext(ctx, `SELECT pg_try_advisory_lock(hashtextextended($1, 0))`, orphanRecoveryLockKey).Scan(&acquired); err != nil {
-		release()
-		return nil, false, fmt.Errorf("orphan recovery lock query failed: %w", err)
-	}
-	if !acquired {
-		release()
-		return nil, false, nil
-	}
-	return release, true, nil
+	return lock.Release, true, nil
 }

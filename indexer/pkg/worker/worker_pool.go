@@ -70,14 +70,11 @@ func (p *Pool) Start(ctx context.Context) {
 	go p.run(childCtx)
 	go p.enqueueMessages(childCtx)
 	go p.handleDLQ(childCtx)
-
-	if err := p.hydrateFromStorage(childCtx); err != nil {
-		p.logger.Errorw("Failed to hydrate pending tasks from storage on startup", "error", err)
-	}
 }
 
-// hydrateFromStorage loads PROCESSING messages from storage in pages and enqueues them as tasks.
-func (p *Pool) hydrateFromStorage(ctx context.Context) error {
+// Hydrate loads PROCESSING messages from storage in pages and enqueues them as tasks.
+// The discovery leader calls it when elected, to take over the retries of the last leader.
+func (p *Pool) Hydrate(ctx context.Context) error {
 	batchSize := p.config.HydrationBatchSize
 	if batchSize == 0 {
 		batchSize = 100

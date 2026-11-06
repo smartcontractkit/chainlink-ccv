@@ -184,8 +184,3 @@ func (m *MultiSourceMessageDiscovery) Close() error {
 	m.logger.Info("MultiSourceMessageDiscovery stopped")
 	return nil
 }
-
-// Replay is a no-op for multi-source discovery (each source could implement Replay separately if needed).
-func (m *MultiSourceMessageDiscovery) Replay(ctx context.Context, start, end uint64) error {
-	return nil
-}

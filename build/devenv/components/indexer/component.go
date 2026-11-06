@@ -153,6 +153,8 @@ func (c *component) RunPhase4(
 		if idxIn.IndexerConfig == nil {
 			idxIn.IndexerConfig = &config.Config{}
 		}
+		// Devenv always runs with the discovery leader lock
+		idxIn.IndexerConfig.LeaderElection.Enabled = true
 		idxIn.IndexerConfig.Discoveries = make([]config.DiscoveryConfig, len(aggregators))
 		for j, agg := range aggregators {
 			if agg.Out != nil {
