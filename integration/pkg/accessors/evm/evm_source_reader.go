@@ -34,6 +34,7 @@ import (
 var (
 	_ chainaccess.SourceReader                          = (*SourceReader)(nil)
 	_ chainaccess.CriticalSourceInvariantCallbackSetter = (*SourceReader)(nil)
+	_ chainaccess.LogBlockRangeLimiter                  = (*SourceReader)(nil)
 )
 
 // SourceReaderParams are the dependencies shared by the RPC and log poller source readers.
@@ -48,7 +49,9 @@ type SourceReaderParams struct {
 	ChainSelector              protocol.ChainSelector
 	Logger                     logger.Logger
 	HeaderFetchBatchSize       int
-	OnCriticalInvariant        func(context.Context)
+	// MaxLogBlockRange caps the blocks one eth_getLogs spans, counting both ends; zero means no cap.
+	MaxLogBlockRange    uint64
+	OnCriticalInvariant func(context.Context)
 }
 
 // sourceReaderCore is what both source readers share: block headers, head tracker reads, RMN curse
@@ -76,6 +79,7 @@ type sourceReaderCore struct {
 // SourceReader reads CCIPMessageSent logs over RPC with eth_getLogs.
 type SourceReader struct {
 	sourceReaderCore
+	maxLogBlockRange uint64
 }
 
 func NewEVMSourceReader(ctx context.Context, p SourceReaderParams) (chainaccess.SourceReader, error) {
@@ -83,7 +87,12 @@ func NewEVMSourceReader(ctx context.Context, p SourceReaderParams) (chainaccess.
 	if err != nil {
 		return nil, err
 	}
-	return &SourceReader{sourceReaderCore: core}, nil
+	return &SourceReader{sourceReaderCore: core, maxLogBlockRange: p.MaxLogBlockRange}, nil
+}
+
+// MaxLogBlockRange implements chainaccess.LogBlockRangeLimiter.
+func (r *SourceReader) MaxLogBlockRange() uint64 {
+	return r.maxLogBlockRange
 }
 
 func newSourceReaderCore(p SourceReaderParams) (sourceReaderCore, error) {
@@ -310,8 +319,32 @@ func (r *SourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, to
 	return r.parseMessageSentLogs(ctx, logs), nil
 }
 
-// rpcLogs reads CCIPMessageSent logs in the given block range with eth_getLogs.
+// rpcLogs reads CCIPMessageSent logs in the given block range with eth_getLogs, splitting a bounded
+// range wider than maxLogBlockRange. An open-ended range (toBlock 0) is sent as one query.
 func (r *SourceReader) rpcLogs(ctx context.Context, fromBlock, toBlock uint64) ([]types.Log, error) {
+	if toBlock == 0 || toBlock < fromBlock || r.maxLogBlockRange == 0 || toBlock-fromBlock < r.maxLogBlockRange {
+		return r.filterLogs(ctx, fromBlock, toBlock)
+	}
+	var logs []types.Log
+	for start := fromBlock; ; {
+		end := toBlock
+		if toBlock-start >= r.maxLogBlockRange {
+			end = start + r.maxLogBlockRange - 1
+		}
+		chunk, err := r.filterLogs(ctx, start, end)
+		if err != nil {
+			return nil, err
+		}
+		logs = append(logs, chunk...)
+		if end == toBlock {
+			return logs, nil
+		}
+		start = end + 1
+	}
+}
+
+// filterLogs issues one eth_getLogs for the OnRamp's CCIPMessageSent logs in the given block range.
+func (r *SourceReader) filterLogs(ctx context.Context, fromBlock, toBlock uint64) ([]types.Log, error) {
 	// ethereum.FilterQuery uses nil for an open-ended upper bound; the interface's 0 maps to it.
 	var toBlockArg *big.Int
 	if toBlock != 0 {

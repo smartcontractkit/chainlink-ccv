@@ -152,29 +152,32 @@ func TestSRS_ScanCheckpoint_PartialScanAllowsCheckpointBelowSkippedTask(t *testi
 	for i := range events {
 		events[i].BlockHash = nil
 	}
-	reader.EXPECT().FetchMessageSentEvents(mock.Anything, uint64(90), uint64(100)).Return(events[:1], nil).Once()
-	reader.EXPECT().FetchMessageSentEvents(mock.Anything, uint64(101), uint64(0)).Return(events[1:], nil).Once()
+	// Chunks of 10 blocks: [90,99], [100,109] and the open tail from 110.
+	reader.EXPECT().FetchMessageSentEvents(mock.Anything, uint64(90), uint64(99)).Return(events[:1], nil).Once()
+	reader.EXPECT().FetchMessageSentEvents(mock.Anything, uint64(100), uint64(109)).Return(nil, nil).Once()
+	reader.EXPECT().FetchMessageSentEvents(mock.Anything, uint64(110), uint64(0)).Return(events[1:], nil).Once()
 	runPollCycle(t.Context(), srs, 110, 90)
 	require.Empty(t, queue.Published())
 	require.Equal(t, []uint64{90}, state.writes)
 
-	reader.EXPECT().FetchMessageSentEvents(mock.Anything, uint64(90), uint64(100)).Return(events[:1], nil).Once()
-	reader.EXPECT().FetchMessageSentEvents(mock.Anything, uint64(101), uint64(111)).Return(nil, assert.AnError).Once()
+	reader.EXPECT().FetchMessageSentEvents(mock.Anything, uint64(90), uint64(99)).Return(events[:1], nil).Once()
+	reader.EXPECT().FetchMessageSentEvents(mock.Anything, uint64(100), uint64(109)).Return(nil, nil).Once()
+	reader.EXPECT().FetchMessageSentEvents(mock.Anything, uint64(110), uint64(119)).Return(nil, assert.AnError).Once()
 	runPollCycle(t.Context(), srs, 120, 115)
 	require.Len(t, queue.Published(), 1)
 	require.Equal(t, events[0].MessageID.String(), queue.Published()[0].MessageID)
 	require.Contains(t, srs.pendingTasks, events[1].MessageID.String())
-	require.Equal(t, []uint64{90, 100}, state.writes,
-		"task at 110 must not block checkpoint 100, even though finalized is 115")
+	require.Equal(t, []uint64{90, 109}, state.writes,
+		"task at 110 must not block checkpoint 109, even though finalized is 115")
 
 	// A successful retry publishes the remaining task and resumes checkpointing.
-	reader.EXPECT().FetchMessageSentEvents(mock.Anything, uint64(100), uint64(110)).Return(events[1:], nil).Once()
-	reader.EXPECT().FetchMessageSentEvents(mock.Anything, uint64(111), uint64(0)).Return(nil, nil).Once()
+	reader.EXPECT().FetchMessageSentEvents(mock.Anything, uint64(109), uint64(118)).Return(events[1:], nil).Once()
+	reader.EXPECT().FetchMessageSentEvents(mock.Anything, uint64(119), uint64(0)).Return(nil, nil).Once()
 	runPollCycle(t.Context(), srs, 120, 115)
 	require.Len(t, queue.Published(), 2)
 	require.Equal(t, events[1].MessageID.String(), queue.Published()[1].MessageID)
 	require.Empty(t, srs.pendingTasks)
-	require.Equal(t, []uint64{90, 100, 115}, state.writes)
+	require.Equal(t, []uint64{90, 109, 115}, state.writes)
 }
 
 func TestSRS_ScanCheckpoint_OpenEndedTailDoesNotStarveCheckpoint(t *testing.T) {

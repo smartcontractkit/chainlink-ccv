@@ -10,8 +10,9 @@ import (
 )
 
 var (
-	_ chainaccess.SourceReader = (*observedSourceReader)(nil)
-	_ chainaccess.SourceLoader = (*observedSourceReader)(nil)
+	_ chainaccess.SourceReader         = (*observedSourceReader)(nil)
+	_ chainaccess.SourceLoader         = (*observedSourceReader)(nil)
+	_ chainaccess.LogBlockRangeLimiter = (*observedSourceReader)(nil)
 )
 
 // observedSourceReader wraps a SourceReader and use a decorator pattern to track various metrics.
@@ -98,6 +99,14 @@ func (o observedSourceReader) Loaded() error {
 		return loader.Loaded()
 	}
 	return nil
+}
+
+// MaxLogBlockRange forwards the delegate's log range cap so the wrapper does not hide it; zero when it has none.
+func (o observedSourceReader) MaxLogBlockRange() uint64 {
+	if limiter, ok := o.SourceReader.(chainaccess.LogBlockRangeLimiter); ok {
+		return limiter.MaxLogBlockRange()
+	}
+	return 0
 }
 
 // Close forwards to a loading delegate so the wrapper does not hide its cleanup; a no-op otherwise.

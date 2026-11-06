@@ -87,6 +87,8 @@ type Service struct {
 	lastProcessedFinalizedBlock atomic.Uint64
 	startBlockInitialized       atomic.Bool  // guards lastProcessedFinalizedBlock; set by the background init in Start
 	lastSuccessfulQuery         atomic.Int64 // unix ts of the last successful chain query; drives Ready() staleness
+	lastCompleteScan            atomic.Int64 // unix ts of the last log scan that read every chunk
+	lastFinalityCheck           atomic.Int64 // unix ts of the last finality checker update that succeeded
 	pendingTasks                map[string]verifier.VerificationTask
 	pendingSince                map[string]time.Time
 	pendingMetricDestinations   map[protocol.ChainSelector]struct{}
@@ -185,6 +187,12 @@ func NewService(
 	maxBlockRange := sourceCfg.MaxBlockRange
 	if maxBlockRange <= 0 {
 		maxBlockRange = DefaultMaxBlockRange
+	}
+	// A reader whose RPCs cap log queries (an EVM node's LogBackfillBatchSize) narrows every scan to fit.
+	if limiter, ok := sourceReader.(chainaccess.LogBlockRangeLimiter); ok {
+		if limit := limiter.MaxLogBlockRange(); limit > 0 && limit < maxBlockRange {
+			maxBlockRange = limit
+		}
 	}
 
 	pollTimeout := sourceCfg.PollTimeout
@@ -285,7 +293,10 @@ func (r *Service) initializeAndMonitor() {
 		}
 	}
 	// Staleness starts once the source can serve reads, so a long load does not count against it.
-	r.lastSuccessfulQuery.Store(time.Now().Unix())
+	now := time.Now().Unix()
+	r.lastSuccessfulQuery.Store(now)
+	r.lastCompleteScan.Store(now)
+	r.lastFinalityCheck.Store(now)
 
 	r.eventMonitoringLoop()
 }
@@ -343,12 +354,30 @@ func (r *Service) readiness() error {
 		return errors.New("source invariant violation")
 	}
 	// A disabled chain is intentionally idle, so staleness does not apply to it.
-	if last := r.lastSuccessfulQuery.Load(); !r.disabled.Load() && last > 0 {
-		if since := time.Since(time.Unix(last, 0)); since > r.stalenessThreshold {
-			return fmt.Errorf("no successful chain query for %s", since.Round(time.Second))
-		}
+	if r.disabled.Load() {
+		return nil
+	}
+	if since, isStale := staleFor(r.lastSuccessfulQuery.Load(), r.stalenessThreshold); isStale {
+		return fmt.Errorf("no successful chain query for %s", since)
+	}
+	// Heads alone can keep the query fresh while every log read or finality check fails.
+	if since, isStale := staleFor(r.lastCompleteScan.Load(), r.stalenessThreshold); isStale {
+		return fmt.Errorf("no complete log scan for %s", since)
+	}
+	if since, isStale := staleFor(r.lastFinalityCheck.Load(), r.stalenessThreshold); isStale {
+		return fmt.Errorf("finality checks failing for %s", since)
 	}
 	return nil
+}
+
+// staleFor reports how long ago the unix timestamp last was, and whether that exceeds threshold.
+// Zero means the clock has not started, which is never stale.
+func staleFor(last int64, threshold time.Duration) (time.Duration, bool) {
+	if last <= 0 {
+		return 0, false
+	}
+	since := time.Since(time.Unix(last, 0))
+	return since.Round(time.Second), since > threshold
 }
 
 // chainHealth is the one function behind the chain's health gauge: nil only when the chain is ready and
@@ -409,6 +438,8 @@ func (r *Service) eventMonitoringLoop() {
 				r.recordChainHealth(ctx)
 				r.recoveryHeartbeat(ctx, &latest.Number)
 				if r.recovery != nil && r.recovery.rebuildingID != "" {
+					// An operator rebuild pauses normal scanning on purpose; that is not a stalled scan.
+					r.lastCompleteScan.Store(time.Now().Unix())
 					if r.checkFinality(ctx, finalized) {
 						r.recoverRange(ctx, latest, safe, finalized)
 					}
@@ -416,6 +447,7 @@ func (r *Service) eventMonitoringLoop() {
 				}
 				pollSucceeded := r.processEventCycle(ctx, latest, finalized)
 				if pollSucceeded {
+					r.lastCompleteScan.Store(time.Now().Unix())
 					r.metrics().SetSourceReaderLastSuccessfulPollTimestamp(ctx, time.Now().Unix())
 					r.metrics().SetSourceReaderState(ctx, monitoring.SourceReaderStateRunning)
 				} else {
@@ -462,13 +494,13 @@ func (r *Service) getBlockRanges(fromBlock, latest uint64) []blockRange {
 
 	var blockRanges []blockRange
 	for fromBlock <= latest {
-		// Compare the remaining distance before adding: fromBlock+maxBlockRange wraps
-		// below fromBlock near MaxUint64, emitting a bogus inverted range.
-		if latest-fromBlock <= r.maxBlockRange {
+		// Each range spans at most maxBlockRange blocks, counting both ends. Comparing the remaining
+		// distance avoids building fromBlock+maxBlockRange, which wraps near MaxUint64.
+		if latest-fromBlock < r.maxBlockRange {
 			blockRanges = append(blockRanges, blockRange{fromBlock: fromBlock})
 			break
 		}
-		toBlock := fromBlock + r.maxBlockRange
+		toBlock := fromBlock + r.maxBlockRange - 1
 		blockRanges = append(blockRanges, blockRange{
 			fromBlock: fromBlock,
 			toBlock:   toBlock,
@@ -1195,6 +1227,7 @@ func (r *Service) checkFinality(ctx context.Context, finalized *protocol.BlockHe
 		return false
 	}
 
+	r.lastFinalityCheck.Store(time.Now().Unix())
 	return !r.disabled.Load()
 }
 

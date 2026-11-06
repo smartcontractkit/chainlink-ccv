@@ -135,10 +135,10 @@ func TestSRS_Rescan_PartialScanPublishesScannedRange(t *testing.T) {
 	}
 	srs.mu.Unlock()
 
-	// Chunks are [90,100], [101,111], [112,latest]. The second chunk fails.
-	reader.EXPECT().FetchMessageSentEvents(mock.Anything, uint64(90), uint64(100)).
+	// Chunks are [90,99], [100,109], [110,119], [120,latest]. The second chunk fails.
+	reader.EXPECT().FetchMessageSentEvents(mock.Anything, uint64(90), uint64(99)).
 		Return([]protocol.MessageSentEvent{scanned}, nil).Once()
-	reader.EXPECT().FetchMessageSentEvents(mock.Anything, uint64(101), uint64(111)).
+	reader.EXPECT().FetchMessageSentEvents(mock.Anything, uint64(100), uint64(109)).
 		Return(nil, assert.AnError).Once()
 
 	runPollCycle(ctx, srs, 120, 115)
