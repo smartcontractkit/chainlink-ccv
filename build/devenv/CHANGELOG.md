@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.9.0](https://github.com/smartcontractkit/chainlink-ccv/compare/build/devenv/v0.8.0...build/devenv/v0.9.0) (2026-11-06)
+
+
+### Features
+
+* Indexer discovery leader election ([#1567](https://github.com/smartcontractkit/chainlink-ccv/issues/1567)) ([1e8fde4](https://github.com/smartcontractkit/chainlink-ccv/commit/1e8fde43ee33f979ab63a3e669de056e3fce1033))
+
+
+### Bug Fixes
+
+* **devenv:** bump loki to v3.7.9 and register hmac codec as CodecV2 ([#1579](https://github.com/smartcontractkit/chainlink-ccv/issues/1579)) ([1cb714e](https://github.com/smartcontractkit/chainlink-ccv/commit/1cb714e6b1bfbf8ea2f31fbf7776b11ce2064849))
+
 ## [0.8.0](https://github.com/smartcontractkit/chainlink-ccv/compare/build/devenv/v0.7.0...build/devenv/v0.8.0) (2026-11-02)
 
 
