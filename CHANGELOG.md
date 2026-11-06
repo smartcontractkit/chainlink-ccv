@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.18.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.17.0...v0.18.0) (2026-11-06)
+
+
+### Features
+
+* **CCTP:** Allow CCTP Domains to be configured through TOML ([#1572](https://github.com/smartcontractkit/chainlink-ccv/issues/1572)) ([116c939](https://github.com/smartcontractkit/chainlink-ccv/commit/116c939599336cae63b08cb8565de14c506c4f6b))
+* **evm:** preserve Chainlink node chain settings ([#1575](https://github.com/smartcontractkit/chainlink-ccv/issues/1575)) ([54aa93d](https://github.com/smartcontractkit/chainlink-ccv/commit/54aa93dc21fb73e68fe68beabcc6df27741839ad))
+* **evm:** resolve embedded CCIP chain defaults ([#1574](https://github.com/smartcontractkit/chainlink-ccv/issues/1574)) ([d71b25e](https://github.com/smartcontractkit/chainlink-ccv/commit/d71b25ed9950f102dce46f1185659bab8fa190cc))
+* Indexer discovery leader election ([#1567](https://github.com/smartcontractkit/chainlink-ccv/issues/1567)) ([1e8fde4](https://github.com/smartcontractkit/chainlink-ccv/commit/1e8fde43ee33f979ab63a3e669de056e3fce1033))
+
+
+### Bug Fixes
+
+* add pharos testnet + mainnet cctp domain ([#1568](https://github.com/smartcontractkit/chainlink-ccv/issues/1568)) ([5d98419](https://github.com/smartcontractkit/chainlink-ccv/commit/5d98419039bb1c79b01b5e940fb8839216d4a39a))
+* **devenv:** bump loki to v3.7.9 and register hmac codec as CodecV2 ([#1579](https://github.com/smartcontractkit/chainlink-ccv/issues/1579)) ([1cb714e](https://github.com/smartcontractkit/chainlink-ccv/commit/1cb714e6b1bfbf8ea2f31fbf7776b11ce2064849))
+
 ## [0.17.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.16.0...v0.17.0) (2026-11-02)
 
 
