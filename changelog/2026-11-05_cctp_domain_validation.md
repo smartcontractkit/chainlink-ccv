@@ -28,7 +28,7 @@
 ## Migration Guide
 
 1. If startup fails with `no CCTP domain for chain selectors [...]`, add each listed selector to `cctp_domain_mapping` with its Circle domain, or remove the chain from `verifier_addresses` / `verifier_resolver_addresses` if it should not be served.
-2. Out-of-tree callers: pass a `CCTPCodec` for every `verifier_addresses` chain, or cover that chain in `ParsedCCTPDomainOverrides`.
+2. Out-of-tree callers: pass a `CCTPCodec` for every `verifier_addresses` chain. If that codec has no built-in domain for the chain, also add an entry in `ParsedCCTPDomainOverrides`.
 
 ```toml
 [token_verifiers.cctp_domain_mapping]
