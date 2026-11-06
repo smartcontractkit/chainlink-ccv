@@ -299,6 +299,9 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	healthManager := health.NewManager()
 	healthManager.Register(f.coordinator)
 	healthManager.Register(startupSkips)
+	for _, reporter := range deps.HealthReporters {
+		healthManager.Register(reporter)
+	}
 	health.RegisterOn(healthManager, router)
 
 	server := &http.Server{

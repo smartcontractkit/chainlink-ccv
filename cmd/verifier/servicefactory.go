@@ -520,6 +520,9 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	healthManager := health.NewManager()
 	healthManager.Register(coordinator)
 	healthManager.Register(startupSkips)
+	for _, reporter := range deps.HealthReporters {
+		healthManager.Register(reporter)
+	}
 	health.RegisterOn(healthManager, router)
 
 	router.GET("/stats", func(c *gin.Context) {
