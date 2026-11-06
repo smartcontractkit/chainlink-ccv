@@ -25,11 +25,21 @@ state is transferred; this decision is about operation after cutover, not live s
   That local assembly can drift when chainlink-evm changes.
 - The standalone path does not support forwarders or dual broadcast, and it leaves `AutoPurge`
   disabled. These are gaps wherever the production node relies on those features.
-- Node-config conversion preserves RPC nodes, finality, and an explicit v2 block time, but not the
-  v1 `GasEstimator`, `NodePool`, `HeadTracker`, or other `Transactions` tuning. Send-only nodes are
-  dropped. If no v2 block time is present, standalone uses a curated per-chain default for chains
-  whose real block interval exceeds the 2s validation floor (Ethereum, Rootstock, Gnosis, and
-  similar), and 2 seconds otherwise — acceptable for fast chains, which the floor already serves.
+- Node-config conversion carries the node's chain-level settings, including `GasEstimator`,
+  `NodePool`, `HeadTracker`, and `Transactions` tuning, over the chain defaults, except the few
+  standalone fixes itself (see [evm-cl-to-standalone.md](evm-cl-to-standalone.md)). Send-only nodes
+  are dropped. If no v2 block time is present, standalone uses a curated per-chain default for chains
+  whose real block interval exceeds the 2s validation floor (Ethereum and its testnets, Rootstock,
+  Gnosis, and similar), and 2 seconds otherwise; fast chains are already served by the floor.
+- V2 rebroadcasts a transaction once it is `BumpThreshold` block times old, and every tick when that
+  is 0. V1 reads 0 as "never bump" and still resends every `ResendAfterThreshold`, so standalone maps
+  0 to that resend cadence (Hedera's defaults give 60 blocks, about 2 minutes).
+- V2 prices purge and nonce-gap transactions with the estimator's max fee only. `FeeHistory` in
+  legacy mode and `SuggestedPrice` have none, so standalone prices those from the current fee bumped
+  six times with v1's bump rule, capped at the key's `PriceMax`. Without that, a stuck nonce on
+  those chains could not be replaced and would block the key.
+- The in-memory store keeps at most 250 unstarted transactions per key, dropping the oldest, and
+  prunes unstarted ones after 2 hours. It ignores `Transactions.MaxQueued`.
 - V2 is not the current production baseline for this fleet, so it has less directly comparable
   operating history than v1.
 

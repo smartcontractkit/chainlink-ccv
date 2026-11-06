@@ -22,7 +22,7 @@ Check aggregator-side freshness:
 ```promql
 time() - aggregator_heartbeat_verifier_heartbeat_timestamp{
   ccip_env="$ccip_env",
-  caller_id=~"$csa_key"
+  caller_id=~"$client_id"
 }
 ```
 
@@ -33,9 +33,11 @@ as of writing are:
 - `prod_testnet`
 - `staging_testnet`
 
-The CSA key is that of the nop. To specify all CSA keys, simply drop the `caller_id`
-part of the query to see the freshness for all nops. For example, this would
-show the delay for all mainnet nops on aggregator-1:
+`caller_id` is the `clientId` of the HMAC credential the NOP's verifier
+authenticates with, from the aggregator's client config. It is not the node's
+current CSA key: a node moved to standalone gets a new CSA key but keeps its
+client ID. To see every NOP, drop the `caller_id` part of the query. For example,
+this would show the delay for all mainnet NOPs on aggregator-1:
 
 ```promql
 time() - aggregator_heartbeat_verifier_heartbeat_timestamp{

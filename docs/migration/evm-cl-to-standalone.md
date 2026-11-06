@@ -529,7 +529,10 @@ A CL-mode verifier reads `CCIPMessageSent` logs through the node's LogPoller whe
 (`[Feature] LogPoller = true`), and uses the LogPoller's finality signal in place of the
 header-based finality checker. Otherwise it issues `eth_getLogs` per poll. The standalone verifier
 does the latter by default: ranges of at most 100 blocks, fed by the in-memory head tracker
-described under [Flagged for update](#flagged-for-update).
+described under [Flagged for update](#flagged-for-update). A node config that sets a lower
+`LogBackfillBatchSize` caps the range at that value, and a lower `RPCDefaultBatchSize` caps the
+header batch below its default of 25, so limits tuned for strict providers carry over. Each poll
+re-reads the chain's unfinalized window, so the call count grows with finality depth.
 
 The standalone verifier can also run its own LogPoller, per chain. It is off by default, and it
 exists only in the standalone-format EVM config, not in a node TOML:
@@ -633,8 +636,11 @@ The application's own server carries the real health signal. By default the veri
 `http_listen_port`. Its `/health` returns 200 with `status: "ready"` when healthy, or 200 with
 `status: "degraded"` and the skipped component named. A process with no usable chain or component
 returns 503. Degraded can be expected during startup or for intentionally unsupported chains, so
-read the component report rather than treating any degraded response as a failure. The verifier also
-serves `/stats` on the same port.
+read the component report rather than treating any degraded response as a failure. A verifier chain
+whose log scans or finality checks keep failing for the staleness threshold is named there too,
+as is `jd.UpdateNode` while JD has not accepted the node's chain configs (retried with backoff).
+The same port serves `/metrics` with chainlink-evm's per-chain Prometheus series, such as
+`txm_num_nonce_gaps` and `txm_reached_max_attempts`. The verifier also serves `/stats`.
 
 A stalled LogPoller is the case to watch outside `/health`; see
 [Source logs](#source-logs-rpc-or-a-logpoller).

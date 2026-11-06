@@ -987,9 +987,12 @@ new one.
 
 ### 11. Prove it, then clean up
 
-Prove both signing and the intended executor, not just committee execution. On an OnRamp v2 lane,
-read `getExpectedNextMessageNumber(destChainSelector)`, build the canonical message, and compute
-`binary.BigEndian.Uint64(messageID[:8]) % len(executorPool)` with executor IDs sorted
+Prove both signing and the intended executor, not just committee execution. For signing, choose a
+source in the verifier job's `on_ramp_addresses`: executor-pool membership does not imply that the
+verifier serves the same source, so use separate messages when necessary. For executor targeting,
+read `getExpectedNextMessageNumber(destChainSelector)`, build the canonical message with the
+actual `executionGasLimit` from FeeQuoter's `quoteGasForExec` (which varies with payload length),
+and compute `binary.BigEndian.Uint64(messageID[:8]) % len(executorPool)` with executor IDs sorted
 lexicographically. Search payload suffixes until that index selects the target executor instead of
 sending a probabilistic batch. Confirm the new signer appears at **both aggregators**, and confirm
 the destination transaction came from that executor (`cast nonce <evmAddress> --rpc-url $RPC`
