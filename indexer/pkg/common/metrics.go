@@ -39,6 +39,12 @@ type IndexerMetricLabeler interface {
 	RecordScannerPollingErrorsCounter(ctx context.Context)
 	// RecordVerificationRecordChannelSizeGauge records the verification record channel size gauge.
 	RecordVerificationRecordChannelSizeGauge(ctx context.Context, size int64)
+	// RecordDiscoveryLeaderGauge records if this replica is the discovery leader.
+	RecordDiscoveryLeaderGauge(ctx context.Context, isLeader bool)
+	// IncrementDiscoveryLeaderChanges increments the counter for times this replica became discovery leader.
+	IncrementDiscoveryLeaderChanges(ctx context.Context)
+	// IncrementDiscoveryLeaderErrors increments the counter for failed discovery lock operations (op: acquire or heartbeat).
+	IncrementDiscoveryLeaderErrors(ctx context.Context, op string)
 	// RecordActiveReadersGauge records the active readers gauge.
 	RecordActiveReadersGauge(ctx context.Context, count int64)
 	// RecordIndexerMessageDiscoveryLatency records the latency between message discovery and processing.

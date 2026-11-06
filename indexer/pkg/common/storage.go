@@ -72,3 +72,18 @@ type DiscoveryStateWriter interface {
 	// CreateDiscoveryState creates a new record containing metadata about the discovery source.
 	CreateDiscoveryState(ctx context.Context, discoveryLocation string, startingSequenceNumber int) error
 }
+
+// DiscoveryLocker gives the lock that allows one discovery leader across all indexer replicas.
+type DiscoveryLocker interface {
+	// TryAcquireDiscoveryLock gets the lock without blocking. acquired is false when another replica holds it.
+	// The store frees the lock if the holder sends no heartbeat for leaseTimeout.
+	TryAcquireDiscoveryLock(ctx context.Context, leaseTimeout time.Duration) (lock DiscoveryLock, acquired bool, err error)
+}
+
+// DiscoveryLock is a held discovery lock.
+type DiscoveryLock interface {
+	// Heartbeat keeps the lock. An error means that the lock can be lost.
+	Heartbeat(ctx context.Context) error
+	// Release frees the lock. It is safe to call more than once.
+	Release()
+}

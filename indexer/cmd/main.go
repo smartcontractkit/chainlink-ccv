@@ -127,7 +127,7 @@ func main() {
 	protocol.InitChainSelectorCache()
 
 	// Initialize the indexer storage
-	indexerStorage := createStorage(ctx, lggr, config, indexerMonitoring)
+	indexerStorage, discoveryLocker := createStorage(ctx, lggr, config, indexerMonitoring)
 	verifierRegistry := createRegistry()
 	// Skipped readers/sources degrade the service on /health, which names each one.
 	// The factory fails below when none is usable.
@@ -137,7 +137,36 @@ func main() {
 		lggr.Fatalf("Failed to initalize verifier readers: %v", err)
 	}
 
-	messageDiscovery, err := createDiscovery(ctx, lggr, config, indexerStorage, indexerMonitoring, verifierRegistry, startupSkips)
+	healthReporters := []protocol.HealthReporter{indexerStorage, startupSkips}
+	// pool is set below; the elector calls the callback only after Start.
+	var pool *worker.Pool
+	var leaderElector *discovery.LeaderElector
+	var leadership discovery.LeadershipGate
+	if config.LeaderElection.Enabled {
+		leaderElector, err = discovery.NewLeaderElector(
+			discoveryLocker,
+			discovery.LeaderElectorConfig{
+				LeaseTimeout:      time.Duration(config.LeaderElection.LeaseTimeout),
+				HeartbeatInterval: time.Duration(config.LeaderElection.HeartbeatInterval),
+				AcquireInterval:   time.Duration(config.LeaderElection.AcquireInterval),
+			},
+			lggr,
+			indexerMonitoring.Metrics(),
+			// Only the discovery leader resumes PROCESSING messages, so replicas do not all take the same work.
+			discovery.WithOnElected(func(ctx context.Context) {
+				if err := pool.Hydrate(ctx); err != nil {
+					lggr.Errorw("Failed to hydrate pending tasks from storage after election", "error", err)
+				}
+			}),
+		)
+		if err != nil {
+			lggr.Fatalf("Failed to initialize discovery leader elector: %v", err)
+		}
+		leadership = leaderElector
+		healthReporters = append(healthReporters, leaderElector)
+	}
+
+	messageDiscovery, err := createDiscovery(ctx, lggr, config, indexerStorage, indexerMonitoring, verifierRegistry, startupSkips, leadership)
 	if err != nil {
 		lggr.Fatalf("Failed to initialize message discovery: %v", err)
 	}
@@ -149,13 +178,23 @@ func main() {
 	scheduler.Start(ctx)
 
 	discoveryCh := messageDiscovery.Start(ctx)
-	pool, err := worker.NewWorkerPool(lggr, config.Pool, discoveryCh, scheduler, verifierRegistry, indexerStorage)
+	pool, err = worker.NewWorkerPool(lggr, config.Pool, discoveryCh, scheduler, verifierRegistry, indexerStorage)
 	if err != nil {
 		lggr.Fatalf("Failed to initalize worker pool: %v", err)
 	}
 	pool.Start(ctx)
+	if leaderElector != nil {
+		leaderElector.Start(ctx)
+	} else {
+		// Without leader election this replica owns all the PROCESSING messages, as before.
+		go func() {
+			if err := pool.Hydrate(ctx); err != nil {
+				lggr.Errorw("Failed to hydrate pending tasks from storage", "error", err)
+			}
+		}()
+	}
 
-	v1 := api.NewV1API(lggr, config, indexerStorage, indexerMonitoring, []protocol.HealthReporter{indexerStorage, startupSkips})
+	v1 := api.NewV1API(lggr, config, indexerStorage, indexerMonitoring, healthReporters)
 	listenPort := config.API.ListenPort
 	if listenPort == 0 {
 		listenPort = 8100
@@ -257,7 +296,7 @@ func createReader(lggr logger.Logger, cfg *config.VerifierConfig, m common.Index
 	}
 }
 
-func createDiscovery(ctx context.Context, lggr logger.Logger, cfg *config.Config, storage common.IndexerStorage, monitoring common.IndexerMonitoring, registry *registry.VerifierRegistry, startupSkips *ccvhealth.StartupSkips) (common.MessageDiscovery, error) {
+func createDiscovery(ctx context.Context, lggr logger.Logger, cfg *config.Config, storage common.IndexerStorage, monitoring common.IndexerMonitoring, registry *registry.VerifierRegistry, startupSkips *ccvhealth.StartupSkips, leadership discovery.LeadershipGate) (common.MessageDiscovery, error) {
 	configs := cfg.DiscoveryConfigs()
 	sources := make([]common.MessageDiscovery, 0, len(configs))
 	ntpProviders := make(map[string]*backofftimeprovider.BackoffNTPProvider)
@@ -316,6 +355,7 @@ func createDiscovery(ctx context.Context, lggr logger.Logger, cfg *config.Config
 			discovery.WithConfig(discCfg),
 			discovery.WithDiscoveryPriority(i),
 			discovery.WithPrimaryWriteNotifier(writeNotifier), // nil for single-source; no-op
+			discovery.WithLeadershipGate(leadership),
 		)
 		if err != nil {
 			// One misconfigured discovery source must not stop the others.
@@ -345,12 +385,12 @@ func createDiscovery(ctx context.Context, lggr logger.Logger, cfg *config.Config
 }
 
 // createStorage creates the storage backend connection based on the configuration.
-func createStorage(ctx context.Context, lggr logger.Logger, cfg *config.Config, indexerMonitoring common.IndexerMonitoring) common.IndexerStorage {
+func createStorage(ctx context.Context, lggr logger.Logger, cfg *config.Config, indexerMonitoring common.IndexerMonitoring) (common.IndexerStorage, common.DiscoveryLocker) {
 	return createPostgresStorage(ctx, lggr, cfg.Storage.Single.Postgres, indexerMonitoring)
 }
 
-// createPostgresStorage creates a PostgreSQL storage backend.
-func createPostgresStorage(ctx context.Context, lggr logger.Logger, cfg *config.PostgresConfig, indexerMonitoring common.IndexerMonitoring) common.IndexerStorage {
+// createPostgresStorage creates a PostgreSQL storage backend and the discovery lock on the same database.
+func createPostgresStorage(ctx context.Context, lggr logger.Logger, cfg *config.PostgresConfig, indexerMonitoring common.IndexerMonitoring) (common.IndexerStorage, common.DiscoveryLocker) {
 	// Run migrations first
 	migrationsDB, err := sqlx.Open("postgres", cfg.URI)
 	if err != nil {
@@ -380,7 +420,7 @@ func createPostgresStorage(ctx context.Context, lggr logger.Logger, cfg *config.
 		lggr.Fatalf("Failed to create postgres storage: %v", err)
 	}
 
-	return storage.WrapWithMetrics(dbStore, indexerMonitoring, lggr)
+	return storage.WrapWithMetrics(dbStore, indexerMonitoring, lggr), dbStore
 }
 
 // runValidateConfig implements `indexer validate-config [--config <path>]`. It

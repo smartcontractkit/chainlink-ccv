@@ -9,6 +9,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jmoiron/sqlx"
+
+	"github.com/smartcontractkit/chainlink-ccv/common/pgadvisorylock"
+
 	"github.com/lib/pq"
 
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
@@ -51,8 +55,16 @@ const (
 		message_ccv_addresses = EXCLUDED.message_ccv_addresses`
 )
 
+// DataSource is the storage data source. It also gives a dedicated connection for the discovery lock.
+type DataSource interface {
+	sqlutil.DataSource
+	pgadvisorylock.ConnProvider
+}
+
+var _ DataSource = (*sqlx.DB)(nil)
+
 type PostgresStorage struct {
-	ds         sqlutil.DataSource
+	ds         DataSource
 	lggr       logger.Logger
 	monitoring common.IndexerMonitoring
 }
@@ -595,14 +607,15 @@ func (d *PostgresStorage) GetProcessingMessages(ctx context.Context, createdAfte
 }
 
 // UpdateMessageStatus implements common.IndexerStorage.
+// Only SUCCESSFUL can replace a final status, so a late TIMEOUT cannot overwrite a SUCCESSFUL message.
 func (d *PostgresStorage) UpdateMessageStatus(ctx context.Context, messageID protocol.Bytes32, status common.MessageStatus, lastErr string) error {
 	query := `
 		UPDATE indexer.messages
 		SET status = $1, lastErr = $2
-		WHERE message_id = $3
+		WHERE message_id = $3 AND (status = $4 OR $1 = $5)
 	`
 
-	result, err := d.execContext(ctx, query, status.String(), lastErr, messageID.String())
+	result, err := d.execContext(ctx, query, status.String(), lastErr, messageID.String(), common.MessageProcessing.String(), common.MessageSuccessful.String())
 	if err != nil {
 		d.lggr.Errorw("Failed to update message status", "error", err, "messageID", messageID.String())
 		return fmt.Errorf("failed to update message status: %w", err)
@@ -615,7 +628,14 @@ func (d *PostgresStorage) UpdateMessageStatus(ctx context.Context, messageID pro
 	}
 
 	if rowsAffected == 0 {
-		return fmt.Errorf("message not found: %s", messageID.String())
+		var exists bool
+		if err := d.ds.GetContext(ctx, &exists, `SELECT EXISTS (SELECT 1 FROM indexer.messages WHERE message_id = $1)`, messageID.String()); err != nil {
+			return fmt.Errorf("failed to check message: %w", err)
+		}
+		if !exists {
+			return fmt.Errorf("message not found: %s", messageID.String())
+		}
+		d.lggr.Debugw("Message already has a final status, status not changed", "messageID", messageID.String(), "status", status.String())
 	}
 
 	return nil
@@ -700,18 +720,7 @@ func (d *PostgresStorage) PersistDiscoveryBatch(ctx context.Context, batch commo
 		}
 
 		if batch.SequenceNumber != common.SequenceNumberNotSupported {
-			query := `UPDATE indexer.discovery_state SET last_sequence_number = $1 WHERE discovery_location = $2`
-			result, err := tx.ExecContext(ctx, query, batch.SequenceNumber, batch.DiscoveryLocation)
-			if err != nil {
-				return fmt.Errorf("failed to update discovery sequence: %w", err)
-			}
-			rowsAffected, err := result.RowsAffected()
-			if err != nil {
-				return fmt.Errorf("failed to get rows affected for discovery sequence: %w", err)
-			}
-			if rowsAffected == 0 {
-				return fmt.Errorf("discovery record not found: %s", batch.DiscoveryLocation)
-			}
+			return advanceDiscoverySequence(ctx, tx, batch.DiscoveryLocation, batch.SequenceNumber)
 		}
 
 		return nil
@@ -957,4 +966,21 @@ func (d *PostgresStorage) scanMessage(row interface {
 		},
 		MessageCCVAddresses: ccvAddresses,
 	}, nil
+}
+
+// advanceDiscoverySequence moves the discovery cursor forward only, so a slower writer cannot move it back.
+func advanceDiscoverySequence(ctx context.Context, ds sqlutil.DataSource, discoveryLocation string, sequenceNumber int) error {
+	query := `UPDATE indexer.discovery_state SET last_sequence_number = GREATEST(last_sequence_number, $1) WHERE discovery_location = $2`
+	result, err := ds.ExecContext(ctx, query, sequenceNumber, discoveryLocation)
+	if err != nil {
+		return fmt.Errorf("failed to update discovery sequence: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected for discovery sequence: %w", err)
+	}
+	if rowsAffected == 0 {
+		return fmt.Errorf("discovery record not found: %s", discoveryLocation)
+	}
+	return nil
 }

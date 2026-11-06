@@ -67,54 +67,6 @@ func (_c *MockMessageDiscovery_Close_Call) RunAndReturn(run func() error) *MockM
 	return _c
 }
 
-// Replay provides a mock function with given fields: ctx, start, end
-func (_m *MockMessageDiscovery) Replay(ctx context.Context, start uint64, end uint64) error {
-	ret := _m.Called(ctx, start, end)
-
-	if len(ret) == 0 {
-		panic("no return value specified for Replay")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, uint64, uint64) error); ok {
-		r0 = rf(ctx, start, end)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockMessageDiscovery_Replay_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Replay'
-type MockMessageDiscovery_Replay_Call struct {
-	*mock.Call
-}
-
-// Replay is a helper method to define mock.On call
-//   - ctx context.Context
-//   - start uint64
-//   - end uint64
-func (_e *MockMessageDiscovery_Expecter) Replay(ctx interface{}, start interface{}, end interface{}) *MockMessageDiscovery_Replay_Call {
-	return &MockMessageDiscovery_Replay_Call{Call: _e.mock.On("Replay", ctx, start, end)}
-}
-
-func (_c *MockMessageDiscovery_Replay_Call) Run(run func(ctx context.Context, start uint64, end uint64)) *MockMessageDiscovery_Replay_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(uint64), args[2].(uint64))
-	})
-	return _c
-}
-
-func (_c *MockMessageDiscovery_Replay_Call) Return(_a0 error) *MockMessageDiscovery_Replay_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockMessageDiscovery_Replay_Call) RunAndReturn(run func(context.Context, uint64, uint64) error) *MockMessageDiscovery_Replay_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // Start provides a mock function with given fields: ctx
 func (_m *MockMessageDiscovery) Start(ctx context.Context) chan common.VerifierResultWithMetadata {
 	ret := _m.Called(ctx)

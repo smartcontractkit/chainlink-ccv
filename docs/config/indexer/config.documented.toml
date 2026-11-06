@@ -204,3 +204,14 @@ MergeBufferSize = 0
   # 0 uses the default (10s).
   RetryMaxDelay = "0s"
 
+# LeaderElection configures the database lock that allows one replica at a time to run discovery.
+[LeaderElection]
+  # Enabled turns on the discovery leader lock. When false, this replica always runs discovery, as before.
+  Enabled = false
+  # LeaseTimeout is how long the database keeps the lock after the last heartbeat. Minimum 5s. 0 uses the default (30s).
+  LeaseTimeout = "0s"
+  # HeartbeatInterval is how often the leader confirms that it holds the lock. Minimum 1s, maximum LeaseTimeout/2. 0 uses the default (10s).
+  HeartbeatInterval = "0s"
+  # AcquireInterval is how often a follower tries to get the lock. Minimum 1s. 0 uses the default (5s).
+  AcquireInterval = "0s"
+

@@ -551,6 +551,29 @@
       "labels": []
     },
     {
+      "name": "indexer_discovery_leader",
+      "kind": "Int64Gauge",
+      "unit": "",
+      "description": "1 when this replica is the discovery leader, else 0",
+      "labels": []
+    },
+    {
+      "name": "indexer_discovery_leader_changes",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "Total number of times this replica became the discovery leader",
+      "labels": []
+    },
+    {
+      "name": "indexer_discovery_leader_errors",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "Total number of failed discovery lock acquire attempts and heartbeats",
+      "labels": [
+        "op"
+      ]
+    },
+    {
       "name": "indexer_grpc_errors_total",
       "kind": "Int64Counter",
       "unit": "",
