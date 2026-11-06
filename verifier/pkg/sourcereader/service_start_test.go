@@ -190,6 +190,88 @@ func TestSRS_ReadyReportsStaleAfterFailedQueries(t *testing.T) {
 	}, 2*time.Second, 5*time.Millisecond, "reader should recover once the chain answers again")
 }
 
+// newStalenessTestSRS runs a reader whose heads always answer, so only log reads or finality checks can fail.
+func newStalenessTestSRS(t *testing.T, failLogs, failFinality *atomic.Bool) *Service {
+	t.Helper()
+	chain := protocol.ChainSelector(1337)
+	reader := mocks.NewMockSourceReader(t)
+	chainStatusMgr := mocks.NewMockChainStatusManager(t)
+	curseDetector := mocks.NewMockCurseCheckerService(t)
+
+	chainStatusMgr.EXPECT().ReadChainStatuses(mock.Anything, mock.Anything).
+		Return(map[protocol.ChainSelector]*protocol.ChainStatusInfo{
+			chain: {ChainSelector: chain, FinalizedBlockHeight: big.NewInt(100)},
+		}, nil).
+		Maybe()
+	reader.EXPECT().LatestAndFinalizedBlock(mock.Anything).
+		Return(&protocol.BlockHeader{Number: 200}, &protocol.BlockHeader{Number: 150}, nil).
+		Maybe()
+	reader.EXPECT().LatestSafeBlock(mock.Anything).Return(nil, nil).Maybe()
+	reader.EXPECT().FetchMessageSentEvents(mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(context.Context, uint64, uint64) ([]protocol.MessageSentEvent, error) {
+			if failLogs.Load() {
+				return nil, errors.New("block range too large")
+			}
+			return []protocol.MessageSentEvent{}, nil
+		}).
+		Maybe()
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).
+		Return(false, nil).
+		Maybe()
+
+	srs, _, _ := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 20*time.Millisecond, 100)
+	finality := mocks.NewMockFinalityViolationChecker(t)
+	finality.EXPECT().UpdateFinalized(mock.Anything, mock.Anything).
+		RunAndReturn(func(context.Context, uint64) error {
+			if failFinality.Load() {
+				return errors.New("missing block header for block 140")
+			}
+			return nil
+		}).
+		Maybe()
+	finality.EXPECT().IsFinalityViolated().Return(false).Maybe()
+	srs.finalityChecker = finality
+	return srs
+}
+
+// Fresh heads must not hide a chain whose log reads all fail, such as a provider rejecting the range.
+func TestSRS_ReadyReportsStaleWhenLogScansKeepFailing(t *testing.T) {
+	var failLogs, failFinality atomic.Bool
+	srs := newStalenessTestSRS(t, &failLogs, &failFinality)
+	require.NoError(t, srs.Start(t.Context()))
+	defer func() { require.NoError(t, srs.Close()) }()
+	require.Eventually(t, func() bool { return srs.Ready() == nil }, 2*time.Second, 5*time.Millisecond)
+
+	failLogs.Store(true)
+	require.Eventually(t, func() bool {
+		err := srs.Ready()
+		return err != nil && strings.Contains(err.Error(), "no complete log scan")
+	}, 5*time.Second, 20*time.Millisecond, "reader should report a stalled scan while heads stay fresh")
+
+	failLogs.Store(false)
+	require.Eventually(t, func() bool { return srs.Ready() == nil }, 2*time.Second, 5*time.Millisecond,
+		"reader should recover once a scan completes")
+}
+
+// Fresh heads must not hide a chain whose finality checker cannot fetch its headers, which stops all sends.
+func TestSRS_ReadyReportsStaleWhenFinalityChecksKeepFailing(t *testing.T) {
+	var failLogs, failFinality atomic.Bool
+	srs := newStalenessTestSRS(t, &failLogs, &failFinality)
+	require.NoError(t, srs.Start(t.Context()))
+	defer func() { require.NoError(t, srs.Close()) }()
+	require.Eventually(t, func() bool { return srs.Ready() == nil }, 2*time.Second, 5*time.Millisecond)
+
+	failFinality.Store(true)
+	require.Eventually(t, func() bool {
+		err := srs.Ready()
+		return err != nil && strings.Contains(err.Error(), "finality checks failing")
+	}, 5*time.Second, 20*time.Millisecond, "reader should report failing finality checks")
+
+	failFinality.Store(false)
+	require.Eventually(t, func() bool { return srs.Ready() == nil }, 2*time.Second, 5*time.Millisecond,
+		"reader should recover once the finality checker updates again")
+}
+
 // A disabled chain is intentionally idle: queries stop by design, so staleness
 // must not flip readiness.
 func TestSRS_ReadyIgnoresStalenessWhenDisabled(t *testing.T) {
