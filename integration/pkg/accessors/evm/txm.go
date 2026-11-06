@@ -3,6 +3,7 @@ package evm
 import (
 	"context"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -94,9 +95,18 @@ func newTxmV2(
 	}
 
 	emptyTxGasLimit := gasCfg.LimitTransfer()
-	attemptBuilder := txm.NewAttemptBuilder(feeCfg.PriceMaxKey, estimator, chainKeystore, emptyTxGasLimit, false)
+	attemptBuilder := txm.NewAttemptBuilder(feeCfg.PriceMaxKey, withPurgeFeeFallback(estimator, gasCfg), chainKeystore,
+		emptyTxGasLimit, false)
 	store := storage.NewInMemoryStoreManager(lggr, chainID)
 	metrics := txm.NewTxmMetrics(lggr, chainID)
+
+	blockTime := *txmV2Cfg.BlockTime()
+	resendAfter := cfg.Transactions().ResendAfterThreshold()
+	retryThreshold := retryBlockThreshold(feeCfg.BumpThreshold(), resendAfter, blockTime)
+	if feeCfg.BumpThreshold() == 0 {
+		lggr.Infow("BumpThreshold is 0, so TXM v2 rebroadcasts at the v1 resend cadence instead of every block",
+			"retryBlockThreshold", retryThreshold, "resendAfterThreshold", resendAfter, "blockTime", blockTime)
+	}
 
 	inner := txm.NewTxm(
 		lggr,
@@ -106,10 +116,9 @@ func newTxmV2(
 		store,
 		stuckTxDetector,
 		txm.Config{
-			EIP1559:   feeCfg.EIP1559DynamicFees(),
-			BlockTime: *txmV2Cfg.BlockTime(),
-			//nolint:gosec // G115: mirrors upstream's cast in pkg/txmgr/builder.go
-			RetryBlockThreshold: uint16(feeCfg.BumpThreshold()),
+			EIP1559:             feeCfg.EIP1559DynamicFees(),
+			BlockTime:           blockTime,
+			RetryBlockThreshold: retryThreshold,
 			EmptyTxLimitDefault: emptyTxGasLimit,
 		},
 		chainKeystore,
@@ -128,6 +137,26 @@ func newTxmV2(
 	)
 
 	return &txmV2{TxManager: orchestrator, store: store, emptyTxGasLimit: emptyTxGasLimit}, nil
+}
+
+// retryBlockThreshold converts v1's BumpThreshold into TXM v2's rebroadcast threshold, in blocks.
+// v1 reads zero as "never bump" but still resends every ResendAfterThreshold, while v2 would
+// rebroadcast every tick, so zero maps to that resend cadence, or to the maximum when resend is off.
+func retryBlockThreshold(bumpThreshold uint64, resendAfter, blockTime time.Duration) uint16 {
+	if bumpThreshold > 0 {
+		if bumpThreshold > math.MaxUint16 {
+			return math.MaxUint16
+		}
+		return uint16(bumpThreshold)
+	}
+	if resendAfter <= 0 || blockTime <= 0 {
+		return math.MaxUint16
+	}
+	blocks := (resendAfter + blockTime - 1) / blockTime
+	if blocks > math.MaxUint16 {
+		return math.MaxUint16
+	}
+	return uint16(blocks) //nolint:gosec // G115: blocks is in [1, MaxUint16], both durations being positive
 }
 
 // orphanedNonces reports the nonces an address has in the mempool that this process did not put
@@ -173,14 +202,13 @@ func withNonceTimeout(
 // The contents of the original transaction are gone with the process that created it, and there is
 // no portable way to read them back: recovering them would need the mempool contents, which public
 // RPC providers do not expose. So this seeds an empty transaction, which chainlink-evm creates with
-// IsPurgeable set. That makes the attempt builder price it as a purge attempt and makes the backfill
-// loop rebroadcast it every tick with a bumped fee, escalating until it displaces the original.
+// IsPurgeable set. The attempt builder prices it with GetMaxFee straight away, with no bumps, and the
+// backfill loop rebroadcasts it every tick, re-priced from the current market each time.
 // Displacing rather than completing the original is the point: the executor re-drives the message
 // from on-chain state, so what matters is that the nonce stops blocking everything behind it.
 //
-// The first attempts may be rejected as "replacement transaction underpriced", because the original
-// transaction's fee is unknown and the replacement has to beat it. chainlink-evm classifies that
-// error as retryable, so the escalation converges rather than stalling.
+// An attempt can still be rejected as "replacement transaction underpriced" when the original paid
+// more than the max fee; it is retried each tick, and an original priced above market mines anyway.
 func (t *txmV2) seedOrphanedNonce(ctx context.Context, address common.Address, nonce uint64) error {
 	if _, err := t.store.CreateEmptyUnconfirmedTransaction(ctx, address, nonce, t.emptyTxGasLimit); err != nil {
 		return fmt.Errorf("failed to seed recovery transaction at nonce %d for %s: %w", nonce, address, err)
