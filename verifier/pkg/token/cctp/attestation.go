@@ -3,6 +3,7 @@ package cctp
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -75,6 +76,10 @@ func NewAttestationService(
 	config CCTPConfig,
 	cctpCodecs map[protocol.ChainSelector]chainaccess.CCTPCodec,
 ) (AttestationService, error) {
+	if err := validateDomains(config, cctpCodecs); err != nil {
+		return nil, err
+	}
+
 	client, err := NewHTTPClient(lggr, monitoring, config)
 	if err != nil {
 		return nil, err
@@ -90,6 +95,47 @@ func NewAttestationService(
 	}, nil
 }
 
+// resolveDomain returns the CCTP domain for a chain: cctp_domain_mapping first, then the codec's built-in catalog.
+func resolveDomain(
+	overrides map[protocol.ChainSelector]uint32,
+	codec chainaccess.CCTPCodec,
+	selector protocol.ChainSelector,
+) (uint32, bool) {
+	if domain, ok := overrides[selector]; ok {
+		return domain, true
+	}
+	if codec == nil {
+		return 0, false
+	}
+	return codec.Domain(selector)
+}
+
+// validateDomains fails if a verifier_addresses chain, or a verifier_resolver_addresses chain that has a codec,
+// has no CCTP domain. Resolver-only chains (destinations) have no codec and are not checked.
+func validateDomains(config CCTPConfig, codecs map[protocol.ChainSelector]chainaccess.CCTPCodec) error {
+	var missing []protocol.ChainSelector
+	for selector := range config.ParsedVerifiers {
+		if _, ok := resolveDomain(config.ParsedCCTPDomainOverrides, codecs[selector], selector); !ok {
+			missing = append(missing, selector)
+		}
+	}
+	// Resolver-only chains with a codec are checked too; chains already checked above or without a codec are skipped.
+	for selector := range config.ParsedVerifierResolvers {
+		codec, hasCodec := codecs[selector]
+		if _, inVerifiers := config.ParsedVerifiers[selector]; inVerifiers || !hasCodec {
+			continue
+		}
+		if _, ok := resolveDomain(config.ParsedCCTPDomainOverrides, codec, selector); !ok {
+			missing = append(missing, selector)
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	slices.Sort(missing)
+	return fmt.Errorf("no CCTP domain for chain selectors %v: add them to cctp_domain_mapping", missing)
+}
+
 // Fetch calls CCTP Attestation API using sourceChainDomain + txHash
 // It iterates through results to find the attestation for matching message
 // We use hookData and sender address to match the message against the protocol.Message.
@@ -103,11 +149,7 @@ func (h *HTTPAttestationService) Fetch(
 		return Attestation{}, fmt.Errorf("no CCTP chain codec for source chain selector: %d", message.SourceChainSelector)
 	}
 
-	// cctp_domain_mapping takes precedence over the codec's built-in catalog.
-	sourceDomain, ok := h.domainOverrides[message.SourceChainSelector]
-	if !ok {
-		sourceDomain, ok = codec.Domain(message.SourceChainSelector)
-	}
+	sourceDomain, ok := resolveDomain(h.domainOverrides, codec, message.SourceChainSelector)
 	if !ok {
 		return Attestation{}, fmt.Errorf("unsupported source chain selector: %d", message.SourceChainSelector)
 	}
