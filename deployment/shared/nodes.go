@@ -10,11 +10,13 @@ import (
 
 type NodeLookup struct {
 	nodesByName map[string]*nodev1.Node
+	nodesByID   map[string]*nodev1.Node
 }
 
 func NewNodeLookup(nodes []*nodev1.Node) (*NodeLookup, error) {
 	lookup := &NodeLookup{
 		nodesByName: make(map[string]*nodev1.Node),
+		nodesByID:   make(map[string]*nodev1.Node),
 	}
 	for _, node := range nodes {
 		key := strings.ToLower(node.Name)
@@ -22,12 +24,18 @@ func NewNodeLookup(nodes []*nodev1.Node) (*NodeLookup, error) {
 			return nil, fmt.Errorf("duplicate node name %q: node IDs %s and %s both claim this name", node.Name, existing.Id, node.Id)
 		}
 		lookup.nodesByName[key] = node
+		lookup.nodesByID[node.Id] = node
 	}
 	return lookup, nil
 }
 
 func (l *NodeLookup) FindByName(name string) (*nodev1.Node, bool) {
 	node, ok := l.nodesByName[strings.ToLower(name)]
+	return node, ok
+}
+
+func (l *NodeLookup) FindByID(id string) (*nodev1.Node, bool) {
+	node, ok := l.nodesByID[id]
 	return node, ok
 }
 

@@ -26,6 +26,8 @@ type ManageJobProposalsInput struct {
 	AffectedScope shared.JobScope
 	Labels        map[string]string
 	NOPs          NOPContext
+	// StandaloneExecutorNodeIDs routes standalone executor jobs by JD node ID, not NOP name.
+	StandaloneExecutorNodeIDs map[shared.JobID]string
 	// RevokeOrphanedJobs when true runs orphan collection, JD revoke, and datastore cleanup; default false.
 	RevokeOrphanedJobs bool
 	// AllowMissingJD permits running without a Job Distributor (e.Offchain == nil): the generated job
@@ -94,6 +96,7 @@ var ManageJobProposals = operations.NewSequence(
 				NOPAlias:      job.NOPAlias,
 				InternalJobID: job.JobID,
 				Spec:          job.Spec,
+				NodeID:        input.StandaloneExecutorNodeIDs[job.JobID],
 			})
 		}
 
@@ -295,8 +298,7 @@ func filterChangedJobs(newJobs []shared.JobInfo, existingJobs shared.NOPJobs) []
 			continue
 		}
 
-		latestProposal := existing.LatestProposal()
-		if latestProposal == nil || latestProposal.Spec != job.Spec {
+		if existing.LatestProposal() == nil || existing.Spec != job.Spec {
 			changed = append(changed, job)
 		}
 	}
