@@ -27,8 +27,8 @@ import (
 type ApplyExecutorConfigInput struct {
 	// ExecutorQualifier identifies the executor pool being published.
 	ExecutorQualifier string
-	// NOPs describes every NOP referenced by the pool. Only Mode and Alias are
-	// consulted by this changeset (signer addresses are unused).
+	// NOPs describes every NOP referenced by the pool. Alias, Mode, and
+	// ExecutorNodeID are consulted; signer addresses and policy hooks are unused.
 	NOPs []NOPInput
 	// Pool is the per-pool description: per-chain NOP membership, execution
 	// interval, and pool-wide tuning.
@@ -44,13 +44,9 @@ type ApplyExecutorConfigInput struct {
 	RevokeOrphanedJobs bool
 }
 
-// ApplyExecutorConfig is the offchain-only single-entry product for §5.9 / §5.10:
-// publish or refresh executor job specs for an executor pool. It writes new job
-// specs via JD (CL-mode NOPs) and persists job metadata into the DataStore. No
-// onchain state is touched and no MCMS coordination is required.
-//
-// The input is imperative — callers pass the pool description and the
-// participating NOPs directly, with no *EnvironmentTopology.
+// ApplyExecutorConfig publishes executor specs and persists their JD metadata.
+// Standalone jobs target an explicit or reconciled executor node; CL jobs use the NOP alias.
+// The input is imperative and no onchain state or MCMS coordination is involved.
 func ApplyExecutorConfig() deployment.ChangeSetV2[ApplyExecutorConfigInput] {
 	validate := func(e deployment.Environment, cfg ApplyExecutorConfigInput) error {
 		if cfg.ExecutorQualifier == "" {
@@ -101,6 +97,9 @@ func ApplyExecutorConfig() deployment.ChangeSetV2[ApplyExecutorConfigInput] {
 		if shared.IsProductionEnvironment(e.Name) && cfg.PyroscopeURL != "" {
 			return fmt.Errorf("pyroscope URL is not supported for production environments")
 		}
+		if _, err := standaloneExecutorJobNodeIDs(e, cfg); err != nil {
+			return err
+		}
 		return nil
 	}
 
@@ -120,6 +119,11 @@ func ApplyExecutorConfig() deployment.ChangeSetV2[ApplyExecutorConfigInput] {
 				"No deployed chains for executor pool, running orphan cleanup only",
 				"qualifier", cfg.ExecutorQualifier,
 			)
+		}
+
+		jobNodeIDs, err := standaloneExecutorJobNodeIDs(e, cfg)
+		if err != nil {
+			return deployment.ChangesetOutput{}, err
 		}
 
 		nopsToValidate := cfg.TargetNOPs
@@ -167,7 +171,8 @@ func ApplyExecutorConfig() deployment.ChangeSetV2[ApplyExecutorConfigInput] {
 					TargetNOPs: cfg.TargetNOPs,
 					AllNOPs:    allNOPAliases(cfg.NOPs),
 				},
-				RevokeOrphanedJobs: cfg.RevokeOrphanedJobs,
+				StandaloneExecutorNodeIDs: jobNodeIDs,
+				RevokeOrphanedJobs:        cfg.RevokeOrphanedJobs,
 				// Without a JD (no-JD local devenv), persist the generated specs and skip proposing;
 				// the caller delivers them to the executor as a mounted file instead.
 				AllowMissingJD: e.Offchain == nil,
