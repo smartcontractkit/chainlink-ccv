@@ -126,7 +126,6 @@ func TestReconcileJobsWithJDApply(t *testing.T) {
 			ProposalID: proposalID,
 			Revision:   1,
 			Status:     shared.JobProposalStatusApproved,
-			Spec:       spec,
 		},
 	}, got.Proposals)
 

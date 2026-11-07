@@ -298,8 +298,7 @@ func filterChangedJobs(newJobs []shared.JobInfo, existingJobs shared.NOPJobs) []
 			continue
 		}
 
-		latestProposal := existing.LatestProposal()
-		if latestProposal == nil || latestProposal.Spec != job.Spec {
+		if existing.LatestProposal() == nil || existing.Spec != job.Spec {
 			changed = append(changed, job)
 		}
 	}

@@ -124,7 +124,8 @@ func TestApplyExecutorConfigStandaloneNodeRouting(t *testing.T) {
 			require.Equal(t, standaloneTestExecutorNodeID, job.NodeID)
 			require.Equal(t, "jd-job-new", job.JDJobID)
 			require.Equal(t, shared.NOPModeStandalone, job.Mode)
-			require.Equal(t, client.proposals[0].GetSpec(), job.LatestProposal().Spec)
+			require.Equal(t, client.proposals[0].GetSpec(), job.Spec)
+			require.Empty(t, job.LatestProposal().Spec)
 		})
 	}
 }
