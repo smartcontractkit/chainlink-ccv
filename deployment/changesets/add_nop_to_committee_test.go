@@ -614,8 +614,8 @@ type stubOnchainAdapter struct {
 }
 
 // stubOffchainClient satisfies offchain.Client. Only the JDClient methods needed by our test
-// flow (ListNodes, ProposeJob) are implemented; all others are left as nil embeddings and
-// will panic if unexpectedly called.
+// flow (ListNodes, ProposeJob, ListProposals) are implemented; all others are left as nil
+// embeddings and will panic if unexpectedly called.
 type stubOffchainClient struct {
 	jobv1.JobServiceClient
 	nodev1.NodeServiceClient
@@ -643,6 +643,14 @@ func (s *stubOffchainClient) ProposeJob(_ context.Context, _ *jobv1.ProposeJobRe
 	return &jobv1.ProposeJobResponse{
 		Proposal: &jobv1.Proposal{Id: "fake-proposal-id", JobId: "fake-jd-job-id"},
 	}, nil
+}
+
+// ListProposals returns the stub's one proposal without a spec, so change detection uses stored specs.
+func (s *stubOffchainClient) ListProposals(_ context.Context, in *jobv1.ListProposalsRequest, _ ...grpc.CallOption) (*jobv1.ListProposalsResponse, error) {
+	if !slices.Contains(in.GetFilter().GetJobIds(), "fake-jd-job-id") {
+		return &jobv1.ListProposalsResponse{}, nil
+	}
+	return &jobv1.ListProposalsResponse{Proposals: []*jobv1.Proposal{{Id: "fake-proposal-id", JobId: "fake-jd-job-id"}}}, nil
 }
 
 var _ adapters.CommitteeVerifierOnchainAdapter = (*stubOnchainAdapter)(nil)

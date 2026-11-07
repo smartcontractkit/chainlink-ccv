@@ -1,13 +1,16 @@
 package sequences
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/Masterminds/semver/v3"
+	"google.golang.org/grpc"
 
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
+	jobv1 "github.com/smartcontractkit/chainlink-protos/job-distributor/v1/job"
 
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/operations/propose_jobs"
@@ -85,7 +88,15 @@ var ManageJobProposals = operations.NewSequence(
 			return ManageJobProposalsOutput{Jobs: jobs, DataStore: ds}, nil
 		}
 
-		changedJobs := filterChangedJobs(jobs, existingJobs)
+		superseded, err := retargetJobs(b.GetContext(), e.Offchain, jobs, input.StandaloneExecutorNodeIDs)
+		if err != nil {
+			return ManageJobProposalsOutput{}, err
+		}
+		if err := refreshJobsFromJD(b.GetContext(), e.Offchain, jobs); err != nil {
+			return ManageJobProposalsOutput{}, err
+		}
+
+		changedJobs := filterChangedJobs(jobs, existingJobs, input.StandaloneExecutorNodeIDs)
 		if len(changedJobs) < len(jobs) {
 			e.Logger.Infow("Skipping unchanged jobs", "total", len(jobs), "changed", len(changedJobs), "skipped", len(jobs)-len(changedJobs))
 		}
@@ -117,7 +128,14 @@ var ManageJobProposals = operations.NewSequence(
 			return ManageJobProposalsOutput{}, fmt.Errorf("failed to propose jobs: %w", err)
 		}
 
-		updateJobsWithJDResponse(jobs, proposeReport.Output.ProposedJobs)
+		superseded = append(superseded, updateJobsWithJDResponse(jobs, proposeReport.Output.ProposedJobs)...)
+		for _, old := range superseded {
+			e.Logger.Warnw("Job moved to a new JD job; the previous JD job is no longer tracked and was left in JD",
+				"jobId", old.JobID,
+				"nopAlias", old.NOPAlias,
+				"previousJdJobId", old.JDJobID,
+				"previousNodeId", old.NodeID)
+		}
 
 		if err := ccvdeployment.SaveJobs(ds, jobs); err != nil {
 			return ManageJobProposalsOutput{}, fmt.Errorf("failed to save jobs: %w", err)
@@ -213,24 +231,109 @@ func buildJobsFromJobSpecs(jobSpecs shared.NOPJobSpecs, nopModes map[shared.NOPA
 	return jobs
 }
 
-func updateJobsWithJDResponse(jobs []shared.JobInfo, proposedJobs []propose_jobs.ProposedJob) {
+// updateJobsWithJDResponse records each proposal and returns the jobs whose JD job was replaced.
+// A new JD job (for example on a different node) starts a fresh proposal history.
+func updateJobsWithJDResponse(jobs []shared.JobInfo, proposedJobs []propose_jobs.ProposedJob) []shared.JobInfo {
 	proposedJobMap := make(map[shared.JobID]propose_jobs.ProposedJob, len(proposedJobs))
 	for _, pj := range proposedJobs {
 		proposedJobMap[pj.InternalJobID] = pj
 	}
 
+	var superseded []shared.JobInfo
 	for i := range jobs {
-		if pj, ok := proposedJobMap[jobs[i].JobID]; ok {
-			jobs[i].JDJobID = pj.JobID
-			jobs[i].NodeID = pj.NodeID
-			jobs[i].AddProposal(shared.ProposalRevision{
-				ProposalID: pj.ProposalID,
-				Revision:   pj.Revision,
-				Status:     shared.JobProposalStatusPending,
-				Spec:       pj.Spec,
-			})
+		pj, ok := proposedJobMap[jobs[i].JobID]
+		if !ok {
+			continue
+		}
+		if jobs[i].JDJobID != pj.JobID {
+			if jobs[i].JDJobID != "" {
+				superseded = append(superseded, jobs[i])
+			}
+			jobs[i].Proposals = nil
+			jobs[i].ActiveProposalID = ""
+		}
+		jobs[i].JDJobID = pj.JobID
+		jobs[i].NodeID = pj.NodeID
+		jobs[i].AddProposal(shared.ProposalRevision{
+			ProposalID: pj.ProposalID,
+			Revision:   pj.Revision,
+			Status:     shared.JobProposalStatusPending,
+			Spec:       pj.Spec,
+		})
+	}
+	return superseded
+}
+
+// jdJobLister lists JD jobs; offchain.Client satisfies it.
+type jdJobLister interface {
+	ListJobs(ctx context.Context, in *jobv1.ListJobsRequest, opts ...grpc.CallOption) (*jobv1.ListJobsResponse, error)
+}
+
+// retargetJobs points each job routed to a different node at that node's live JD job for it, if any,
+// and returns the jobs whose recorded JD job was left behind. An adopted job is compared, not re-proposed.
+func retargetJobs(ctx context.Context, jd jdJobLister, jobs []shared.JobInfo, targets map[shared.JobID]string) ([]shared.JobInfo, error) {
+	var superseded []shared.JobInfo
+	for i := range jobs {
+		target := targets[jobs[i].JobID]
+		if target == "" || target == jobs[i].NodeID {
+			continue
+		}
+		jdJobID, err := liveJDJobOnNode(ctx, jd, target, jobs[i].ExternalJobID)
+		if err != nil {
+			return nil, fmt.Errorf("job %s: %w", jobs[i].JobID, err)
+		}
+		if jobs[i].JDJobID != "" && jobs[i].JDJobID != jdJobID {
+			superseded = append(superseded, jobs[i])
+		}
+		jobs[i].JDJobID = jdJobID
+		jobs[i].NodeID = target
+		jobs[i].Proposals = nil
+		jobs[i].ActiveProposalID = ""
+	}
+	return superseded, nil
+}
+
+// liveJDJobOnNode returns the undeleted JD job on nodeID with the given external job ID, or "".
+func liveJDJobOnNode(ctx context.Context, jd jdJobLister, nodeID, externalJobID string) (string, error) {
+	resp, err := jd.ListJobs(ctx, &jobv1.ListJobsRequest{Filter: &jobv1.ListJobsRequest_Filter{NodeIds: []string{nodeID}}})
+	if err != nil {
+		return "", fmt.Errorf("failed to list JD jobs on node %s: %w", nodeID, err)
+	}
+	var found []string
+	for _, job := range resp.GetJobs() {
+		if job.GetNodeId() == nodeID && job.GetUuid() == externalJobID && job.GetDeletedAt() == nil {
+			found = append(found, job.GetId())
 		}
 	}
+	switch len(found) {
+	case 0:
+		return "", nil
+	case 1:
+		return found[0], nil
+	default:
+		return "", fmt.Errorf("node %s has %d live JD jobs with external job ID %s", nodeID, len(found), externalJobID)
+	}
+}
+
+// refreshJobsFromJD replaces each recorded JD job's proposals with JD's current view.
+// A recorded JD job that JD no longer has is cleared, so it is proposed again.
+func refreshJobsFromJD(ctx context.Context, jd shared.JDClient, jobs []shared.JobInfo) error {
+	for i := range jobs {
+		if jobs[i].JDJobID == "" {
+			continue
+		}
+		resp, err := jd.ListProposals(ctx, &jobv1.ListProposalsRequest{
+			Filter: &jobv1.ListProposalsRequest_Filter{JobIds: []string{jobs[i].JDJobID}},
+		})
+		if err != nil {
+			return fmt.Errorf("failed to list JD proposals for job %s (JD job %s): %w", jobs[i].JobID, jobs[i].JDJobID, err)
+		}
+		jobs[i].SetProposalsFromJD(resp.GetProposals())
+		if len(jobs[i].Proposals) == 0 {
+			jobs[i].JDJobID = ""
+		}
+	}
+	return nil
 }
 
 func extractExpectedJobsByNOP(jobs []shared.JobInfo) map[shared.NOPAlias]map[shared.JobID]bool {
@@ -274,31 +377,24 @@ func filterNonRevokedJobs(jobs []shared.JobInfo) []shared.JobInfo {
 	return result
 }
 
-func filterChangedJobs(newJobs []shared.JobInfo, existingJobs shared.NOPJobs) []shared.JobInfo {
-	if existingJobs == nil {
-		return newJobs
-	}
-
-	changed := make([]shared.JobInfo, 0, len(newJobs))
-	for _, job := range newJobs {
-		nopJobs, nopExists := existingJobs[job.NOPAlias]
-		if !nopExists {
+// filterChangedJobs returns the jobs whose desired spec or node differs from JD's latest proposal.
+// Jobs carry JD metadata refreshed from JD; the stored record is used only when JD's spec is unknown.
+func filterChangedJobs(jobs []shared.JobInfo, existingJobs shared.NOPJobs, targetNodeIDs map[shared.JobID]string) []shared.JobInfo {
+	changed := make([]shared.JobInfo, 0, len(jobs))
+	for _, job := range jobs {
+		existing, exists := existingJobs[job.NOPAlias][job.JobID]
+		latest := job.LatestProposal()
+		targetNodeID := targetNodeIDs[job.JobID]
+		switch {
+		case job.JDJobID == "", latest == nil:
 			changed = append(changed, job)
-			continue
-		}
-
-		existing, jobExists := nopJobs[job.JobID]
-		if !jobExists {
+		case targetNodeID != "" && targetNodeID != job.NodeID:
 			changed = append(changed, job)
-			continue
-		}
-
-		if existing.Mode != job.Mode {
-			changed = append(changed, job)
-			continue
-		}
-
-		if existing.LatestProposal() == nil || existing.Spec != job.Spec {
+		case latest.Spec != "":
+			if latest.Spec != job.Spec {
+				changed = append(changed, job)
+			}
+		case !exists, existing.Mode != job.Mode, existing.Spec != job.Spec:
 			changed = append(changed, job)
 		}
 	}

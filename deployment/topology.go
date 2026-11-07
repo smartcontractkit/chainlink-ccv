@@ -87,6 +87,9 @@ type NOPConfig struct {
 	Name                  string            `toml:"name"`
 	SignerAddressByFamily map[string]string `toml:"signer_address_by_family,omitempty"`
 	Mode                  shared.NOPMode    `toml:"mode,omitempty"`
+	// ExecutorNodeName is the JD node name of this NOP's standalone executor, for example "executor-evm-0".
+	// Required for a NOP that also runs a verifier; a NOP in no committee defaults to its alias.
+	ExecutorNodeName string `toml:"executor_node_name,omitempty"`
 	// PolicyHook is this operator's custom policy endpoint, baked into the verifier job spec
 	// this NOP receives. It is per-NOP because the endpoint is the operator's own: two NOPs in
 	// the same committee run different policies, or one runs none. Omit it to leave the NOP's
@@ -103,6 +106,22 @@ func (n *NOPConfig) GetMode() shared.NOPMode {
 		return shared.NOPModeCL
 	}
 	return n.Mode
+}
+
+// ExecutorNodeName returns the JD node name of the NOP's standalone executor: the declared name,
+// or the alias for a standalone NOP in no committee, which runs only an executor registered under it.
+func (t *NOPTopology) ExecutorNodeName(nop NOPConfig) string {
+	if nop.ExecutorNodeName != "" || nop.GetMode() != shared.NOPModeStandalone {
+		return nop.ExecutorNodeName
+	}
+	for _, committee := range t.Committees {
+		for _, chain := range committee.ChainConfigs {
+			if slices.Contains(chain.NOPAliases, nop.Alias) {
+				return ""
+			}
+		}
+	}
+	return nop.Alias
 }
 
 // CommitteeConfig defines a committee and its per-chain membership.
@@ -221,6 +240,7 @@ func (c *EnvironmentTopology) Validate() error {
 
 func (t *NOPTopology) Validate() error {
 	seen := make(map[string]struct{}, len(t.NOPs))
+	executorNodes := make(map[string]string, len(t.NOPs))
 	for _, nop := range t.NOPs {
 		if nop.Alias == "" {
 			return fmt.Errorf("NOP alias is required")
@@ -232,6 +252,14 @@ func (t *NOPTopology) Validate() error {
 		if nop.Name == "" {
 			return fmt.Errorf("NOP %q name is required", nop.Alias)
 		}
+		executorNode := t.ExecutorNodeName(nop)
+		if executorNode == "" {
+			continue
+		}
+		if other, exists := executorNodes[executorNode]; exists {
+			return fmt.Errorf("NOPs %q and %q both use executor node %q", other, nop.Alias, executorNode)
+		}
+		executorNodes[executorNode] = nop.Alias
 	}
 
 	for qualifier, committee := range t.Committees {

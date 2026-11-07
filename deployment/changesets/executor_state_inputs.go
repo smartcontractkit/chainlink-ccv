@@ -218,6 +218,8 @@ func executorInnerConfigFromSpec(spec string) (string, error) {
 type ExecutorConfigFromStateOptions struct {
 	// ModeByNOP overrides the per-NOP mode (defaults to CL when absent).
 	ModeByNOP map[shared.NOPAlias]shared.NOPMode
+	// ExecutorNodeNameByNOP sets each standalone NOP's executor JD node name (see NOPInput.ExecutorNodeName).
+	ExecutorNodeNameByNOP map[shared.NOPAlias]string
 	// TargetNOPs filters the publish set. Empty means "all NOPs in the pool".
 	TargetNOPs []shared.NOPAlias
 	// RevokeOrphanedJobs when true revokes and cleans up orphaned jobs.
@@ -251,7 +253,7 @@ func ApplyExecutorConfigInputFromState(
 		if m, ok := opts.ModeByNOP[alias]; ok {
 			mode = m
 		}
-		nops = append(nops, NOPInput{Alias: alias, Mode: mode})
+		nops = append(nops, NOPInput{Alias: alias, Mode: mode, ExecutorNodeName: opts.ExecutorNodeNameByNOP[alias]})
 	}
 
 	indexer := extras.IndexerAddress

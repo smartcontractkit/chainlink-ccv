@@ -23,6 +23,7 @@ func NOPInputsFromTopology(topology *ccvdeployment.EnvironmentTopology) []NOPInp
 			Alias:                 shared.NOPAlias(nop.Alias),
 			SignerAddressByFamily: nop.SignerAddressByFamily,
 			Mode:                  nop.GetMode(),
+			ExecutorNodeName:      topology.NOPTopology.ExecutorNodeName(nop),
 			PolicyHook:            nop.PolicyHook,
 		}
 	}

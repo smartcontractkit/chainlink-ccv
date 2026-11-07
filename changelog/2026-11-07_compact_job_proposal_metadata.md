@@ -6,6 +6,7 @@
 - `JobInfo.Spec` remains the single canonical stored jobspec; proposal IDs, revisions, statuses, and active/latest retention are preserved.
 - This prevents large executor specs from being duplicated in every catalog env-metadata upload and hitting gRPC message limits.
 - The current prod-testnet metadata falls from 4,580,369 to an estimated 2,460,268 bytes (46.3%) after removing proposal spec copies.
+- Apply changesets now read each recorded job's proposals from JD before deciding what to propose, so out-of-band JD revisions are corrected and proposal statuses are current without a separate sync run.
 
 ## AI Adapter Index
 
@@ -13,11 +14,16 @@
 |---|---|---|---|---|
 | `shared.ProposalRevision.Spec` | behavior-changed | `ProposalRevision\b` | `deployment/shared/types.go:38` | [#runtime-only-proposal-specs](#runtime-only-proposal-specs) |
 | `shared.JobInfo.Spec` | behavior-changed | `\.Spec\b` | `deployment/shared/types.go:54` | [#canonical-jobspec](#canonical-jobspec) |
-| `sequences.ManageJobProposals` | behavior-changed | `ManageJobProposals\b` | `deployment/sequences/manage_job_proposals.go:51` | [#change-detection](#change-detection) |
+| `sequences.ManageJobProposals` | behavior-changed | `ManageJobProposals\b` | `deployment/sequences/manage_job_proposals.go:54` | [#change-detection](#change-detection) |
+| `sync_job_proposals.SyncJobProposals` | behavior-changed | `SyncJobProposals\b` | `deployment/operations/sync_job_proposals/sync_job_proposals.go:62` | [#change-detection](#change-detection) |
+| `shared.JobInfo.SetProposalsFromJD` | added | `SetProposalsFromJD\(` | `deployment/shared/jd_proposals.go:23` | [#change-detection](#change-detection) |
+| `shared.ProposalStatusFromJD` | added | `ProposalStatusFromJD\(` | `deployment/shared/jd_proposals.go:8` | [#change-detection](#change-detection) |
 
 ## Breaking Changes
 
 No Go API changes. Persisted `proposals[*].spec` fields are removed on the next save. Consumers that read historical proposal specs from env metadata must query JD instead; current-state consumers must use `JobInfo.Spec`.
+
+The rewrite is one-way. A `chainlink-ccv/deployment` version from before this change compares new specs against the stored proposal spec, which is now empty, so it treats every job as changed and re-proposes all of them. Do not downgrade the dependency after a datastore-producing run with this version.
 
 ## Migration Guide
 
@@ -35,7 +41,15 @@ No Go API changes. Persisted `proposals[*].spec` fields are removed on the next 
 
 ## Change detection
 
-`ManageJobProposals` compares newly generated specs with `existing.Spec`, not `existing.LatestProposal().Spec`. It still requires a latest proposal before treating a job as proposed, preserving no-JD to JD transitions. `SyncJobProposals` compares fresh JD specs with `JobInfo.Spec` before persistence strips the runtime copies.
+Before deciding what to propose, `ManageJobProposals` calls `ListProposals` for every generated job that has a recorded JD job ID, one call per job, and replaces the recorded proposals with JD's view through `JobInfo.SetProposalsFromJD`. A job is proposed when:
+
+- it has no JD job ID or no proposals in JD;
+- its routed node differs from the recorded node;
+- JD's latest revision has a different spec from the newly generated one. A revision proposed outside the changeset is therefore replaced with the generated spec on the next run.
+
+If JD's copy of the spec is unavailable, the stored record stands in: a missing record, a different stored mode, or a different `JobInfo.Spec` means the job is proposed. A recorded JD job for which JD returns no proposals is proposed again. The active proposal becomes the highest approved revision, so statuses saved by an apply run reflect JD at that time; `ListProposals` errors fail the run before anything is proposed.
+
+`SyncJobProposals` also replaces recorded proposals with JD's view rather than merging into them, and sets the active proposal to the highest approved revision. It still compares fresh JD specs with `JobInfo.Spec` for drift reports before persistence strips the runtime copies.
 
 ## Compatibility & Requirements
 

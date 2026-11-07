@@ -783,7 +783,7 @@ func validateVerifierChainSupport(
 
 	nopAliasStrings := shared.ConvertNopAliasToString(nopsToValidate)
 
-	supportedChains, err := fetchNodeChainSupport(e, nopAliasStrings)
+	supportedChains, err := fetchNodeChainSupport(e, nopAliasStrings, nil)
 	if err != nil {
 		return fmt.Errorf("failed to fetch node chain support: %w", err)
 	}

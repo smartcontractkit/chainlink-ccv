@@ -9,14 +9,16 @@ import (
 )
 
 // NOPInput describes a NOP for verifier and executor config publishing.
-// SignerAddressByFamily and PolicyHook apply only to verifier jobs; ExecutorNodeID
-// applies only to standalone executor jobs. Mode defaults to NOPModeCL.
+// SignerAddressByFamily and PolicyHook apply only to verifier jobs; ExecutorNodeID and
+// ExecutorNodeName apply only to standalone executor jobs. Mode defaults to NOPModeCL.
 type NOPInput struct {
 	Alias                 shared.NOPAlias
 	SignerAddressByFamily map[string]string
 	Mode                  shared.NOPMode
-	// ExecutorNodeID explicitly targets a standalone executor JD node, including initial provisioning.
+	// ExecutorNodeID targets the standalone executor's JD node; a declared node moves an existing job.
 	ExecutorNodeID string
+	// ExecutorNodeName targets the standalone executor's JD node by name, resolved at apply time.
+	ExecutorNodeName string
 	// PolicyHook is this NOP's custom policy endpoint, emitted into its verifier job spec.
 	// Nil leaves the section out of the spec entirely, so a NOP without a hook gets the same
 	// bytes it did before the hook existed. Ignored by the executor changeset.

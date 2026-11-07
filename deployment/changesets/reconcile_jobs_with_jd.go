@@ -178,28 +178,21 @@ func reconcileJobsWithJD(e deployment.Environment, input ReconcileJobsWithJDInpu
 			)
 		}
 
-		info := shared.JobInfo{
-			JobID:            req.jobID,
-			JDJobID:          req.jdJob.GetId(),
-			ExternalJobID:    req.externalJobID,
-			NOPAlias:         req.nopAlias,
-			NodeID:           req.nodeID,
-			Mode:             shared.NOPModeStandalone,
-			Spec:             latest.GetSpec(),
-			ActiveProposalID: latest.GetId(),
-			Proposals:        make(map[string]shared.ProposalRevision, len(proposals)),
-		}
 		for _, proposal := range proposals {
 			if proposal.GetId() == "" {
 				return deployment.ChangesetOutput{}, fmt.Errorf("job %q: JD returned a proposal with an empty ID", req.jobID)
 			}
-			info.AddProposal(shared.ProposalRevision{
-				ProposalID: proposal.GetId(),
-				Revision:   proposal.GetRevision(),
-				Status:     reconcileProposalStatus(proposal.GetStatus()),
-				Spec:       proposal.GetSpec(),
-			})
 		}
+		info := shared.JobInfo{
+			JobID:         req.jobID,
+			JDJobID:       req.jdJob.GetId(),
+			ExternalJobID: req.externalJobID,
+			NOPAlias:      req.nopAlias,
+			NodeID:        req.nodeID,
+			Mode:          shared.NOPModeStandalone,
+			Spec:          latest.GetSpec(),
+		}
+		info.SetProposalsFromJD(proposals)
 		reconciledJobs = append(reconciledJobs, info)
 	}
 
@@ -273,21 +266,4 @@ func readStandaloneExecutorJob(input ReconcileJobWithJD) (reconcileJobRequest, e
 	}
 
 	return req, nil
-}
-
-func reconcileProposalStatus(status jobv1.ProposalStatus) shared.JobProposalStatus {
-	switch status {
-	case jobv1.ProposalStatus_PROPOSAL_STATUS_PENDING, jobv1.ProposalStatus_PROPOSAL_STATUS_PROPOSED:
-		return shared.JobProposalStatusPending
-	case jobv1.ProposalStatus_PROPOSAL_STATUS_APPROVED:
-		return shared.JobProposalStatusApproved
-	case jobv1.ProposalStatus_PROPOSAL_STATUS_REJECTED:
-		return shared.JobProposalStatusRejected
-	case jobv1.ProposalStatus_PROPOSAL_STATUS_REVOKED, jobv1.ProposalStatus_PROPOSAL_STATUS_CANCELLED:
-		return shared.JobProposalStatusRevoked
-	case jobv1.ProposalStatus_PROPOSAL_STATUS_UNSPECIFIED:
-		return shared.JobProposalStatusPending
-	default:
-		return shared.JobProposalStatusPending
-	}
 }

@@ -97,7 +97,7 @@ func ApplyExecutorConfig() deployment.ChangeSetV2[ApplyExecutorConfigInput] {
 		if shared.IsProductionEnvironment(e.Name) && cfg.PyroscopeURL != "" {
 			return fmt.Errorf("pyroscope URL is not supported for production environments")
 		}
-		if _, err := standaloneExecutorJobNodeIDs(e, cfg); err != nil {
+		if _, err := standaloneExecutorNodeIDs(e, cfg); err != nil {
 			return err
 		}
 		return nil
@@ -121,7 +121,7 @@ func ApplyExecutorConfig() deployment.ChangeSetV2[ApplyExecutorConfigInput] {
 			)
 		}
 
-		jobNodeIDs, err := standaloneExecutorJobNodeIDs(e, cfg)
+		standaloneNodeIDs, err := standaloneExecutorNodeIDs(e, cfg)
 		if err != nil {
 			return deployment.ChangesetOutput{}, err
 		}
@@ -131,7 +131,7 @@ func ApplyExecutorConfig() deployment.ChangeSetV2[ApplyExecutorConfigInput] {
 			nopsToValidate = executorPoolNOPAliases(cfg.Pool)
 		}
 
-		if err := validateExecutorChainSupport(e, cfg.Pool, nopsToValidate); err != nil {
+		if err := validateExecutorChainSupport(e, cfg.Pool, nopsToValidate, standaloneNodeIDs); err != nil {
 			return deployment.ChangesetOutput{}, err
 		}
 
@@ -171,7 +171,7 @@ func ApplyExecutorConfig() deployment.ChangeSetV2[ApplyExecutorConfigInput] {
 					TargetNOPs: cfg.TargetNOPs,
 					AllNOPs:    allNOPAliases(cfg.NOPs),
 				},
-				StandaloneExecutorNodeIDs: jobNodeIDs,
+				StandaloneExecutorNodeIDs: standaloneExecutorJobNodeIDs(cfg.ExecutorQualifier, standaloneNodeIDs),
 				RevokeOrphanedJobs:        cfg.RevokeOrphanedJobs,
 				// Without a JD (no-JD local devenv), persist the generated specs and skip proposing;
 				// the caller delivers them to the executor as a mounted file instead.
@@ -234,10 +234,13 @@ func executorPoolNOPAliases(pool ExecutorPoolInput) []shared.NOPAlias {
 	return aliases
 }
 
+// validateExecutorChainSupport checks each NOP's JD node supports its pool chains.
+// Standalone executors are checked on their routed node, everyone else on the node named after the NOP.
 func validateExecutorChainSupport(
 	e deployment.Environment,
 	pool ExecutorPoolInput,
 	nopsToValidate []shared.NOPAlias,
+	standaloneNodeIDs map[shared.NOPAlias]string,
 ) error {
 	if e.Offchain == nil {
 		if e.Logger != nil {
@@ -247,8 +250,12 @@ func validateExecutorChainSupport(
 	}
 
 	nopAliasStrings := shared.ConvertNopAliasToString(nopsToValidate)
+	nodeIDByAlias := make(map[string]string, len(standaloneNodeIDs))
+	for alias, nodeID := range standaloneNodeIDs {
+		nodeIDByAlias[string(alias)] = nodeID
+	}
 
-	supportedChains, err := fetchNodeChainSupport(e, nopAliasStrings)
+	supportedChains, err := fetchNodeChainSupport(e, nopAliasStrings, nodeIDByAlias)
 	if err != nil {
 		return fmt.Errorf("failed to fetch node chain support: %w", err)
 	}
@@ -304,7 +311,7 @@ func requiredChainsForExecutorNOP(nopAlias shared.NOPAlias, pool ExecutorPoolInp
 	return requiredChains
 }
 
-func fetchNodeChainSupport(e deployment.Environment, nopAliases []string) (shared.ChainSupportByNOP, error) {
+func fetchNodeChainSupport(e deployment.Environment, nopAliases []string, nodeIDByAlias map[string]string) (shared.ChainSupportByNOP, error) {
 	if len(nopAliases) == 0 {
 		return nil, nil
 	}
@@ -318,7 +325,8 @@ func fetchNodeChainSupport(e deployment.Environment, nopAliases []string) (share
 			NodeIDs:  e.NodeIDs,
 		},
 		fetch_node_chain_support.FetchNodeChainSupportInput{
-			NOPAliases: nopAliases,
+			NOPAliases:       nopAliases,
+			NodeIDByNOPAlias: nodeIDByAlias,
 		},
 	)
 	if err != nil {
