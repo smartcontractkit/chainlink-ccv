@@ -29,8 +29,8 @@ imported into the standalone verifier, so the on-chain committee signer set neve
 executor instead generates a fresh transmitter key that we fund; nothing on chain names the
 transmitter, so no reconfiguration is needed.
 
-Reference procedure: `chainlink-ccv/docs/migration/evm-cl-to-standalone.md`, written for external
-operators. This document adapts it for staging, where one team does both halves.
+Technical reference: [EVM standalone verifier and executor](../verifier/evm-standalone.md).
+This document adapts the CL-to-standalone cutover for staging, where one team does both halves.
 
 ## What is already done
 
@@ -412,7 +412,7 @@ and it is what would need one: its `evm` schema (LogPoller blocks plus 30 days o
 `CCIPMessageSent` logs per OnRamp) goes in the database named by `[db].url` in the EVM secrets
 file, which can be the app database or its own. Those tables are forward-only migrations like the
 rest, so never point an older image at a database a newer one has migrated. See
-[Source logs](evm-cl-to-standalone.md#source-logs-rpc-or-a-logpoller).
+[Source logs](../verifier/evm-standalone.md#source-logs-rpc-or-a-logpoller).
 
 `deletionProtection: true` is enforced by Gatekeeper (`prevent-xr-deletion-protection`). Wiping
 a node's cluster after a bad cutover first takes a deploy that sets it to `false`; a delete

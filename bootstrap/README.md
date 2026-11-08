@@ -199,13 +199,16 @@ application declares exactly one key it can import into, so the target is unambi
 format is read from the file (an OCR2 bundle declares its chain type, an eth key carries an
 address).
 
-The import runs only when the key is absent, so it is a no-op on every restart after the first and
-the exported files can be unmounted once the node has come up once.
+The import runs only when the key is absent. On later restarts the exported files are not read, but
+`expected_id` is still checked against the stored key. After the cutover is confirmed, recreate the
+verifier without the export mounts and confirm the stored key before deleting the export files. Keep
+the `[key_import]` block: if the bootstrap database is lost, it prevents a new signing identity from
+being generated.
 
 The CSA key is never imported. It authenticates the node to JD and has no on-chain meaning, so a
 migration repoints the existing JD node record at the standalone node's own CSA key via
-`UpdateNodeRequest.public_key` rather than copying a private key across. See
-`docs/migration/evm-cl-to-standalone.md` for the full procedure.
+`UpdateNodeRequest.public_key` rather than copying a private key across. See the
+[EVM standalone reference](../docs/verifier/evm-standalone.md#key-migration) for the identity model.
 
 # Requirements
 

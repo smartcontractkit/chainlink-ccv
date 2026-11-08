@@ -27,7 +27,7 @@ state is transferred; this decision is about operation after cutover, not live s
   disabled. These are gaps wherever the production node relies on those features.
 - Node-config conversion carries the node's chain-level settings, including `GasEstimator`,
   `NodePool`, `HeadTracker`, and `Transactions` tuning, over the chain defaults, except the few
-  standalone fixes itself (see [evm-cl-to-standalone.md](evm-cl-to-standalone.md)). Send-only nodes
+  standalone fixes itself (see [EVM config conversion](../verifier/evm-standalone.md#evm-config-conversion)). Send-only nodes
   are dropped. If no v2 block time is present, standalone uses a curated per-chain default for chains
   whose real block interval exceeds the 2s validation floor (Ethereum and its testnets, Rootstock,
   Gnosis, and similar), and 2 seconds otherwise; fast chains are already served by the floor.

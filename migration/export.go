@@ -8,7 +8,7 @@
 // Only the verifier's signing key moves. The executor is not migrated per operator: a single EVM
 // executor with one funded key replaces the per-node transmitters, so there is no account to carry.
 //
-// The procedure these callers serve is docs/migration/evm-cl-to-standalone.md.
+// Key import behavior is documented in docs/verifier/evm-standalone.md.
 package migration
 
 import (
@@ -77,7 +77,7 @@ type ExportResult struct {
 // password:
 //
 //  1. Preflight: the node is expected to run exactly one ccvcommitteeverifier job — the only shape
-//     docs/migration/evm-cl-to-standalone.md applies to. A job list that contradicts that shape
+//     docs/verifier/evm-standalone.md applies to. A job list that contradicts that shape
 //     fails the export; a list that cannot be read, or shows no CCV jobs this tool recognizes, is a
 //     warning only, since an older node may report job types differently.
 //  2. The EVM OCR2 bundle is resolved from the node's own listing, the same source the node's JD
@@ -212,14 +212,14 @@ func preflightJobs(ctx context.Context, lggr logger.Logger, client *NodeClient) 
 		return fmt.Errorf(
 			"the node runs no %s job, though it runs %d %s job(s); this migration exports the verifier's "+
 				"signing key, so check that --node-url points at the node running this operator's %s job "+
-				"(docs/migration/evm-cl-to-standalone.md)",
+				"(docs/verifier/evm-standalone.md)",
 			JobTypeVerifier, executors, JobTypeExecutor, JobTypeVerifier)
 	}
 	if verifiers > 1 {
 		return fmt.Errorf(
 			"the node runs %d %s jobs; a standalone verifier runs a single job, so the committee's "+
 				"verifier jobs must be consolidated into one before migrating — raise it with Chainlink "+
-				"Labs rather than picking one (docs/migration/evm-cl-to-standalone.md)",
+				"Labs rather than picking one (docs/verifier/evm-standalone.md)",
 			verifiers, JobTypeVerifier)
 	}
 	return nil

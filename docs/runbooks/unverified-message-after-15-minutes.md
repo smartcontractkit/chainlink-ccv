@@ -98,7 +98,7 @@ query above can stay fresh while nothing advances. The signal is
 standalone verifier also reports `source unhealthy` on `/health` when the LogPoller reports itself
 unhealthy; a CL-mode verifier does not. Investigate the LogPoller (the node's in CL mode, or the
 database in the EVM secrets file for a standalone verifier), then the source RPC behind it; see the
-[migration appendix](../migration/evm-cl-to-standalone.md#source-logs-rpc-or-a-logpoller).
+[standalone source-log reference](../verifier/evm-standalone.md#source-logs-rpc-or-a-logpoller).
 
 If the state is `disabled`, verify configuration or deliberate operational
 disablements. `finality_blocked` means a finality violation was detected and the

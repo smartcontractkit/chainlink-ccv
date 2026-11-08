@@ -14,11 +14,10 @@ production load at ~61-chain scale; prod-mainnet proves the external-operator pa
 Nothing in this document unblocks an external operator — that is a separate program, and
 it starts only after the go/no-go at the bottom of this one.
 
-Reference procedure: `chainlink-ccv/docs/migration/evm-cl-to-standalone.md` (written for
-external operators) and `chainlink-ccv/docs/migration/staging-migration-plan.md` (the
-staging execution plan). The per-node mechanics are identical to staging; this document
-lists the deltas rather than repeating the procedure. Where a step says "as in staging,"
-execute the staging plan's step with the substitutions in "Conventions".
+Technical reference: [EVM standalone verifier and executor](../verifier/evm-standalone.md).
+The per-node mechanics are identical to the [staging execution plan](staging-migration-plan.md);
+this document lists the deltas rather than repeating the procedure. Where a step says "as in
+staging," execute the staging plan's step with the substitutions in "Conventions".
 
 ## What prod-testnet adds over staging
 
@@ -188,7 +187,7 @@ config; see the go/no-go), its `evm` schema adds the LogPoller's blocks and 30 d
 `CCIPMessageSent` logs per OnRamp, 61 chains per node, to the database named by `[db].url`
 in the EVM secrets file. That database then dominates the other three; size each node's
 cluster, and its backups, for it before enabling the reader. See
-[Source logs](evm-cl-to-standalone.md#source-logs-rpc-or-a-logpoller).
+[Source logs](../verifier/evm-standalone.md#source-logs-rpc-or-a-logpoller).
 
 ### P5. Per-chain config review at 61-chain scale
 
@@ -306,13 +305,13 @@ Operator comms for prod-mainnet may start when all of these hold:
 - [ ] Two-week full-fleet soak with no sev and no unexplained transmit failure.
 - [ ] Canary restart, rollback drill, and alert verification results written down.
 - [ ] The per-chain config review (P5) archived; every deviation has an owner.
-- [ ] Source-read mode for prod-mainnet decided and documented in `evm-cl-to-standalone.md`:
+- [ ] Source-read mode for prod-mainnet decided and documented in the [standalone reference](../verifier/evm-standalone.md#source-logs-rpc-or-a-logpoller):
       `eth_getLogs` from the node TOML, or the standalone LogPoller, which needs the
       standalone-format EVM config, an EVM secrets file, and database sizing for its logs.
 - [ ] `apply-executor-config` can target a standalone operator's executor record (staging
       open question 5), so prod-mainnet executors do not need a hand-proposed job.
-- [ ] Runbook corrections from this environment fed back into
-      `evm-cl-to-standalone.md` — prod-mainnet operators get the corrected doc.
+- [ ] Runbook corrections from this environment fed back into the relevant operator and CLL
+      migration runbooks.
 
 ## Open questions
 
