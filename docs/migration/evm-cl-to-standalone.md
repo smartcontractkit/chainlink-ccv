@@ -3,9 +3,10 @@
 Your CCV jobs move off your Chainlink node and onto two standalone processes, a verifier and an
 executor. Your signing key comes with you, so nothing changes on chain.
 
-Node operators do steps 1 to 7. Chainlink Labs does steps 8 to 10, coordinating one additional
-operator action in step 9 if a chain is disabled. The appendix explains what is happening and why,
-if you want it — you do not need it to run the steps.
+Node operators do steps 1 to 7, and the cleanup after Chainlink Labs confirms the cutover.
+Chainlink Labs does steps 8 to 10, coordinating one additional operator action in step 9 if a chain
+is disabled. The appendix explains what is happening and why, if you want it — you do not need it
+to run the steps.
 
 ---
 
@@ -19,23 +20,52 @@ exported, so this procedure does not apply to you.
 You need:
 
 - Your Chainlink node's API credentials in a file: email on line 1, password on line 2.
-- Your Chainlink node's TOML config file.
+- Your Chainlink node's TOML config. If the node starts with more than one `-config` file, you need
+  all of them; step 3 combines them.
 - Three empty Postgres databases: one bootstrap database for each process, plus the verifier's
   application database. They may share a server, but must be different database names. The
   standalone LogPoller reader, if you turn it on later, adds tables to a database of its own or to
-  the application database; see [Source logs](#source-logs-rpc-or-a-logpoller).
+  the application database; see [Source logs](#source-logs-rpc-or-a-logpoller). Keep the server's
+  data on a persistent volume: from step 5 on, the bootstrap databases hold your keys.
 - A bootstrap config and a bootstrap secrets file for each process, and an application secrets file
   for the verifier, as described in step 3.
 - The Job Distributor's WebSocket URL and its CSA public key. Chainlink Labs gives you both.
+- Your signing address as Chainlink Labs reads it from your JD record. They send it when the
+  cutover is scheduled.
 - The verifier and executor images.
+
+Run every command from one working directory, outside any git repository. By the end of step 3 it
+holds:
+
+| Path              | What it holds                                                          |
+|-------------------|------------------------------------------------------------------------|
+| `migration/`      | Your API credentials, then the exported key and its password (step 2)  |
+| `evm-config.toml` | The copy of your node's TOML config that both processes run on (step 3) |
+| `verifier/`       | `config.toml`, `bootstrap-secrets.toml` and `secrets.toml` (step 3)    |
+| `executor/`       | `config.toml` and `bootstrap-secrets.toml` (step 3)                    |
 
 Fill these in once and reuse them in the commands below:
 
-| Placeholder            | What it is                                          |
-|------------------------|-----------------------------------------------------|
-| `<verifier-image>`     | The verifier image you are deploying                |
-| `<executor-container>` | Your executor's container name                      |
+| Placeholder            | What it is                                                  |
+|------------------------|-------------------------------------------------------------|
+| `<verifier-image>`     | The verifier image you are deploying                        |
+| `<executor-image>`     | The executor image you are deploying                        |
+| `<node-container>`     | Your Chainlink node's container name                        |
 | `<node-url>`           | Your Chainlink node's API URL, e.g. `http://localhost:6688` |
+| `<node-database-url>`  | The `[Database] URL` in your node's secrets TOML            |
+| `<jd-signing-address>` | Your signing address from Chainlink Labs                    |
+| `<jd-wsrpc-url>`       | The Job Distributor's WebSocket URL from Chainlink Labs     |
+| `<jd-csa-public-key>`  | The Job Distributor's CSA public key from Chainlink Labs    |
+
+The commands assume Docker on a Linux host and name the new containers `ccv-verifier` and
+`ccv-executor`. If you run them some other way, translate the commands; the mounts, ports and
+checks stay the same.
+
+If an AI agent runs these steps for you, supervise it; this procedure is not meant to run
+unattended. Fill in passwords and credentials yourself, and do not let the agent read
+`migration/api-creds.txt`, `migration/export-password.txt` or any secrets file; whatever it reads
+ends up in its transcript. The agent must stop at every **Approval** point and wait for your
+go-ahead: before it sends funds, stops the node, or starts the verifier.
 
 ## Step 1: check your node's jobs and chain statuses
 
@@ -45,15 +75,19 @@ psql "<node-database-url>" -X -c \
   "SELECT chain_selector, verifier_id, finalized_block_height, disabled FROM ccv_chain_statuses ORDER BY 1, 2"
 ```
 
-`<node-database-url>` is the `[Database] URL` in your node's secrets TOML. Read the table with `psql`
-rather than `chainlink node ccv chain-statuses list`: that command opens the node's database
-itself, waits on the lease the running node holds, and hangs.
+`chainlink jobs list` needs a logged-in CLI session. With the node in Docker, run
+`docker exec -it <node-container> chainlink admin login` once, then
+`docker exec <node-container> chainlink jobs list`. If the host has no `psql`, run it inside your
+Postgres container with `docker exec`. Read the table with `psql` rather than
+`chainlink node ccv chain-statuses list`: that command opens the node's database itself, waits on
+the lease the running node holds, and hangs.
 
 **Check:** exactly one `ccvcommitteeverifier` job. If you see more than one, stop and contact
 Chainlink Labs — do not continue.
 
 You will also see a `ccvexecutor` job. That is expected: CCIP 2.0 runs two job specs on your node, one
-per component.
+per component. If you see any other job, tell Chainlink Labs before you continue: stopping the node
+in step 4 stops it too.
 
 Check the `disabled` column in the query output. Normally every row is `false`. If any row is
 `true`, record its chain selector and tell Chainlink Labs; do not enable it. You must restore the
@@ -80,10 +114,15 @@ own user. `--network host` works on Linux only; on Docker Desktop, drop it and p
 (`OnchainSigningAddress`); they send it to you when the cutover is scheduled. The export fails if
 the exported key does not carry exactly that address — the decode check alone cannot catch picking
 the wrong OCR2 bundle, because any bundle decodes to a self-consistent identity. If it fails, stop
-and tell Chainlink Labs; do not retry with a different value. A failed export deletes the key and
-password it had already written, so there is nothing left in `./migration/` to mount by accident.
-If your node holds more than one EVM OCR2 bundle, the export also needs `--bundle-id`; the
-`--expected-id` check still rejects any bundle but the registered one.
+and tell Chainlink Labs; do not retry with a different value. When that check fails, the export
+deletes the key and password it wrote, so there is nothing left in `./migration/` to mount by
+accident.
+
+If your node holds more than one EVM OCR2 bundle, the export fails and lists their IDs. Run
+`docker exec <node-container> chainlink keys ocr2 list`, find the EVM bundle whose on-chain public
+key is `ocr2on_evm_` followed by `<jd-signing-address>` in lowercase without the `0x`, and re-run
+the export with `--bundle-id <that ID>`. Keep `--expected-id` as it was; it still rejects any bundle
+but the registered one.
 
 This writes three files into `./migration/`:
 
@@ -91,38 +130,75 @@ This writes three files into `./migration/`:
 - `export-password.txt` — its password (mode 0600, owned by you).
 - `verifier.key_import.toml` — a config snippet to paste in step 3.
 
+`ocr2.json` is encrypted, but its password sits next to it in plain text, so anyone who can read
+both files can sign as you. Keep `./migration/` out of git and off shared storage.
+
 **Check:** the command printed a signing address that matches `<jd-signing-address>`, and all three
-files exist. If the command errors, read the error and stop — it is telling you something is wrong
-with the node or the flags.
+files exist. If the command errors for any other reason, read the error and stop — it is telling
+you something is wrong with the node or the flags. Once the check passes, delete
+`migration/api-creds.txt`; nothing later needs it.
 
 ## Step 3: configure the verifier and executor
 
-Do all seven:
+Do all seven. Step 5 mounts each file at the path given here.
 
-1. Mount your Chainlink node's TOML config file into **both** containers as their EVM config, at
-   `/etc/evm/config.toml` (`EVM_CONFIG_PATH` overrides the path). Do not edit it, apart from a
-   per-chain value you and Chainlink Labs agree on in the settings diff below.
-2. Write a bootstrap config for each process, starting from the
-   [bootstrap config reference](../config/bootstrap/config.documented.toml), and mount it at
-   `/etc/config.toml` (`BOOTSTRAPPER_CONFIG_PATH` overrides the path). It needs `[jd]` with the Job
-   Distributor's WebSocket URL and CSA public key, `[server]` with `listen_port`, and one `[[chains]]`
-   entry (`type = "EVM"` and the chain ID) for every EVM chain that process serves. `[Monitoring]` is
-   optional.
-3. Mount a different bootstrap secrets file into each process. Its default path is
-   `/etc/bootstrap/secrets.toml`; `BOOTSTRAPPER_SECRETS_PATH` overrides the path. Each file contains
-   that process's bootstrap `[db].url` and `[keystore].password`.
-4. Mount the verifier application secrets at `/etc/committee-verifier/secrets.toml`;
-   `COMMITTEE_VERIFIER_SECRETS_PATH` overrides the path. Its `[db].url` points to the third database,
-   not the verifier bootstrap database, and its `[[aggregators]]` entries hold the HMAC credentials.
-   Each entry's `secret_name` must be the verifier ID your node's secrets already use for that
-   aggregator, which is `<aggregator name>-<committee>-verifier`, for example
-   `aggregator-1-default-verifier`. The consolidated job looks credentials up by those names, so copy
-   each aggregator's key pair under its existing ID and do not rename it.
+1. Copy your Chainlink node's TOML config to `evm-config.toml`. Both containers mount the copy as
+   their EVM config at `/etc/evm/config.toml` (`EVM_CONFIG_PATH` overrides the path). Leave the
+   original alone: a rollback restarts the node on it. If the node starts with several `-config`
+   files, concatenate the ones that contain `[[EVM]]` sections into the copy, in the order the node
+   loads them. Repeated `[[EVM]]` blocks for one chain merge the way the node merges them, but any
+   other table may appear only once, so delete duplicates such as a second `[Feature]`; standalone
+   does not read those sections. Change nothing else in the copy, apart from what the settings diff
+   below calls for.
+2. Write a bootstrap config for each process, `verifier/config.toml` and `executor/config.toml`,
+   each mounted at `/etc/config.toml` (`BOOTSTRAPPER_CONFIG_PATH` overrides the path). Start from
+   the minimal file below, not from the
+   [bootstrap config reference](../config/bootstrap/config.documented.toml): the reference carries
+   an example `[key_import]` block, which would end up duplicated in the verifier's file and
+   misplaced in the executor's. Each file needs `[jd]` with the Job Distributor's WebSocket URL and
+   CSA public key, `[server]` with `listen_port`, and one `[[chains]]` entry (`type = "EVM"` and the
+   chain ID) for every EVM chain your node serves, the same list in both files. The two processes
+   share the host's network in step 5, so they need different ports: 9988 for the verifier and 9989
+   for the executor. `[Monitoring]` is optional; copy it from the reference if you use it.
+
+   ```toml
+   [jd]
+   server_wsrpc_url      = "<jd-wsrpc-url>"
+   server_csa_public_key = "<jd-csa-public-key>"
+
+   [server]
+   listen_port = 9988   # 9989 in executor/config.toml
+
+   # One entry per EVM chain your node serves, the same list in both files.
+   [[chains]]
+   type = "EVM"
+   id   = "<chain-id>"
+   ```
+
+3. Write a bootstrap secrets file for each process, `verifier/bootstrap-secrets.toml` and
+   `executor/bootstrap-secrets.toml`, each mounted at `/etc/bootstrap/secrets.toml`
+   (`BOOTSTRAPPER_SECRETS_PATH` overrides the path). Each holds that process's bootstrap `[db].url`
+   and its own `[keystore].password`. The keystore password is new and unrelated to the export
+   password: generate it with `openssl rand -hex 32` and keep a copy in your password manager. It
+   encrypts the keys the process stores in its bootstrap database (the verifier's signing key, the
+   executor's funded transmitter key, and their CSA keys), so losing it loses them.
+4. Write the verifier application secrets, `verifier/secrets.toml`, mounted at
+   `/etc/committee-verifier/secrets.toml` (`COMMITTEE_VERIFIER_SECRETS_PATH` overrides the path).
+   Its `[db].url` points to the third database, not the verifier bootstrap database, and its
+   `[[aggregators]]` entries hold the HMAC credentials. Each entry's `secret_name` must be the
+   verifier ID your node's secrets already use for that aggregator, which is
+   `<aggregator name>-<committee>-verifier`, for example `aggregator-1-default-verifier`. The
+   consolidated job looks credentials up by those names, so copy each aggregator's key pair under
+   its existing ID and do not rename it. In the node's secrets TOML they are the
+   `[[CCV.AggregatorSecrets]]` entries: `VerifierID` becomes `secret_name`, `APIKey` becomes
+   `api_key`, and `APISecret` becomes `secret_key`. Do not drop `secret_name`; an entry without one
+   only serves a committee with a single aggregator.
 5. Mount `ocr2.json` into the **verifier** at `/etc/ccv/migration/key.json` (note the rename).
 6. Mount `export-password.txt` into the **verifier** at
    `/etc/ccv/migration/export-password.txt`.
-7. Copy the `[key_import]` block out of `verifier.key_import.toml` and paste it into the verifier's
-   bootstrap config from item 2. It looks like this, with your address already filled in:
+7. Copy the `[key_import]` block out of `verifier.key_import.toml` and paste it into
+   `verifier/config.toml` from item 2, which must end up with exactly one `[key_import]` block. It
+   looks like this, with your address already filled in:
 
 ```toml
 [key_import]
@@ -131,14 +207,15 @@ password_path = "/etc/ccv/migration/export-password.txt"
 expected_id   = "0x..."
 ```
 
-Do not retype the address. Do not add `[key_import]` to the executor.
+Do not retype the address. Do not add `[key_import]` to the executor: it would import your signing
+key as its transmitter key and send transactions from it.
 
-The verifier image runs as UID 65532 and the two exported files are mode 0600 and owned by you, so the
-verifier cannot read them as it stands. Either run the verifier container as the same user
-(`--user "$(id -u):$(id -g)"`), or `chown` the two files to 65532 before mounting them. On Kubernetes,
-set `runAsUser` to your UID or `chown` to 65532; `fsGroup` alone does not make a 0600 file owned by a
-different UID readable. Do this before the `ccv migrate inspect` check below, and run that check as
-the same user as the verifier.
+Both images run as UID 65532, but the files you mount are owned by you, and the exported key, its
+password and every secrets file should be mode 0600. UID 65532 cannot read those. Run both
+containers as your own user (`--user "$(id -u):$(id -g)"`, as the commands in this procedure do),
+or `chown` every mounted 0600 file to 65532. On Kubernetes, set
+`runAsUser` to your UID or `chown` to 65532; `fsGroup` alone does not make a 0600 file owned by a
+different UID readable.
 
 The complete schemas are in the [bootstrap secrets reference](../config/bootstrap/secrets.documented.toml)
 and [verifier secrets reference](../config/verifier/secrets.documented.toml). For backwards
@@ -146,21 +223,27 @@ compatibility, the verifier application DB URL can instead come from `CL_DATABAS
 credentials can come from `VERIFIER_AGGREGATOR_*_API_KEY` and
 `VERIFIER_AGGREGATOR_*_SECRET_KEY`; the secrets file wins when both are present.
 
-Confirm the mounted file is the right one:
+Confirm the export is the right one. The verifier is not running yet, so check it in a one-off
+container with the same two mounts:
 
 ```sh
-ccv migrate inspect \
-  --key-file /etc/ccv/migration/key.json \
-  --password-file /etc/ccv/migration/export-password.txt
+docker run --rm --user "$(id -u):$(id -g)" \
+  -v "$PWD/migration/ocr2.json:/etc/ccv/migration/key.json:ro" \
+  -v "$PWD/migration/export-password.txt:/etc/ccv/migration/export-password.txt:ro" \
+  <verifier-image> ccv migrate inspect \
+    --key-file /etc/ccv/migration/key.json \
+    --password-file /etc/ccv/migration/export-password.txt
 ```
 
 **Check:** the address it prints matches `expected_id` in the block you pasted.
 
-Then diff the effective chain settings, once, before anything starts:
+Then diff the effective chain settings before anything starts, and again after any change to
+`evm-config.toml`:
 
 ```sh
-docker run --rm -v "$PWD:/cfg" <verifier-image> \
-  ccv migrate inspect-config --config /cfg/<your-node-config.toml>
+docker run --rm --user "$(id -u):$(id -g)" \
+  -v "$PWD/evm-config.toml:/etc/evm/config.toml:ro" \
+  <verifier-image> ccv migrate inspect-config --config /etc/evm/config.toml
 ```
 
 This runs the same conversion the standalone processes run at startup and prints what each chain
@@ -174,10 +257,11 @@ handled differently:
 
 - `failed_chains` names any chain the conversion skipped whole — an unknown chain ID, a node with
   no HTTPURL, an unservable finality mode — with the reason. Those chains will not be served at
-  all. If a chain you serve is listed, fix its `[[EVM]]` section before continuing: the standalone
-  processes refuse to boot when a chain declared in the bootstrap `[[chains]]` cannot be served by
-  the mounted config. A leftover chain you no longer serve needs nothing, but delete its section so
-  the startup skip warning stays meaningful.
+  all. If a chain you serve is listed, fix its `[[EVM]]` section in `evm-config.toml` before
+  continuing: the standalone processes refuse to boot when a chain declared in the bootstrap
+  `[[chains]]` cannot be served by the mounted config. A leftover chain you no longer serve needs
+  nothing, but delete its section from `evm-config.toml` so the startup skip warning stays
+  meaningful.
 - The `warnings` list names every place standalone will run differently from your node config:
   settings it does not recognize (a setting too new for this release, or a typo of a real one),
   settings it sets itself (the balance monitor, log broadcaster, head persistence, forwarders, and
@@ -187,53 +271,156 @@ handled differently:
   (`Log`, `WebServer`, `P2P`, `Feature`, …) the conversion does not read at all. If your node sets
   `[Feature] LogPoller = true`, its verifier reads source logs through that LogPoller today and the
   standalone verifier will read them over RPC; see [Source logs](#source-logs-rpc-or-a-logpoller).
-  A typo is worth fixing in the file; the rest is standalone's behavior whatever you write. Record
-  that you accept each one, or raise it with Chainlink Labs if a deviation is not acceptable.
+  A typo is worth fixing in `evm-config.toml`; the rest is standalone's behavior whatever you
+  write. Record that you accept each one, or raise it with Chainlink Labs if a deviation is not
+  acceptable.
 - Chain-level settings carry over as written, so an agreed change to any of them (the TXM block
-  time, the finality pair, gas estimation, the node pool) goes under that chain's `[[EVM]]` block
-  before the containers start, exactly as it would on the node.
+  time, the finality pair, gas estimation, the node pool) goes under that chain's `[[EVM]]` block in
+  `evm-config.toml` before the containers start, exactly as it would on the node.
 
 This is the pre-cutover settings review, not an optional extra.
 
 ## Step 4: stop the Chainlink node
 
-Stop it now, before starting anything else. Pick a quiet moment if you can.
+To pay for the executor's gas (step 7) from your old per-chain transmitter accounts, do it now,
+while the node can still send from them:
 
-**Check:** the node's API no longer answers.
+1. Start the executor with its step 5 command. Do not start the verifier yet: it holds your node's
+   signing key and takes over its JD record, so it starts only after the node stops. The executor
+   is safe to start now, because it gets its own new JD record and no job until step 9.
+2. Read its address as in step 7.
+3. **Approval:** review each transfer (chain, source account, destination, amount) before it is
+   sent. On each chain, send gas to the executor from the node's account for that chain
+   (`docker exec <node-container> chainlink keys eth list` shows them). `<amount>` is in
+   native-token units, so `0.15` sends 0.15 of the chain's native token; add `--wei` to give it in
+   wei.
+
+   ```sh
+   docker exec <node-container> chainlink txs evm create \
+     --id <chain-id> <amount> <old-account> <executor-address>
+   ```
+
+4. Wait for every transfer to confirm. The command only queues the transfer in the node, which
+   broadcasts it and bumps its gas until it lands. A transfer still pending when the node stops may
+   never land, and those accounts cannot send again.
+
+   **Check:** the executor's balance on every chain shows what you sent, confirmed on chain rather
+   than assumed.
+
+**Approval:** stop the node only after the step 3 checks pass and every transfer you made here has
+confirmed. Pick a quiet moment if you can. Then stop it, and make sure nothing starts it again: a
+node that comes back up runs its CCV jobs on the signing key the verifier is about to hold, and
+until step 8 it still owns your JD record.
+
+```sh
+docker stop <node-container>
+docker update --restart=no <node-container>   # a reboot or Docker restart leaves it stopped
+```
+
+If a systemd unit runs the node, use `systemctl disable --now <unit>` instead. It stops the node and
+keeps it from starting at boot, where a unit that restarts its container would undo a plain
+`docker stop`. If the node is a Docker Compose service, run `docker compose stop <service>` and
+remove the service from the compose file, since `docker compose up` starts every service in it.
+
+**Check:** the node's API no longer answers, and nothing is set to start it again.
 
 ## Step 5: start the verifier and executor
 
-Start both.
+Start both. Skip the executor command if you started it in step 4.
 
-**Check:** both are running and healthy, neither is restarting, and the verifier's log does not
-mention an `expected_id` mismatch. Healthy means the process's own `/health` endpoint answers 200 —
-see [Health and readiness endpoints](#health-and-readiness-endpoints). A process that refuses to
-boot with `declares EVM chains the mounted EVM config cannot serve` is telling you the bootstrap
-`[[chains]]` list and the mounted node config disagree — the error names the chain and the reason;
-fix the mount or the declaration rather than working around it. If the verifier refuses to
-start, do not work around it — go to [If something goes wrong](#if-something-goes-wrong). The
-`signer_address` check runs when the job starts in step 9.
+**Approval:** start the verifier only once the node is stopped and `verifier/config.toml` holds
+exactly one `[key_import]` block, carrying `<jd-signing-address>`. A verifier that boots without it
+generates its own signing key, and that cannot be undone.
+
+```sh
+docker run -d --name ccv-verifier --restart unless-stopped --network host \
+  --user "$(id -u):$(id -g)" \
+  -v "$PWD/evm-config.toml:/etc/evm/config.toml:ro" \
+  -v "$PWD/verifier/config.toml:/etc/config.toml:ro" \
+  -v "$PWD/verifier/bootstrap-secrets.toml:/etc/bootstrap/secrets.toml:ro" \
+  -v "$PWD/verifier/secrets.toml:/etc/committee-verifier/secrets.toml:ro" \
+  -v "$PWD/migration/ocr2.json:/etc/ccv/migration/key.json:ro" \
+  -v "$PWD/migration/export-password.txt:/etc/ccv/migration/export-password.txt:ro" \
+  <verifier-image>
+
+docker run -d --name ccv-executor --restart unless-stopped --network host \
+  --user "$(id -u):$(id -g)" \
+  -v "$PWD/evm-config.toml:/etc/evm/config.toml:ro" \
+  -v "$PWD/executor/config.toml:/etc/config.toml:ro" \
+  -v "$PWD/executor/bootstrap-secrets.toml:/etc/bootstrap/secrets.toml:ro" \
+  <executor-image>
+```
+
+Host networking lets the RPC URLs in `evm-config.toml` and the hosts in your `[db].url` values
+resolve the way they did for the node. If the node reached them by container name on a Docker
+network, run both containers on that network (`--network <name>`) and publish the ports you need
+with `-p`: 9988 and 9989 now, and 8100 and 8101 once the jobs run.
+
+**Check:**
+
+- `curl -s localhost:9988/health` (verifier) and `curl -s localhost:9989/health` (executor) both
+  print `{"status":"ok"}`. This is the bootstrapper's server on `listen_port`. It starts only after
+  the keystore is set up, key import included. The application ports (8100 and 8101) stay closed
+  until the job arrives in step 9, so do not probe them yet; see
+  [Health and readiness endpoints](#health-and-readiness-endpoints).
+- The verifier holds your signing key: the address this prints matches `<jd-signing-address>`
+  (compare ignoring case).
+
+  ```sh
+  curl -s -X POST localhost:9988/keystore/reader/getaddresses \
+    -d '{"KeyNames":["bootstrap_default_ecdsa_signing_key"]}'
+  ```
+
+- Neither container is restarting (`docker ps`), and `docker logs ccv-verifier 2>&1` does not
+  mention an `expected_id` mismatch.
+
+Both processes log failed connections to the Job Distributor until Chainlink Labs finishes step 8.
+That is expected: JD does not know their new CSA keys yet.
+
+A process that refuses to boot with `declares EVM chains the mounted EVM config cannot serve` is
+telling you the bootstrap `[[chains]]` list and the mounted node config disagree — the error names
+the chain and the reason; fix the mount or the declaration rather than working around it. If the
+verifier refuses to start, do not work around it — go to
+[If something goes wrong](#if-something-goes-wrong). The `signer_address` check runs when the job
+starts in step 9.
+
+Then back up both bootstrap databases. They now hold the verifier's signing key, the executor's
+transmitter key and both CSA keys, encrypted under the keystore passwords from step 3. Once the
+export is deleted and the node is decommissioned, the verifier's bootstrap database is the only
+copy of your signing key.
+
+```sh
+pg_dump "<verifier-bootstrap-db-url>" -Fc -f verifier-bootstrap.dump
+pg_dump "<executor-bootstrap-db-url>" -Fc -f executor-bootstrap.dump
+```
+
+The two URLs are the `[db].url` values in `verifier/bootstrap-secrets.toml` and
+`executor/bootstrap-secrets.toml`. If the host has no `pg_dump`, run it inside your Postgres
+container with `docker exec` and redirect its output to the file. Store the dumps off this host,
+and not alongside the keystore passwords.
 
 ## Step 6: send Chainlink Labs two keys
 
-Run this against the verifier, then against the executor. Port `9988` is whatever you set as
-`listen_port` in the `[server]` section:
+Read each process's CSA public key from its `listen_port` (9988 for the verifier and 9989 for the
+executor in this procedure):
 
 ```sh
 curl -s -X POST localhost:9988/keystore/reader/getkeys \
-  -d '{"KeyNames":["bootstrap_default_csa_key"]}'
+  -d '{"KeyNames":["bootstrap_default_csa_key"]}'   # verifier
+curl -s -X POST localhost:9989/keystore/reader/getkeys \
+  -d '{"KeyNames":["bootstrap_default_csa_key"]}'   # executor
 ```
 
 Send Chainlink Labs the `PublicKey` value from each, and say which one is the verifier and which is
-the executor. Copy the values exactly as they appear.
+the executor. Copy the values exactly as they appear. They are base64; Chainlink Labs converts them.
 
 This is the same CSA key hand-off you did when you first onboarded, when you sent us the key from your
 node's `v2/keys/csa`. The difference is that there are now two processes with their own keys instead of
 one node.
 
-**Never send anyone:** a private key, `ocr2.json`, `export-password.txt`, or your API credentials.
-Nothing in this procedure needs them. If someone asks you for one, they are not following this
-procedure.
+**Never send anyone:** a private key, `ocr2.json`, `export-password.txt`, a keystore password, a
+bootstrap database dump, or your API credentials. Nothing in this procedure needs them. If someone
+asks you for one, they are not following this procedure.
 
 **Check:** you sent two values and labelled which process each came from.
 
@@ -242,12 +429,13 @@ procedure.
 Get the executor's address:
 
 ```sh
-docker logs <executor-container> | grep evm/tx/executor_evm_transmitter_key
+curl -s -X POST localhost:9989/keystore/reader/getaddresses \
+  -d '{"KeyNames":["evm/tx/executor_evm_transmitter_key"]}'
 ```
 
-Copy the `evmAddress` value from that line. Send gas to it on every chain your executor runs on. Your
-old per-chain transmitter accounts are where that gas comes from, and they keep whatever you do not
-move.
+Send gas to that address on every chain your executor runs on, unless you already did in step 4.
+Your old per-chain transmitter accounts are inside the stopped node and can no longer send, so use
+any wallet you control. They keep whatever you did not move in step 4.
 
 **Check:** the address has a non-zero balance on every chain, confirmed on chain rather than assumed.
 
@@ -266,13 +454,38 @@ in the JD UI. The standalone processes approve their own, so there is nothing wa
 nothing to click. If you are watching the JD UI for something to accept, you are waiting for something
 that will not arrive.
 
+## After Chainlink Labs confirms the cutover
+
+Chainlink Labs tells you when step 10 is done. Then:
+
+1. Recreate the verifier without the export: run `docker stop ccv-verifier && docker rm ccv-verifier`,
+   then the step 5 verifier command without its two `/etc/ccv/migration` mounts. Keep the `[key_import]` block in
+   `verifier/config.toml`. The key is already stored, so the import is skipped and the files are
+   never read, but `expected_id` is still checked on every boot. If the bootstrap database is ever
+   lost, the block also makes the verifier refuse to start instead of generating a new signing key.
+
+   **Check:** `curl -s localhost:9988/health` prints `{"status":"ok"}`, and
+   `docker logs ccv-verifier 2>&1 | grep 'key already exists, skipping import'` finds the line.
+2. Delete `./migration/`.
+3. Leave the Chainlink node stopped. Do not start it to delete its CCV job specs: the jobs start
+   with it, on the signing key the verifier now holds. Its database still holds the original
+   signing key, so keep the database until your step 5 backups are stored; after that you can
+   decommission the node.
+
 ## If something goes wrong
 
-**Before step 4** nothing has changed. Delete the files from step 2 and stop.
+**Before you stop the node in step 4**, your node and its JD record are as they were. Remove the
+executor container if you started it, delete `./migration/`, and stop. If you already sent gas to
+the executor, keep its bootstrap database and keystore password: they hold the only key to that
+address.
 
-**After step 4**, contact Chainlink Labs. Going back means restarting your Chainlink node and having
-your JD record pointed back at it, which is not something you can do alone. Your node's own key is
-untouched — step 2 exported a copy — so it can pick up where it left off.
+**After you stop the node**, contact Chainlink Labs. Going back means restarting your Chainlink
+node and having your JD record pointed back at it, which is not something you can do alone. Your
+node's own key is untouched — step 2 exported a copy — so it can pick up where it left off. Before
+the node starts, stop both standalone containers (`docker stop ccv-verifier ccv-executor`). From
+step 9 on each has a job, which it restarts on its own whenever it boots, so either would otherwise
+run next to the node's. Keep their bootstrap databases; the executor's holds the key to the gas you
+sent it. Then undo what you did in step 4 to keep the node stopped.
 
 **Do not** start the verifier without the `[key_import]` block from step 3, at any point. If it comes
 up once without it, it generates its own signing key and adding the block afterwards will not fix it.
@@ -287,7 +500,8 @@ once — see [How many operators can migrate at once](#how-many-operators-can-mi
 
 ## Step 8: hand over the JD record and register the executor
 
-Using the two CSA public keys from step 6:
+Use the two CSA public keys from step 6. The operator sends them as base64 and JD takes hex, so
+convert each first with `echo '<PublicKey>' | base64 -d | xxd -p -c 32`.
 
 1. Repoint the operator's existing JD node record at the verifier's CSA public key. Keep the node ID
    and the NOP alias.
@@ -327,20 +541,32 @@ If the operator recorded no disabled chain in step 1, continue to step 10. Other
 standalone verifier job to start and create its application-database rows, then coordinate this gate
 with the operator:
 
-1. Run `verifier ccv chain-statuses list` and note the standalone `verifier_id`.
-2. Stop the verifier.
+1. List the chain statuses and note the standalone `verifier_id`:
+
+   ```sh
+   docker run --rm --network host --user "$(id -u):$(id -g)" \
+     -v "$PWD/verifier/secrets.toml:/etc/committee-verifier/secrets.toml:ro" \
+     <verifier-image> ccv chain-statuses list
+   ```
+
+2. Stop the verifier: `docker stop ccv-verifier`.
 3. For every selector recorded in step 1, run:
 
    ```sh
-   verifier ccv chain-statuses disable \
-     --chain-selector <selector> \
-     --verifier-id <standalone-verifier-id>
+   docker run --rm --network host --user "$(id -u):$(id -g)" \
+     -v "$PWD/verifier/secrets.toml:/etc/committee-verifier/secrets.toml:ro" \
+     <verifier-image> ccv chain-statuses disable \
+       --chain-selector <selector> \
+       --verifier-id <standalone-verifier-id>
    ```
 
-4. Restart the verifier and run `verifier ccv chain-statuses list` again.
+4. Start the verifier (`docker start ccv-verifier`) and list the chain statuses again.
 
-**Do not continue to step 10** until every recorded selector shows `disabled = true`. Run these CLI
-commands with the same verifier application secrets file so they connect to the correct database.
+**Do not continue to step 10** until every recorded selector shows `disabled = true`. The one-off
+containers read the verifier application secrets file, so they connect to the same database as the
+verifier. Start their arguments at `ccv`: the image's entrypoint is already the verifier binary, and
+`docker run <verifier-image> verifier ccv ...` boots a second verifier instead of running the CLI.
+Outside Docker, the same commands are `verifier ccv chain-statuses ...`.
 
 ## Step 10: confirm and clean up
 
@@ -348,8 +574,11 @@ commands with the same verifier application secrets file so they connect to the 
 2. Confirm the operator's executor is landing transactions: its transmitter's nonce moves on at
    least one destination chain. The test message alone does not show this, since any executor in
    the pool can land it.
-3. Tell the operator to remove the CCV job specs from their Chainlink node, and to delete
-   `ocr2.json` and `export-password.txt`.
+3. Tell the operator the cutover is confirmed, so they can finish
+   [After Chainlink Labs confirms the cutover](#after-chainlink-labs-confirms-the-cutover): unmount
+   and delete the export, and leave the node stopped. Do not ask them to start the node to remove
+   its CCV job specs; its jobs would start with it, on the signing key the standalone verifier now
+   holds.
 
 ---
 
@@ -364,7 +593,7 @@ The executor's transaction-manager choice and cutover gates are summarized in th
 
 | Component           | CL mode                                      | Standalone                                          |
 |---------------------|----------------------------------------------|-----------------------------------------------------|
-| Onchain signing key | OCR2 EVM key bundle on the node              | The same key, imported from the export              |
+| Onchain signing key | OCR2 EVM key bundle on the node              | The same key, imported from the export into the verifier's bootstrap database |
 | Transmitter         | One EVM account per destination chain        | One fresh key the executor generates, funded by the operator |
 | CCV jobs            | Two jobs on one node                         | One job on each of two processes                     |
 | JD node record      | One record for both jobs                     | Two: verifier adopts the existing one, executor is new |
@@ -605,10 +834,13 @@ When the job starts, the standalone verifier also compares its keystore address 
 `signer_address` and refuses to run on a mismatch. The error points back to `[key_import]` rather than
 allowing a wrong key to fail later at aggregator quorum.
 
-The import itself runs only when the key is absent, so it is a no-op on every restart after the first.
-Once the verifier has come up once, the export and password files can be unmounted and deleted. Keep
-the `[key_import]` block: with the key present the import is skipped, but `expected_id` is still
-checked against the stored key on every boot.
+The import itself runs only when the key is absent, so it is a no-op on every restart after the
+first, and the export and password files are never read again. They stay mounted until Chainlink
+Labs confirms the cutover anyway, in case the import has to be redone; then the operator removes
+them (see [After Chainlink Labs confirms the cutover](#after-chainlink-labs-confirms-the-cutover)).
+Keep the `[key_import]` block: with the key present the import is skipped, but `expected_id` is
+still checked against the stored key on every boot, and a verifier whose bootstrap database was
+lost fails to start rather than generating a new key.
 
 ## Health and readiness endpoints
 
@@ -623,6 +855,7 @@ procedure). Its endpoints are about the job lifecycle, not component health:
   source readers, the coordinator, or the transaction manager can degrade later without `/ready`
   changing.
 - `/keystore/reader/getkeys` is the key hand-off endpoint used in step 6.
+- `/keystore/reader/getaddresses` returns the EVM address of a secp256k1 key; steps 5 and 7 use it.
 - On images built from chainlink-ccv #1521 on, `/health/live` (a static `alive`) and
   `/health/ready` (the same as `/ready`) serve the standard probe paths.
 
