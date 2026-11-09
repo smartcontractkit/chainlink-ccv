@@ -36,7 +36,7 @@
 ### `validate-config` rejects an EVM chain with no domain
 
 - **What changed:** `tokenVerifierFactory.Validate` runs `validateCCTPDomains` after the normal config validation. It is used by `validate-config` and by the bootstrap lifecycle before a job replaces a running one.
-- **Before:** such a config passed `validate-config`; the service started and the affected verifier was skipped (shown as degraded on `/health`).
+- **Before:** such a config passed `validate-config`; the verifier started, but messages from the affected chain failed during fetch with `unsupported source chain selector`.
 - **After:** `validate-config` exits 1 with `invalid cctp verifier "<id>": no CCTP domain for chain selectors [<selectors>]: add them to cctp_domain_mapping`. A running job is kept when its replacement is rejected.
 - **Also rejected:** a `verifier_addresses` chain selector that is not a known chain selector, with `invalid CCTP verifier chain selector`.
 - **Scope:** EVM only for now. Chains of a family with no registered table are not checked offline (see [#offline-domain-validation](#offline-domain-validation)).
