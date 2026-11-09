@@ -182,20 +182,7 @@ var SyncJobProposals = operations.NewOperation(
 				}
 
 				oldStatus := localJob.LatestStatus()
-
-				for _, jdProposal := range listResp.Proposals {
-					localJob.AddProposal(shared.ProposalRevision{
-						ProposalID: jdProposal.Id,
-						Revision:   jdProposal.Revision,
-						Status:     mapJDStatusToLocal(jdProposal.Status),
-						Spec:       jdProposal.Spec,
-					})
-
-					if jdProposal.Status == jobv1.ProposalStatus_PROPOSAL_STATUS_APPROVED {
-						localJob.SetActiveProposal(jdProposal.Id)
-					}
-				}
-
+				localJob.SetProposalsFromJD(listResp.Proposals)
 				newStatus := localJob.LatestStatus()
 				if newStatus != oldStatus {
 					e.Logger.Infow("Status change detected",
@@ -250,22 +237,3 @@ var SyncJobProposals = operations.NewOperation(
 		return output, nil
 	},
 )
-
-func mapJDStatusToLocal(jdStatus jobv1.ProposalStatus) shared.JobProposalStatus {
-	switch jdStatus {
-	case jobv1.ProposalStatus_PROPOSAL_STATUS_PENDING:
-		return shared.JobProposalStatusPending
-	case jobv1.ProposalStatus_PROPOSAL_STATUS_PROPOSED:
-		return shared.JobProposalStatusPending
-	case jobv1.ProposalStatus_PROPOSAL_STATUS_APPROVED:
-		return shared.JobProposalStatusApproved
-	case jobv1.ProposalStatus_PROPOSAL_STATUS_REJECTED:
-		return shared.JobProposalStatusRejected
-	case jobv1.ProposalStatus_PROPOSAL_STATUS_REVOKED:
-		return shared.JobProposalStatusRevoked
-	case jobv1.ProposalStatus_PROPOSAL_STATUS_CANCELLED:
-		return shared.JobProposalStatusRevoked
-	default:
-		return shared.JobProposalStatusPending
-	}
-}

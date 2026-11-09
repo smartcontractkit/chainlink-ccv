@@ -79,6 +79,6 @@ func TestValidateExecutorChainSupport_SkipsJDWhenOffchainNil(t *testing.T) {
 		},
 	}
 
-	err := validateExecutorChainSupport(deployment.Environment{}, pool, []shared.NOPAlias{"nop1"})
+	err := validateExecutorChainSupport(deployment.Environment{}, pool, []shared.NOPAlias{"nop1"}, nil)
 	require.NoError(t, err)
 }

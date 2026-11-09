@@ -15,6 +15,8 @@ import (
 
 type FetchNodeChainSupportInput struct {
 	NOPAliases []string
+	// NodeIDByNOPAlias checks these NOPs on an exact JD node instead of the node named after the alias.
+	NodeIDByNOPAlias map[string]string
 }
 
 type FetchNodeChainSupportOutput struct {
@@ -53,6 +55,12 @@ var FetchNodeChainSupport = operations.NewOperation(
 		seenNodeIDs := make(map[string]string)
 		for _, nopAlias := range input.NOPAliases {
 			node, ok := lookup.FindByName(nopAlias)
+			if nodeID := input.NodeIDByNOPAlias[nopAlias]; nodeID != "" {
+				node, ok = lookup.FindByID(nodeID)
+				if !ok {
+					return output, fmt.Errorf("NOP %q node ID %q not found in node lookup", nopAlias, nodeID)
+				}
+			}
 			if !ok {
 				return output, fmt.Errorf("NOP alias %q not found in node lookup (node IDs: %v)", nopAlias, deps.NodeIDs)
 			}

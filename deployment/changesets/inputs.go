@@ -8,18 +8,17 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/policy"
 )
 
-// NOPInput is the imperative per-NOP input shared by the offchain-only changesets
-// that take a slice of NOP descriptions (verifier and executor config publishing).
-//
-// SignerAddressByFamily is consulted by the verifier changeset and falls back to a
-// JD lookup when empty for the relevant family. The executor changeset ignores
-// signer addresses — only Mode and Alias are consulted there.
-//
-// Mode defaults to NOPModeCL when empty.
+// NOPInput describes a NOP for verifier and executor config publishing.
+// SignerAddressByFamily and PolicyHook apply only to verifier jobs; ExecutorNodeID and
+// ExecutorNodeName apply only to standalone executor jobs. Mode defaults to NOPModeCL.
 type NOPInput struct {
 	Alias                 shared.NOPAlias
 	SignerAddressByFamily map[string]string
 	Mode                  shared.NOPMode
+	// ExecutorNodeID targets the standalone executor's JD node; a declared node moves an existing job.
+	ExecutorNodeID string
+	// ExecutorNodeName targets the standalone executor's JD node by name, resolved at apply time.
+	ExecutorNodeName string
 	// PolicyHook is this NOP's custom policy endpoint, emitted into its verifier job spec.
 	// Nil leaves the section out of the spec entirely, so a NOP without a hook gets the same
 	// bytes it did before the hook existed. Ignored by the executor changeset.
@@ -92,8 +91,7 @@ type ChainExecutorPoolMembership struct {
 	ExecutionInterval time.Duration
 }
 
-// buildNOPModes returns the alias→mode map used by ManageJobProposals to decide
-// which NOPs go through JD proposal vs. standalone job-spec emission.
+// buildNOPModes returns the alias→mode map used for spec generation and JD routing.
 func buildNOPModes(nops []NOPInput) map[shared.NOPAlias]shared.NOPMode {
 	modes := make(map[shared.NOPAlias]shared.NOPMode, len(nops))
 	for _, nop := range nops {

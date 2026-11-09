@@ -34,11 +34,12 @@ const (
 )
 
 // ProposalRevision tracks a single proposal revision from JD.
+// Spec is runtime-only: JobInfo.Spec is persisted, while JD retains proposal specs.
 type ProposalRevision struct {
 	ProposalID string            `json:"proposalId"`
 	Revision   int64             `json:"revision"`
 	Status     JobProposalStatus `json:"status"`
-	Spec       string            `json:"spec"`
+	Spec       string            `json:"-"          yaml:"-"`
 }
 
 // JobInfo contains all metadata about a job and its proposal history.
