@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
+	_ "github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm/cctpdomains" // registers the EVM base CCTP domain table
 )
 
 func TestTokenFactoryValidate(t *testing.T) {
@@ -92,5 +93,43 @@ version = "1.0"
 `
 		err := f.Validate(bootstrap.JobSpec{AppConfig: appConfig})
 		require.ErrorContains(t, err, "unsupported verifier type zk and version 1.0")
+	})
+}
+
+func TestTokenFactoryValidate_CCTPDomains(t *testing.T) {
+	f := NewTokenVerifierServiceFactory().(bootstrap.ServiceFactoryValidator)
+
+	const inTable = "16015286601757825753"   // Sepolia, in the EVM base table
+	const notInTable = "1910019406958449359" // Etherlink testnet, EVM but not in the table
+	const invalidSelector = "111111111"      // invalid chain selector, validations should always fail
+
+	spec := func(chain, overrides string) bootstrap.JobSpec {
+		return bootstrap.JobSpec{AppConfig: `
+[[token_verifiers]]
+verifier_id = "cctp"
+type = "cctp"
+version = "2.0"
+attestation_api = "https://iris-api.circle.com"
+verifier_addresses = { ` + chain + ` = "0x0000000000000000000000000000000000000001" }
+` + overrides}
+	}
+
+	t.Run("EVM chain in table", func(t *testing.T) {
+		require.NoError(t, f.Validate(spec(`"`+inTable+`"`, "")))
+	})
+
+	t.Run("EVM chain in neither table nor overrides fails", func(t *testing.T) {
+		err := f.Validate(spec(`"`+notInTable+`"`, ""))
+		require.ErrorContains(t, err, "no CCTP domain for chain selectors ["+notInTable+"]")
+	})
+
+	t.Run("override covers it", func(t *testing.T) {
+		overrides := "[token_verifiers.cctp_domain_mapping]\n\"" + notInTable + "\" = 40\n"
+		require.NoError(t, f.Validate(spec(`"`+notInTable+`"`, overrides)))
+	})
+
+	t.Run("invalid chain selector in config", func(t *testing.T) {
+		err := f.Validate(spec(`"`+invalidSelector+`"`, ""))
+		require.ErrorContains(t, err, "unknown chain selector")
 	})
 }

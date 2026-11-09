@@ -76,7 +76,7 @@ func NewAttestationService(
 	config CCTPConfig,
 	cctpCodecs map[protocol.ChainSelector]chainaccess.CCTPCodec,
 ) (AttestationService, error) {
-	if err := validateDomains(config, cctpCodecs); err != nil {
+	if err := ValidateDomains(config, cctpCodecs); err != nil {
 		return nil, err
 	}
 
@@ -110,9 +110,9 @@ func resolveDomain(
 	return codec.Domain(selector)
 }
 
-// validateDomains fails if a verifier_addresses chain, or a verifier_resolver_addresses chain that has a codec,
+// ValidateDomains fails if a verifier_addresses chain, or a verifier_resolver_addresses chain that has a codec,
 // has no CCTP domain. Resolver-only chains (destinations) have no codec and are not checked.
-func validateDomains(config CCTPConfig, codecs map[protocol.ChainSelector]chainaccess.CCTPCodec) error {
+func ValidateDomains(config CCTPConfig, codecs map[protocol.ChainSelector]chainaccess.CCTPCodec) error {
 	var missing []protocol.ChainSelector
 	for selector := range config.ParsedVerifiers {
 		if _, ok := resolveDomain(config.ParsedCCTPDomainOverrides, codecs[selector], selector); !ok {

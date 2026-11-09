@@ -64,8 +64,11 @@ func validateTokenJobSpec(spec bootstrap.JobSpec) (token.Config, error) {
 // a bad config is rejected without stopping the current one, and `validate-config`
 // reuses it in CI.
 func (tvf *tokenVerifierFactory) Validate(spec bootstrap.JobSpec) error {
-	_, err := validateTokenJobSpec(spec)
-	return err
+	cfg, err := validateTokenJobSpec(spec)
+	if err != nil {
+		return err
+	}
+	return validateCCTPDomains(cfg)
 }
 
 // NewTokenVerifierServiceFactory creates a new ServiceFactory for the token verifier service.
