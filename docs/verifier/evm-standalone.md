@@ -40,6 +40,8 @@ The standalone verifier declares its chains in bootstrap config and reports them
 
 The CSA key has no onchain meaning. During migration, JD repoints the existing node record to the verifier's new CSA key and registers a separate record for the executor. This retains the verifier's node ID, NOP alias, and job history without copying the old CSA private key. A process cannot repoint its own record: it cannot authenticate as that record until the record carries its key, and its connection update contains chain configs, not a replacement public key.
 
+`ApplyExecutorConfig` routes a standalone executor job to that separate record when the NOP declares `executor_node_name`, or when its input supplies `ExecutorNodeName` or `ExecutorNodeID`. Without one of those references, it requires complete metadata from a previous canonical standalone proposal or `ReconcileJobsWithJD`; it must not fall back to the verifier's NOP alias. A generic `jd_propose_job` can deliver the initial exact-spec migration job, but its metadata must then be reconciled from JD so later executor updates route correctly.
+
 The old Chainlink node must be stopped before the standalone verifier starts because one JD record cannot have two owners. Two records are a property of standalone mode, not a migration duplicate: the verifier adopts the existing record and the executor gets a new one.
 
 ## EVM config conversion
@@ -137,7 +139,7 @@ Its `/health` returns:
 
 Degraded can be expected during startup or for intentionally unsupported chains, so read the component report. It also names a verifier chain whose log scans or finality checks keep failing beyond the staleness threshold, and `jd.UpdateNode` while JD has not accepted chain configs.
 
-The application port serves `/metrics` with chainlink-evm's per-chain Prometheus series, including `txm_num_nonce_gaps` and `txm_reached_max_attempts`. The verifier also serves `/stats`. A stalled LogPoller additionally needs the head-progress check described under [Source logs](#source-logs-rpc-or-a-logpoller).
+The verifier also serves `/stats`. Application and chainlink-evm metrics export through Beholder/OpenTelemetry; scrape the telemetry sidecar's Prometheus endpoint rather than adding an application-port `/metrics` endpoint. A stalled LogPoller additionally needs the head-progress check described under [Source logs](#source-logs-rpc-or-a-logpoller).
 
 For Kubernetes, probe the bootstrap port. The application server starts only after JD proposes the job, so an application liveness probe restarts the pod until then and an application readiness probe holds every rollout. Use bootstrap `/health` or `/health/live` for both probes and add a startup probe with a few minutes of budget. Monitor application `/health` and bootstrap `/ready` separately because the probes cannot see later component failures. Run one replica with a `Recreate` update strategy: a rolling update briefly runs two processes on one signing or transmitter key.
 

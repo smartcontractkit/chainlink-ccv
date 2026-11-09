@@ -5,8 +5,8 @@
 // (build/devenv/migration), which exercises the same path end to end in tests. Devenv orchestrates
 // the environment; the logic lives here.
 //
-// Only the verifier's signing key moves. The executor is not migrated per operator: a single EVM
-// executor with one funded key replaces the per-node transmitters, so there is no account to carry.
+// Only the verifier's signing key moves. Each standalone executor generates one fresh funded
+// transmitter instead of exporting the node's per-chain transmitter accounts.
 //
 // Key import behavior is documented in docs/verifier/evm-standalone.md.
 package migration

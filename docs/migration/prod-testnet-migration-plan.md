@@ -19,6 +19,28 @@ The per-node mechanics are identical to the [staging execution plan](staging-mig
 this document lists the deltas rather than repeating the procedure. Where a step says "as in
 staging," execute the staging plan's step with the substitutions in "Conventions".
 
+## Execution status
+
+- **Staging is complete:** all 21 EVM nodes are standalone.
+- **Prod-testnet nodes 0–5 are standalone.** Nodes 1–5 deployed in
+  [chainlink-ccv-deploy #531](https://github.com/smartcontractkit/chainlink-ccv-deploy/pull/531)
+  and activated in [chainlink-deployments #21167](https://github.com/smartcontractkit/chainlink-deployments/pull/21167).
+  Each targeted Sepolia → 0G message reached both aggregators and executed from the intended
+  transmitter. Creditcoin's pre-existing disabled flag was restored on all five verifiers in this
+  wave.
+- Generic executor proposals initially left compatibility metadata in CL mode.
+  [chainlink-deployments #21204](https://github.com/smartcontractkit/chainlink-deployments/pull/21204)
+  reconciled nodes 1–5 to canonical `standalone`/`appConfig` metadata without changing live jobs.
+  State generation then restored executor NOP registration and stopped their telemetry 401s.
+- **Nodes 6–10 are the active wave.** [chainlink-ccv-deploy #532](https://github.com/smartcontractkit/chainlink-ccv-deploy/pull/532)
+  contains their runtime preparation; [chainlink-deployments #21168](https://github.com/smartcontractkit/chainlink-deployments/pull/21168)
+  remains draft until deployment supplies live identities. Nodes 11–15 remain in CL mode. Nodes
+  16–20 have no EVM committee role.
+- The nodes 1–5 balance-alert waiver applied to that wave only. Its accepted funding gaps are
+  documented in #21167; they are not a standing waiver for later waves or prod-mainnet.
+- Full-fleet validation and the two-week soak remain open. Six of 16 EVM-serving nodes being
+  healthy is not the prod-mainnet go/no-go.
+
 ## What prod-testnet adds over staging
 
 1. **Real traffic, real users.** This environment serves integrators on public testnets.
@@ -31,26 +53,27 @@ staging," execute the staging plan's step with the substitutions in "Conventions
    "generic_fallback"` (`2s`) in the diff gets an explicit `BlockTime` value in the EVM TOML (if
    its block time exceeds `2s`) or a recorded acceptance. This is the scale test for the config
    tooling.
-3. **Balance alerting is mandatory.** Staging skipped it with manual soak checks. Here
-   the external alert on each new executor transmitter address, per chain, goes up before
-   that node's jobs start. This is the rehearsal for the prod-mainnet alerting
-   requirement.
-4. **Small parallel batches become possible.** Each node serves all 61 EVM chains, so one
-   node down leaves every chain at 15 of 9 — a wide margin, and CLL controls every node,
-   so there is no external scheduling to respect. Stay one-at-a-time for the first three
-   nodes; after that, batches of two or three are reasonable if the soaks are clean.
-   Derive the number per batch from the live committee config, not from this paragraph.
-   Batches also overlap the nodes' blind windows (staging validation): messages finalized
-   during a window get no signature from that node, so keep the windows short on fast chains.
-5. **Release images, not `-rc` SHAs.** The standalone pair deployed here should run the
-   same release-tagged image (`vX.Y.Z`) that prod-mainnet operators will be given. This
-   is the end-to-end validation of the image-publishing path before it becomes external.
+3. **Balance alerting is mandatory by default.** Staging skipped it with manual soak checks.
+   The external alert on each new executor transmitter address, per chain, goes up before that
+   node's jobs start. Nodes 1–5 received an explicit wave-specific waiver; later waves need live
+   alerts or a new explicit waiver. This remains a prod-mainnet requirement.
+4. **Five-node waves are proven; keep deriving the budget.** Node 0 was the canary, followed by
+   nodes 1–5. Each chain has 16 members and threshold 9, so the normal simultaneous-outage budget
+   is seven, not an entitlement to overlap seven blind windows. Use the same five-node shape for
+   nodes 6–10 and 11–15 only after the prior wave passes. Recalculate from live committee config
+   if membership or threshold changes, and keep windows short on fast chains.
+5. **Record the exact image; use a release before prod-mainnet.** The staging and current
+   prod-testnet waves deliberately run the staging-proven
+   `45c7148eaaa84fe6cc73f9baa4de12612971c665-rc` image. Do not silently substitute a newer RC.
+   Before external prod-mainnet, select and validate the release-tagged image (`vX.Y.Z`) operators
+   will receive, including the migration tooling and required fixes.
 6. **No secondary committee.** Staging's node-0 complication does not exist here. But see
    open question 1: only 16 of the 21 nodes have an EVM committee role.
 
 ## Hard rules (unchanged from staging)
 
-1. One node at a time for the first three nodes; small batches only after clean soaks.
+1. Node 0 was the canary. Continue in at-most-five-node waves only after clean validation of the
+   previous wave; derive the safe budget from live committee size and threshold.
 2. Export while the node is up; stop the node before the standalone verifier starts. One
    JD record cannot have two owners.
 3. Never boot the verifier without its `[key_import]` block.
@@ -58,9 +81,12 @@ staging," execute the staging plan's step with the substitutions in "Conventions
    `ApplyVerifierConfig` is offchain-only, so that field is where a wrong key shows. Stop.
 5. After the standalone verifier job first starts, re-apply and confirm the disabled flag
    for any chain that was disabled on the node before the cutover.
-6. From P1 on, every EVM `apply-verifier-config` input sets `consolidateAggregators: true`.
-7. Never run `apply-executor-config` for a cut-over node; its executor job goes out through
-   `jd_propose_job`, as in staging step 9, until open question 5 in the staging plan is fixed.
+6. From P1 on, every EVM `apply-verifier-config` input sets `consolidateAggregators: true` and
+   leaves `revokeOrphanedJobs: false`.
+7. The current waves preserve exact executor specs with `jd_propose_job`; reconcile their metadata
+   before state generation or later executor updates. With tooling including #1590,
+   `apply-executor-config` can route by `executor_node_name` or `ExecutorNodeID`, but must never
+   fall back to the verifier's alias. See staging steps 7 and 9.
 
 ## Conventions
 
@@ -70,14 +96,14 @@ every 8h.
 ```sh
 aws sso login --sso-session griddle-session
 
-# kubeconfig context names as in chainlink-ccv-deploy AGENTS.md; adjust to your kubeconfig
-export CTX=platform-ccip-prod                          # cluster reads, exec, scale
-export CTX_ENG=platform-ccip-prod-engineer             # secret creation (RBAC: create, not patch)
+# Current kubeconfig context names; adjust if your profile prefix differs.
+export CTX=griddle-platform-ccip-prod-teamccipadmin       # cluster reads, exec, scale
+export CTX_ENG=griddle-platform-ccip-prod-teamccipengineer # secret creation (create, not patch)
 export NS=chainlink-ccv-testnet
 
-CCV=~/dev/dev/chainlink-ccv
-CLD=~/dev/dev/chainlink-deployments
-DEPLOY=~/dev/dev/chainlink-ccv-deploy
+CCV=~/dev/dev2/chainlink-ccv
+CLD=~/dev/dev2/chainlink-deployments
+DEPLOY=~/dev/dev2/chainlink-ccv-deploy
 EVM_VALUES=$DEPLOY/deploy/config/prod-testnet/committee-verifier-evm/config.yaml
 
 # per cutover; i = 0..15 (nodes 16..20: see open question 1)
@@ -118,30 +144,34 @@ As in staging P0, against the prod contexts:
 
 ### P1. Consolidate verifier jobs (run while still in CL mode)
 
-Two aggregators means each node runs two `ccvcommitteeverifier` jobs today — the
-prod-testnet jobs use two verifier IDs per database (`aggregator-1-default-verifier`,
-`aggregator-2-default-verifier`). Standalone runs one job; legacy `verifier_id`s become
-`secret_name`s. Same changeset input as staging P1, environment `prod_testnet`, dry-run
-first. There is no secondary-committee exception here, but use staging P1's explicit
-`targetNops` batches of at most three EVM-serving nodes, and approve and verify each batch
-before starting the next (open question 1). Everything staging P1 says about the side effects
-applies: per node, one approval and two cancellations in the node's Feeds Manager tab (JD
-cannot revoke the old jobs), a new `verifier_id` that starts without chain status (no
-checkpoint, no disabled flags), and hard rule 6 from then on. Record every node's disabled
-chains before running it.
+**Completed for EVM nodes 0–15; do not rerun.** Each node originally ran two
+`ccvcommitteeverifier` jobs with verifier IDs `aggregator-1-default-verifier` and
+`aggregator-2-default-verifier`. The consolidated job uses `default-verifier`, while the legacy
+IDs remain aggregator `secret_name`s. Every consolidated proposal was approved before the two old
+proposals were cancelled in Feeds Manager.
+
+For any future initial consolidation, use staging P1's corrected input with
+`consolidateAggregators: true` and `revokeOrphanedJobs: false`, scoped by `targetNops`. JD cannot
+revoke the approved legacy jobs, and enabling revocation can drop datastore records even though
+the jobs remain live. Record disabled chains first, approve the new job, cancel the old proposals,
+then restore the disabled flags under the new verifier ID.
 
 ### P2. Images
 
-Run the release-tagged image (`vX.Y.Z` from `release-publish.yaml`), not a `-rc` SHA.
-The tag must include the migration tooling and the block-time fallback warning; the
-per-chain values themselves are set in the P3 EVM TOML and reviewed in P5. Confirm the
-tag matches what the prod-mainnet operator image will be. Create the worktree steps 2 and 3
-inherit from staging from that exact release tag before running either step:
+The current prod-testnet waves use the staging-proven
+`45c7148eaaa84fe6cc73f9baa4de12612971c665-rc` image for both components. Keep the full 40-character
+SHA and verify both private ECR repositories before deployment. Do not silently change images
+between activation and validation.
+
+Before prod-mainnet, replace this with the exact release tag (`vX.Y.Z` from
+`release-publish.yaml`) selected for operators and repeat the migration checks from that tag. For
+the current RC, create the tooling worktree used by staging steps 2 and 3 with:
 
 ```sh
+IMAGE_SHA=45c7148eaaa84fe6cc73f9baa4de12612971c665
 CCV_IMG=/tmp/ccv-image-prod-testnet
-git -C $CCV fetch origin --tags
-git -C $CCV worktree add --detach $CCV_IMG vX.Y.Z
+git -C $CCV fetch origin
+git -C $CCV worktree add --detach $CCV_IMG $IMAGE_SHA
 ```
 
 ### P3. Charts and config dirs
@@ -242,13 +272,19 @@ records when adding EVM executors.
 
 ### P9. Funding source and balance alerts
 
-Inventory what funds the per-chain transmitter accounts today across the 61 public testnets and who
-sends from it. The [Internal Faucets API](https://smartcontract-it.atlassian.net/wiki/spaces/dapp/pages/585924700/Internal+Faucets+API)
-can top up the migration wallet: request only the native-token shortfall to 2.5 per chain, using
-`activeNetwork` and `nativeTokenToSend`, with no LINK and no blind retries on empty or unsupported
-faucets. Fund each new executor 0.15 per chain, then verify receipts and balances. Unlike staging,
-balance alerts are in scope: each new executor transmitter address gets an external balance alert
-per chain before its jobs start. Wherever the alert lives, it must page someone who can fund.
+Inventory available funds per network and fund each new executor conservatively from the migration
+wallet or accessible legacy transmitter balances. The working target is 0.15 native token per
+supported chain, with every receipt and resulting balance recorded. Validate a funded source and
+destination lane for each executor; pool execution alone does not prove its transmitter.
+
+If a faucet top-up is separately approved, use the [Internal Faucets API](https://smartcontract-it.atlassian.net/wiki/spaces/dapp/pages/585924700/Internal+Faucets+API)
+with `activeNetwork` and `nativeTokenToSend`, request only the native-token shortfall, and never
+retry empty or unsupported faucets blindly. **Do not use faucet or bridge work to solve the
+pre-existing zero/dust gaps already accepted in #21167.** Record remaining gaps explicitly rather
+than hiding them behind an aggregate success count.
+
+Balance alerts are required before job delivery unless the user grants a new wave-specific waiver.
+The nodes 1–5 waiver does not carry forward. Each alert must page someone who can fund the address.
 
 ## The cutover, per node
 
@@ -257,17 +293,17 @@ additions:
 
 | Staging reference | Prod-testnet form |
 |---|---|
-| `staging_testnet` env / `platform-ccip-stage*` contexts | `prod_testnet` / `platform-ccip-prod*` |
+| `staging_testnet` env / `griddle-platform-ccip-stage-*` contexts | `prod_testnet` / `griddle-platform-ccip-prod-*` |
 | `chainlink-ccv-staging-$i` / `chainlink-ccv-$i` | `ccv-prod-testnet-$i` / `chainlink-ccv-testnet-$i` |
 | `flux suspend helmrelease chainlink-ccv` | `flux suspend helmrelease chainlink-ccv-testnet` |
-| `maintenanceMode.specificNodes` in staging `overrides.yaml` | same mechanism in `deploy/config/prod-testnet/chainlink-ccv-testnet/overrides.yaml` (chart supports it; this env introduces it, as staging does) |
+| `maintenanceMode.specificNodes` in staging `overrides.yaml` | same mechanism in `deploy/config/prod-testnet/chainlink-ccv-testnet/overrides.yaml` |
 | five testnets for funding and balance checks | the node's ~61 chains (script the balance check; manual does not scale) |
 | step 11 confirmation message on a staging lane | a real lane this node verifies; announce the window first |
-| soak: manual balance check | soak: balance alerts live, TXM v2 metrics on dashboards, transmit-failure review |
+| soak: manual balance check | soak: balance alerts live or an explicit wave waiver, TXM v2 metrics, transmit-failure review |
 
-After the first three nodes, batches of two or three are acceptable with clean soaks;
-derive the batch size from the live committee config. Nodes 16..20 are out of scope until
-open question 1 is answered.
+The remaining planned waves are nodes 6–10 and 11–15. Keep five-node batches only while each
+previous wave passes both-aggregator signing, intended-executor execution, disabled-chain, health,
+and metadata checks. Nodes 16..20 are out of scope until open question 1 is answered.
 
 ## Validation before calling it done
 
@@ -308,8 +344,10 @@ Operator comms for prod-mainnet may start when all of these hold:
 - [ ] Source-read mode for prod-mainnet decided and documented in the [standalone reference](../verifier/evm-standalone.md#source-logs-rpc-or-a-logpoller):
       `eth_getLogs` from the node TOML, or the standalone LogPoller, which needs the
       standalone-format EVM config, an EVM secrets file, and database sizing for its logs.
-- [ ] `apply-executor-config` can target a standalone operator's executor record (staging
-      open question 5), so prod-mainnet executors do not need a hand-proposed job.
+- [ ] Every executor has canonical `standalone`/`appConfig` metadata and a persisted JD node ID;
+      regenerated NOP state includes it, telemetry authorization succeeds, and a later scoped
+      `apply-executor-config` routes to that executor record (#1590).
+- [ ] The prod-mainnet image is a validated release tag, not the prod-testnet RC.
 - [ ] Runbook corrections from this environment fed back into the relevant operator and CLL
       migration runbooks.
 
@@ -324,8 +362,9 @@ Operator comms for prod-mainnet may start when all of these hold:
    `prod_testnet/topology.toml` — probable typo for aggregator-2. Harmless for the
    cutover (the changesets read the `aggregators` block, which is correct), but fix it
    before prod-mainnet config generation treats it as truth.
-3. Funding source per chain (P9) — inventory the ~61 testnet funders before the first
-   node.
+3. *(Operational, tracked per wave)* Funding sources and remaining gaps are recorded in each wave's
+   activation PR. Use available funds conservatively, validate funded lanes, and do not reopen the
+   explicitly accepted nodes 1–5 gaps with unapproved faucet or bridge work (P9).
 4. *(Resolved)* The node values and committee both list 61 EVM chains (P5); re-check this
    comparison whenever either side changes.
 

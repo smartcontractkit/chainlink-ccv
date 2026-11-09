@@ -9,14 +9,19 @@ verifiers in the same topology already run `mode = "standalone"`, so the per-nod
 in-file precedent. (The `staging-migration` environment is for on-chain migration work and is not
 used here.)
 
-The goal is to convert the staging committee to standalone, proving the CL-to-standalone
-cutover end to end before prod runs it. Node 1 is the canary; the remaining nodes use two waves:
-2–6, then 7–20 plus node 0. Each wave has one deployment PR and one combined CLD PR. This
-environment is live: while a node is mid-cutover, its chains run one committee member short, and an
-aggressive wave can temporarily run below threshold. That is acceptable only for staging and must
-not be copied to prod. This document is written to be executed; the commands are copy-pasteable
-given the variables in "Conventions". Placeholders in angle brackets name the prerequisite or open
-question that produces them.
+The staging committee proved the CL-to-standalone cutover end to end before prod ran it. Node 1
+was the canary; the remaining nodes used two waves: 2–6, then 7–20 plus node 0. Each wave had one
+deployment PR and one combined CLD PR. **All 21 staging EVM nodes are now standalone.** The final
+wave deployed in [chainlink-ccv-deploy #523](https://github.com/smartcontractkit/chainlink-ccv-deploy/pull/523)
+and activated in [chainlink-deployments #21107](https://github.com/smartcontractkit/chainlink-deployments/pull/21107).
+Do not rerun its completed activation input.
+
+This environment was live during migration: while a node was mid-cutover, its chains ran one
+committee member short, and the aggressive waves could temporarily run below threshold. That was
+accepted only for staging and must not be copied to prod. Keep this document as the per-node
+procedure and historical record for prod-testnet, not as a request to repeat staging. Commands are
+copy-pasteable given the variables in "Conventions". Placeholders in angle brackets name the
+prerequisite or open question that produces them.
 
 ---
 
@@ -95,11 +100,12 @@ This document adapts the CL-to-standalone cutover for staging, where one team do
 6. From P1 on, every EVM `apply-verifier-config` input sets `consolidateAggregators: true`. The
    flag is read per run, not stored: a run without it goes back to one job per aggregator, and a
    standalone verifier keeps only the last job it receives, so it would write to one aggregator.
-7. Never run `apply-executor-config` for a cut-over node. It proposes by NOP alias, and after step
-   7 that alias's JD record belongs to the standalone verifier, which rejects the executor job at
-   validation. A cut-over node's executor gets its job from `jd_propose_job` (step 9). Leave
-   cut-over nodes out of `targetNops`, and run no unscoped executor input until the changeset can
-   address a separate executor record (open question 5).
+7. During the recorded migration, `jd_propose_job` preserved each executor's exact spec. Reconcile
+   that generic proposal into canonical `standalone`/`appConfig` metadata before generating NOP
+   state or relying on later executor routing. Tooling including #1590 can instead run
+   `apply-executor-config` with the executor's `executor_node_name` or `ExecutorNodeID`; without
+   one of those references or reconciled metadata, it must fail rather than target the verifier's
+   NOP alias. Never run an unscoped legacy executor input during cutover.
 
 ## Conventions
 
@@ -108,14 +114,14 @@ Every command below assumes this block has been pasted into the shell. AWS SSO e
 ```sh
 aws sso login --sso-session griddle-session
 
-# kubeconfig context names as in chainlink-ccv-deploy AGENTS.md; adjust to your kubeconfig
-export CTX=platform-ccip-stage                        # cluster reads, exec, scale
-export CTX_ENG=griddle-platform-ccip-stage-engineer   # secret creation (RBAC: create, not patch)
+# Current kubeconfig context names; adjust if your profile prefix differs.
+export CTX=griddle-platform-ccip-stage-teamccipadmin     # cluster reads, exec, scale
+export CTX_ENG=griddle-platform-ccip-stage-teamccipengineer # secret creation (create, not patch)
 export NS=chainlink-ccv
 
-CCV=~/dev/dev/chainlink-ccv
-CLD=~/dev/dev/chainlink-deployments
-DEPLOY=~/dev/dev/chainlink-ccv-deploy
+CCV=~/dev/dev2/chainlink-ccv
+CLD=~/dev/dev2/chainlink-deployments
+DEPLOY=~/dev/dev2/chainlink-ccv-deploy
 EVM_VALUES=$DEPLOY/deploy/config/staging/committee-verifier-evm/config.yaml
 
 # The chainlink-ccv commit the deployed images were built from (P2). Steps 2 and 3 run the
@@ -244,7 +250,7 @@ changesets:
         defaultExecutorQualifier: "default"
         chainFamily: evm
         consolidateAggregators: true
-        revokeOrphanedJobs: true
+        revokeOrphanedJobs: false
         targetNops: ["chainlink-ccv-staging-1", "chainlink-ccv-staging-2", "chainlink-ccv-staging-3"]
 EOF
 cd $CLD
@@ -253,8 +259,8 @@ go run ./domains/ccv/cmd durable-pipeline run --environment staging_testnet \
 # then without --dry-run, or commit + /run-pipelines
 ```
 
-The payload spelling is proven: the Solana committee verifiers were consolidated with the same
-keys on 2026-10-30 (`durable_pipelines/archived/solana_consolidate_verifier_jobs_20261030_005630.yaml`).
+Keep `revokeOrphanedJobs: false`. The payload spelling otherwise matches the Solana consolidation
+on 2026-10-30 (`durable_pipelines/archived/solana_consolidate_verifier_jobs_20261030_005630.yaml`).
 Before P1, the EVM DON runs one job per aggregator; P1 replaces those with the consolidated default
 job while leaving the inactive secondary records alone.
 
@@ -264,12 +270,13 @@ What P1 does to the 21 CL nodes, beyond the job count:
   Manager tab (operator UI, through step 3's port-forward). CL nodes only auto-approve workflow
   specs.
 - The per-aggregator jobs keep running. A CL node only revokes pending specs, and JD refused
-  all four approved jobs in the Solana run (`job cannot be revoked`); the changeset logs that
-  and drops the jobs from the datastore anyway. Cancel each node's two old proposals in the same
-  tab, which deletes the jobs and tells JD (`chainlink jobs delete` refuses a feeds-manager job).
-  Approve first, then cancel: the aggregators drop the duplicate signatures
-  (`ON CONFLICT ... DO NOTHING`), while cancelling first stops the node signing until the
-  approval. Finish and verify every node in the batch before starting another.
+  all four approved jobs in the Solana run (`job cannot be revoked`). With revocation enabled, the
+  changeset can log that failure and drop the jobs from the datastore anyway, losing information
+  later steps need. Cancel each node's two old proposals in Feeds Manager instead, which deletes
+  the jobs and tells JD (`chainlink jobs delete` refuses a feeds-manager job). Approve first, then
+  cancel: the aggregators drop duplicate signatures (`ON CONFLICT ... DO NOTHING`), while
+  cancelling first stops the node signing until the approval. Finish and verify every node in the
+  batch before starting another.
 - The consolidated job has a new `verifier_id` (`default-verifier` instead of
   `<aggregator>-default-verifier`), and chain status is keyed by `verifier_id`. The new job starts
   with no chain-status rows: no checkpoint and no disabled flags. It scans from 500 blocks behind
@@ -278,7 +285,7 @@ What P1 does to the 21 CL nodes, beyond the job count:
   `default-verifier` after P1 (`chainlink node ccv chain-statuses disable`; the change takes
   effect on the node's next start, so stop the node first).
 - Hard rule 6 starts here: every later EVM `apply-verifier-config` input sets
-  `consolidateAggregators: true`, the step 9 cutover input included.
+  `consolidateAggregators: true` and keeps `revokeOrphanedJobs: false`, step 9 included.
 
 Node 0 is also the sole member of the `secondary` committee
 (`[nop_topology.committees.secondary]` in `domains/ccv/staging_testnet/topology.toml`). Its secondary
@@ -888,8 +895,15 @@ mode = "standalone"
 The verifier jobs come from `apply-verifier-config`, one changeset per node in the wave. With the
 mode flipped it emits the standalone job shape and proposes to the record named `$NODE`, which step 7
 handed to the standalone verifier. Append these to the combined input after the CSA changesets, then
-append one `jd_propose_job` per executor. Do not add `apply-executor-config` (rule 7), and do not
-create separate verifier, executor, or CSA input files for the wave.
+append one `jd_propose_job` per executor for the exact-spec compatibility path used in staging. Do
+not create separate verifier, executor, or CSA input files for the wave.
+
+With tooling including #1590, a later executor update can use `apply-executor-config` after the
+NOP declares `executor_node_name = "$EXE"` (or supplies the executor node ID) and that registration
+is in the environment node list. This is also an alternative initial-delivery path when the
+registration is already persisted. Do not run it without that routing metadata; the alias now
+belongs to the verifier. On either path, compare the spec before delivery and require the existing
+job name, `externalJobID`, `executor_id`, and intended executor-pool membership.
 
 ```yaml
 # One changeset per verifier after the two CSA changesets:
@@ -899,6 +913,7 @@ create separate verifier, executor, or CSA input files for the wave.
         defaultExecutorQualifier: "default"
         chainFamily: evm
         consolidateAggregators: true
+        revokeOrphanedJobs: false
         targetNops: ["$NODE"]
 
 # One changeset per executor after all verifier changesets:
@@ -963,6 +978,26 @@ The executor job also lists `canton-devnet` and `solana-devnet` as destinations,
 has no config for non-EVM chains. So `ready`, or `degraded` naming only those two, is the expected
 result; anything else degraded is a finding. On images built from #1521 on, the bootstrap server
 also answers `/health/live` and `/health/ready` on 9988.
+
+The generic `jd_propose_job` path delivers the job but does not canonicalize its saved metadata.
+After the executor approves it, run `jd_reconcile_jobs` with the node ID returned by step 7 and the
+exact standalone spec:
+
+```yaml
+  - jd_reconcile_jobs:
+      payload:
+        jobs:
+          - nop_alias: $NODE
+            jobspec_path: domains/ccv/staging_testnet/inputs/jobspecs/$EXE.toml
+            node_id: <returned-executor-jd-node-id>
+```
+
+This changes only CLD metadata after reading JD jobs and proposals; it does not propose, revoke, or
+delete a live job. Require one approved, byte-identical spec and confirm the saved executor job has
+`mode = standalone`, its standalone node ID, and `appConfig`. Add reconciliation last in the
+activation input when the returned IDs and environment node list are available to that run.
+Otherwise use a separate read-only follow-up, as prod-testnet #21204 did; never rerun a completed
+activation to add it. Do not regenerate NOP state until this is done.
 
 ### 10. Re-apply disabled chains, if step 1 recorded any
 
@@ -1085,12 +1120,11 @@ faster than expected is a reason to look at transmit failures before the next no
    finality checks. To see which reader a CL node runs, query its database:
    `select name from evm.log_poller_filters where name like 'ccv-verifier - %'`. Is RPC
    acceptable for staging, and should prod move to the standalone-format config?
-5. Executor job routing. `apply-executor-config` proposes by NOP alias, so it cannot reach a
-   standalone executor registered under its own name while the verifier holds the alias's record.
-   Staging works around it with `jd_propose_job` (step 9) and hard rule 7, which also means any
-   executor config change for a cut-over node is a hand retarget. Before prod-testnet the changeset
-   should be able to target a standalone NOP's executor record (for example a separate executor
-   node name in the topology), so unscoped executor runs work again.
+5. *(Resolved in #1590)* `apply-executor-config` now routes to a standalone executor declared by
+   `executor_node_name` or `ExecutorNodeID`, and fails closed without that reference or complete
+   reconciled metadata. Staging's exact-spec `jd_propose_job` compatibility path remains documented
+   in step 9, but it requires `jd_reconcile_jobs` afterward. The CLD dependency must include #1590;
+   merely updating the input YAML on an older dependency does not add this routing.
 
 ## What staging does not decide
 
