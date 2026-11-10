@@ -17,9 +17,13 @@ const (
 	DefaultListenAddress = "127.0.0.1:8105"
 	// ConfigPathEnv overrides the default console config path.
 	ConfigPathEnv = "CCV_ADMIN_CONFIG_PATH"
+	// SecretsPathEnv overrides the executor console secrets path; it carries no credential value.
+	SecretsPathEnv = "CCV_ADMIN_SECRETS_PATH"
 	// DefaultConfigPath is the console config file's default location. A present file
 	// enables the host service's in-process console alongside the active job.
 	DefaultConfigPath = "/etc/ccv-admin/config.toml"
+	// DefaultSecretsPath is the executor console's optional basic-auth secrets file.
+	DefaultSecretsPath = "/etc/ccv-admin/secrets.toml"
 )
 
 // Config is the console configuration file schema. It carries no credentials and no

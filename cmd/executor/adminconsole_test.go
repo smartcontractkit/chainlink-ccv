@@ -70,6 +70,9 @@ func TestStartAdminConsoleServesJobAndBalances(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "admin.toml")
 	require.NoError(t, os.WriteFile(configPath, fmt.Appendf(nil, "listen_address = \"127.0.0.1:%d\"\n", port), 0o600))
 	t.Setenv(admin.ConfigPathEnv, configPath)
+	secretsPath := filepath.Join(t.TempDir(), "secrets.toml")
+	require.NoError(t, os.WriteFile(secretsPath, []byte("[admin_ui]\nusername = \"operator\"\npassword = \"secret\"\n"), 0o600))
+	t.Setenv(admin.SecretsPathEnv, secretsPath)
 
 	source := &transmitterBalanceSource{
 		selectors: []protocol.ChainSelector{1},
@@ -84,7 +87,6 @@ func TestStartAdminConsoleServesJobAndBalances(t *testing.T) {
 	stop, err := startAdminConsole(
 		logger.Test(t),
 		bootstrap.JobSpec{Name: "executor-e2e", AppConfig: "executor_id = \"e2e\""},
-		&bootstrap.AdminUISecret{Username: "operator", Password: "secret"},
 		source,
 	)
 	require.NoError(t, err)

@@ -79,9 +79,6 @@ type ServiceDeps struct {
 
 	// Registry for chainaccess.Accessor objects.
 	Registry chainaccess.Registry
-
-	// AdminUI is the optional admin-console credential loaded from the bootstrap secrets file.
-	AdminUI *AdminUISecret
 }
 
 // ServiceFactory is an interface implemented by the application that seeks to be bootstrapped.
@@ -466,7 +463,6 @@ func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 	deps := ServiceDeps{
 		Logger:   b.lggr,
 		Keystore: keyStore,
-		AdminUI:  b.config.AdminUI,
 	}
 
 	jobRunner := &runner{lggr: b.lggr, fac: b.fac, deps: deps, applicationReady: &b.applicationReady}
@@ -657,7 +653,7 @@ func (b *Bootstrapper) startLocalService(ctx context.Context, keyStore keystore.
 	}()
 
 	js := JobSpec{Name: "local", AppConfig: string(appCfg)}
-	if err := b.fac.Start(ctx, js, ServiceDeps{Logger: b.lggr, Keystore: keyStore, Registry: b.accCloser, AdminUI: b.config.AdminUI}); err != nil {
+	if err := b.fac.Start(ctx, js, ServiceDeps{Logger: b.lggr, Keystore: keyStore, Registry: b.accCloser}); err != nil {
 		if stopErr := b.fac.Stop(ctx); stopErr != nil {
 			b.lggr.Warnw("stop factory after failed startLocal", "error", stopErr)
 		}

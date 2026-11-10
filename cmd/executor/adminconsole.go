@@ -13,6 +13,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/admin"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vsecrets"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -54,8 +55,26 @@ func (s *transmitterBalanceSource) TransmitterBalances(ctx context.Context) []ad
 	return results
 }
 
+func loadAdminConsoleAuth() (*admin.BasicAuth, error) {
+	path := os.Getenv(admin.SecretsPathEnv)
+	if path == "" {
+		path = admin.DefaultSecretsPath
+	}
+	if _, err := os.Stat(path); err != nil { //nolint:gosec // G703: operator-provided secrets path, not request input.
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to stat admin console secrets %q: %w", path, err)
+	}
+	secrets, err := vsecrets.Load(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load admin console secrets: %w", err)
+	}
+	return admin.BasicAuthFromSecrets(secrets)
+}
+
 // startAdminConsole serves the read-only executor console when its config file is present.
-func startAdminConsole(lggr logger.Logger, spec bootstrap.JobSpec, adminUI *bootstrap.AdminUISecret, balances admin.TransmitterBalanceSource) (func(), error) {
+func startAdminConsole(lggr logger.Logger, spec bootstrap.JobSpec, balances admin.TransmitterBalanceSource) (func(), error) {
 	path := os.Getenv(admin.ConfigPathEnv)
 	if path == "" {
 		path = admin.DefaultConfigPath
@@ -70,12 +89,9 @@ func startAdminConsole(lggr logger.Logger, spec bootstrap.JobSpec, adminUI *boot
 	if err != nil {
 		return nil, err
 	}
-	var auth *admin.BasicAuth
-	if adminUI != nil {
-		auth, err = admin.NewBasicAuth(adminUI.Username, adminUI.Password)
-		if err != nil {
-			return nil, err
-		}
+	auth, err := loadAdminConsoleAuth()
+	if err != nil {
+		return nil, err
 	}
 	srv, err := admin.NewServer(cfg, admin.Deps{
 		Auth: auth, ReadOnly: true, JobSpec: &spec, BalanceSource: balances,

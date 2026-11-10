@@ -326,7 +326,7 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	}()
 	f.server = server
 
-	f.adminStop, err = startAdminConsole(f.lggr, spec, deps.AdminUI, &transmitterBalanceSource{
+	f.adminStop, err = startAdminConsole(f.lggr, spec, &transmitterBalanceSource{
 		selectors: balanceSelectors, readers: balanceReaders,
 	})
 	if err != nil {

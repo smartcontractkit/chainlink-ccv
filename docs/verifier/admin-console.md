@@ -41,8 +41,8 @@ tool, and anything beyond that is an explicit, validated choice.
   becomes the audit actor. A half-supplied pair is a startup error, never a silent
   downgrade to unauthenticated serving.
 - **No new credentials or databases.** Verifier recovery shares the verifier's application
-  database; both services take console authentication from their existing secrets file.
-  Database URLs are never rendered into a page or logged.
+  database. Authentication uses the existing `[admin_ui]` secret shape, read only from a
+  secrets file. Database URLs are never rendered into a page or logged.
 - **Mutations are CSRF-protected.** Every state-changing request must carry the
   per-browser token (form field `csrf_token` or header `X-CSRF-Token`) matching the
   `ccv_admin_csrf` cookie. Pages also ship restrictive security headers
@@ -76,12 +76,14 @@ Attestation freshness checks use the verifier's own first configured aggregator
 (`GetVerifierResultsForMessage`); a token verifier has no aggregators, so its reschedule
 targets stay gated on `unknown` until a follow-up checks all configured aggregators.
 
-Basic auth, if you want it, goes in the service's secrets file. Verifiers use their
-[verifier secrets file](../config/verifier/secrets.documented.toml); executors use the
-[bootstrap secrets file](../config/bootstrap/secrets.documented.toml):
+Basic auth, if you want it, uses the same `[admin_ui]` table in both services. Verifiers read
+it from their existing [verifier secrets file](../config/verifier/secrets.documented.toml).
+Executors read it from `/etc/ccv-admin/secrets.toml` (override with
+`CCV_ADMIN_SECRETS_PATH`). The path override carries no credential value; the secret itself is
+only read from the file.
 
 ```toml
-# <verifier secrets file or executor bootstrap secrets file>
+# <verifier secrets file or executor /etc/ccv-admin/secrets.toml>
 [admin_ui]
   username = "operator"
   password = "<password>"

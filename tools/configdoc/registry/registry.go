@@ -329,8 +329,7 @@ func bootstrapSecretsInstance() any {
 				},
 			},
 		},
-		DB:      bootstrap.DBConfig{URL: "postgres://user:password@localhost:5432/bootstrapper?sslmode=disable"}, //nolint:gosec // G101: placeholder example value in generated docs, not a real credential
-		AdminUI: &bootstrap.AdminUISecret{Username: "operator", Password: "<password>"},
+		DB: bootstrap.DBConfig{URL: "postgres://user:password@localhost:5432/bootstrapper?sslmode=disable"}, //nolint:gosec // G101: placeholder example value in generated docs, not a real credential
 	}
 }
 

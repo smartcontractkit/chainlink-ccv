@@ -711,10 +711,6 @@ password = "s3cret"
 
 [db]
 url = "postgres://localhost:5432/bootstrapper"
-
-[admin_ui]
-username = "operator"
-password = "admin-secret"
 `
 	const monolithTOML = nonSecretTOML + secretsTOML
 
@@ -725,9 +721,6 @@ password = "admin-secret"
 		require.Len(t, cfg.Chains, 1)
 		require.Equal(t, "s3cret", cfg.Keystore.Password)
 		require.Equal(t, "postgres://localhost:5432/bootstrapper", cfg.DB.URL)
-		require.NotNil(t, cfg.AdminUI)
-		require.Equal(t, "operator", cfg.AdminUI.Username)
-		require.Equal(t, "admin-secret", cfg.AdminUI.Password)
 	}
 
 	t.Run("legacy monolith: single file with all sections is valid", func(t *testing.T) {

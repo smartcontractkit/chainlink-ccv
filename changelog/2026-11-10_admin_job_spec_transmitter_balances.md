@@ -12,7 +12,7 @@
 | Symbol | Kind | Search | Location | Section |
 |---|---|---|---|---|
 | `admin.Deps` | behavior-changed | `admin\.Deps\{` | `verifier/pkg/admin/server.go:33` | [#console-modes](#console-modes) |
-| `bootstrap.AdminUISecret` / `bootstrap.ServiceDeps.AdminUI` | added | `AdminUI` | `bootstrap/config.go:348` | [#executor-authentication](#executor-authentication) |
+| `admin.SecretsPathEnv` / `admin.DefaultSecretsPath` | added | `CCV_ADMIN_SECRETS_PATH` | `verifier/pkg/admin/config.go:21` | [#executor-authentication](#executor-authentication) |
 | `chainaccess.TransmitterBalanceReader` | added | `TransmitterBalanceReader` | `pkg/chainaccess/interfaces.go:249` | [#balance-capability](#balance-capability) |
 | `evm.accessor.TransmitterBalances` | added | `TransmitterBalances\(` | `integration/pkg/accessors/evm/factory.go:415` | [#balance-capability](#balance-capability) |
 
@@ -28,7 +28,7 @@
 
 ### Executor authentication
 
-The executor reads the same `[admin_ui]` username/password shape as the verifier, but from the bootstrap secrets file. `bootstrap.ServiceDeps.AdminUI` carries it to the executor factory. A half-supplied pair fails console startup, and a non-loopback listen address still requires authentication. No environment-variable credential path is added.
+The executor reads the same `[admin_ui]` username/password shape as the verifier from `/etc/ccv-admin/secrets.toml` (`CCV_ADMIN_SECRETS_PATH` overrides the path, never the credential). A half-supplied pair fails console startup, and a non-loopback listen address still requires authentication. Keeping this file separate from bootstrap secrets lets older images start with the newly generated environment config during rolling upgrades; they ignore the executor-only admin files.
 
 ### Balance capability
 
@@ -38,6 +38,6 @@ The UI formats native-token amounts using the configured decimals and also displ
 
 ## Compatibility & Requirements
 
-- The console remains disabled unless `/etc/ccv-admin/config.toml` (or `CCV_ADMIN_CONFIG_PATH`) is present.
+- The console remains disabled unless `/etc/ccv-admin/config.toml` (or `CCV_ADMIN_CONFIG_PATH`) is present. Executor authentication is optional on loopback and read from `/etc/ccv-admin/secrets.toml` (or `CCV_ADMIN_SECRETS_PATH`); bootstrap config and secrets schemas are unchanged.
 - Transmitter balances currently have an EVM implementation. Other chain families continue to satisfy `chainaccess.Accessor` without implementing the optional capability and show an unavailable error on the executor page.
 - Operators should keep using their telemetry/alerting pipeline for continuous low-balance alerts; this change supplies operator UI inspection only.

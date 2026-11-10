@@ -11,13 +11,6 @@ func (AWSKMSConfig) DocComments() map[string]commentparsing.FieldDoc {
 	}
 }
 
-func (AdminUISecret) DocComments() map[string]commentparsing.FieldDoc {
-	return map[string]commentparsing.FieldDoc{
-		"Password": {Comment: "Password is the basic-auth password required by the admin console."},
-		"Username": {Comment: "Username is the basic-auth user required by the admin console."},
-	}
-}
-
 func (ChainRegistration) DocComments() map[string]commentparsing.FieldDoc {
 	return map[string]commentparsing.FieldDoc{
 		"ID":   {Comment: "ID is the chain identifier, e.g. \"1\" for Ethereum mainnet."},
