@@ -354,7 +354,7 @@ Each `[[token_verifiers]]` block requires `type`, `version`, and `verifier_id`. 
 | `verifier_version` | `0x91b3338e` | 4-byte version tag; must match the deployed `CCTPVerifier` contract version |
 | `verifier_addresses` | required | Map of **source** chain selector → the address Circle reports as the burn's `messageSender` on that chain (EVM: the CCTP verifier contract; Solana: the CCTP token pool signer PDA). Used only for message sender matching. List only the chains this instance reads from; each one needs a `CCTPCodec` |
 | `verifier_resolver_addresses` | required | Map of chain selector → verifier resolver contract address; used for `SourceConfig` and result storage. Must list every source chain and every destination chain: result storage writes the destination chain's resolver address, and the executor matches it |
-| `cctp_domain_mapping` | none | Map of **source** chain selector → Circle CCTP domain (integer). An entry takes precedence over the chain family's built-in table, so a chain Circle has added can be supported without a release |
+| `cctp_domain_mapping` | none | Map of **source** chain selector → Circle CCTP domain (integer). An entry takes precedence over the chain family's built-in table, so a chain Circle has added can be supported without a release. Startup fails if a `verifier_addresses` chain (or a `verifier_resolver_addresses` chain that has a codec) has neither an entry here nor a built-in domain |
 
 ## Example TOML snippet
 

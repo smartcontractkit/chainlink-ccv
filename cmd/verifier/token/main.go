@@ -6,7 +6,8 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	cmd "github.com/smartcontractkit/chainlink-ccv/cmd/verifier"
-	_ "github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm/register" // evm accessor driver
+	_ "github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm/cctpdomains" // evm base CCTP domains, for validate-config
+	_ "github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm/register"    // evm accessor driver
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vsecrets"
 )
 
