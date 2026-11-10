@@ -120,11 +120,11 @@ EXPECTED_ID=<from P8>                       # this node's OnchainSigningAddress 
 ```
 
 Deploys are IssueOps, as in staging: branch in chainlink-ccv-deploy, PR (ready, not
-draft), comment `.deploy prod` on it, thumbs-up the confirmation comment. There is no
-auto-deploy on merge. Note the `prod` section of `griddle.yaml` mixes prod-testnet and
-prod-mainnet releases (namespace separates them); the env split is tracked by a TODO in
-that file — be careful that a `.deploy prod` comment deploys every instance in the env,
-so coordinate with whoever owns concurrent prod-mainnet work.
+draft), comment `.deploy prod-testnet` on it, and approve the confirmation. There is no
+auto-deploy on merge. The command targets only `chainlink-ccv-testnet` in `us-west-2` by default;
+append `| --region=us-east-2` when deploying that region. There is no `.deploy prod` command:
+prod-testnet and prod-mainnet are deployed separately. The PR must be approved and its
+`validate-config-decode` check must pass.
 
 Pipelines: `prod_testnet` registers the shared CCV pipelines
 (`apply-verifier-config`, `apply-executor-config`, `jd_*`) via
