@@ -15,6 +15,13 @@ import (
 
 func buildVerifierSpecsForTest(t *testing.T, consolidate bool) shared.NOPJobSpecs {
 	t.Helper()
+	specs, err := buildVerifierSpecsForModeTest(t, shared.NOPModeCL, consolidate)
+	require.NoError(t, err)
+	return specs
+}
+
+func buildVerifierSpecsForModeTest(t *testing.T, mode shared.NOPMode, consolidate bool) (shared.NOPJobSpecs, error) {
+	t.Helper()
 
 	contractAddresses := map[string]*adapters.VerifierContractAddresses{
 		"1": {
@@ -27,6 +34,7 @@ func buildVerifierSpecsForTest(t *testing.T, consolidate bool) shared.NOPJobSpec
 	nops := []verifierNOPInput{{
 		Alias:                 "nop1",
 		SignerAddressByFamily: map[string]string{"evm": "0xSIGNER"},
+		Mode:                  mode,
 	}}
 	committee := verifierCommitteeInput{
 		Qualifier: "default",
@@ -49,8 +57,14 @@ func buildVerifierSpecsForTest(t *testing.T, consolidate bool) shared.NOPJobSpec
 		consolidate,
 		defaultApplyVerifierConfigApplyOverrides(),
 	)
-	require.NoError(t, err)
-	return specs
+	return specs, err
+}
+
+func TestBuildVerifierJobSpecs_StandaloneRejectsLegacyLayout(t *testing.T) {
+	specs, err := buildVerifierSpecsForModeTest(t, shared.NOPModeStandalone, false)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "requires consolidateAggregators: true")
+	assert.Nil(t, specs)
 }
 
 func parseVerifierConfig(t *testing.T, jobSpec string) commit.Config {

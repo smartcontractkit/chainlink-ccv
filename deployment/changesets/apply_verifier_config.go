@@ -50,12 +50,9 @@ type ApplyVerifierConfigInput struct {
 	DisableFinalityCheckers []string
 	// RevokeOrphanedJobs when true revokes and cleans up orphaned jobs; default false.
 	RevokeOrphanedJobs bool
-	// ConsolidateAggregators when true emits a single verifier job per NOP that writes to ALL of
-	// the committee's aggregators (using the aggregators list in the verifier config), instead of
-	// one job per aggregator. Default false preserves the legacy one-job-per-aggregator output
-	// byte-for-byte. Flipping it to true changes the verifier_id (the consolidated job omits the
-	// aggregator name) and orphans the old per-aggregator jobs; pair it with RevokeOrphanedJobs to
-	// clean those up.
+	// ConsolidateAggregators emits one job per NOP writing to all aggregators instead of one per aggregator.
+	// Standalone NOPs require true; false preserves legacy output and is valid only for targeted CL-mode NOPs.
+	// Switching an existing CL NOP changes its verifier_id and orphans the old per-aggregator jobs.
 	ConsolidateAggregators bool
 }
 
@@ -119,12 +116,32 @@ func createApplyVerifierConfigValidateFunc() func(e deployment.Environment, cfg 
 			}
 		}
 
+		if len(cfg.Committee.ChainConfigs) > 0 && !cfg.ConsolidateAggregators {
+			committeeNOPs := shared.NOPAliasSliceToSet(committeeNOPAliasesFromInput(cfg.Committee, cfg.NOPs))
+			targetedNOPs := shared.NOPAliasSliceToSet(cfg.TargetNOPs)
+			for _, nop := range cfg.NOPs {
+				if !committeeNOPs[nop.Alias] || (len(cfg.TargetNOPs) > 0 && !targetedNOPs[nop.Alias]) {
+					continue
+				}
+				if err := requireConsolidatedAggregatorsForStandalone(nop.Alias, nop.GetMode(), cfg.ConsolidateAggregators); err != nil {
+					return err
+				}
+			}
+		}
+
 		if shared.IsProductionEnvironment(e.Name) && cfg.PyroscopeURL != "" {
 			return fmt.Errorf("pyroscope URL is not supported for production environments")
 		}
 
 		return nil
 	}
+}
+
+func requireConsolidatedAggregatorsForStandalone(nopAlias shared.NOPAlias, mode shared.NOPMode, consolidate bool) error {
+	if mode != shared.NOPModeStandalone || consolidate {
+		return nil
+	}
+	return fmt.Errorf("NOP %q runs in standalone mode and requires consolidateAggregators: true; per-aggregator jobs replace one another on a standalone verifier", nopAlias)
 }
 
 type applyVerifierConfigApplyOverrides struct {
@@ -495,6 +512,9 @@ func buildVerifierJobSpecs(
 
 		mode, err := resolveNOPMode(nop.Mode, nopAlias)
 		if err != nil {
+			return nil, affectedScope, err
+		}
+		if err := requireConsolidatedAggregatorsForStandalone(nopAlias, mode, consolidateAggregators); err != nil {
 			return nil, affectedScope, err
 		}
 

@@ -146,6 +146,58 @@ func TestApplyVerifierConfig_Validation_ProductionRejectsPyroscope(t *testing.T)
 	assert.Contains(t, err.Error(), "pyroscope URL is not supported for production")
 }
 
+func TestApplyVerifierConfig_Validation_StandaloneRequiresConsolidatedAggregators(t *testing.T) {
+	sel1 := chainsel.TEST_90000001.Selector
+	registerEVMOnchain(&stubOnchainAdapter{})
+	cs := ApplyVerifierConfig()
+	cfg := ApplyVerifierConfigInput{
+		CommitteeQualifier:       "default",
+		DefaultExecutorQualifier: "default-executor",
+		NOPs: []NOPInput{
+			{Alias: "nop1", Mode: shared.NOPModeStandalone},
+			{Alias: "nop2", Mode: shared.NOPModeCL},
+		},
+		Committee: CommitteeInput{
+			Qualifier:   "default",
+			Aggregators: []AggregatorRef{{Name: "agg-a", Address: "agg-a:50051"}, {Name: "agg-b", Address: "agg-b:50051"}},
+			ChainConfigs: map[uint64]CommitteeChainMembership{
+				sel1: {NOPAliases: []shared.NOPAlias{"nop1", "nop2"}},
+			},
+		},
+		TargetNOPs: []shared.NOPAlias{"nop1"},
+	}
+
+	err := cs.VerifyPreconditions(deployment.Environment{}, cfg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `NOP "nop1" runs in standalone mode and requires consolidateAggregators: true`)
+
+	cfg.ConsolidateAggregators = true
+	require.NoError(t, cs.VerifyPreconditions(deployment.Environment{}, cfg))
+}
+
+func TestApplyVerifierConfig_Validation_UntargetedStandaloneAllowsLegacyCLJobs(t *testing.T) {
+	sel1 := chainsel.TEST_90000001.Selector
+	registerEVMOnchain(&stubOnchainAdapter{})
+	cs := ApplyVerifierConfig()
+	err := cs.VerifyPreconditions(deployment.Environment{}, ApplyVerifierConfigInput{
+		CommitteeQualifier:       "default",
+		DefaultExecutorQualifier: "default-executor",
+		NOPs: []NOPInput{
+			{Alias: "nop1", Mode: shared.NOPModeStandalone},
+			{Alias: "nop2", Mode: shared.NOPModeCL},
+		},
+		Committee: CommitteeInput{
+			Qualifier:   "default",
+			Aggregators: []AggregatorRef{{Name: "agg", Address: "0xAGG"}},
+			ChainConfigs: map[uint64]CommitteeChainMembership{
+				sel1: {NOPAliases: []shared.NOPAlias{"nop1", "nop2"}},
+			},
+		},
+		TargetNOPs: []shared.NOPAlias{"nop2"},
+	})
+	require.NoError(t, err)
+}
+
 func TestApplyVerifierConfig_Validation_AcceptsValidImperativeInput(t *testing.T) {
 	sel1 := chainsel.TEST_90000001.Selector
 	registerEVMOnchain(&stubOnchainAdapter{})
