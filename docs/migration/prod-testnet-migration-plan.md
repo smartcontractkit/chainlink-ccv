@@ -35,8 +35,8 @@ staging," execute the staging plan's step with the substitutions in "Conventions
   reconciled nodes 1–5 to canonical `standalone`/`appConfig` metadata without changing live jobs.
   State generation then restored executor NOP registration and stopped their telemetry 401s.
   [chainlink-deployments #21230](https://github.com/smartcontractkit/chainlink-deployments/pull/21230)
-  performs the equivalent read-only reconciliation for nodes 6–10 and remains the remaining
-  metadata gate.
+  reconciled nodes 6–10 the same way. Generated state registers their standalone executor NOPs,
+  and their telemetry sidecars report no authorization failures.
 - **Nodes 11–15 are the final EVM wave.** They remain in CL mode. Nodes 16–20 have no EVM
   committee role.
 - Accepted funding gaps are documented in #21167 and #21168. Nodes 6–10 are funded on 51 usable
