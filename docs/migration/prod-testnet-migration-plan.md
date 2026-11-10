@@ -22,28 +22,29 @@ staging," execute the staging plan's step with the substitutions in "Conventions
 ## Execution status
 
 - **Staging is complete:** all 21 EVM nodes are standalone.
-- **Prod-testnet nodes 0–10 are standalone.** Nodes 1–5 deployed in
-  [chainlink-ccv-deploy #531](https://github.com/smartcontractkit/chainlink-ccv-deploy/pull/531)
+- **Prod-testnet nodes 0–15 are standalone; cutover and activation are complete.** Nodes 1–5
+  deployed in [chainlink-ccv-deploy #531](https://github.com/smartcontractkit/chainlink-ccv-deploy/pull/531)
   and activated in [chainlink-deployments #21167](https://github.com/smartcontractkit/chainlink-deployments/pull/21167).
   Nodes 6–10 deployed in [chainlink-ccv-deploy #532](https://github.com/smartcontractkit/chainlink-ccv-deploy/pull/532)
   and activated in [chainlink-deployments #21168](https://github.com/smartcontractkit/chainlink-deployments/pull/21168).
+  Nodes 11–15 deployed in [chainlink-ccv-deploy #533](https://github.com/smartcontractkit/chainlink-ccv-deploy/pull/533)
+  and activated in [chainlink-deployments #21169](https://github.com/smartcontractkit/chainlink-deployments/pull/21169).
   Every targeted message reached both aggregators and executed from the intended transmitter.
-  Nodes 6–9 proved 0G execution; node 10 proved Sonic execution after legacy node 11 won the 0G
-  leader races. Creditcoin's pre-existing disabled flag was restored on every verifier.
+  Pre-cutover disabled flags were restored on every affected verifier.
 - Generic executor proposals initially left compatibility metadata in CL mode.
-  [chainlink-deployments #21204](https://github.com/smartcontractkit/chainlink-deployments/pull/21204)
-  reconciled nodes 1–5 to canonical `standalone`/`appConfig` metadata without changing live jobs.
-  State generation then restored executor NOP registration and stopped their telemetry 401s.
-  [chainlink-deployments #21230](https://github.com/smartcontractkit/chainlink-deployments/pull/21230)
-  reconciled nodes 6–10 the same way. Generated state registers their standalone executor NOPs,
-  and their telemetry sidecars report no authorization failures.
-- **Nodes 11–15 are the final EVM wave.** They remain in CL mode. Nodes 16–20 have no EVM
-  committee role.
-- Accepted funding gaps are documented in #21167 and #21168. Nodes 6–10 are funded on 51 usable
-  networks with eight documented gaps. Balance monitoring is a separate follow-up, not a cutover
-  gate: compile the standalone transmitter addresses for monitoring when the migration ends.
-- Full-fleet validation and the two-week soak remain open. Ten of 16 EVM-serving nodes being
-  healthy is not the prod-mainnet go/no-go.
+  [chainlink-deployments #21204](https://github.com/smartcontractkit/chainlink-deployments/pull/21204),
+  [#21230](https://github.com/smartcontractkit/chainlink-deployments/pull/21230), and
+  [#21256](https://github.com/smartcontractkit/chainlink-deployments/pull/21256) reconciled nodes
+  1–5, 6–10, and 11–15 respectively to canonical `standalone`/`appConfig` metadata without changing
+  live jobs. The scoped [state-generation run](https://github.com/smartcontractkit/chainlink-deployments/actions/runs/42848372205)
+  registers all 16 standalone executor NOPs in `nops`, not `v2Nops`, and the final-wave telemetry
+  sidecars report no authorization failures.
+- Nodes 16–20 have no EVM committee role and remain outside this migration's scope.
+- Accepted funding gaps are documented in the activation PRs above. The final wave funded all five
+  executors on 45 networks with 225 verified transfers; its remaining network and source shortfalls
+  are listed in #21169. The complete standalone transmitter monitoring handoff is in P9.
+- Full-fleet validation and the two-week soak remain open. Cutting over all 16 EVM-serving nodes is
+  not by itself the prod-mainnet go/no-go.
 
 ## What prod-testnet adds over staging
 
@@ -57,15 +58,14 @@ staging," execute the staging plan's step with the substitutions in "Conventions
    "generic_fallback"` (`2s`) in the diff gets an explicit `BlockTime` value in the EVM TOML (if
    its block time exceeds `2s`) or a recorded acceptance. This is the scale test for the config
    tooling.
-3. **Balance monitoring is a separate handoff.** It is not a cutover gate. Validate executor
-   funding and transaction receipts during each wave, then compile all standalone transmitter
-   addresses into a monitoring list when the migration ends. Alert ownership and thresholds are
-   decided outside this migration effort.
+3. **Balance monitoring is a separate handoff.** It is not a cutover gate. Executor funding and
+   transaction receipts were validated during each wave; P9 compiles all standalone transmitter
+   addresses for monitoring. Alert ownership and thresholds are decided outside this migration effort.
 4. **Five-node waves are proven; keep deriving the budget.** Node 0 was the canary, followed by
-   nodes 1–5. Each chain has 16 members and threshold 9, so the normal simultaneous-outage budget
-   is seven, not an entitlement to overlap seven blind windows. Use the same five-node shape for
-   nodes 6–10 and 11–15 only after the prior wave passes. Recalculate from live committee config
-   if membership or threshold changes, and keep windows short on fast chains.
+   nodes 1–5, 6–10, and 11–15 only after each prior wave passed. Each chain has 16 members and
+   threshold 9, so the normal simultaneous-outage budget is seven, not an entitlement to overlap
+   seven blind windows. Recalculate from live committee config if membership or threshold changes,
+   and keep windows short on fast chains.
 5. **Record the exact image; use a release before prod-mainnet.** The staging and current
    prod-testnet waves deliberately run the staging-proven
    `45c7148eaaa84fe6cc73f9baa4de12612971c665-rc` image. Do not silently substitute a newer RC.
@@ -287,9 +287,36 @@ retry empty or unsupported faucets blindly. **Do not use faucet or bridge work t
 pre-existing zero/dust gaps already accepted in #21167 and #21168.** Record remaining gaps
 explicitly rather than hiding them behind an aggregate success count.
 
-Balance monitoring is separate from migration. Do not block job delivery on alert setup. Keep the
-standalone transmitter addresses and final balance evidence so they can be compiled into a
-monitoring list when the migration ends.
+Balance monitoring is separate from migration. Do not block job delivery on alert setup. Hand off
+the following standalone transmitter set to the balance-monitoring owners. Each address needs
+per-chain balance and transmit-failure coverage; alert ownership and thresholds remain open.
+
+### Standalone transmitter monitoring handoff
+
+| Node | Standalone executor transmitter |
+|---|---|
+| 0 | `0x616d623b43DDf35608312636e174365F53232523` |
+| 1 | `0xc2b7d8e10DF3EF611bE3a059F0cfa246830f9145` |
+| 2 | `0x9Bd7C2Dc0B5504Cf70Db51c9EfCfFb0EB8B72771` |
+| 3 | `0xfcbA883D1448CBFcB3F0e6bf510eec7E4ce5a75f` |
+| 4 | `0x33aa94da661e11dfCb7E25F3a7681842Daf7fb87` |
+| 5 | `0xc5e797d07852622edCD2514e309A5f03FBb602CC` |
+| 6 | `0xf5B45428FF08DF17A7f99e32d0593FEbb2419108` |
+| 7 | `0x977a180b6bA93E970D6a940217bB3b02cf4288a1` |
+| 8 | `0xdb70898790D26830e5398C8d41063f9b2eb3246f` |
+| 9 | `0x6bC1574fF82b0D2b6cdF50ee26B93c50c9a13E9D` |
+| 10 | `0xd642B66d3c83262625C1574C307043e0b4804B50` |
+| 11 | `0xf2EED7BB49327F3f33095E69a3fCeba74A65dBAf` |
+| 12 | `0xC12ad853B8793B91395752D42ceb14bA31B4f290` |
+| 13 | `0x6AC18172965159a88f2D468b2Cb0ffAD204E1Af6` |
+| 14 | `0x2578102Ef5e9031743aD71113a485C71f73Cc859` |
+| 15 | `0x3e796226720820fbf2aB96b96a539cb6F0D2Acf3` |
+
+The per-wave funding evidence and accepted gaps are recorded in
+[chainlink-deployments #21167](https://github.com/smartcontractkit/chainlink-deployments/pull/21167),
+[#21168](https://github.com/smartcontractkit/chainlink-deployments/pull/21168), and
+[#21169](https://github.com/smartcontractkit/chainlink-deployments/pull/21169). Do not infer
+per-chain coverage from an aggregate transfer count.
 
 ## The cutover, per node
 
@@ -306,9 +333,9 @@ additions:
 | step 11 confirmation message on a staging lane | a real lane this node verifies; announce the window first |
 | soak: manual balance check | soak: final balance evidence, TXM v2 metrics, transmit-failure review; monitoring handoff at the end |
 
-The final planned wave is nodes 11–15. Keep five-node batches only while each previous wave
-passes both-aggregator signing, intended-executor execution, disabled-chain, health,
-and metadata checks. Nodes 16..20 are out of scope until open question 1 is answered.
+The final wave was nodes 11–15. Each five-node batch passed both-aggregator signing,
+intended-executor execution, disabled-chain, health, and metadata checks before the next wave.
+Nodes 16..20 remain out of scope until open question 1 is answered.
 
 ## Validation before calling it done
 
@@ -339,7 +366,7 @@ Every item from staging's validation, here under real traffic:
 
 Operator comms for prod-mainnet may start when all of these hold:
 
-- [ ] All 16 EVM-serving nodes cut over and confirmed: a message per lane, each node's
+- [x] All 16 EVM-serving nodes cut over and confirmed: a message per lane, each node's
       job `signer_address` equal to its P8 address, and each executor's transmitter
       landing transactions.
 - [ ] Two-week full-fleet soak with no sev and no unexplained transmit failure.
