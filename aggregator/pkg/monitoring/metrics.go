@@ -162,7 +162,7 @@ func InitMetrics() (am *AggregatorMetrics, err error) {
 
 	am.aggregationQueueSize, err = beholder.GetMeter().Int64Gauge(
 		"aggregator_aggregation_queue_size",
-		metric.WithDescription("Current count of pending and in-flight aggregation requests in the durable queue"),
+		metric.WithDescription("Pending and in-flight aggregation requests in the shared durable queue; every replica reports the same total, so aggregate with max"),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to register aggregation queue size gauge: %w", err)

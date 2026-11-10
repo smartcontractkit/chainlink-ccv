@@ -446,10 +446,8 @@ func (q *PostgresJobQueue[T]) Retry(ctx context.Context, delay time.Duration, er
 	var failed []string
 	var retried []string
 
-	// A pending sibling row for the same key may already exist under a unique index scoped
-	// to status='pending' (see UniqueWhilePending); re-pending this job would collide with
-	// it, so this adds an EXISTS branch that fails/archives instead, since the sibling
-	// already covers retry.
+	// Under UniqueWhilePending a pending sibling may already hold this key; re-pending would collide,
+	// so the job is failed instead and the sibling covers the retry.
 	siblingGuard := ""
 	if q.uniqueWhilePending {
 		siblingCols := strings.Split(q.conflictCols, ", ")

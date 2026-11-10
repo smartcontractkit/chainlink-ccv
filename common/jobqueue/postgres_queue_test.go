@@ -797,58 +797,36 @@ func TestRetry_PendingSiblingAvoidsUniqueViolation(t *testing.T) {
 	ctx := context.Background()
 
 	const table = "jobqueue_retry_partial_index_test"
-	_, err := db.ExecContext(ctx, fmt.Sprintf(`
-		CREATE TABLE %[1]s (
-			id             BIGSERIAL      PRIMARY KEY,
-			job_id         UUID           UNIQUE NOT NULL,
-			owner_id       TEXT           NOT NULL,
-			chain_selector NUMERIC(20, 0) NOT NULL,
-			message_id     BYTEA          NOT NULL,
-			task_data      JSONB          NOT NULL,
-			status         TEXT           NOT NULL DEFAULT 'pending',
-			created_at     TIMESTAMPTZ    NOT NULL DEFAULT NOW(),
-			available_at   TIMESTAMPTZ    NOT NULL DEFAULT NOW(),
-			started_at     TIMESTAMPTZ,
-			attempt_count  INT            NOT NULL DEFAULT 0,
-			retry_deadline TIMESTAMPTZ    NOT NULL,
-			last_error     TEXT
-		);
-		CREATE UNIQUE INDEX %[1]s_unique_job ON %[1]s (owner_id, chain_selector, message_id) WHERE status = 'pending';
-		CREATE TABLE %[1]s_archive (LIKE %[1]s INCLUDING ALL, completed_at TIMESTAMPTZ NOT NULL);
-	`, table))
+	_, err := db.ExecContext(ctx, jobqueue.CreateTablesSQLUniqueWhilePending(table))
 	require.NoError(t, err)
 
-	cfg := jobqueue.QueueConfig{
+	q, err := jobqueue.NewPostgresJobQueue[keylessJob](db, jobqueue.QueueConfig{
 		Name:               table,
 		OwnerID:            "owner",
 		RetryDuration:      time.Hour,
 		LockDuration:       time.Minute,
-		KeyColumns:         jobqueue.MessageKeyColumns,
 		UniqueWhilePending: true,
-	}
-	q, err := jobqueue.NewPostgresJobQueue[testJob](db, cfg, logger.Test(t))
+	}, logger.Test(t))
 	require.NoError(t, err)
 
-	job := testJob{Chain: 1, Message: []byte("m1"), Data: "x"}
-	require.NoError(t, q.Publish(ctx, job))
+	job := keylessJob{Key: "k1"}
+	require.NoError(t, q.Publish(ctx, job, job))
+	require.Equal(t, 1, countRows(t, db, table, jobqueue.JobStatusPending), "pending jobs dedup on the key")
 
 	consumed, err := q.ConsumePending(ctx, 1)
 	require.NoError(t, err)
 	require.Len(t, consumed, 1)
 	firstJobID := consumed[0].ID
 
-	// The first job is now 'processing', so this publish is not blocked by the partial
-	// unique index and creates a new pending sibling for the same key.
+	// The first job is processing, so the partial index admits a new pending sibling.
 	require.NoError(t, q.Publish(ctx, job))
 	require.Equal(t, 1, countRows(t, db, table, jobqueue.JobStatusPending))
 
-	// Retrying the first (processing) job must not hit the unique-index violation, and
-	// must not come back as pending since the sibling already covers reprocessing.
+	// Retrying the first job must not collide with the sibling; the sibling covers reprocessing.
 	errs := map[string]error{firstJobID: errors.New("transient failure")}
 	require.NoError(t, q.Retry(ctx, 0, errs, firstJobID))
 
 	assert.Equal(t, 1, countRows(t, db, table, jobqueue.JobStatusPending), "only the sibling should remain pending")
-	// The first job is archived as failed rather than being re-pended into the sibling's slot.
 	var firstJobStatus string
 	require.NoError(t, db.QueryRowxContext(ctx, fmt.Sprintf("SELECT status FROM %s WHERE job_id = $1", table+"_archive"), firstJobID).Scan(&firstJobStatus))
 	assert.Equal(t, string(jobqueue.JobStatusFailed), firstJobStatus)

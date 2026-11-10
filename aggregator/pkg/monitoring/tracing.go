@@ -1,8 +1,20 @@
 package monitoring
 
 import (
+	"context"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
+
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
+
+// TraceParent returns ctx's active span as a W3C traceparent, or "" when there is none.
+func TraceParent(ctx context.Context) string {
+	carrier := propagation.MapCarrier{}
+	otel.GetTextMapPropagator().Inject(ctx, carrier)
+	return carrier.Get("traceparent")
+}
 
 // Span event names emitted across the aggregator write/aggregation pipeline.
 // Kept as constants so debugging/alerting tooling can match on them without

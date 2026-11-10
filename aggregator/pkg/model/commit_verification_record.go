@@ -13,6 +13,14 @@ type MessageID = []byte
 // AggregationKey is a type alias that represent the key on which the aggregation is performed.
 type AggregationKey = string
 
+// AggregationTrigger asks for one aggregation check. TraceParent links the check to the write
+// that caused it; empty means the caller's active span.
+type AggregationTrigger struct {
+	AggregationKey AggregationKey
+	MessageID      MessageID
+	TraceParent    string
+}
+
 // SignableHash represents a 32-byte hash used for signature verification.
 type SignableHash = [32]byte
 

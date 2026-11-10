@@ -31,8 +31,8 @@ type SignatureValidator interface {
 
 // AggregationTriggerer defines an interface for triggering aggregation checks.
 type AggregationTriggerer interface {
-	// CheckAggregation triggers the aggregation process for the specified aggregation key.
-	CheckAggregation(ctx context.Context, messageID model.MessageID, aggregationKey model.AggregationKey) error
+	// CheckAggregation enqueues one aggregation check per trigger in a single write.
+	CheckAggregation(ctx context.Context, triggers ...model.AggregationTrigger) error
 }
 
 // WriteCommitVerifierNodeResultHandler handles requests to write commit verification records.
@@ -58,6 +58,10 @@ type preparedWrite struct {
 	record         *model.CommitVerificationRecord
 	aggregationKey model.AggregationKey
 	callerID       string
+}
+
+func (p *preparedWrite) trigger() model.AggregationTrigger {
+	return model.AggregationTrigger{AggregationKey: p.aggregationKey, MessageID: p.record.MessageID, TraceParent: monitoring.TraceParent(p.ctx)}
 }
 
 // prepare runs every check up to and including aggregation-key derivation. On error it ends any span
@@ -158,7 +162,7 @@ func (h *WriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *
 	h.recordSaved(p)
 
 	reqLogger := h.logger(p.ctx)
-	if err := h.aggregator.CheckAggregation(p.ctx, p.record.MessageID, p.aggregationKey); err != nil {
+	if err := h.aggregator.CheckAggregation(p.ctx, p.trigger()); err != nil {
 		p.span.RecordError(err)
 		reqLogger.Errorw("failed to trigger aggregation", "error", err)
 		return failed, status.Error(codes.Internal, "failed to trigger aggregation")

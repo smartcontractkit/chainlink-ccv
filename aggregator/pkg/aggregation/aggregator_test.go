@@ -3,6 +3,7 @@ package aggregation
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -335,7 +336,7 @@ func TestCheckAggregation_Publishes(t *testing.T) {
 	queue := newFakeQueue()
 	a := NewCommitReportAggregator(store, nil, sink, mocks.NewMockQuorumValidator(t), config, logger.Sugared(logger.Test(t)), monitoring, queue)
 
-	require.NoError(t, a.CheckAggregation(t.Context(), []byte{1}, "test-key"))
+	require.NoError(t, a.CheckAggregation(t.Context(), model.AggregationTrigger{MessageID: []byte{1}, AggregationKey: "test-key"}))
 
 	size, err := queue.Size(t.Context())
 	require.NoError(t, err)
@@ -553,14 +554,14 @@ func TestHealthCheck_RecoversPanicEmitsMetricAndKeepsRunning(t *testing.T) {
 	require.NoError(t, a.Ready())
 
 	// First request panics
-	_ = a.CheckAggregation(ctx, []byte{1, 2, 3}, "test-key")
+	_ = a.CheckAggregation(ctx, model.AggregationTrigger{MessageID: []byte{1, 2, 3}, AggregationKey: "test-key"})
 	time.Sleep(100 * time.Millisecond)
 
 	// Still healthy after panic - we now emit metrics instead of tracking consecutive panics
 	require.NoError(t, a.Ready())
 
 	// Second request succeeds
-	_ = a.CheckAggregation(ctx, []byte{4, 5, 6}, "test-key-2")
+	_ = a.CheckAggregation(ctx, model.AggregationTrigger{MessageID: []byte{4, 5, 6}, AggregationKey: "test-key-2"})
 	time.Sleep(100 * time.Millisecond)
 
 	require.NoError(t, a.Ready())
@@ -609,9 +610,9 @@ func TestHealthCheck_ReturnsErrorAfterConsecutiveWorkerFailures(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	require.NoError(t, a.Ready(), "should be ready after start")
 
-	_ = a.CheckAggregation(ctx, []byte{1}, "key-1")
-	_ = a.CheckAggregation(ctx, []byte{2}, "key-2")
-	_ = a.CheckAggregation(ctx, []byte{3}, "key-3")
+	_ = a.CheckAggregation(ctx, model.AggregationTrigger{MessageID: []byte{1}, AggregationKey: "key-1"})
+	_ = a.CheckAggregation(ctx, model.AggregationTrigger{MessageID: []byte{2}, AggregationKey: "key-2"})
+	_ = a.CheckAggregation(ctx, model.AggregationTrigger{MessageID: []byte{3}, AggregationKey: "key-3"})
 
 	require.Eventually(t, func() bool {
 		err := a.Ready()
@@ -622,7 +623,7 @@ func TestHealthCheck_ReturnsErrorAfterConsecutiveWorkerFailures(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "times in a row")
 
-	_ = a.CheckAggregation(ctx, []byte{4}, "key-4")
+	_ = a.CheckAggregation(ctx, model.AggregationTrigger{MessageID: []byte{4}, AggregationKey: "key-4"})
 
 	require.Eventually(t, func() bool {
 		return a.Ready() == nil
@@ -635,7 +636,7 @@ func TestHealthCheck_ReturnsErrorAfterConsecutiveWorkerFailures(t *testing.T) {
 }
 
 func TestStartBackground_Shutdown(t *testing.T) {
-	t.Run("drains buffered items and in-flight workers before signaling done", func(t *testing.T) {
+	t.Run("drains in-flight workers and leaves unclaimed jobs pending", func(t *testing.T) {
 		store := mocks.NewMockCommitVerificationStore(t)
 		sink := mocks.NewMockSink(t)
 		monitoring := mocks.NewMockAggregatorMonitoring(t)
@@ -665,9 +666,9 @@ func TestStartBackground_Shutdown(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		a.StartBackground(ctx)
 
-		_ = a.CheckAggregation(ctx, []byte{1}, "key-1")
-		_ = a.CheckAggregation(ctx, []byte{2}, "key-2")
-		_ = a.CheckAggregation(ctx, []byte{3}, "key-3")
+		_ = a.CheckAggregation(ctx, model.AggregationTrigger{MessageID: []byte{1}, AggregationKey: "key-1"})
+		_ = a.CheckAggregation(ctx, model.AggregationTrigger{MessageID: []byte{2}, AggregationKey: "key-2"})
+		_ = a.CheckAggregation(ctx, model.AggregationTrigger{MessageID: []byte{3}, AggregationKey: "key-3"})
 
 		time.Sleep(50 * time.Millisecond)
 		require.Equal(t, int32(0), processedCount.Load(), "no requests should be processed before drain")
@@ -678,7 +679,10 @@ func TestStartBackground_Shutdown(t *testing.T) {
 			return a.Ready() != nil
 		}, 5*time.Second, 10*time.Millisecond, "aggregator should signal done after drain")
 
-		require.Equal(t, int32(3), processedCount.Load(), "all 3 requests should be processed during drain")
+		require.Equal(t, int32(2), processedCount.Load(), "both in-flight requests should finish during drain")
+		size, err := queue.Size(t.Context())
+		require.NoError(t, err)
+		assert.Equal(t, 1, size, "the unclaimed request stays queued for the next replica")
 	})
 
 	t.Run("in-flight worker completes with valid context after cancellation", func(t *testing.T) {
@@ -710,7 +714,7 @@ func TestStartBackground_Shutdown(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		a.StartBackground(ctx)
 
-		_ = a.CheckAggregation(ctx, []byte{1}, "key-1")
+		_ = a.CheckAggregation(ctx, model.AggregationTrigger{MessageID: []byte{1}, AggregationKey: "key-1"})
 
 		<-workerStarted
 		cancel()
@@ -754,7 +758,7 @@ func TestStartBackground_Shutdown(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		a.StartBackground(ctx)
 
-		_ = a.CheckAggregation(ctx, []byte{1}, "key-1")
+		_ = a.CheckAggregation(ctx, model.AggregationTrigger{MessageID: []byte{1}, AggregationKey: "key-1"})
 		<-workerStarted
 		cancel()
 
@@ -786,7 +790,7 @@ func TestStartBackground_Shutdown(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		a.StartBackground(ctx)
 
-		_ = a.CheckAggregation(ctx, []byte{1}, "key-1")
+		_ = a.CheckAggregation(ctx, model.AggregationTrigger{MessageID: []byte{1}, AggregationKey: "key-1"})
 
 		time.Sleep(50 * time.Millisecond)
 		cancel()
@@ -795,4 +799,47 @@ func TestStartBackground_Shutdown(t *testing.T) {
 			return a.Ready() != nil
 		}, 5*time.Second, 10*time.Millisecond, "aggregator should shut down cleanly despite worker errors")
 	})
+}
+
+// TestStartBackground_ClaimsOnlyFreeWorkerSlots checks claims never exceed free workers and
+// that a freed slot picks up the backlog without waiting for the fallback tick.
+func TestStartBackground_ClaimsOnlyFreeWorkerSlots(t *testing.T) {
+	const workers, jobs = 2, 6
+	release := make(chan struct{})
+	var started atomic.Int64
+
+	store := mocks.NewMockCommitVerificationStore(t)
+	store.EXPECT().ListCommitVerificationByAggregationKey(mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(context.Context, model.MessageID, model.AggregationKey) ([]*model.CommitVerificationRecord, error) {
+			started.Add(1)
+			<-release
+			return nil, nil
+		})
+	quorum := mocks.NewMockQuorumValidator(t)
+	quorum.EXPECT().CheckQuorum(mock.Anything, mock.Anything).Return(false, nil)
+	monitoring := mocks.NewMockAggregatorMonitoring(t)
+	testutil.StubTracing(monitoring)
+	monitoring.EXPECT().Metrics().Return(mocks.NewMockAggregatorMetricLabeler(t)).Maybe()
+
+	config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{BackgroundWorkerCount: workers}}
+	queue := newFakeQueue()
+	a := NewCommitReportAggregator(store, nil, mocks.NewMockSink(t), quorum, config, logger.Sugared(logger.Test(t)), monitoring, queue)
+	for i := range jobs {
+		require.NoError(t, a.CheckAggregation(t.Context(), model.AggregationTrigger{MessageID: []byte{byte(i)}, AggregationKey: fmt.Sprintf("key-%d", i)}))
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	a.StartBackground(ctx)
+
+	require.Eventually(t, func() bool { return started.Load() == workers }, 5*time.Second, 10*time.Millisecond)
+	size, err := queue.Size(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, jobs-workers, size, "jobs beyond the free slots must stay pending")
+
+	close(release)
+	require.Eventually(t, func() bool { return started.Load() == jobs }, 5*time.Second, 10*time.Millisecond)
+	for _, claim := range queue.claimSizes() {
+		assert.LessOrEqual(t, claim, workers)
+	}
 }

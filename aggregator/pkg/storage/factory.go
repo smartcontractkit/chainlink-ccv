@@ -36,6 +36,7 @@ type CommitVerificationStorage interface {
 	messagerules.Store
 	protocol.HealthReporter
 
+	// DataSource exposes the connection pool so the aggregation queue can share it.
 	DataSource() sqlutil.DataSource
 }
 

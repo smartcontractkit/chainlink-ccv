@@ -64,14 +64,35 @@ type CommitReportAggregator struct {
 	done                 chan struct{}
 	maxConsecutiveErrors uint32
 	consecutiveErrors    atomic.Uint32
+
+	// inFlight counts claimed jobs not yet finished; claims never exceed the free worker slots.
+	inFlight atomic.Int64
+	pending  *wakeup
+	stale    *wakeup
 }
 
-type aggregationRequest struct {
-	AggregationKey model.AggregationKey
-	MessageID      model.MessageID
-	// TraceParent carries the enqueueing write span's W3C traceparent
-	TraceParent string
+// wakeup is a coalescing trigger for one consume path.
+type wakeup struct {
+	ch chan struct{}
+	// starved records that work may be waiting for a free worker slot.
+	starved atomic.Bool
 }
+
+func newWakeup() *wakeup {
+	w := &wakeup{ch: make(chan struct{}, 1)}
+	w.fire()
+	return w
+}
+
+func (w *wakeup) fire() {
+	select {
+	case w.ch <- struct{}{}:
+	default:
+	}
+}
+
+// aggregationRequest is the queued form of a model.AggregationTrigger.
+type aggregationRequest model.AggregationTrigger
 
 // DedupKey makes aggregationRequest storable in the durable queue. Aggregation runs per
 // aggregation key, which already commits to the message ID, so requests collapse per key and
@@ -80,18 +101,18 @@ func (r aggregationRequest) DedupKey() string {
 	return r.AggregationKey
 }
 
-// CheckAggregation enqueues a new aggregation request for the specified message ID.
-func (c *CommitReportAggregator) CheckAggregation(ctx context.Context, messageID model.MessageID, aggregationKey model.AggregationKey) error {
-	carrier := propagation.MapCarrier{}
-	otel.GetTextMapPropagator().Inject(ctx, carrier)
-	request := aggregationRequest{
-		MessageID:      messageID,
-		AggregationKey: aggregationKey,
-		TraceParent:    carrier.Get("traceparent"),
+// CheckAggregation enqueues one aggregation check per trigger in a single queue write.
+func (c *CommitReportAggregator) CheckAggregation(ctx context.Context, triggers ...model.AggregationTrigger) error {
+	requests := make([]aggregationRequest, len(triggers))
+	for i, t := range triggers {
+		if t.TraceParent == "" {
+			t.TraceParent = monitoring.TraceParent(ctx)
+		}
+		requests[i] = aggregationRequest(t)
 	}
 	publishCtx, cancel := context.WithTimeout(ctx, queueOperationTimeout)
 	defer cancel()
-	return c.queue.Publish(publishCtx, request)
+	return c.queue.Publish(publishCtx, requests...)
 }
 
 func (c *CommitReportAggregator) logger(ctx context.Context) logger.SugaredLogger {
@@ -251,6 +272,10 @@ func (c *CommitReportAggregator) StartBackground(ctx context.Context) {
 	c.mu.Lock()
 	c.done = make(chan struct{})
 	c.mu.Unlock()
+	// Primed: work published before this process started, or by another replica, has no
+	// in-process signal to announce it.
+	c.pending = newWakeup()
+	c.stale = newWakeup()
 
 	poolCtx, poolCancel := context.WithCancel(context.WithoutCancel(ctx))
 	p := pool.New().WithMaxGoroutines(c.backgroundWorkerCount).WithContext(poolCtx)
@@ -275,35 +300,23 @@ func (c *CommitReportAggregator) StartBackground(ctx context.Context) {
 		cleanupTicker := time.NewTicker(cleanupInterval)
 		defer cleanupTicker.Stop()
 
-		// Both rearms are primed: work published before this process started, or published
-		// by another replica, has no in-process signal to announce it.
-		pendingRearm := make(chan struct{}, 1)
-		pendingRearm <- struct{}{}
-		staleRearm := make(chan struct{}, 1)
-		staleRearm <- struct{}{}
-
 		for {
 			select {
 			case <-ctx.Done():
 				c.waitForPool(lggr, p, drainDeadline, poolCancel)
 				return
-			case <-drainDeadline:
-				lggr.Errorw("Drain timed out, dropping in-flight work", "timeout", c.drainTimeout)
-				poolCancel()
-				_ = p.Wait()
-				return
 
 			case <-signals:
-				c.consumeBatch(ctx, p, pendingRearm, c.queue.ConsumePending, "Failed to consume pending aggregation jobs")
-			case <-pendingRearm:
-				c.consumeBatch(ctx, p, pendingRearm, c.queue.ConsumePending, "Failed to consume pending aggregation jobs")
+				c.consumeBatch(ctx, p, c.pending, c.queue.ConsumePending, "Failed to consume pending aggregation jobs")
+			case <-c.pending.ch:
+				c.consumeBatch(ctx, p, c.pending, c.queue.ConsumePending, "Failed to consume pending aggregation jobs")
 			case <-pendingTicker.C:
-				c.consumeBatch(ctx, p, pendingRearm, c.queue.ConsumePending, "Failed to consume pending aggregation jobs")
+				c.consumeBatch(ctx, p, c.pending, c.queue.ConsumePending, "Failed to consume pending aggregation jobs")
 
-			case <-staleRearm:
-				c.consumeBatch(ctx, p, staleRearm, c.queue.ReclaimStale, "Failed to reclaim stale aggregation jobs")
+			case <-c.stale.ch:
+				c.consumeBatch(ctx, p, c.stale, c.queue.ReclaimStale, "Failed to reclaim stale aggregation jobs")
 			case <-staleTicker.C:
-				c.consumeBatch(ctx, p, staleRearm, c.queue.ReclaimStale, "Failed to reclaim stale aggregation jobs")
+				c.consumeBatch(ctx, p, c.stale, c.queue.ReclaimStale, "Failed to reclaim stale aggregation jobs")
 
 			case <-cleanupTicker.C:
 				c.cleanup(ctx, lggr)
@@ -312,42 +325,49 @@ func (c *CommitReportAggregator) StartBackground(ctx context.Context) {
 	}()
 }
 
-// consumeBatch locks one batch of jobs and dispatches each into the worker pool. It
-// re-arms when the batch came back full, because signals coalesce and a single wakeup can
-// stand for any amount of work.
+// consumeBatch claims at most one job per free worker slot, so a claimed job starts at once
+// and its lock never ages unstarted. A full claim marks w starved; the next finishing worker re-arms it.
 func (c *CommitReportAggregator) consumeBatch(
 	ctx context.Context,
 	p *pool.ContextPool,
-	rearm chan<- struct{},
+	w *wakeup,
 	consume func(context.Context, int) ([]jobqueue.Job[aggregationRequest], error),
 	consumeErrMsg string,
 ) {
-	// A claim is capped at the worker count; surplus would sit unstarted in 'processing'
-	// until reclaimed as stale.
-	batchSize := c.backgroundWorkerCount
+	free := c.backgroundWorkerCount - int(c.inFlight.Load())
+	if free <= 0 {
+		w.starved.Store(true)
+		return
+	}
 	consumeCtx, cancel := context.WithTimeout(ctx, queueOperationTimeout)
-	jobs, err := consume(consumeCtx, batchSize)
+	jobs, err := consume(consumeCtx, free)
 	cancel()
 	if err != nil {
 		c.logger(ctx).Errorw(consumeErrMsg, "error", err)
 		return
 	}
-	if len(jobs) == 0 {
-		return
-	}
-	if len(jobs) == batchSize {
-		select {
-		case rearm <- struct{}{}:
-		default:
-		}
+	if len(jobs) == free {
+		w.starved.Store(true)
 	}
 	for _, job := range jobs {
 		c.submitWork(p, job)
 	}
 }
 
+// releaseSlot frees a worker slot and re-arms any consume path that was waiting for one.
+func (c *CommitReportAggregator) releaseSlot() {
+	c.inFlight.Add(-1)
+	for _, w := range []*wakeup{c.pending, c.stale} {
+		if w.starved.Swap(false) {
+			w.fire()
+		}
+	}
+}
+
 func (c *CommitReportAggregator) submitWork(p *pool.ContextPool, job jobqueue.Job[aggregationRequest]) {
+	c.inFlight.Add(1)
 	p.Go(func(poolCtx context.Context) error {
+		defer c.releaseSlot()
 		request := job.Payload
 		poolCtx = scope.WithAggregationKey(poolCtx, request.AggregationKey)
 		poolCtx = scope.WithMessageID(poolCtx, request.MessageID)

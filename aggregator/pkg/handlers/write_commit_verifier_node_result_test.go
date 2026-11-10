@@ -69,7 +69,7 @@ func TestWriteCommitCCVNodeDataHandler_MessageDisablementGate(t *testing.T) {
 	testutil.StubTracing(mon)
 	// None of these should be called when the message is disabled
 	store.EXPECT().SaveCommitVerification(mock.Anything, mock.Anything).Maybe()
-	agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, mock.Anything).Maybe()
+	agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything).Maybe()
 	sig.EXPECT().ValidateSignature(mock.Anything, mock.Anything).Maybe()
 	sig.EXPECT().DeriveAggregationKey(mock.Anything, mock.Anything).Maybe()
 	mon.EXPECT().Metrics().Maybe()
@@ -204,13 +204,13 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 			var lastMsgID model.MessageID
 			var lastAggregation model.AggregationKey
 			if tc.expectAggCalls > 0 {
-				agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, mock.Anything).Run(func(_ context.Context, m model.MessageID, a model.AggregationKey) {
+				agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything).Run(func(_ context.Context, triggers ...model.AggregationTrigger) {
 					aggCalled++
-					lastMsgID = m
-					lastAggregation = a
+					lastMsgID = triggers[0].MessageID
+					lastAggregation = triggers[0].AggregationKey
 				}).Return(tc.aggErr).Times(tc.expectAggCalls)
 			} else {
-				agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, mock.Anything).Maybe()
+				agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything).Maybe()
 			}
 
 			mon := mocks.NewMockAggregatorMonitoring(t)

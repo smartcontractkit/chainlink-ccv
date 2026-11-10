@@ -24,7 +24,7 @@ import (
 func TestDurableQueue_SingleAggregatorProcessesEachRequest(t *testing.T) {
 	ds, cleanup := testutil.SetupTestPostgresDB(t)
 	defer cleanup()
-	require.NoError(t, postgres.RunMigrations(ds, "postgres"))
+	require.NoError(t, postgres.RunMigrationsContext(t.Context(), ds, "postgres"))
 
 	const requestCount = 60
 
@@ -77,7 +77,7 @@ func TestDurableQueue_SingleAggregatorProcessesEachRequest(t *testing.T) {
 		if i%2 == 1 {
 			publisher = replicaB
 		}
-		require.NoError(t, publisher.CheckAggregation(ctx, []byte(fmt.Sprintf("message-%03d", i)), fmt.Sprintf("agg-key-%03d", i)))
+		require.NoError(t, publisher.CheckAggregation(ctx, model.AggregationTrigger{MessageID: fmt.Appendf(nil, "message-%03d", i), AggregationKey: fmt.Sprintf("agg-key-%03d", i)}))
 	}
 
 	replicaA.StartBackground(ctx)
@@ -105,7 +105,7 @@ func TestDurableQueue_SingleAggregatorProcessesEachRequest(t *testing.T) {
 func TestDurableQueue_DedupPerAggregationKey(t *testing.T) {
 	ds, cleanup := testutil.SetupTestPostgresDB(t)
 	defer cleanup()
-	require.NoError(t, postgres.RunMigrations(ds, "postgres"))
+	require.NoError(t, postgres.RunMigrationsContext(t.Context(), ds, "postgres"))
 
 	monitoring := mocks.NewMockAggregatorMonitoring(t)
 	metric := mocks.NewMockAggregatorMetricLabeler(t)
@@ -121,9 +121,10 @@ func TestDurableQueue_DedupPerAggregationKey(t *testing.T) {
 
 	ctx := t.Context()
 	messageID := []byte("message-1")
-	require.NoError(t, agg.CheckAggregation(ctx, messageID, "agg-key-v1"))
-	require.NoError(t, agg.CheckAggregation(ctx, messageID, "agg-key-v1"))
-	require.NoError(t, agg.CheckAggregation(ctx, messageID, "agg-key-v2"))
+	v1 := model.AggregationTrigger{MessageID: messageID, AggregationKey: "agg-key-v1"}
+	v2 := model.AggregationTrigger{MessageID: messageID, AggregationKey: "agg-key-v2"}
+	require.NoError(t, agg.CheckAggregation(ctx, v1))
+	require.NoError(t, agg.CheckAggregation(ctx, v1, v2))
 
 	size, err := queue.Size(ctx)
 	require.NoError(t, err)

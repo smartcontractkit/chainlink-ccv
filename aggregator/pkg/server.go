@@ -175,21 +175,16 @@ func (s *Server) Start(lis net.Listener) error {
 		return nil
 	}, func(error) {})
 
-	if s.aggregationQueueObserver != nil {
-		if err := s.aggregationQueueObserver.Start(context.Background()); err != nil {
+	observerCtx, observerCancel := context.WithCancel(context.Background())
+	g.Add(func() error {
+		if err := s.aggregationQueueObserver.Start(observerCtx); err != nil {
 			return fmt.Errorf("failed to start aggregation queue observer: %w", err)
 		}
-		observerCtx, observerCancel := context.WithCancel(context.Background())
-		g.Add(func() error {
-			<-observerCtx.Done()
-			if err := s.aggregationQueueObserver.Close(); err != nil {
-				s.l.Errorw("Failed to stop aggregation queue observer", "error", err)
-			}
-			return nil
-		}, func(error) {
-			observerCancel()
-		})
-	}
+		<-observerCtx.Done()
+		return s.aggregationQueueObserver.Close()
+	}, func(error) {
+		observerCancel()
+	})
 
 	// Start aggregator background worker with cancellable context
 	aggregatorCtx, aggregatorCancel := context.WithCancel(context.Background())
@@ -278,10 +273,6 @@ func (s *Server) Stop() error {
 	s.stopChan = nil
 
 	return nil
-}
-
-func createAggregator(storage common.CommitVerificationStore, aggregatedStore common.CommitVerificationAggregatedStore, sink common.Sink, validator aggregation.QuorumValidator, config *model.AggregatorConfig, lggr logger.SugaredLogger, monitoring common.AggregatorMonitoring, queue aggregation.Queue) *aggregation.CommitReportAggregator {
-	return aggregation.NewCommitReportAggregator(storage, aggregatedStore, sink, validator, config, lggr, monitoring, queue)
 }
 
 func buildGRPCServerOptions(serverConfig model.ServerConfig, m common.AggregatorMetricLabeler) []grpc.ServerOption {
@@ -386,7 +377,7 @@ func NewServer(ctx context.Context, l logger.SugaredLogger, config *model.Aggreg
 		return nil, fmt.Errorf("failed to create aggregation queue: %w", err)
 	}
 
-	agg := createAggregator(store, store, store, validator, config, l, aggMonitoring, aggregationQueue)
+	agg := aggregation.NewCommitReportAggregator(store, store, store, validator, config, l, aggMonitoring, aggregationQueue)
 
 	writeCommitVerifierNodeResultHandler := handlers.NewWriteCommitCCVNodeDataHandler(store, agg, aggMonitoring, l, validator, messageDisablementRegistry)
 	readCommitVerifierNodeResultHandler := handlers.NewReadCommitVerifierNodeResultHandler(store, l)

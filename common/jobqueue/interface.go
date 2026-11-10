@@ -135,9 +135,7 @@ type QueueConfig struct {
 	LockDuration time.Duration
 	// KeyColumns selects the unique key of the table. The zero value is DedupKeyColumn.
 	KeyColumns KeyColumns
-	// UniqueWhilePending scopes the key-column unique constraint to status='pending', so a
-	// publish arriving while an earlier job for the same key is 'processing' queues a fresh
-	// pending job instead of being dropped. The table's unique index on the key columns must
-	// carry a matching `WHERE status = 'pending'` predicate.
+	// UniqueWhilePending dedups only against pending jobs, so a publish during processing still queues.
+	// The table needs the matching partial index; see CreateTablesSQLUniqueWhilePending.
 	UniqueWhilePending bool
 }

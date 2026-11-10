@@ -112,8 +112,8 @@ func (h *BatchWriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, 
 	}
 }
 
-// persist inserts every prepared record in one statement, then triggers one aggregation check per
-// unique aggregation key.
+// persist inserts every prepared record in one statement, then enqueues one aggregation check per
+// unique aggregation key in one queue write.
 func (h *BatchWriteCommitVerifierNodeResultHandler) persist(ctx context.Context, prepared []*preparedWrite, responses []*committeepb.WriteCommitteeVerifierNodeResultResponse, batchErrors []*status.Status) {
 	validIndexes := make([]int, 0, len(prepared))
 	writes := make([]model.CommitVerificationWrite, 0, len(prepared))
@@ -146,43 +146,29 @@ func (h *BatchWriteCommitVerifierNodeResultHandler) persist(ctx context.Context,
 		h.handler.recordSaved(prepared[i])
 	}
 
-	type aggregationGroup struct {
-		representative *preparedWrite
-		indexes        []int
-	}
-	groups := make(map[string]*aggregationGroup)
-	order := make([]string, 0, len(validIndexes))
+	seen := make(map[model.AggregationKey]struct{}, len(validIndexes))
+	triggers := make([]model.AggregationTrigger, 0, len(validIndexes))
 	for _, i := range validIndexes {
-		p := prepared[i]
-		key := p.aggregationKey
-		g, ok := groups[key]
-		if !ok {
-			g = &aggregationGroup{representative: p}
-			groups[key] = g
-			order = append(order, key)
+		if _, ok := seen[prepared[i].aggregationKey]; !ok {
+			seen[prepared[i].aggregationKey] = struct{}{}
+			triggers = append(triggers, prepared[i].trigger())
 		}
-		g.indexes = append(g.indexes, i)
 	}
 
-	for _, key := range order {
-		g := groups[key]
-		p := g.representative
-		err := h.handler.aggregator.CheckAggregation(p.ctx, p.record.MessageID, p.aggregationKey)
-		if err != nil {
-			h.logger(p.ctx).Errorw("failed to trigger aggregation", "error", err)
-			for _, i := range g.indexes {
-				prepared[i].span.RecordError(err)
-				SetBatchError(batchErrors, i, codes.Internal, "failed to trigger aggregation")
-			}
-			continue
+	if err := h.handler.aggregator.CheckAggregation(ctx, triggers...); err != nil {
+		h.logger(ctx).Errorw("failed to trigger aggregation", "error", err)
+		for _, i := range validIndexes {
+			prepared[i].span.RecordError(err)
+			SetBatchError(batchErrors, i, codes.Internal, "failed to trigger aggregation")
 		}
-		for _, i := range g.indexes {
-			prepared[i].span.AddEvent(monitoring.EventAggregationEnqueued)
-			responses[i] = &committeepb.WriteCommitteeVerifierNodeResultResponse{
-				Status: committeepb.WriteStatus_SUCCESS,
-			}
-			SetBatchSuccess(batchErrors, i)
+		return
+	}
+	for _, i := range validIndexes {
+		prepared[i].span.AddEvent(monitoring.EventAggregationEnqueued)
+		responses[i] = &committeepb.WriteCommitteeVerifierNodeResultResponse{
+			Status: committeepb.WriteStatus_SUCCESS,
 		}
+		SetBatchSuccess(batchErrors, i)
 	}
 }
 
