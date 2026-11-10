@@ -74,6 +74,8 @@ type KMSKeystoreConfig struct {
 	// local mode, where the CSA key only backs Beholder auth: set it to enable that, omit it to run
 	// with no Ed25519 key at all.
 	Ed25519KeyID string `toml:"ed25519_key_id,omitempty"`
+	// KeyIDs maps a key name to its KMS key, overriding the per-type default.
+	KeyIDs map[string]string `toml:"key_ids,omitempty"`
 
 	// AWS holds the AWS-specific settings. Only valid when provider is "aws".
 	*AWSKMSConfig `toml:"aws,omitempty"`

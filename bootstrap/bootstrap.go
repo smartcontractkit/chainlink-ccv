@@ -970,9 +970,9 @@ func resolveKeyImport(backend KeystoreBackend, requiredKeys []keyToInit, keyImpo
 }
 
 // buildKMSNameMap maps logical key names to KMS key identifiers (a Key ID/ARN for AWS, or a
-// CryptoKeyVersion resource name for GCP) by key type. The supported key types and the config field each
-// one draws its identifier from are declared as data (keyIDByType) rather than control flow, so
-// adding a type is a one-line table entry.
+// CryptoKeyVersion resource name for GCP). A key_ids entry overrides the per-type default. The
+// supported key types and the config field each draws its identifier from are declared as data
+// (keyIDByType) rather than control flow, so adding a type is a one-line table entry.
 func buildKMSNameMap(cfg KMSKeystoreConfig, requiredKeys []keyToInit) (map[string]string, error) {
 	if err := cfg.validateProvider(); err != nil {
 		return nil, err
@@ -1002,24 +1002,29 @@ func buildKMSNameMap(cfg KMSKeystoreConfig, requiredKeys []keyToInit) (map[strin
 		if !supported {
 			return nil, fmt.Errorf("KMS does not support key type %q for key %q", k.keyType, k.name)
 		}
+		if id, ok := cfg.KeyIDs[k.name]; ok {
+			entry.id, entry.tomlName = id, fmt.Sprintf("key_ids entry %q", k.name)
+		}
 		if entry.id == "" {
 			return nil, fmt.Errorf("KMS %s is required for key %q (type %q)", entry.tomlName, k.name, k.keyType)
 		}
 		if err := validateKeyID(entry.id); err != nil {
 			return nil, fmt.Errorf("KMS %s for key %q: %w", entry.tomlName, k.name, err)
 		}
-		// The KMS config carries a single Key ID per key type, so two required keys of the same type
-		// (or two types pointed at the same Key ID) would both resolve here to one KMS Key ID. Each
-		// logical key must map to a distinct KMS key, so reject that instead of silently sharing a key
-		// (which would otherwise fail later in newKMSKeystore with a less specific duplicate-ID error).
+		// Each logical key must map to a distinct KMS key so reject sharing here, with a clearer error
+		// than newKMSKeystore's duplicate-ID check.
 		if prev, dup := assignedTo[entry.id]; dup {
 			return nil, fmt.Errorf(
-				"keys %q and %q both resolve to KMS Key ID %q: each logical key needs a distinct KMS key, "+
-					"but [keystore.kms] maps a single Key ID per type (%s) — the config format must be extended to map per key",
+				"keys %q and %q both resolve to KMS Key ID %q (%s): each logical key needs a distinct KMS key",
 				prev, k.name, entry.id, entry.tomlName)
 		}
 		assignedTo[entry.id] = k.name
 		nameToID[k.name] = entry.id
+	}
+	for name := range cfg.KeyIDs {
+		if _, declared := nameToID[name]; !declared {
+			return nil, fmt.Errorf("KMS key_ids entry %q matches no key this application declares", name)
+		}
 	}
 	return nameToID, nil
 }

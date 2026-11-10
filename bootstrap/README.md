@@ -157,6 +157,23 @@ The `[keystore].backend` key selects where private keys live:
   (`ecdsa_key_id`, `ed25519_key_id`). No database or password is needed for the keystore itself
   (JD mode still needs `[db]` for the job store).
 
+The `ecdsa_key_id` and `ed25519_key_id` fields provide per-type defaults.
+`[keystore.kms.key_ids]` maps a key declared with `WithKey` to its own
+KMS key, so a service can hold several keys of one type:
+
+```toml
+[keystore.kms]
+provider     = "aws"
+ecdsa_key_id = "<default-ecdsa-key-id>"
+
+[keystore.kms.key_ids]
+"evm/tx/transmitter"    = "<evm-key-id>"
+"solana/tx/transmitter" = "<solana-key-id>"
+```
+
+Startup fails if an entry is empty or names no declared key, or if two keys resolve to the same
+KMS key. Every inaccessible KMS key is reported in a single error.
+
 The Ed25519 requirement is mode-driven, not backend-driven. The Ed25519 CSA key authenticates the
 node to JD, so it is mandatory in JD mode — with KMS that means `ed25519_key_id` is required. In
 local mode there is no JD and the CSA key only backs Beholder telemetry auth, so it is optional:
