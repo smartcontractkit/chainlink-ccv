@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/common/jobqueue"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
@@ -17,9 +18,6 @@ const (
 	queueOwnerID = "aggregator"
 	// queueRetryDuration is how long from creation an aggregation job stays eligible for retry.
 	queueRetryDuration = 30 * time.Minute
-	// queueLockDuration is how long a job may stay in 'processing' before another replica
-	// may reclaim it.
-	queueLockDuration = 2 * time.Minute
 	// queueObservabilityInterval is how often queue size metrics are logged and recorded.
 	queueObservabilityInterval = 10 * time.Second
 )
@@ -33,11 +31,9 @@ func NewQueue(ds sqlutil.DataSource, lggr logger.Logger, recordSizeMetric func(c
 		Name:          QueueTableName,
 		OwnerID:       queueOwnerID,
 		RetryDuration: queueRetryDuration,
-		LockDuration:  queueLockDuration,
-		// A publish arriving while an earlier job for the same message is 'processing'
-		// must queue a fresh pending job rather than be dropped; see the migration's
-		// ccv_aggregation_jobs_unique_job index.
-		UniqueWhilePending: true,
+		LockDuration:  model.AggregationJobLockDuration,
+		// One replica aggregates a key at a time; writes during that run queue one re-run behind it.
+		SerializePerKey: true,
 	}, lggr)
 	if err != nil {
 		return nil, err

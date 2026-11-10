@@ -797,15 +797,15 @@ func TestRetry_PendingSiblingAvoidsUniqueViolation(t *testing.T) {
 	ctx := context.Background()
 
 	const table = "jobqueue_retry_partial_index_test"
-	_, err := db.ExecContext(ctx, jobqueue.CreateTablesSQLUniqueWhilePending(table))
+	_, err := db.ExecContext(ctx, jobqueue.CreateTablesSQLSerializePerKey(table))
 	require.NoError(t, err)
 
 	q, err := jobqueue.NewPostgresJobQueue[keylessJob](db, jobqueue.QueueConfig{
-		Name:               table,
-		OwnerID:            "owner",
-		RetryDuration:      time.Hour,
-		LockDuration:       time.Minute,
-		UniqueWhilePending: true,
+		Name:            table,
+		OwnerID:         "owner",
+		RetryDuration:   time.Hour,
+		LockDuration:    time.Minute,
+		SerializePerKey: true,
 	}, logger.Test(t))
 	require.NoError(t, err)
 
@@ -830,6 +830,61 @@ func TestRetry_PendingSiblingAvoidsUniqueViolation(t *testing.T) {
 	var firstJobStatus string
 	require.NoError(t, db.QueryRowxContext(ctx, fmt.Sprintf("SELECT status FROM %s WHERE job_id = $1", table+"_archive"), firstJobID).Scan(&firstJobStatus))
 	assert.Equal(t, string(jobqueue.JobStatusFailed), firstJobStatus)
+}
+
+func TestSerializePerKey_OneJobPerKeyAtATime(t *testing.T) {
+	db := testutil.NewTestDB(t)
+	ctx := context.Background()
+
+	const table = "jobqueue_serialize_per_key_test"
+	_, err := db.ExecContext(ctx, jobqueue.CreateTablesSQLSerializePerKey(table))
+	require.NoError(t, err)
+
+	q, err := jobqueue.NewPostgresJobQueue[keylessJob](db, jobqueue.QueueConfig{
+		Name: table, OwnerID: "owner", RetryDuration: time.Hour, LockDuration: time.Minute, SerializePerKey: true,
+	}, logger.Test(t))
+	require.NoError(t, err)
+
+	require.NoError(t, q.Publish(ctx, keylessJob{Key: "k"}))
+	first, err := q.ConsumePending(ctx, 10)
+	require.NoError(t, err)
+	require.Len(t, first, 1)
+
+	// A publish during processing queues behind it, but cannot be claimed until the key is free.
+	require.NoError(t, q.Publish(ctx, keylessJob{Key: "k"}, keylessJob{Key: "other"}))
+	claimed, err := q.ConsumePending(ctx, 10)
+	require.NoError(t, err)
+	require.Len(t, claimed, 1)
+	assert.Equal(t, "other", claimed[0].Payload.Key, "a busy key must not block other keys")
+
+	drainSignals(q.Signals())
+	require.NoError(t, q.Complete(ctx, first[0].ID))
+	select {
+	case <-q.Signals():
+	default:
+		t.Fatal("completing a job must wake the consumer for the queued job of the same key")
+	}
+	next, err := q.ConsumePending(ctx, 10)
+	require.NoError(t, err)
+	require.Len(t, next, 1)
+	assert.Equal(t, "k", next[0].Payload.Key)
+}
+
+func TestSerializePerKey_RequiresDedupKeyColumn(t *testing.T) {
+	_, err := jobqueue.NewPostgresJobQueue[testJob](testutil.NewTestDB(t), jobqueue.QueueConfig{
+		Name: "unused", OwnerID: "owner", KeyColumns: jobqueue.MessageKeyColumns, SerializePerKey: true,
+	}, logger.Test(t))
+	require.ErrorContains(t, err, "SerializePerKey requires DedupKeyColumn")
+}
+
+func drainSignals(signals <-chan struct{}) {
+	for {
+		select {
+		case <-signals:
+		default:
+			return
+		}
+	}
 }
 
 func TestRetryExceedsDeadline(t *testing.T) {

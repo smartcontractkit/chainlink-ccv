@@ -8,10 +8,16 @@ func CreateTablesSQL(name string) string {
 	return createTablesSQL(name, ",\n    CONSTRAINT "+name+"_unique_job UNIQUE (owner_id, dedup_key)", "")
 }
 
-// CreateTablesSQLUniqueWhilePending is CreateTablesSQL for a QueueConfig.UniqueWhilePending queue:
-// the dedup key is unique among pending jobs only.
-func CreateTablesSQLUniqueWhilePending(name string) string {
-	return createTablesSQL(name, "", fmt.Sprintf("\nCREATE UNIQUE INDEX %[1]s_unique_job\n    ON %[1]s (owner_id, dedup_key) WHERE status = 'pending';\n", name))
+// CreateTablesSQLSerializePerKey is CreateTablesSQL for a QueueConfig.SerializePerKey queue: the dedup
+// key is unique among pending jobs only, and processing jobs are indexed by key for the consume check.
+func CreateTablesSQLSerializePerKey(name string) string {
+	return createTablesSQL(name, "", fmt.Sprintf(`
+CREATE UNIQUE INDEX %[1]s_unique_job
+    ON %[1]s (owner_id, dedup_key) WHERE status = 'pending';
+
+CREATE INDEX idx_%[1]s_processing_key
+    ON %[1]s (owner_id, dedup_key) WHERE status = 'processing';
+`, name))
 }
 
 func createTablesSQL(name, uniqueConstraint, uniqueIndex string) string {

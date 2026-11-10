@@ -31,8 +31,8 @@ type PostgresJobQueue[T Jobable] struct {
 	readsDedupKey bool
 	// conflictCols is the unique key after owner_id.
 	conflictCols string
-	// uniqueWhilePending reports that the key-column unique index is scoped to status='pending'.
-	uniqueWhilePending bool
+	// serializePerKey: one job per key at a time; the unique index covers pending rows only.
+	serializePerKey bool
 	// signal wakes a waiting consumer when this process makes a job available.
 	// It is an optimization, never a record: every row stays reachable by a poll, so a
 	// signal that is never delivered costs latency and never costs a job.
@@ -67,19 +67,22 @@ func NewPostgresJobQueue[T Jobable](
 	if err != nil {
 		return nil, err
 	}
+	if config.SerializePerKey && config.KeyColumns != DedupKeyColumn {
+		return nil, fmt.Errorf("SerializePerKey requires DedupKeyColumn")
+	}
 
 	return &PostgresJobQueue[T]{
-		keyCols:            keyCols,
-		readsDedupKey:      config.KeyColumns == DedupKeyColumn,
-		conflictCols:       conflictCols,
-		uniqueWhilePending: config.UniqueWhilePending,
-		ds:                 ds,
-		config:             config,
-		logger:             lggr,
-		tableName:          config.Name,
-		archiveName:        config.Name + "_archive",
-		ownerID:            config.OwnerID,
-		signal:             newWorkSignal(),
+		keyCols:         keyCols,
+		readsDedupKey:   config.KeyColumns == DedupKeyColumn,
+		conflictCols:    conflictCols,
+		serializePerKey: config.SerializePerKey,
+		ds:              ds,
+		config:          config,
+		logger:          lggr,
+		tableName:       config.Name,
+		archiveName:     config.Name + "_archive",
+		ownerID:         config.OwnerID,
+		signal:          newWorkSignal(),
 	}, nil
 }
 
@@ -127,9 +130,9 @@ func (q *PostgresJobQueue[T]) publishRows(ctx context.Context, tx sqlutil.DataSo
 		return 0, nil
 	}
 	// The WHERE clause, when present, picks a partial-unique arbiter index; it must match
-	// the table's actual index exactly, including any predicate (see UniqueWhilePending).
+	// the table's actual index exactly, including any predicate (see SerializePerKey).
 	conflictClause := fmt.Sprintf("ON CONFLICT (owner_id, %s)", q.conflictCols)
-	if q.uniqueWhilePending {
+	if q.serializePerKey {
 		conflictClause += " WHERE status = 'pending'"
 	}
 	conflictClause += " DO NOTHING"
@@ -256,22 +259,31 @@ func (q *PostgresJobQueue[T]) consumeStale(
 func (q *PostgresJobQueue[T]) consumePending(
 	ctx context.Context, now time.Time, limit int,
 ) ([]Job[T], map[string]error, error) {
+	// Under SerializePerKey a key with a processing job is skipped; its pending job waits its turn.
+	keyFree := ""
+	if q.serializePerKey {
+		keyFree = fmt.Sprintf(`
+		      AND NOT EXISTS (
+		          SELECT 1 FROM %[1]s p
+		          WHERE p.owner_id = t.owner_id AND p.dedup_key = t.dedup_key AND p.status = '%[2]s')`,
+			q.tableName, JobStatusProcessing)
+	}
 	pendingQuery := fmt.Sprintf(`
 		UPDATE %[1]s
 		SET status = $1,
 		    started_at = $2,
 		    attempt_count = attempt_count + 1
 		WHERE id IN (
-		    SELECT id FROM %[1]s
+		    SELECT id FROM %[1]s t
 		    WHERE owner_id = $3
 		      AND status = $4
-		      AND available_at <= $5
+		      AND available_at <= $5%[3]s
 		    ORDER BY available_at ASC, id ASC
 		    LIMIT $6
 		    FOR UPDATE SKIP LOCKED
 		)
 		RETURNING id, job_id, task_data, attempt_count, retry_deadline, created_at, started_at%[2]s
-	`, q.tableName, q.returnedKey())
+	`, q.tableName, q.returnedKey(), keyFree)
 
 	jobs, failedToDeserialize, err := q.runConsumeQuery(ctx, pendingQuery,
 		JobStatusProcessing, // $1
@@ -290,9 +302,6 @@ func (q *PostgresJobQueue[T]) consumePending(
 
 // archiveDeserializationFailures marks jobs that could not be deserialized as permanently
 // failed, so they do not stay in 'processing' forever.
-//
-// This path deliberately does not signal. Fail moves rows to the archive and can never
-// make a row pending, so a signal here would only wake the consumer to find nothing.
 func (q *PostgresJobQueue[T]) archiveDeserializationFailures(ctx context.Context, failed map[string]error) {
 	if len(failed) == 0 {
 		return
@@ -425,8 +434,17 @@ func (q *PostgresJobQueue[T]) Complete(ctx context.Context, jobIDs ...string) er
 		"queue", q.config.Name,
 		"count", affected,
 	)
+	q.signalKeyReleased()
 
 	return nil
+}
+
+// signalKeyReleased wakes the consumer when a finished job may have unblocked a pending job
+// for the same key; without it that job waits for the fallback poll.
+func (q *PostgresJobQueue[T]) signalKeyReleased() {
+	if q.serializePerKey {
+		q.signalWork(0)
+	}
 }
 
 // Retry schedules jobs for retry after delay.
@@ -446,10 +464,10 @@ func (q *PostgresJobQueue[T]) Retry(ctx context.Context, delay time.Duration, er
 	var failed []string
 	var retried []string
 
-	// Under UniqueWhilePending a pending sibling may already hold this key; re-pending would collide,
+	// Under SerializePerKey a pending sibling may already hold this key; re-pending would collide,
 	// so the job is failed instead and the sibling covers the retry.
 	siblingGuard := ""
-	if q.uniqueWhilePending {
+	if q.serializePerKey {
 		siblingCols := strings.Split(q.conflictCols, ", ")
 		conds := make([]string, len(siblingCols))
 		for i, c := range siblingCols {
@@ -563,6 +581,9 @@ func (q *PostgresJobQueue[T]) Retry(ctx context.Context, delay time.Duration, er
 	if len(retried) > 0 {
 		q.signalWork(delay)
 	}
+	if len(failed) > 0 {
+		q.signalKeyReleased()
+	}
 
 	q.logger.Debugw("Retried jobs",
 		"queue", q.config.Name,
@@ -629,6 +650,7 @@ func (q *PostgresJobQueue[T]) Fail(ctx context.Context, errors map[string]error,
 		"queue", q.config.Name,
 		"count", affected,
 	)
+	q.signalKeyReleased()
 
 	return nil
 }

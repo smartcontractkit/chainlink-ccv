@@ -13,5 +13,5 @@ import (
 func TestAggregationJobsMatchesJobqueueSchema(t *testing.T) {
 	migration, err := PostgresMigrations.ReadFile("postgres/00006_create_aggregation_jobs.sql")
 	require.NoError(t, err)
-	assert.Contains(t, string(migration), jobqueue.CreateTablesSQLUniqueWhilePending("ccv_aggregation_jobs"))
+	assert.Contains(t, string(migration), jobqueue.CreateTablesSQLSerializePerKey("ccv_aggregation_jobs"))
 }

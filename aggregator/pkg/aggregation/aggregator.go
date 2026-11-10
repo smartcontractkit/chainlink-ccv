@@ -27,13 +27,14 @@ import (
 var _ protocol.HealthReporter = (*CommitReportAggregator)(nil)
 
 const (
-	// pendingFallbackInterval bounds how late work published by another replica is picked
-	// up, since signals are in-process only.
-	pendingFallbackInterval = jobqueue.DefaultPendingFallbackInterval
+	// pendingFallbackInterval bounds how late another replica's work is picked up, since signals
+	// are in-process only; short so idle replicas help drain a busy one's backlog.
+	pendingFallbackInterval = 2 * time.Second
 	// staleReclaimInterval is how often locks left behind by a crashed replica are swept.
-	staleReclaimInterval  = 1 * time.Minute
-	cleanupInterval       = 4 * time.Hour
-	retentionPeriod       = 30 * 24 * time.Hour
+	staleReclaimInterval = 1 * time.Minute
+	cleanupInterval      = 1 * time.Hour
+	// retentionPeriod keeps archived jobs for debugging only; nothing reads them.
+	retentionPeriod       = 24 * time.Hour
 	queueOperationTimeout = 30 * time.Second
 	retryDelay            = 30 * time.Second
 )

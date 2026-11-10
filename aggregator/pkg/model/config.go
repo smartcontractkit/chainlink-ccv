@@ -165,11 +165,15 @@ type ServerConfig struct {
 	MaxSendMsgSizeBytes int `toml:"maxSendMsgSizeBytes"`
 }
 
+// AggregationJobLockDuration is how long an aggregation job may stay processing before another
+// replica reclaims it; OperationTimeout must stay under it so a slow job is never run twice.
+const AggregationJobLockDuration = 2 * time.Minute
+
 // AggregationConfig represents the configuration for the aggregation system.
 type AggregationConfig struct {
 	// BackgroundWorkerCount controls the number of background workers processing aggregation requests
 	BackgroundWorkerCount int `toml:"backgroundWorkerCount"`
-	// OperationTimeout is the timeout for each aggregation operation (0 = no timeout)
+	// OperationTimeout bounds each aggregation operation (default 30s). Must be under the 2m job lock.
 	OperationTimeout time.Duration `toml:"operationTimeout"`
 	// DrainTimeout bounds how long shutdown waits for in-flight aggregation workers to complete.
 	// After this duration, shutdown proceeds and in-flight work is dropped. (0 = use default 10s)
@@ -704,6 +708,9 @@ func (c *AggregatorConfig) SetDefaults() {
 	if c.Aggregation.BackgroundWorkerCount == 0 {
 		c.Aggregation.BackgroundWorkerCount = 10
 	}
+	if c.Aggregation.OperationTimeout == 0 {
+		c.Aggregation.OperationTimeout = 30 * time.Second
+	}
 	if c.Aggregation.DrainTimeout == 0 {
 		c.Aggregation.DrainTimeout = 10 * time.Second
 	}
@@ -855,8 +862,8 @@ func (c *AggregatorConfig) ValidateAggregationConfig() error {
 	if c.Aggregation.BackgroundWorkerCount > 100 {
 		return errors.New("aggregation.backgroundWorkerCount cannot exceed 100")
 	}
-	if c.Aggregation.OperationTimeout < 0 {
-		return errors.New("aggregation.operationTimeout cannot be negative")
+	if c.Aggregation.OperationTimeout <= 0 || c.Aggregation.OperationTimeout >= AggregationJobLockDuration {
+		return fmt.Errorf("aggregation.operationTimeout must be greater than 0 and less than the %s job lock", AggregationJobLockDuration)
 	}
 	if c.Aggregation.DrainTimeout <= 0 {
 		return errors.New("aggregation.drainTimeout must be greater than 0")

@@ -130,3 +130,59 @@ func TestDurableQueue_DedupPerAggregationKey(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 2, size, "one pending job per aggregation key")
 }
+
+// TestDurableQueue_SameKeyNeverAggregatedConcurrently is CCIP-14089's acceptance case: writes for one
+// key keep arriving on both replicas, yet only one replica aggregates that key at any moment.
+func TestDurableQueue_SameKeyNeverAggregatedConcurrently(t *testing.T) {
+	ds, cleanup := testutil.SetupTestPostgresDB(t)
+	defer cleanup()
+	require.NoError(t, postgres.RunMigrationsContext(t.Context(), ds, "postgres"))
+
+	var active, maxActive, runs atomic.Int64
+	newReplica := func(name string) *CommitReportAggregator {
+		store := mocks.NewMockCommitVerificationStore(t)
+		store.EXPECT().ListCommitVerificationByAggregationKey(mock.Anything, mock.Anything, mock.Anything).
+			RunAndReturn(func(context.Context, model.MessageID, model.AggregationKey) ([]*model.CommitVerificationRecord, error) {
+				n := active.Add(1)
+				for m := maxActive.Load(); n > m && !maxActive.CompareAndSwap(m, n); m = maxActive.Load() {
+				}
+				time.Sleep(50 * time.Millisecond)
+				active.Add(-1)
+				runs.Add(1)
+				return nil, nil
+			}).Maybe()
+		quorum := mocks.NewMockQuorumValidator(t)
+		quorum.EXPECT().CheckQuorum(mock.Anything, mock.Anything).Return(false, nil).Maybe()
+		monitoring := mocks.NewMockAggregatorMonitoring(t)
+		testutil.StubTracing(monitoring)
+		metric := mocks.NewMockAggregatorMetricLabeler(t)
+		metric.EXPECT().SetAggregationQueueSize(mock.Anything, mock.Anything).Maybe()
+		monitoring.EXPECT().Metrics().Return(metric).Maybe()
+
+		lggr := logger.Sugared(logger.Test(t))
+		queue, err := NewQueue(ds, logger.With(lggr, "replica", name), metric.SetAggregationQueueSize)
+		require.NoError(t, err)
+		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{BackgroundWorkerCount: 4}}
+		return NewCommitReportAggregator(store, nil, mocks.NewMockSink(t), quorum, config, lggr, monitoring, queue)
+	}
+
+	replicas := []*CommitReportAggregator{newReplica("a"), newReplica("b")}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	for _, r := range replicas {
+		r.StartBackground(ctx)
+	}
+
+	trigger := model.AggregationTrigger{MessageID: []byte("message"), AggregationKey: "agg-key"}
+	for i := range 20 {
+		require.NoError(t, replicas[i%2].CheckAggregation(ctx, trigger))
+		time.Sleep(10 * time.Millisecond)
+	}
+	require.Eventually(t, func() bool {
+		size, err := replicas[0].queue.Size(t.Context())
+		return err == nil && size == 0
+	}, 10*time.Second, 20*time.Millisecond, "queue did not drain")
+
+	assert.Equal(t, int64(1), maxActive.Load(), "a key must never be aggregated by two workers at once")
+	assert.GreaterOrEqual(t, runs.Load(), int64(2), "writes during a run must queue a re-run")
+}

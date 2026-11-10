@@ -264,6 +264,7 @@ func TestValidateBatchConfig(t *testing.T) {
 func TestValidateAggregationConfig(t *testing.T) {
 	validBase := AggregationConfig{
 		BackgroundWorkerCount: 10,
+		OperationTimeout:      30 * time.Second,
 		DrainTimeout:          30 * time.Second,
 	}
 
@@ -294,7 +295,13 @@ func TestValidateAggregationConfig(t *testing.T) {
 			name:        "negative operation timeout fails",
 			mutate:      func(c *AggregationConfig) { c.OperationTimeout = -1 * time.Second },
 			expectError: true,
-			errorMsg:    "operationTimeout cannot be negative",
+			errorMsg:    "operationTimeout must be greater than 0",
+		},
+		{
+			name:        "operation timeout at the job lock fails",
+			mutate:      func(c *AggregationConfig) { c.OperationTimeout = AggregationJobLockDuration },
+			expectError: true,
+			errorMsg:    "less than the 2m0s job lock",
 		},
 		{
 			name:        "zero drain timeout fails",
