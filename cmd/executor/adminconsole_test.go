@@ -68,7 +68,7 @@ func TestTransmitterBalanceSourceReportsUnsupportedChain(t *testing.T) {
 func TestStartAdminConsoleServesJobAndBalances(t *testing.T) {
 	port := freeTCPPort(t)
 	configPath := filepath.Join(t.TempDir(), "admin.toml")
-	require.NoError(t, os.WriteFile(configPath, []byte(fmt.Sprintf("listen_address = %q\n", fmt.Sprintf("127.0.0.1:%d", port))), 0o600))
+	require.NoError(t, os.WriteFile(configPath, fmt.Appendf(nil, "listen_address = \"127.0.0.1:%d\"\n", port), 0o600))
 	t.Setenv(admin.ConfigPathEnv, configPath)
 
 	source := &transmitterBalanceSource{

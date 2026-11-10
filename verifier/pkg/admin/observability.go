@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+
 	chainsel "github.com/smartcontractkit/chain-selectors"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
@@ -33,6 +34,7 @@ type ChainTransmitterBalances struct {
 
 // TransmitterBalanceSource reads current balances when the admin page is requested.
 type TransmitterBalanceSource interface {
+	// TransmitterBalances reads current balances for every configured chain.
 	TransmitterBalances(ctx context.Context) []ChainTransmitterBalances
 }
 
