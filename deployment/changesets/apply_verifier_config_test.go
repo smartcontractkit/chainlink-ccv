@@ -169,10 +169,36 @@ func TestApplyVerifierConfig_Validation_StandaloneRequiresConsolidatedAggregator
 
 	err := cs.VerifyPreconditions(deployment.Environment{}, cfg)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), `NOP "nop1" runs in standalone mode and requires consolidateAggregators: true`)
+	assert.Contains(t, err.Error(), `NOP "nop1" runs in standalone mode with 2 aggregators and requires consolidateAggregators: true`)
 
 	cfg.ConsolidateAggregators = true
 	require.NoError(t, cs.VerifyPreconditions(deployment.Environment{}, cfg))
+}
+
+func TestApplyVerifierConfig_Validation_StandaloneSingleAggregatorAllowsLegacyLayout(t *testing.T) {
+	selectors := map[string]uint64{
+		"solana": 16423721717087811551,
+		"canton": 10109143320554840099,
+	}
+	for family, selector := range selectors {
+		t.Run(family, func(t *testing.T) {
+			cs := ApplyVerifierConfig()
+			err := cs.VerifyPreconditions(deployment.Environment{}, ApplyVerifierConfigInput{
+				CommitteeQualifier:       "default",
+				DefaultExecutorQualifier: "default-executor",
+				NOPs:                     []NOPInput{{Alias: "nop1", Mode: shared.NOPModeStandalone}},
+				Committee: CommitteeInput{
+					Qualifier:   "default",
+					Aggregators: []AggregatorRef{{Name: "agg-a", Address: "agg-a:50051"}},
+					ChainConfigs: map[uint64]CommitteeChainMembership{
+						selector: {NOPAliases: []shared.NOPAlias{"nop1"}},
+					},
+				},
+				TargetNOPs: []shared.NOPAlias{"nop1"},
+			})
+			require.NoError(t, err)
+		})
+	}
 }
 
 func TestApplyVerifierConfig_Validation_UntargetedStandaloneAllowsLegacyCLJobs(t *testing.T) {

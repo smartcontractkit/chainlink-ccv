@@ -51,7 +51,7 @@ type ApplyVerifierConfigInput struct {
 	// RevokeOrphanedJobs when true revokes and cleans up orphaned jobs; default false.
 	RevokeOrphanedJobs bool
 	// ConsolidateAggregators emits one job per NOP writing to all aggregators instead of one per aggregator.
-	// Standalone NOPs require true; false preserves legacy output and is valid only for targeted CL-mode NOPs.
+	// Standalone NOPs with multiple aggregators require true; false preserves legacy output otherwise.
 	// Switching an existing CL NOP changes its verifier_id and orphans the old per-aggregator jobs.
 	ConsolidateAggregators bool
 }
@@ -123,7 +123,7 @@ func createApplyVerifierConfigValidateFunc() func(e deployment.Environment, cfg 
 				if !committeeNOPs[nop.Alias] || (len(cfg.TargetNOPs) > 0 && !targetedNOPs[nop.Alias]) {
 					continue
 				}
-				if err := requireConsolidatedAggregatorsForStandalone(nop.Alias, nop.GetMode(), cfg.ConsolidateAggregators); err != nil {
+				if err := requireConsolidatedAggregatorsForStandalone(nop.Alias, nop.GetMode(), len(cfg.Committee.Aggregators), cfg.ConsolidateAggregators); err != nil {
 					return err
 				}
 			}
@@ -137,11 +137,11 @@ func createApplyVerifierConfigValidateFunc() func(e deployment.Environment, cfg 
 	}
 }
 
-func requireConsolidatedAggregatorsForStandalone(nopAlias shared.NOPAlias, mode shared.NOPMode, consolidate bool) error {
-	if mode != shared.NOPModeStandalone || consolidate {
+func requireConsolidatedAggregatorsForStandalone(nopAlias shared.NOPAlias, mode shared.NOPMode, aggregatorCount int, consolidate bool) error {
+	if mode != shared.NOPModeStandalone || aggregatorCount <= 1 || consolidate {
 		return nil
 	}
-	return fmt.Errorf("NOP %q runs in standalone mode and requires consolidateAggregators: true; per-aggregator jobs replace one another on a standalone verifier", nopAlias)
+	return fmt.Errorf("NOP %q runs in standalone mode with %d aggregators and requires consolidateAggregators: true; per-aggregator jobs replace one another on a standalone verifier", nopAlias, aggregatorCount)
 }
 
 type applyVerifierConfigApplyOverrides struct {
@@ -514,7 +514,7 @@ func buildVerifierJobSpecs(
 		if err != nil {
 			return nil, affectedScope, err
 		}
-		if err := requireConsolidatedAggregatorsForStandalone(nopAlias, mode, consolidateAggregators); err != nil {
+		if err := requireConsolidatedAggregatorsForStandalone(nopAlias, mode, len(committee.Aggregators), consolidateAggregators); err != nil {
 			return nil, affectedScope, err
 		}
 

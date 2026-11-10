@@ -60,11 +60,19 @@ func buildVerifierSpecsForModeTest(t *testing.T, mode shared.NOPMode, consolidat
 	return specs, err
 }
 
-func TestBuildVerifierJobSpecs_StandaloneRejectsLegacyLayout(t *testing.T) {
+func TestBuildVerifierJobSpecs_StandaloneRejectsMultipleAggregatorsWithoutConsolidation(t *testing.T) {
 	specs, err := buildVerifierSpecsForModeTest(t, shared.NOPModeStandalone, false)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "requires consolidateAggregators: true")
 	assert.Nil(t, specs)
+}
+
+func TestBuildVerifierJobSpecs_StandaloneSingleAggregatorKeepsLegacyLayout(t *testing.T) {
+	jobSpec := buildVerifierJobSpecWithModeAndConsolidation(t, shared.NOPModeStandalone, false)
+	assert.Contains(t, jobSpec, `name = "nop1-agg-a-default-verifier"`)
+	assert.Contains(t, jobSpec, `verifier_id = "agg-a-default-verifier"`)
+	assert.Contains(t, jobSpec, `aggregator_address = "agg-a:50051"`)
+	assert.NotContains(t, jobSpec, "[[aggregators]]")
 }
 
 func parseVerifierConfig(t *testing.T, jobSpec string) commit.Config {
@@ -146,6 +154,11 @@ func TestBuildVerifierJobSpecs_CLUsesCommitteeVerifierConfig(t *testing.T) {
 
 func buildVerifierJobSpecWithMode(t *testing.T, mode shared.NOPMode) string {
 	t.Helper()
+	return buildVerifierJobSpecWithModeAndConsolidation(t, mode, true)
+}
+
+func buildVerifierJobSpecWithModeAndConsolidation(t *testing.T, mode shared.NOPMode, consolidate bool) string {
+	t.Helper()
 
 	contractAddresses := map[string]*adapters.VerifierContractAddresses{
 		"1": {
@@ -171,7 +184,7 @@ func buildVerifierJobSpecWithMode(t *testing.T, mode shared.NOPMode) string {
 		"",
 		nil,
 		"evm",
-		true, // consolidated: one job per NOP
+		consolidate,
 		defaultApplyVerifierConfigApplyOverrides(),
 	)
 	require.NoError(t, err)
