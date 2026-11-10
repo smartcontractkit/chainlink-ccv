@@ -74,7 +74,7 @@ func loadAdminConsoleAuth() (*admin.BasicAuth, error) {
 }
 
 // startAdminConsole serves the read-only executor console when its config file is present.
-func startAdminConsole(lggr logger.Logger, spec bootstrap.JobSpec, balances admin.TransmitterBalanceSource) (func(), error) {
+func startAdminConsole(lggr logger.Logger, spec bootstrap.JobSpec, balances admin.TransmitterBalanceSource, chains admin.ChainInspectionProvider) (func(), error) {
 	path := os.Getenv(admin.ConfigPathEnv)
 	if path == "" {
 		path = admin.DefaultConfigPath
@@ -94,7 +94,7 @@ func startAdminConsole(lggr logger.Logger, spec bootstrap.JobSpec, balances admi
 		return nil, err
 	}
 	srv, err := admin.NewServer(cfg, admin.Deps{
-		Auth: auth, ReadOnly: true, JobSpec: &spec, BalanceSource: balances,
+		Auth: auth, ReadOnly: true, JobSpec: &spec, BalanceSource: balances, ChainSource: chains,
 	}, lggr)
 	if err != nil {
 		return nil, err

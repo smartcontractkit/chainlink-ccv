@@ -10,8 +10,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	chainsel "github.com/smartcontractkit/chain-selectors"
-
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/admin/views"
@@ -67,10 +65,7 @@ func (h *handlers) transmitterKeysPage(c *gin.Context) {
 	sort.Slice(chains, func(i, j int) bool { return chains[i].ChainSelector < chains[j].ChainSelector })
 	vm := views.TransmitterKeysVM{RefreshedAt: time.Now().UTC(), Chains: make([]views.TransmitterChainVM, 0, len(chains))}
 	for _, chain := range chains {
-		chainVM := views.TransmitterChainVM{ChainSelector: chain.ChainSelector.String(), ChainName: chain.ChainSelector.String()}
-		if name, err := chainsel.GetChainNameFromSelector(uint64(chain.ChainSelector)); err == nil {
-			chainVM.ChainName = name
-		}
+		chainVM := views.TransmitterChainVM{ChainSelector: chain.ChainSelector.String(), ChainName: chainDisplayName(chain.ChainSelector)}
 		if chain.Err != nil {
 			chainVM.Error = chain.Err.Error()
 		}

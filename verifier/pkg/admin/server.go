@@ -42,6 +42,8 @@ type Deps struct {
 	JobSpec *bootstrap.JobSpec
 	// BalanceSource enables the transmitter key page when supplied.
 	BalanceSource TransmitterBalanceSource
+	// ChainSource enables effective chain configuration inspection when supplied.
+	ChainSource ChainInspectionProvider
 	// AggregatorAddress (host:port) enables attestation freshness checks; empty
 	// disables them and reschedule execution stays blocked on "unknown".
 	AggregatorAddress string
@@ -98,7 +100,8 @@ func (s *Server) buildRouter(deps Deps) *gin.Engine {
 		cfg: s.cfg, lggr: s.lggr, stores: s.stores, actions: s.actions,
 		aggregatorAddress: deps.AggregatorAddress, dialer: s.dialer,
 		readOnly: deps.ReadOnly, jobSpec: jobSpecSnapshot(deps.JobSpec), balanceSource: deps.BalanceSource,
-		navigation: views.Navigation{Recovery: !deps.ReadOnly, JobSpec: true, TransmitterKeys: deps.BalanceSource != nil},
+		chainSource: deps.ChainSource,
+		navigation:  views.Navigation{Recovery: !deps.ReadOnly, Chains: true, JobSpec: true, TransmitterKeys: deps.BalanceSource != nil},
 	}
 	staticSub, err := fs.Sub(views.StaticFS, "static")
 	if err != nil {
@@ -108,6 +111,7 @@ func (s *Server) buildRouter(deps Deps) *gin.Engine {
 	}
 	h.registerCoreRoutes(r)
 	h.registerObservabilityRoutes(r)
+	h.registerChainConfigRoutes(r)
 	if !deps.ReadOnly {
 		h.registerSearchRoutes(r)
 		h.registerDetailRoutes(r)

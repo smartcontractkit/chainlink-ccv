@@ -1,0 +1,100 @@
+package views
+
+// ChainEndpointVM is one sanitized RPC endpoint.
+type ChainEndpointVM struct {
+	Name    string
+	HTTPURL string
+	WSURL   string
+	Order   string
+}
+
+// ChainAttributeVM is one effective configuration attribute and its source.
+type ChainAttributeVM struct {
+	Name   string
+	Value  string
+	Source string
+}
+
+// ChainConfigVM is the generic chain inspection rendered by the admin page.
+type ChainConfigVM struct {
+	Selector    string
+	Name        string
+	Family      string
+	ChainID     string
+	Roles       string
+	Endpoints   []ChainEndpointVM
+	Attributes  []ChainAttributeVM
+	Diagnostics []string
+}
+
+// ChainConfigsVM contains all configured chains for the active job.
+type ChainConfigsVM struct {
+	Chains []ChainConfigVM
+}
+
+templ ChainConfigsPage(vm ChainConfigsVM, nav Navigation) {
+	@Layout("Chain configurations", nav) {
+		<h1>Chain configurations</h1>
+		<p>Effective, sanitized configuration supplied by each chain driver for the active job.</p>
+		<details class="explain">
+			<summary>What is shown</summary>
+			RPC URLs are limited to scheme and host. Credentials, URL user info, paths, query strings, raw secret files, and private keys are never rendered. Attribute sources distinguish operator values from defaults.
+		</details>
+		if len(vm.Chains) == 0 {
+			<div class="banner">No chain inspection data is available for this service.</div>
+		}
+		for _, chain := range vm.Chains {
+			<section class="card">
+				<h2>{ chain.Name }</h2>
+				<p>
+					<small>
+						Selector <code>{ chain.Selector }</code>
+						if chain.Family != "" {
+							· Family <code>{ chain.Family }</code>
+						}
+						if chain.ChainID != "" {
+							· Chain ID <code>{ chain.ChainID }</code>
+						}
+					</small>
+				</p>
+				if chain.Roles != "" {
+					<p><strong>Roles:</strong> { chain.Roles }</p>
+				}
+				for _, diagnostic := range chain.Diagnostics {
+					<div class="error">{ diagnostic }</div>
+				}
+				if len(chain.Endpoints) > 0 {
+					<h3>RPC endpoints</h3>
+					<div class="table-wrap">
+						<table>
+							<thead><tr><th>Name</th><th>HTTP</th><th>WebSocket</th><th>Order</th></tr></thead>
+							<tbody>
+								for _, endpoint := range chain.Endpoints {
+									<tr>
+										<td>{ endpoint.Name }</td>
+										<td><code class="mid">{ endpoint.HTTPURL }</code></td>
+										<td><code class="mid">{ endpoint.WSURL }</code></td>
+										<td>{ endpoint.Order }</td>
+									</tr>
+								}
+							</tbody>
+						</table>
+					</div>
+				}
+				if len(chain.Attributes) > 0 {
+					<h3>Effective attributes</h3>
+					<div class="table-wrap">
+						<table>
+							<thead><tr><th>Attribute</th><th>Value</th><th>Source</th></tr></thead>
+							<tbody>
+								for _, attribute := range chain.Attributes {
+									<tr><td><code>{ attribute.Name }</code></td><td>{ attribute.Value }</td><td>{ attribute.Source }</td></tr>
+								}
+							</tbody>
+						</table>
+					</div>
+				}
+			</section>
+		}
+	}
+}

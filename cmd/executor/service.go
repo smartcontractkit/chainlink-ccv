@@ -25,6 +25,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/admin"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -151,6 +152,7 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	destReaders := make(map[protocol.ChainSelector]chainaccess.DestinationReader)
 	rmnReaders := make(map[protocol.ChainSelector]chainaccess.RMNCurseReader)
 	balanceReaders := make(map[protocol.ChainSelector]chainaccess.TransmitterBalanceReader)
+	chainInspectors := make(map[protocol.ChainSelector]chainaccess.ChainInspector)
 	enabledDestChains := make([]protocol.ChainSelector, 0)
 	// Skipped chains are reported on /health as degraded. The factory fails below when none is usable.
 	startupSkips := health.NewStartupSkips("executor.StartupSkips")
@@ -201,6 +203,9 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 			contractTransmitters[selector] = ct
 			if reader, ok := accessor.(chainaccess.TransmitterBalanceReader); ok {
 				balanceReaders[selector] = reader
+			}
+			if inspector, ok := accessor.(chainaccess.ChainInspector); ok {
+				chainInspectors[selector] = inspector
 			}
 			enabledDestChains = append(enabledDestChains, selector)
 		})
@@ -328,7 +333,7 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 
 	f.adminStop, err = startAdminConsole(f.lggr, spec, &transmitterBalanceSource{
 		selectors: balanceSelectors, readers: balanceReaders,
-	})
+	}, admin.NewChainInspectionSource(balanceSelectors, chainInspectors))
 	if err != nil {
 		return fmt.Errorf("failed to start admin console: %w", err)
 	}

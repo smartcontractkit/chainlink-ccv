@@ -25,6 +25,7 @@ type handlers struct {
 	readOnly          bool
 	jobSpec           *bootstrap.JobSpec
 	balanceSource     TransmitterBalanceSource
+	chainSource       ChainInspectionProvider
 	navigation        views.Navigation
 }
 

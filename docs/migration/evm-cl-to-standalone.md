@@ -607,7 +607,7 @@ The application's own server carries the real health signal. By default the veri
 report is healthy, and 503 with the failing component named otherwise. The verifier also serves
 `/stats` on the same port.
 
-The optional admin console defaults to `127.0.0.1:8105` and has its own `/healthz` liveness endpoint. Both services expose the active job at `/job`; the executor also exposes transmitter balances at `/transmitter-keys`. Verifier search, recovery, and action-log routes are not registered on the executor. See the [admin console guide](../verifier/admin-console.md).
+The optional admin console defaults to `127.0.0.1:8105` and has its own `/healthz` liveness endpoint. Both services expose the active job at `/job` and sanitized effective chain configuration at `/chains`; the executor also exposes transmitter balances at `/transmitter-keys`. Verifier search, recovery, and action-log routes are not registered on the executor. See the [admin console guide](../verifier/admin-console.md).
 
 A stalled LogPoller is the case to watch outside `/health`; see
 [Source logs](#source-logs-rpc-or-a-logpoller).

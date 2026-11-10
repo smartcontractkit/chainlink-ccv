@@ -101,12 +101,20 @@ config change — it catches misspelled keys, a half-supplied `[admin_ui]` pair,
 non-loopback bind without an identity source before the verifier does it at startup. The
 executor performs the same checks when its console starts.
 
-## Job specification and transmitter keys
+## Job, chain, and transmitter visibility
 
 Both services expose `/job`, a read-only snapshot of the active job envelope (name, external
 job ID, type, and schema version) and the raw application TOML from its `appConfig` field.
 The snapshot belongs to the running job, so a JD job replacement restarts the console with
 the replacement spec. Credentials must not be embedded in job specs.
+
+Both services also expose `/chains`, showing each configured chain's roles, sanitized RPC
+endpoints, effective attributes and their sources, and diagnostics. The data model is
+chain-family neutral; each chain driver supplies and sanitizes its own view through the
+optional `chainaccess.ChainInspector` capability. EVM is the first implementation. RPC URLs
+are reduced to scheme and host, while user info, paths, query strings, credentials, raw secret
+files, and private keys are never rendered. Chains without inspection support are named with
+an unavailable diagnostic rather than omitted.
 
 The executor also exposes `/transmitter-keys`, listing each configured destination chain,
 public key name and address, native-token balance, and exact base-unit amount. Balances are

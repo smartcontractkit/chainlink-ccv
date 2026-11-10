@@ -23,7 +23,7 @@ const (
 	// enables the host service's in-process console alongside the active job.
 	DefaultConfigPath = "/etc/ccv-admin/config.toml"
 	// DefaultSecretsPath is the executor console's optional basic-auth secrets file.
-	DefaultSecretsPath = "/etc/ccv-admin/secrets.toml"
+	DefaultSecretsPath = "/etc/ccv-admin/secrets.toml" //nolint:gosec // G101: file path, not a credential
 )
 
 // Config is the console configuration file schema. It carries no credentials and no

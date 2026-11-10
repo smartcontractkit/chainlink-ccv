@@ -36,6 +36,15 @@ type EffectiveNode struct {
 	Order        *int32 `json:"order,omitempty"`
 }
 
+// EffectiveChainFromInfo resolves one chain through the runtime adapter's default handling without network calls.
+func EffectiveChainFromInfo(info Info) (EffectiveChain, error) {
+	tomlConfig, err := BuildChainlinkEVMTOML(info)
+	if err != nil {
+		return EffectiveChain{}, err
+	}
+	return projectEffectiveChain(info, tomlConfig), nil
+}
+
 // EffectiveChainConfigs resolves every chain in cfg against chainlink-evm's chain-specific
 // defaults through the same BuildChainlinkEVMTOML the runtime adapter uses, so the report cannot
 // drift from what the standalone process will run. It makes no network calls.
@@ -46,11 +55,11 @@ func EffectiveChainConfigs(cfg Config) (map[string]EffectiveChain, error) {
 	}
 	out := make(map[string]EffectiveChain, len(infos))
 	for selector, info := range infos {
-		tomlConfig, err := BuildChainlinkEVMTOML(info)
+		effective, err := EffectiveChainFromInfo(info)
 		if err != nil {
 			return nil, err
 		}
-		out[selector] = projectEffectiveChain(info, tomlConfig)
+		out[selector] = effective
 	}
 	return out, nil
 }

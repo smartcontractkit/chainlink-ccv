@@ -2,14 +2,15 @@ package views
 
 // Navigation selects the route groups shown in the shared page frame.
 type Navigation struct {
-	Recovery         bool
-	JobSpec          bool
-	TransmitterKeys  bool
+	Recovery        bool
+	Chains          bool
+	JobSpec         bool
+	TransmitterKeys bool
 }
 
 // Layout is the shared page frame: themed header nav, content container, footer.
 templ Layout(title string, customNav ...Navigation) {
-	{{ nav := Navigation{Recovery: true, JobSpec: true} }}
+	{{ nav := Navigation{Recovery: true, Chains: true, JobSpec: true} }}
 	if len(customNav) > 0 {
 		{{ nav = customNav[0] }}
 	}
@@ -35,6 +36,9 @@ templ Layout(title string, customNav ...Navigation) {
 						if nav.Recovery {
 							@navLink("/search", "Message search", title)
 							@navLink("/recovery", "Source recovery", title)
+						}
+						if nav.Chains {
+							@navLink("/chains", "Chain configurations", title)
 						}
 						if nav.JobSpec {
 							@navLink("/job", "Job specification", title)
@@ -89,6 +93,8 @@ func navSection(title string) string {
 		return "/recovery"
 	case "Action log":
 		return "/actions"
+	case "Chain configurations":
+		return "/chains"
 	case "Job specification":
 		return "/job"
 	case "Transmitter keys":

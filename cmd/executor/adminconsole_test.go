@@ -88,6 +88,7 @@ func TestStartAdminConsoleServesJobAndBalances(t *testing.T) {
 		logger.Test(t),
 		bootstrap.JobSpec{Name: "executor-e2e", AppConfig: "executor_id = \"e2e\""},
 		source,
+		nil,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, stop)
