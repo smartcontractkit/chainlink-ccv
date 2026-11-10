@@ -3,6 +3,7 @@ package chainaccess
 import (
 	"context"
 	"errors"
+	"math/big"
 
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -234,6 +235,20 @@ type DestinationReader interface {
 type ContractTransmitter interface {
 	// ConvertAndWriteMessageToChain takes an aggregated report and transmits it in the format expected by the destination chain.
 	ConvertAndWriteMessageToChain(ctx context.Context, report protocol.AbstractAggregatedReport) error
+}
+
+// TransmitterKeyBalance is a public transmitter address and its balance in native-token base units.
+type TransmitterKeyBalance struct {
+	KeyName             string
+	Address             string
+	Amount              *big.Int
+	NativeTokenDecimals uint8
+}
+
+// TransmitterBalanceReader is an optional accessor capability for on-demand balance checks.
+type TransmitterBalanceReader interface {
+	// TransmitterBalances returns public transmitter addresses and their current native balances.
+	TransmitterBalances(ctx context.Context) ([]TransmitterKeyBalance, error)
 }
 
 // AttemptChecker validates execution attempts and reports readiness and health

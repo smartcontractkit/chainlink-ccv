@@ -48,6 +48,7 @@ type Factory struct {
 	coordinator *executorsvc.Coordinator
 	server      *http.Server
 	profiler    *pyroscope.Profiler
+	adminStop   func()
 	lggr        logger.Logger
 }
 
@@ -84,6 +85,9 @@ func (f *Factory) Validate(spec bootstrap.JobSpec) error {
 // or a Stop after a failed Start — does not close components twice.
 func (f *Factory) Stop(ctx context.Context) error {
 	var err error
+	if f.adminStop != nil {
+		f.adminStop()
+	}
 	if f.server != nil {
 		// Stop is routinely called with an already-canceled context (process teardown, failed
 		// Start). Shutdown would then return that context error immediately without draining
@@ -101,6 +105,7 @@ func (f *Factory) Stop(ctx context.Context) error {
 	f.server = nil
 	f.coordinator = nil
 	f.profiler = nil
+	f.adminStop = nil
 	return err
 }
 
@@ -145,6 +150,7 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	contractTransmitters := make(map[protocol.ChainSelector]chainaccess.ContractTransmitter)
 	destReaders := make(map[protocol.ChainSelector]chainaccess.DestinationReader)
 	rmnReaders := make(map[protocol.ChainSelector]chainaccess.RMNCurseReader)
+	balanceReaders := make(map[protocol.ChainSelector]chainaccess.TransmitterBalanceReader)
 	enabledDestChains := make([]protocol.ChainSelector, 0)
 	// Skipped chains are reported on /health as degraded. The factory fails below when none is usable.
 	startupSkips := health.NewStartupSkips("executor.StartupSkips")
@@ -193,6 +199,9 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 			destReaders[selector] = dr
 			rmnReaders[selector] = dr
 			contractTransmitters[selector] = ct
+			if reader, ok := accessor.(chainaccess.TransmitterBalanceReader); ok {
+				balanceReaders[selector] = reader
+			}
 			enabledDestChains = append(enabledDestChains, selector)
 		})
 	}
@@ -219,6 +228,7 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	execPool := make(map[protocol.ChainSelector][]string)
 	execIntervals := make(map[protocol.ChainSelector]time.Duration)
 	defaultExecutorAddresses := make(map[protocol.ChainSelector]protocol.UnknownAddress)
+	balanceSelectors := make([]protocol.ChainSelector, 0, len(executorConfig.ChainConfiguration))
 
 	for strSel, chainConfig := range executorConfig.ChainConfiguration {
 		selectorUint, err := strconv.ParseUint(strSel, 10, 64)
@@ -227,6 +237,7 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 			continue
 		}
 		sel := protocol.ChainSelector(selectorUint)
+		balanceSelectors = append(balanceSelectors, sel)
 		execPool[sel] = chainConfig.ExecutorPool
 		execIntervals[sel] = chainConfig.ExecutionInterval
 		defaultExecutorAddresses[sel], err = protocol.NewUnknownAddressFromHex(chainConfig.DefaultExecutorAddress)
@@ -314,6 +325,13 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		}
 	}()
 	f.server = server
+
+	f.adminStop, err = startAdminConsole(f.lggr, spec, deps.AdminUI, &transmitterBalanceSource{
+		selectors: balanceSelectors, readers: balanceReaders,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to start admin console: %w", err)
+	}
 
 	return nil
 }

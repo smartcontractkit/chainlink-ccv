@@ -558,7 +558,7 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		aggregatorAddress = resolvedAggregators[0].Address
 		aggregatorInsecure = resolvedAggregators[0].InsecureConnection
 	}
-	adminStop, err := startAdminConsole(lggr, chainStatusDB, secrets, aggregatorAddress, aggregatorInsecure)
+	adminStop, err := startAdminConsole(lggr, spec, chainStatusDB, secrets, aggregatorAddress, aggregatorInsecure)
 	if err != nil {
 		return fmt.Errorf("failed to start admin console: %w", err)
 	}

@@ -7,26 +7,27 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vsecrets"
 )
 
-// BasicAuth is the console UI credential from the verifier secrets file's
-// [admin_ui] table. Nil means the console serves without basic auth (the
-// loopback personal-tool default).
+// BasicAuth is the console UI credential from the service secrets file's [admin_ui] table.
 type BasicAuth struct {
 	Username string
 	Password string
 }
 
-// BasicAuthFromSecrets extracts the [admin_ui] pair from the verifier secrets file. A
-// half-supplied pair is a startup error, never a silent downgrade to unauthenticated
-// serving.
+// NewBasicAuth validates a credential pair from a service secrets file.
+func NewBasicAuth(username, password string) (*BasicAuth, error) {
+	if username == "" || password == "" {
+		return nil, errors.New("console secrets file [admin_ui] requires both username and password (remove the table to serve without basic auth)")
+	}
+	return &BasicAuth{Username: username, Password: password}, nil
+}
+
+// BasicAuthFromSecrets extracts the [admin_ui] pair from the verifier secrets file.
 func BasicAuthFromSecrets(s *vsecrets.VerifierSecrets) (*BasicAuth, error) {
 	if s == nil || s.AdminUIAuth() == nil {
 		return nil, nil
 	}
 	ui := s.AdminUIAuth()
-	if ui.Username == "" || ui.Password == "" {
-		return nil, errors.New("console secrets file [admin_ui] requires both username and password (remove the table to serve without basic auth)")
-	}
-	return &BasicAuth{Username: ui.Username, Password: ui.Password}, nil
+	return NewBasicAuth(ui.Username, ui.Password)
 }
 
 // ValidateAccessPolicy enforces the console's exposure contract: non-loopback
@@ -40,7 +41,7 @@ func ValidateAccessPolicy(cfg *Config, auth *BasicAuth) error {
 		return nil
 	}
 	if auth == nil {
-		return errors.New("serving a page grants privileged actions: a non-loopback listen_address requires [admin_ui] basic auth in the verifier secrets file")
+		return errors.New("serving a page grants privileged access: a non-loopback listen_address requires [admin_ui] basic auth in the service secrets file")
 	}
 	return nil
 }

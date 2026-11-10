@@ -344,8 +344,16 @@ type NonSecretConfig struct {
 	Monitoring *monitoring.Config `toml:"Monitoring"`
 }
 
+// AdminUISecret gates the optional admin console with basic authentication.
+type AdminUISecret struct {
+	// Username is the basic-auth user required by the admin console.
+	Username string `toml:"username"`
+	// Password is the basic-auth password required by the admin console.
+	Password string `toml:"password"`
+}
+
 // Secrets is the secret half of the bootstrap config: the credential-bearing sections. It is
-// embedded into Config, so its sections ([keystore], [db]) decode and encode at the top level
+// embedded into Config, so its sections ([keystore], [db], [admin_ui]) decode and encode at the top level
 // exactly as if declared on Config directly. devenv marshals this type on its own to produce the
 // bootstrap secrets file loaded via BOOTSTRAPPER_SECRETS_PATH.
 //
@@ -376,6 +384,7 @@ type NonSecretConfig struct {
 type Secrets struct {
 	Keystore KeystoreConfig `toml:"keystore,omitempty"`
 	DB       DBConfig       `toml:"db,omitempty"`
+	AdminUI  *AdminUISecret `toml:"admin_ui,omitempty"`
 }
 
 // Config is the full bootstrap config, composed of its non-secret and secret halves. The two halves

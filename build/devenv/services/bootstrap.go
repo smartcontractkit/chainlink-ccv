@@ -120,13 +120,17 @@ func GenerateBootstrapConfig(in BootstrapInput) ([]byte, error) {
 	})
 }
 
-// GenerateBootstrapSecrets marshals the credential-bearing bootstrap sections ([keystore], [db]) to
+// GenerateBootstrapSecrets marshals the credential-bearing bootstrap sections ([keystore], [db], [admin_ui]) to
 // TOML, for the bootstrap secrets file loaded via BOOTSTRAPPER_SECRETS_PATH. It marshals
 // bootstrap.Secrets directly so the partition stays defined in one place.
 func GenerateBootstrapSecrets(in BootstrapInput) ([]byte, error) {
 	return toml.Marshal(bootstrap.Secrets{
 		Keystore: *in.Keystore,
 		DB:       *in.DB,
+		AdminUI: &bootstrap.AdminUISecret{
+			Username: DefaultAdminUIUsername,
+			Password: DefaultAdminUIPassword,
+		},
 	})
 }
 

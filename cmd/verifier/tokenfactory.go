@@ -194,7 +194,7 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 	// The admin console serves in-process when its config file is present; it shares
 	// this verifier's application database and secrets. The token verifier has no
 	// aggregator of its own, so freshness checks need aggregator_address in the file.
-	tvf.adminStop, err = startAdminConsole(tvf.lggr, db, secrets, "", false)
+	tvf.adminStop, err = startAdminConsole(tvf.lggr, spec, db, secrets, "", false)
 	if err != nil {
 		return fmt.Errorf("failed to start admin console: %w", err)
 	}

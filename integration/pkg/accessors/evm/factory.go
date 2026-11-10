@@ -133,10 +133,9 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 	if feeQuoterAddress != "" && !hasPricerConfig {
 		return nil, fmt.Errorf("cannot get accessor for chain %d: invalid fee quoter address %q", chainSelector, feeQuoterAddress)
 	}
-	// Only the gas price reader uses the decimals, so other services ignore this setting.
 	nativeDecimals := uint8(defaultNativeDecimals)
-	if configured, ok := f.nativeDecimals[chainSelector]; ok && hasPricerConfig {
-		if configured > pricereader.MaxNativeTokenDecimals {
+	if configured, ok := f.nativeDecimals[chainSelector]; ok {
+		if hasPricerConfig && configured > pricereader.MaxNativeTokenDecimals {
 			return nil, fmt.Errorf(
 				"cannot get accessor for chain %d: invalid native token decimals %d, the maximum is %d",
 				chainSelector, configured, pricereader.MaxNativeTokenDecimals,
@@ -266,6 +265,7 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 		gasPriceReader,
 		withFeeQuoterAddress(common.HexToAddress(feeQuoterAddress)),
 		withTokenCache(tokenCache),
+		withNativeDecimals(nativeDecimals),
 	)
 	acc.chainDefaultsErr = chainDefaultsError(evmconfig.ChainDefaultsProblems())
 	acc.sourceParams = sourceParams
@@ -291,6 +291,8 @@ type accessor struct {
 	serviceAddressesErr error
 	feeQuoterWriterErr  error
 	chainDefaultsErr    error
+	keystore            keystore.Keystore
+	nativeDecimals      uint8
 
 	// sourceMu guards the lazily built source reader.
 	// sourceParams is nil for an accessor with no source config, such as the executor's.
@@ -322,6 +324,10 @@ func withTokenCache(cache *pricereader.TokenMetadataCache) accessorOption {
 
 func withFeeQuoterAddress(address common.Address) accessorOption {
 	return func(a *accessor) { a.feeQuoterAddr = address }
+}
+
+func withNativeDecimals(decimals uint8) accessorOption {
+	return func(a *accessor) { a.nativeDecimals = decimals }
 }
 
 func newAccessor(
@@ -369,6 +375,7 @@ func buildAccessor(
 		feeQuoterReader:     feeQuoterReader,
 		feeQuoterWriter:     feeQuoterWriter,
 		gasPriceReader:      gasPriceReader,
+		nativeDecimals:      defaultNativeDecimals,
 	}
 	for _, opt := range opts {
 		opt(a)
@@ -382,6 +389,9 @@ func (a *accessor) SetKeystore(ctx context.Context, ks keystore.Keystore) error 
 	if a == nil {
 		return errors.New("EVM accessor is nil")
 	}
+	a.mu.Lock()
+	a.keystore = ks
+	a.mu.Unlock()
 	a.setFeeQuoterServiceAddresses(ctx, ks)
 	a.startFeeQuoterWriter(ctx, ks)
 	if a.offRampAddr == (common.Address{}) {
@@ -399,6 +409,41 @@ func (a *accessor) SetKeystore(ctx context.Context, ks keystore.Keystore) error 
 	}
 	a.contractTransmitter = ct
 	return nil
+}
+
+// TransmitterBalances reads public key addresses and current native balances through the existing chain client.
+func (a *accessor) TransmitterBalances(ctx context.Context) ([]chainaccess.TransmitterKeyBalance, error) {
+	if a == nil || a.runtime == nil {
+		return nil, errors.New("EVM chain runtime is not available")
+	}
+	if a.offRampAddr == (common.Address{}) {
+		return nil, errors.New("EVM transmitter is not configured for this accessor")
+	}
+	a.mu.Lock()
+	ks := a.keystore
+	decimals := a.nativeDecimals
+	a.mu.Unlock()
+	addresses, err := a.runtime.TransmitterAddresses(ctx, ks, a.keyName)
+	if err != nil {
+		return nil, err
+	}
+	chainClient, err := a.runtime.ChainClient()
+	if err != nil {
+		return nil, err
+	}
+	balances := make([]chainaccess.TransmitterKeyBalance, 0, len(addresses))
+	var errs []error
+	for _, address := range addresses {
+		amount, err := chainClient.BalanceAt(ctx, address, nil)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("failed to read balance for transmitter %s: %w", address.Hex(), err))
+			continue
+		}
+		balances = append(balances, chainaccess.TransmitterKeyBalance{
+			KeyName: a.keyName, Address: address.Hex(), Amount: amount, NativeTokenDecimals: decimals,
+		})
+	}
+	return balances, errors.Join(errs...)
 }
 
 // startFeeQuoterWriter replaces the log-only writer with the TXM-backed one once the keystore is available.

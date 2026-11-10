@@ -21,7 +21,7 @@ const validEd25519PublicKeyHex = "0123456789abcdef0123456789abcdef0123456789abcd
 
 // TestGenerateBootstrap_SplitFiles locks in the config/secrets split: the non-secret file
 // carries only [jd]/[server]/[[chains]]/[Monitoring] and the secrets file carries only
-// [keystore]/[db]; decoding both into one bootstrap.Config reconstructs the full, valid config.
+// [keystore]/[db]/[admin_ui]; decoding both reconstructs the full, valid config.
 func TestGenerateBootstrap_SplitFiles(t *testing.T) {
 	in := BootstrapInput{
 		Keystore: &bootstrap.KeystoreConfig{Password: "s3cret"},
@@ -58,6 +58,9 @@ func TestGenerateBootstrap_SplitFiles(t *testing.T) {
 	require.Len(t, cfg.Chains, 1)
 	require.Equal(t, "s3cret", cfg.Keystore.Password)
 	require.Equal(t, "postgres://user:pass@host:5432/db", cfg.DB.URL)
+	require.NotNil(t, cfg.AdminUI)
+	require.Equal(t, DefaultAdminUIUsername, cfg.AdminUI.Username)
+	require.Equal(t, DefaultAdminUIPassword, cfg.AdminUI.Password)
 }
 
 // TestApplyBootstrapDefaults_PreservesMonitoring locks in the contract the devenv routing relies on:

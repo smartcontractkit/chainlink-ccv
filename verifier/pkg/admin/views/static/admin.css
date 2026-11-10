@@ -152,6 +152,19 @@ code {
 }
 code.mid { word-break: break-all; }
 
+.job-spec {
+	margin: 0.75rem 0;
+	padding: 1rem 1.25rem;
+	max-height: 70vh;
+	overflow: auto;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	background: var(--cl-navy);
+	color: #e6edff;
+	border-radius: 12px;
+	font: 0.82rem/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
 /* Cards and tables */
 .card {
 	background: var(--cl-card);
