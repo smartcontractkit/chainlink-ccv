@@ -28,6 +28,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/common/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/common/monitoring/logging"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/keystore"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -79,6 +80,10 @@ type ServiceDeps struct {
 
 	// Registry for chainaccess.Accessor objects.
 	Registry chainaccess.Registry
+
+	// HealthReporters are bootstrap-owned components the service registers on its /health, such
+	// as the JD node registration, which is degraded while JD has not taken the chain configs.
+	HealthReporters []protocol.HealthReporter
 }
 
 // ServiceFactory is an interface implemented by the application that seeks to be bootstrapped.
@@ -458,15 +463,6 @@ func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 	}
 	jdClient := jdclient.New(csaSigner, jdPublicKey, b.config.JD.ServerWSRPCURL, b.lggr)
 
-	// Surface the operator-provided monitoring config to the service. Only the JD path populates this;
-	// static-TOML mode (startWithAppConfig) loads no bootstrap config and leaves it nil.
-	deps := ServiceDeps{
-		Logger:   b.lggr,
-		Keystore: keyStore,
-	}
-
-	jobRunner := &runner{lggr: b.lggr, fac: b.fac, deps: deps, applicationReady: &b.applicationReady}
-
 	// b.keys is populated by WithKey options; collect names of signing keys to publish.
 	var signingKeyNames []string
 	for _, k := range b.keys {
@@ -494,18 +490,35 @@ func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 			return jdClient.UpdateNode(ctx, req)
 		}
 	}
+
+	// Surface the operator-provided monitoring config to the service. Only the JD path populates this;
+	// static-TOML mode (startWithAppConfig) loads no bootstrap config and leaves it nil.
+	deps := ServiceDeps{
+		Logger:   b.lggr,
+		Keystore: keyStore,
+	}
+	// The service's /health reports degraded while JD has not taken this node's chain configs.
+	var nodeSync *lifecycle.HookStatus
+	if onConnectHook != nil {
+		nodeSync = lifecycle.NewHookStatus("jd.UpdateNode")
+		deps.HealthReporters = append(deps.HealthReporters, nodeSync)
+	}
+
+	jobRunner := &runner{lggr: b.lggr, fac: b.fac, deps: deps, applicationReady: &b.applicationReady}
+
 	jdMetrics, err := lifecycle.InitMetrics()
 	if err != nil {
 		b.lggr.Warnw("Failed to init JD lifecycle metrics; continuing without metrics", "error", err)
 		jdMetrics = nil
 	}
 	lifecycleManager, err := lifecycle.NewManager(lifecycle.Config{
-		JDClient:      jdClient,
-		JobStore:      jobstore.NewPostgresStore(db),
-		Runner:        jobRunner,
-		Logger:        logger.Named(b.lggr, "LifecycleManager"),
-		Metrics:       jdMetrics,
-		OnConnectHook: onConnectHook,
+		JDClient:            jdClient,
+		JobStore:            jobstore.NewPostgresStore(db),
+		Runner:              jobRunner,
+		Logger:              logger.Named(b.lggr, "LifecycleManager"),
+		Metrics:             jdMetrics,
+		OnConnectHook:       onConnectHook,
+		OnConnectHookStatus: nodeSync,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create lifecycle manager: %w", err)

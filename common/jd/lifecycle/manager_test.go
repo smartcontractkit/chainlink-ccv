@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1313,4 +1314,70 @@ func TestManager_RetryPendingJob_Metrics(t *testing.T) {
 			assert.ElementsMatch(t, tt.wantSteps, rec.recordedSteps())
 		})
 	}
+}
+
+func newHookTestManager(t *testing.T, hook func(context.Context) error, status *HookStatus) *Manager {
+	t.Helper()
+	jdClient := newChanClient(t)
+	jdClient.EXPECT().Connect(mock.Anything).Return(nil)
+	jdClient.EXPECT().Close().Return(nil).Maybe()
+	jobStore := mocks.NewMockStoreInterface(t)
+	jobStore.EXPECT().LoadJob(mock.Anything).Return(nil, store.ErrNoJob)
+
+	m, err := NewManager(Config{
+		JDClient:            jdClient,
+		JobStore:            jobStore,
+		Runner:              mocks.NewMockJobRunner(t),
+		Logger:              logger.Test(t),
+		OnConnectHook:       hook,
+		OnConnectHookStatus: status,
+	})
+	require.NoError(t, err)
+	m.hookRetryInitial = 10 * time.Millisecond
+	m.hookRetryMax = 20 * time.Millisecond
+	return m
+}
+
+// A JD that rejects or times out UpdateNode once must not leave the node unregistered until restart.
+func TestManager_OnConnectHook_RetriesUntilItSucceeds(t *testing.T) {
+	t.Parallel()
+
+	status := NewHookStatus("jd.UpdateNode")
+	var calls atomic.Int32
+	m := newHookTestManager(t, func(context.Context) error {
+		if calls.Add(1) < 3 {
+			return errors.New("JD rejected 1 chain config(s)")
+		}
+		return nil
+	}, status)
+	require.NoError(t, m.Start(t.Context()))
+	defer func() { require.NoError(t, m.Stop()) }()
+
+	require.Eventually(t, func() bool { return calls.Load() >= 3 }, 2*time.Second, 5*time.Millisecond)
+	require.Eventually(t, func() bool { return status.Degraded() == nil }, 2*time.Second, 5*time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
+	require.Equal(t, int32(3), calls.Load(), "a hook that succeeded is not run again")
+}
+
+func TestManager_OnConnectHook_FailureDegradesStatusAndStopEndsRetries(t *testing.T) {
+	t.Parallel()
+
+	status := NewHookStatus("jd.UpdateNode")
+	require.NoError(t, status.Degraded(), "fine before the first attempt")
+	var calls atomic.Int32
+	m := newHookTestManager(t, func(context.Context) error {
+		calls.Add(1)
+		return errors.New("failed to update node: deadline exceeded")
+	}, status)
+	require.NoError(t, m.Start(t.Context()))
+
+	require.Eventually(t, func() bool { return calls.Load() >= 3 }, 2*time.Second, 5*time.Millisecond, "a failing hook is retried")
+	require.ErrorContains(t, status.Degraded(), "deadline exceeded")
+	require.ErrorContains(t, status.HealthReport()["jd.UpdateNode"], "deadline exceeded")
+	require.NoError(t, status.Ready(), "a failing hook degrades the service, it never makes it not ready")
+
+	require.NoError(t, m.Stop())
+	stopped := calls.Load()
+	time.Sleep(100 * time.Millisecond)
+	require.Equal(t, stopped, calls.Load(), "no attempts after Stop")
 }
