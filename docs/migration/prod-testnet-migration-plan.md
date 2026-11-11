@@ -23,7 +23,7 @@ staging," execute the staging plan's step with the substitutions in "Conventions
 ## Execution status
 
 - **Staging is complete:** all 21 EVM nodes are standalone.
-- **Prod-testnet nodes 0–18 and 20 are standalone; cutover and activation are complete.** Nodes 1–5
+- **Prod-testnet migration and activation are complete for all 20 active EVM nodes.** Nodes 1–5
   deployed in [chainlink-ccv-deploy #531](https://github.com/smartcontractkit/chainlink-ccv-deploy/pull/531)
   and activated in [chainlink-deployments #21167](https://github.com/smartcontractkit/chainlink-deployments/pull/21167).
   Nodes 6–10 deployed in [chainlink-ccv-deploy #532](https://github.com/smartcontractkit/chainlink-ccv-deploy/pull/532)
@@ -32,28 +32,34 @@ staging," execute the staging plan's step with the substitutions in "Conventions
   and activated in [chainlink-deployments #21169](https://github.com/smartcontractkit/chainlink-deployments/pull/21169).
   Every targeted message reached both aggregators and executed from the intended transmitter.
   Pre-cutover disabled flags were restored on every affected verifier.
-- Generic executor proposals initially left compatibility metadata in CL mode.
-  [chainlink-deployments #21204](https://github.com/smartcontractkit/chainlink-deployments/pull/21204),
-  [#21230](https://github.com/smartcontractkit/chainlink-deployments/pull/21230), and
-  [#21256](https://github.com/smartcontractkit/chainlink-deployments/pull/21256) reconciled nodes
-  1–5, 6–10, and 11–15 respectively to canonical `standalone`/`appConfig` metadata without changing
-  live jobs. The scoped [state-generation run](https://github.com/smartcontractkit/chainlink-deployments/actions/runs/42848372205)
-  registers the first 16 standalone executor NOPs in `nops`, not `v2Nops`, and the nodes 11–15
-  telemetry sidecars report no authorization failures.
-- **The remaining active-four wave is in progress.** Nodes 16, 17, 18, and 20 do have EVM roles:
-  49 of the 61 EVM chain configs include at least one of them. [CLD #21270](https://github.com/smartcontractkit/chainlink-deployments/pull/21270)
-  consolidated their legacy verifier jobs, and their signer exports are complete. [Deploy #545](https://github.com/smartcontractkit/chainlink-ccv-deploy/pull/545)
-  covers their standalone releases and the retirement of legacy nodes 16–20. Idle node 19 has no
-  JD identity, jobs, signer inventory, or committee/executor membership and gets no standalone
-  replacement. Activation, funding, disabled-chain restoration, and metadata reconciliation remain
-  required before this wave is complete. The resulting topology is 20 standalone nodes, 20 clusters,
-  and 60 logical databases.
-- Accepted funding gaps are documented in the activation PRs above. The most recent completed wave
-  funded all five executors on 45 networks with 225 verified transfers; its remaining network and
-  source shortfalls are listed in #21169. The complete standalone transmitter monitoring handoff is
-  in P9 and will include the active four after their transmitters exist.
-- Full-fleet validation and the two-week soak remain open. Completing this wave is not by itself
-  the prod-mainnet go/no-go.
+- **The active-four wave is complete and verified.** Nodes 16, 17, 18, and 20 deployed in
+  [chainlink-ccv-deploy #545](https://github.com/smartcontractkit/chainlink-ccv-deploy/pull/545)
+  and activated in [chainlink-deployments #21317](https://github.com/smartcontractkit/chainlink-deployments/pull/21317);
+  the [activation run](https://github.com/smartcontractkit/chainlink-deployments/actions/runs/42929384018)
+  succeeded. Both aggregators authenticated every preserved signer, and the intended-transmitter
+  Sonic executions succeeded for nodes [16](https://ccip.chain.link/msg/0x1623d2d43fcf7ea7a4a416b8d619ebc41c53ee7b45a6c5503fb6b1cc61306805),
+  [17](https://ccip.chain.link/msg/0xf563c5721ee83138d5a92913419eeb861dd26087d127567042aa87cfe1908a4b),
+  [18](https://ccip.chain.link/msg/0x7b77f75521df2a09c72cde60b71ca41b240534e58bf4a2a760ba3d0ecae8046c),
+  and [20](https://ccip.chain.link/msg/0x04192a059ff55a2a4b4495312615e69d11a68b1e0ba52f87ab525c1f74c7a327).
+  Their recorded disabled flags were restored. Idle node 19 had no JD identity, jobs, signer
+  inventory, or committee/executor membership and was retired without a standalone replacement.
+- **Executor metadata and state reconciliation are complete.** In addition to the earlier
+  reconciliation in #21204, #21230, and #21256,
+  [chainlink-deployments #21320](https://github.com/smartcontractkit/chainlink-deployments/pull/21320)
+  reconciled the active four; its [pipeline run](https://github.com/smartcontractkit/chainlink-deployments/actions/runs/42935993341)
+  succeeded. The scoped [state-generation run](https://github.com/smartcontractkit/chainlink-deployments/actions/runs/42938300136)
+  includes all 20 standalone executor NOPs with the correct CSAs, transmitters, and connectivity;
+  none is misplaced in `v2Nops`.
+- **Legacy decommissioning is complete.** [chainlink-ccv-deploy #543](https://github.com/smartcontractkit/chainlink-ccv-deploy/pull/543)
+  removed the legacy release, its Aurora cluster, and all 21 legacy logical database claims. After
+  reference checks and explicit approval, 87 remaining legacy Secrets were also deleted. All 20
+  standalone verifier/executor pairs, 20 database clusters, and 60 logical databases remained
+  healthy, and neither aggregator developed authentication errors. This was not a complete legacy
+  balance recovery: the accepted exceptions included 12 unconfirmed withdrawals (11 Shibarium and
+  one Metis) and the residual-balance/RPC exceptions recorded during the final audit.
+- The full-fleet two-week soak began on 2026-11-11; its earliest completion date is 2026-11-25.
+  The restart/rollback drills, monitoring ownership handoff, and prod-mainnet release/config
+  decisions remain open. Migration and decommissioning do not constitute prod-mainnet go/no-go.
 
 ## What prod-testnet adds over staging
 
@@ -331,9 +337,9 @@ per-chain balance and transmit-failure coverage; alert ownership and thresholds 
 | 20 | `0x7A5fb6B203c552f5430208313a23567061063BF3` |
 
 The active-four addresses were collected from the healthy standalone bootstraps after #545;
-their funding and execution evidence is pending in
-[chainlink-deployments #21317](https://github.com/smartcontractkit/chainlink-deployments/pull/21317).
-Earlier per-wave funding evidence and accepted gaps are recorded in
+their intended-transmitter execution evidence is linked in "Execution status". Those receipts
+prove the targeted lanes, not full per-chain funding coverage. Earlier per-wave funding evidence
+and accepted gaps are recorded in
 [chainlink-deployments #21167](https://github.com/smartcontractkit/chainlink-deployments/pull/21167),
 [#21168](https://github.com/smartcontractkit/chainlink-deployments/pull/21168), and
 [#21169](https://github.com/smartcontractkit/chainlink-deployments/pull/21169). Do not infer
@@ -354,12 +360,12 @@ additions:
 | step 11 confirmation message on a staging lane | a real lane this node verifies; announce the window first |
 | soak: manual balance check | soak: final balance evidence, TXM v2 metrics, transmit-failure review; monitoring handoff at the end |
 
-Nodes 11–15 were the most recent completed wave. Each completed batch passed both-aggregator
-signing, intended-executor execution, disabled-chain, health, and metadata checks before the
-next wave. The active-four wave (16, 17, 18, and 20) deployed in #545 and is activating in
-[CLD #21317](https://github.com/smartcontractkit/chainlink-deployments/pull/21317); it must
-pass the same gates. Idle node 19 stopped with the legacy release and has no standalone job
-to activate.
+Every completed batch passed both-aggregator signing, intended-executor execution,
+disabled-chain, health, and metadata checks before the next wave. The active-four wave
+(16, 17, 18, and 20) passed the same gates after #545 and
+[CLD #21317](https://github.com/smartcontractkit/chainlink-deployments/pull/21317). Idle node 19
+stopped with the legacy release and has no standalone job to activate. See "Execution status"
+for the final activation, reconciliation, and decommissioning records.
 
 ## Validation before calling it done
 
@@ -394,21 +400,28 @@ Operator comms for prod-mainnet may start when all of these hold:
 - [x] The first 16 EVM-serving nodes cut over and confirmed: a message per lane, each node's
       job `signer_address` equal to its P8 address, and each executor's transmitter
       landing transactions.
-- [ ] The remaining active four cut over and confirmed. Their rollout is complete in #545;
-      activation, funding, and validation are pending in [CLD #21317](https://github.com/smartcontractkit/chainlink-deployments/pull/21317).
-- [ ] Two-week full-fleet soak with no sev and no unexplained transmit failure.
+- [x] The remaining active four cut over and confirmed in #545 and
+      [CLD #21317](https://github.com/smartcontractkit/chainlink-deployments/pull/21317), including
+      both-aggregator signing, intended-transmitter execution, and disabled-chain restoration.
+- [ ] Two-week full-fleet soak with no sev and no unexplained transmit failure. It began on
+      2026-11-11 and completes no earlier than 2026-11-25.
 - [ ] Canary restart and rollback drill results written down, plus the standalone transmitter
-      monitoring list handed off separately.
+      monitoring list handed off separately. The 20-address list is compiled in P9; alert ownership
+      and thresholds remain open.
 - [ ] The per-chain config review (P5) archived; every deviation has an owner.
 - [ ] Source-read mode for prod-mainnet decided and documented in the [standalone reference](../verifier/evm-standalone.md#source-logs-rpc-or-a-logpoller):
       `eth_getLogs` from the node TOML, or the standalone LogPoller, which needs the
       standalone-format EVM config, an EVM secrets file, and database sizing for its logs.
-- [ ] Every executor has canonical `standalone`/`appConfig` metadata and a persisted JD node ID;
-      regenerated NOP state includes it, telemetry authorization succeeds, and a later scoped
-      `apply-executor-config` routes to that executor record (#1590).
+- [x] Every executor has canonical `standalone`/`appConfig` metadata and a persisted JD node ID;
+      regenerated NOP state includes it and telemetry authorization succeeds. The active-four
+      reconciliation completed in #21320 and the scoped state generation covered all 20 nodes.
+- [ ] Exercise a later scoped `apply-executor-config` against a reconciled executor record and
+      confirm explicit routing by `executor_node_name` or `ExecutorNodeID` (#1590), without changing
+      the preserved job name, external job ID, executor ID, or pool membership.
 - [ ] The prod-mainnet image is a validated release tag, not the prod-testnet RC.
-- [ ] Runbook corrections from this environment fed back into the relevant operator and CLL
-      migration runbooks.
+- [x] Runbook corrections from this environment fed back into this PR and
+      [node-ops-wiki #487](https://github.com/smartcontractkit/node-ops-wiki/pull/487); both
+      documentation PRs remain subject to review and merge.
 
 ## Open questions
 
