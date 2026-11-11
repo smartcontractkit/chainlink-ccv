@@ -1128,7 +1128,8 @@ faster than expected is a reason to look at transmit failures before the next no
 
 ## What staging does not decide
 
-Prod batching (14–16 members, threshold 9, so a per-chain budget of 5–7 nodes mid-cutover),
-external operator comms, public image publishing (F2), operator-facing docs (F3), sweeping prod
-transmitter balances (F1), and transmitter balance alerts (P9). Those get decided later, with
-staging results in hand.
+Prod batching must be derived from each affected chain's live membership and threshold;
+prod-testnet does not have uniform 16-member committees, and the last migration wave includes
+active nodes 16, 17, 18, and 20 while retiring idle node 19. External operator comms, public
+image publishing (F2), operator-facing docs (F3), sweeping prod transmitter balances (F1),
+and transmitter balance alerts (P9) get decided later, with staging results in hand.

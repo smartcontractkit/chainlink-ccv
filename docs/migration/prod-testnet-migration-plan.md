@@ -3,8 +3,9 @@
 Audience: CCV team. Scope: the `prod_testnet` environment, meaning the 21-node
 `chainlink-ccv-testnet` DON in the prod cluster (namespace `chainlink-ccv-testnet`, JD
 aliases `ccv-prod-testnet-0..20`). The `default` committee serves 63 chain configs: 61
-EVM chains, each listing the same 16 members (`ccv-prod-testnet-0..15`) with threshold 9,
-plus Canton and Solana chains, whose standalone components are already separate. The two
+EVM chains with chain-specific membership and thresholds. Forty-nine EVM chain configs include
+at least one of nodes 16, 17, 18, and 20; node 19 has no committee or executor role. Canton
+and Solana chains have standalone components already separate. The two
 aggregators are the public pair, `aggregator-1.testnet.ccip.chain.link` and
 `aggregator-2.testnet.ccip.chain.link`.
 
@@ -22,7 +23,7 @@ staging," execute the staging plan's step with the substitutions in "Conventions
 ## Execution status
 
 - **Staging is complete:** all 21 EVM nodes are standalone.
-- **Prod-testnet nodes 0–15 are standalone; cutover and activation are complete.** Nodes 1–5
+- **Prod-testnet nodes 0–18 and 20 are standalone; cutover and activation are complete.** Nodes 1–5
   deployed in [chainlink-ccv-deploy #531](https://github.com/smartcontractkit/chainlink-ccv-deploy/pull/531)
   and activated in [chainlink-deployments #21167](https://github.com/smartcontractkit/chainlink-deployments/pull/21167).
   Nodes 6–10 deployed in [chainlink-ccv-deploy #532](https://github.com/smartcontractkit/chainlink-ccv-deploy/pull/532)
@@ -37,14 +38,22 @@ staging," execute the staging plan's step with the substitutions in "Conventions
   [#21256](https://github.com/smartcontractkit/chainlink-deployments/pull/21256) reconciled nodes
   1–5, 6–10, and 11–15 respectively to canonical `standalone`/`appConfig` metadata without changing
   live jobs. The scoped [state-generation run](https://github.com/smartcontractkit/chainlink-deployments/actions/runs/42848372205)
-  registers all 16 standalone executor NOPs in `nops`, not `v2Nops`, and the final-wave telemetry
-  sidecars report no authorization failures.
-- Nodes 16–20 have no EVM committee role and remain outside this migration's scope.
-- Accepted funding gaps are documented in the activation PRs above. The final wave funded all five
-  executors on 45 networks with 225 verified transfers; its remaining network and source shortfalls
-  are listed in #21169. The complete standalone transmitter monitoring handoff is in P9.
-- Full-fleet validation and the two-week soak remain open. Cutting over all 16 EVM-serving nodes is
-  not by itself the prod-mainnet go/no-go.
+  registers the first 16 standalone executor NOPs in `nops`, not `v2Nops`, and the nodes 11–15
+  telemetry sidecars report no authorization failures.
+- **The remaining active-four wave is in progress.** Nodes 16, 17, 18, and 20 do have EVM roles:
+  49 of the 61 EVM chain configs include at least one of them. [CLD #21270](https://github.com/smartcontractkit/chainlink-deployments/pull/21270)
+  consolidated their legacy verifier jobs, and their signer exports are complete. [Deploy #545](https://github.com/smartcontractkit/chainlink-ccv-deploy/pull/545)
+  covers their standalone releases and the retirement of legacy nodes 16–20. Idle node 19 has no
+  JD identity, jobs, signer inventory, or committee/executor membership and gets no standalone
+  replacement. Activation, funding, disabled-chain restoration, and metadata reconciliation remain
+  required before this wave is complete. The resulting topology is 20 standalone nodes, 20 clusters,
+  and 60 logical databases.
+- Accepted funding gaps are documented in the activation PRs above. The most recent completed wave
+  funded all five executors on 45 networks with 225 verified transfers; its remaining network and
+  source shortfalls are listed in #21169. The complete standalone transmitter monitoring handoff is
+  in P9 and will include the active four after their transmitters exist.
+- Full-fleet validation and the two-week soak remain open. Completing this wave is not by itself
+  the prod-mainnet go/no-go.
 
 ## What prod-testnet adds over staging
 
@@ -61,18 +70,20 @@ staging," execute the staging plan's step with the substitutions in "Conventions
 3. **Balance monitoring is a separate handoff.** It is not a cutover gate. Executor funding and
    transaction receipts were validated during each wave; P9 compiles all standalone transmitter
    addresses for monitoring. Alert ownership and thresholds are decided outside this migration effort.
-4. **Five-node waves are proven; keep deriving the budget.** Node 0 was the canary, followed by
-   nodes 1–5, 6–10, and 11–15 only after each prior wave passed. Each chain has 16 members and
-   threshold 9, so the normal simultaneous-outage budget is seven, not an entitlement to overlap
-   seven blind windows. Recalculate from live committee config if membership or threshold changes,
-   and keep windows short on fast chains.
+4. **Small waves are proven; keep deriving the budget.** Node 0 was the canary, followed by
+   nodes 1–5, 6–10, and 11–15 only after each prior wave passed. The last wave contains active
+   nodes 16, 17, 18, and 20. Committee membership is not uniform across the 61 EVM chains, so
+   recalculate the simultaneous-outage budget from each affected chain's live members and threshold;
+   do not assume the old 16-member, threshold-9 shape or treat its budget as an entitlement to
+   overlap blind windows. Keep windows short on fast chains.
 5. **Record the exact image; use a release before prod-mainnet.** The staging and current
    prod-testnet waves deliberately run the staging-proven
    `45c7148eaaa84fe6cc73f9baa4de12612971c665-rc` image. Do not silently substitute a newer RC.
    Before external prod-mainnet, select and validate the release-tagged image (`vX.Y.Z`) operators
    will receive, including the migration tooling and required fixes.
-6. **No secondary committee.** Staging's node-0 complication does not exist here. But see
-   open question 1: only 16 of the 21 nodes have an EVM committee role.
+6. **No secondary committee.** Staging's node-0 complication does not exist here. The initial
+   assumption that nodes 16–20 were all idle was wrong: four have EVM roles, while node 19 is idle
+   and is retired without a standalone replacement.
 
 ## Hard rules (unchanged from staging)
 
@@ -110,7 +121,7 @@ CLD=~/dev/dev2/chainlink-deployments
 DEPLOY=~/dev/dev2/chainlink-ccv-deploy
 EVM_VALUES=$DEPLOY/deploy/config/prod-testnet/committee-verifier-evm/config.yaml
 
-# per cutover; i = 0..15 (nodes 16..20: see open question 1)
+# per cutover; i is an active node in 0..18 or 20 (node 19 is retired)
 i=1
 NODE=ccv-prod-testnet-$i                    # JD alias, topology alias
 CL=chainlink-ccv-testnet-$i                 # the node's k8s deployment, service, secret prefix
@@ -148,7 +159,7 @@ As in staging P0, against the prod contexts:
 
 ### P1. Consolidate verifier jobs (run while still in CL mode)
 
-**Completed for EVM nodes 0–15; do not rerun.** Each node originally ran two
+**Completed for EVM nodes 0–18 and 20; do not rerun.** Each node originally ran two
 `ccvcommitteeverifier` jobs with verifier IDs `aggregator-1-default-verifier` and
 `aggregator-2-default-verifier`. The consolidated job uses `default-verifier`, while the legacy
 IDs remain aggregator `secret_name`s. Every consolidated proposal was approved before the two old
@@ -201,11 +212,10 @@ Verifier-bootstrap, verifier-app, executor-bootstrap per node; they cannot share
 version table). Each migrating node gets its own cluster,
 `chainlink-ccv-testnet-evm-standalone-$i`, in
 `deploy/config/prod-testnet/database-provisioner/database-provisioner.yaml`, modeled on
-staging's: 16 clusters and 48 databases if nodes 0..15 migrate, 21 and 63 if 16..20 join
-(open question 1). Not on `chainlink-ccv-testnet-dons`, for the same two-way isolation as
-staging (the rollback path never depends on the new clusters), and not on one shared
-cluster: all 61 EVM chains list the same 16 members with threshold 9, so once eight
-migrated members share a cluster, one incident on it stalls attestations on every chain.
+staging's: 20 clusters and 60 databases for the 20 active nodes; idle node 19 gets neither.
+Not on `chainlink-ccv-testnet-dons`, for the same two-way isolation as staging (the rollback
+path never depends on the new clusters), and not on one shared cluster. A shared database
+failure could otherwise remove enough signers on an affected chain to stall attestations.
 That is the exposure the DON cluster carries today for all 21 nodes. Per node, an incident
 costs one signer.
 
@@ -253,14 +263,18 @@ Any other warning on a later run is new and needs a decision.
 
 As in staging P6: three TOMLs per node (verifier bootstrap, verifier app with the
 aggregator HMACs under the P1 `secret_name`s, executor bootstrap), DB URLs composed from
-the P4 connection secrets, created via `$CTX_ENG` with `-v2` naming.
+the P4 connection secrets, created via `$CTX_ENG` with `-v1` naming. The verifier also needs
+its key-import secret and export-password backup. Validate every secret and preserve password
+backups before removing temporary exported key files.
 
-### P7. Griddle releases, verifiers at zero replicas
+### P7. Griddle releases, both components initially at zero replicas
 
 As in staging P7, in the `prod` section of `griddle.yaml` with `ccip_env: prod-testnet`:
-`committee-verifier-evm-$i` and `executor-evm-$i` per migrating node, verifiers at
-`replicas: 0` until each one's key-import secret exists (hard rule 3). Add per batch, not
-all upfront.
+`committee-verifier-evm-$i` and `executor-evm-$i` per migrating node. Start both at
+`replicas: 0` while the databases and all three runtime/key-import secrets are prepared;
+the verifier must never start without its key-import secret (hard rule 3). Once those gates
+pass, move both to one replica and add the legacy node to maintenance mode in the same deploy.
+Add releases per batch, not all upfront.
 
 ### P8. expected_id per node, from JD
 
@@ -311,8 +325,15 @@ per-chain balance and transmit-failure coverage; alert ownership and thresholds 
 | 13 | `0x6AC18172965159a88f2D468b2Cb0ffAD204E1Af6` |
 | 14 | `0x2578102Ef5e9031743aD71113a485C71f73Cc859` |
 | 15 | `0x3e796226720820fbf2aB96b96a539cb6F0D2Acf3` |
+| 16 | `0x29efea96B257082A53c14667CEB567F285bF69C0` |
+| 17 | `0x16d6525dcf06843Eb48910ED5429B88d8aE83567` |
+| 18 | `0x98CA314E478D16253107547eD6447EC99E0E47Ca` |
+| 20 | `0x7A5fb6B203c552f5430208313a23567061063BF3` |
 
-The per-wave funding evidence and accepted gaps are recorded in
+The active-four addresses were collected from the healthy standalone bootstraps after #545;
+their funding and execution evidence is pending in
+[chainlink-deployments #21317](https://github.com/smartcontractkit/chainlink-deployments/pull/21317).
+Earlier per-wave funding evidence and accepted gaps are recorded in
 [chainlink-deployments #21167](https://github.com/smartcontractkit/chainlink-deployments/pull/21167),
 [#21168](https://github.com/smartcontractkit/chainlink-deployments/pull/21168), and
 [#21169](https://github.com/smartcontractkit/chainlink-deployments/pull/21169). Do not infer
@@ -333,9 +354,12 @@ additions:
 | step 11 confirmation message on a staging lane | a real lane this node verifies; announce the window first |
 | soak: manual balance check | soak: final balance evidence, TXM v2 metrics, transmit-failure review; monitoring handoff at the end |
 
-The final wave was nodes 11–15. Each five-node batch passed both-aggregator signing,
-intended-executor execution, disabled-chain, health, and metadata checks before the next wave.
-Nodes 16..20 remain out of scope until open question 1 is answered.
+Nodes 11–15 were the most recent completed wave. Each completed batch passed both-aggregator
+signing, intended-executor execution, disabled-chain, health, and metadata checks before the
+next wave. The active-four wave (16, 17, 18, and 20) deployed in #545 and is activating in
+[CLD #21317](https://github.com/smartcontractkit/chainlink-deployments/pull/21317); it must
+pass the same gates. Idle node 19 stopped with the legacy release and has no standalone job
+to activate.
 
 ## Validation before calling it done
 
@@ -360,15 +384,18 @@ Every item from staging's validation, here under real traffic:
   transmit failures, and the TXM v2 metric names (`txm_num_broadcasted_transactions`,
   `txm_num_confirmed_transactions`, `txm_num_nonce_gaps`, `txm_time_until_tx_confirmed`).
   Keep final balance evidence for the separate monitoring handoff.
-- **Full-fleet soak:** two weeks, all 16 nodes standalone, before the go/no-go.
+- **Full-fleet soak:** two weeks, all 20 active nodes standalone after the final activation,
+  before the go/no-go.
 
 ## Go/no-go to prod-mainnet
 
 Operator comms for prod-mainnet may start when all of these hold:
 
-- [x] All 16 EVM-serving nodes cut over and confirmed: a message per lane, each node's
+- [x] The first 16 EVM-serving nodes cut over and confirmed: a message per lane, each node's
       job `signer_address` equal to its P8 address, and each executor's transmitter
       landing transactions.
+- [ ] The remaining active four cut over and confirmed. Their rollout is complete in #545;
+      activation, funding, and validation are pending in [CLD #21317](https://github.com/smartcontractkit/chainlink-deployments/pull/21317).
 - [ ] Two-week full-fleet soak with no sev and no unexplained transmit failure.
 - [ ] Canary restart and rollback drill results written down, plus the standalone transmitter
       monitoring list handed off separately.
@@ -385,15 +412,14 @@ Operator comms for prod-mainnet may start when all of these hold:
 
 ## Open questions
 
-1. **Nodes 16..20.** Committee chain configs list only `ccv-prod-testnet-0..15`; nodes
-   16–20 have no EVM verifier or executor role in the committee, yet the DON runs 21
-   nodes. What are they (expansion, standby, decommission candidates)? They do not
-   migrate until this is answered; P4's counts depend on it (16 vs 21 clusters, 48 vs 63
-   databases).
-2. **`storage_locations` lists `aggregator-1.testnet.ccip.chain.link` twice** in
-   `prod_testnet/topology.toml` — probable typo for aggregator-2. Harmless for the
-   cutover (the changesets read the `aggregators` block, which is correct), but fix it
-   before prod-mainnet config generation treats it as truth.
+1. *(Resolved)* **Nodes 16..20.** The earlier assumption that all five were idle was wrong:
+   49 of the 61 EVM chain configs include nodes 16, 17, 18, and/or 20. Migrate those four
+   and retire idle node 19 without a replacement. The resulting allocation is 20 standalone
+   clusters and 60 logical databases, not 21 clusters and 63 databases.
+2. *(Resolved)* **`storage_locations` listed `aggregator-1.testnet.ccip.chain.link` twice.**
+   [CLD #21270](https://github.com/smartcontractkit/chainlink-deployments/pull/21270) corrected
+   the second entry to `aggregator-2.testnet.ccip.chain.link`; the separate `aggregators` block
+   was already correct.
 3. *(Operational, tracked per wave)* Funding sources and remaining gaps are recorded in each wave's
    activation PR. Use available funds conservatively, validate funded lanes, and do not reopen the
    explicitly accepted nodes 1–5 gaps with unapproved faucet or bridge work (P9).
