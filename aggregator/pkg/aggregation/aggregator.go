@@ -102,8 +102,10 @@ func (r aggregationRequest) DedupKey() string {
 	return r.AggregationKey
 }
 
-// CheckAggregation enqueues one aggregation check per trigger in a single queue write.
+// CheckAggregation enqueues, in a single queue write, a check for each trigger whose key has enough
+// signers to possibly reach quorum.
 func (c *CommitReportAggregator) CheckAggregation(ctx context.Context, triggers ...model.AggregationTrigger) error {
+	triggers = c.reachedThreshold(ctx, triggers)
 	requests := make([]aggregationRequest, len(triggers))
 	for i, t := range triggers {
 		if t.TraceParent == "" {
@@ -114,6 +116,31 @@ func (c *CommitReportAggregator) CheckAggregation(ctx context.Context, triggers 
 	publishCtx, cancel := context.WithTimeout(ctx, queueOperationTimeout)
 	defer cancel()
 	return c.queue.Publish(publishCtx, requests...)
+}
+
+// reachedThreshold drops triggers whose key has fewer signers than its source chain's quorum
+// threshold, so sub-quorum (including fabricated) messages never become jobs. Fails open on error.
+func (c *CommitReportAggregator) reachedThreshold(ctx context.Context, triggers []model.AggregationTrigger) []model.AggregationTrigger {
+	if c.committee == nil || len(triggers) == 0 {
+		return triggers
+	}
+	counts, err := c.storage.CountSigners(ctx, triggers)
+	if err != nil {
+		c.logger(ctx).Warnw("Failed to count signers, enqueuing every trigger", "error", err)
+		return triggers
+	}
+	ready := make([]model.AggregationTrigger, 0, len(triggers))
+	for _, t := range triggers {
+		count, ok := counts[t.AggregationKey]
+		if !ok {
+			continue
+		}
+		quorumConfig, ok := c.committee.GetQuorumConfig(count.SourceChainSelector)
+		if !ok || count.Signers >= int(quorumConfig.Threshold) {
+			ready = append(ready, t)
+		}
+	}
+	return ready
 }
 
 func (c *CommitReportAggregator) logger(ctx context.Context) logger.SugaredLogger {

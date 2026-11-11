@@ -23,6 +23,65 @@ func (_m *MockCommitVerificationStore) EXPECT() *MockCommitVerificationStore_Exp
 	return &MockCommitVerificationStore_Expecter{mock: &_m.Mock}
 }
 
+// CountSigners provides a mock function with given fields: ctx, triggers
+func (_m *MockCommitVerificationStore) CountSigners(ctx context.Context, triggers []model.AggregationTrigger) (map[string]model.SignerCount, error) {
+	ret := _m.Called(ctx, triggers)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CountSigners")
+	}
+
+	var r0 map[string]model.SignerCount
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, []model.AggregationTrigger) (map[string]model.SignerCount, error)); ok {
+		return rf(ctx, triggers)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, []model.AggregationTrigger) map[string]model.SignerCount); ok {
+		r0 = rf(ctx, triggers)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(map[string]model.SignerCount)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, []model.AggregationTrigger) error); ok {
+		r1 = rf(ctx, triggers)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockCommitVerificationStore_CountSigners_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CountSigners'
+type MockCommitVerificationStore_CountSigners_Call struct {
+	*mock.Call
+}
+
+// CountSigners is a helper method to define mock.On call
+//   - ctx context.Context
+//   - triggers []model.AggregationTrigger
+func (_e *MockCommitVerificationStore_Expecter) CountSigners(ctx interface{}, triggers interface{}) *MockCommitVerificationStore_CountSigners_Call {
+	return &MockCommitVerificationStore_CountSigners_Call{Call: _e.mock.On("CountSigners", ctx, triggers)}
+}
+
+func (_c *MockCommitVerificationStore_CountSigners_Call) Run(run func(ctx context.Context, triggers []model.AggregationTrigger)) *MockCommitVerificationStore_CountSigners_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].([]model.AggregationTrigger))
+	})
+	return _c
+}
+
+func (_c *MockCommitVerificationStore_CountSigners_Call) Return(_a0 map[string]model.SignerCount, _a1 error) *MockCommitVerificationStore_CountSigners_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockCommitVerificationStore_CountSigners_Call) RunAndReturn(run func(context.Context, []model.AggregationTrigger) (map[string]model.SignerCount, error)) *MockCommitVerificationStore_CountSigners_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetCommitVerification provides a mock function with given fields: ctx, id
 func (_m *MockCommitVerificationStore) GetCommitVerification(ctx context.Context, id model.CommitVerificationRecordIdentifier) (*model.CommitVerificationRecord, error) {
 	ret := _m.Called(ctx, id)

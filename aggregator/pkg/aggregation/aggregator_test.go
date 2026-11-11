@@ -843,3 +843,51 @@ func TestStartBackground_ClaimsOnlyFreeWorkerSlots(t *testing.T) {
 		assert.LessOrEqual(t, claim, workers)
 	}
 }
+
+func TestCheckAggregation_EnqueuesOnlyKeysAtQuorumThreshold(t *testing.T) {
+	newAggregator := func(t *testing.T, store *mocks.MockCommitVerificationStore) (*CommitReportAggregator, *fakeQueue) {
+		monitoring := mocks.NewMockAggregatorMonitoring(t)
+		monitoring.EXPECT().Metrics().Return(mocks.NewMockAggregatorMetricLabeler(t)).Maybe()
+		config := &model.AggregatorConfig{
+			Aggregation: model.AggregationConfig{BackgroundWorkerCount: 1},
+			Committee:   &model.Committee{QuorumConfigs: map[model.SourceSelector]*model.QuorumConfig{"1": {Threshold: 2}}},
+		}
+		queue := newFakeQueue()
+		return NewCommitReportAggregator(store, nil, mocks.NewMockSink(t), mocks.NewMockQuorumValidator(t), config, logger.Sugared(logger.Test(t)), monitoring, queue), queue
+	}
+	triggers := []model.AggregationTrigger{
+		{MessageID: []byte{1}, AggregationKey: "below-threshold"},
+		{MessageID: []byte{2}, AggregationKey: "at-threshold"},
+		{MessageID: []byte{3}, AggregationKey: "unknown-chain"},
+		{MessageID: []byte{4}, AggregationKey: "no-rows"},
+	}
+	queued := func(q *fakeQueue) []model.AggregationKey {
+		jobs, err := q.ConsumePending(t.Context(), 10)
+		require.NoError(t, err)
+		keys := make([]model.AggregationKey, 0, len(jobs))
+		for _, j := range jobs {
+			keys = append(keys, j.Payload.AggregationKey)
+		}
+		return keys
+	}
+
+	t.Run("drops keys below their chain's threshold", func(t *testing.T) {
+		store := mocks.NewMockCommitVerificationStore(t)
+		store.EXPECT().CountSigners(mock.Anything, triggers).Return(map[model.AggregationKey]model.SignerCount{
+			"below-threshold": {Signers: 1, SourceChainSelector: 1},
+			"at-threshold":    {Signers: 2, SourceChainSelector: 1},
+			"unknown-chain":   {Signers: 1, SourceChainSelector: 99},
+		}, nil)
+		a, q := newAggregator(t, store)
+		require.NoError(t, a.CheckAggregation(t.Context(), triggers...))
+		assert.Equal(t, []model.AggregationKey{"at-threshold", "unknown-chain"}, queued(q))
+	})
+
+	t.Run("enqueues every trigger when counting fails", func(t *testing.T) {
+		store := mocks.NewMockCommitVerificationStore(t)
+		store.EXPECT().CountSigners(mock.Anything, triggers).Return(nil, errors.New("db down"))
+		a, q := newAggregator(t, store)
+		require.NoError(t, a.CheckAggregation(t.Context(), triggers...))
+		assert.Len(t, queued(q), len(triggers))
+	})
+}
