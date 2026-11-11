@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 # Builder base is digest-pinned so image builds are reproducible and the base
 # is supply-chain verifiable; dependabot bumps the digest in its grouped weekly PR.
-FROM golang:1.26.10@sha256:5c3f3f28a273c9b61698b2d34f18375929790ab1f1d3835d032d21e2b31eae0c AS builder
+FROM golang:1.27.0@sha256:4013ae0f9e7994f8535c58c811f8f863fbed38b72e0d51e6592156f758d66146 AS builder
 
 ENV GOPRIVATE=github.com/smartcontractkit/*
 
