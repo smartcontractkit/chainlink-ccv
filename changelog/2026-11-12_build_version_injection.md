@@ -64,7 +64,9 @@ $ go run ./tools/buildargs
   build, so this is not an error.
 - A checkout with no git metadata is an **error**, not `unset`: the command exits 1, so the image is never
   built without identity. Nothing downstream could tell such an image from a correctly built one.
-- Untracked files do not make a build `unset`, so local build output does not erase the version.
+- Modifications are detected by content, not by stat: regenerating a file with identical content
+  (`just config-docs`, for example) does not mark a build `unset`. Untracked files are ignored, so local
+  build output does not erase the version either.
 
 The `just` recipes run the command in a shell with `set -e` rather than a backtick substitution, so a
 failure to run it at all — missing Go toolchain, a module path that does not resolve — fails the recipe

@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
 // newRepo returns a git repo with one commit on main.
@@ -16,6 +17,9 @@ func newRepo(t *testing.T) string {
 	runGit(t, dir, "init", "-b", "main")
 	runGit(t, dir, "config", "user.email", "test@example.com")
 	runGit(t, dir, "config", "user.name", "test")
+	// The host's global git config may sign commits and tags, which would prompt for a key.
+	runGit(t, dir, "config", "commit.gpgsign", "false")
+	runGit(t, dir, "config", "tag.gpgsign", "false")
 	write(t, dir, "f.txt", "one")
 	runGit(t, dir, "add", "-A")
 	runGit(t, dir, "commit", "-m", "one")
@@ -89,6 +93,22 @@ func TestDerive(t *testing.T) {
 		id := derive(dir)
 		if !strings.HasPrefix(id.version, "v0.0.0-") {
 			t.Fatalf("version = %q, want the module tags ignored", id.version)
+		}
+	})
+
+	t.Run("mtime-only change keeps the version", func(t *testing.T) {
+		dir := newRepo(t)
+		runGit(t, dir, "tag", "v0.18.0")
+
+		// Rewriting a file with unchanged content updates only its metadata, which git treats
+		// as clean; a stat-only comparison would call this dirty.
+		later := time.Now().Add(time.Hour)
+		if err := os.Chtimes(filepath.Join(dir, "f.txt"), later, later); err != nil {
+			t.Fatal(err)
+		}
+
+		if id := derive(dir); id.version != "v0.18.0" {
+			t.Fatalf("version = %q, want v0.18.0: a metadata-only change is not a modification", id.version)
 		}
 	})
 

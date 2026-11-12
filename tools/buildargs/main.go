@@ -90,8 +90,13 @@ func derive(repo string) identity {
 		return identity{version: unset, sha: sha, warning: "shallow clone: no version can be derived"}
 	}
 
-	// Tracked files only: untracked build output must not mark every local build unset.
-	if _, err := git(repo, "diff-index", "--quiet", "HEAD", "--"); err != nil {
+	// Content-based, unlike a stat-only comparison: regenerating a file with identical content
+	// (config docs, say) must not read as a modification. -uno keeps untracked build output out.
+	status, err := git(repo, "--no-optional-locks", "status", "--porcelain", "--untracked-files=no")
+	switch {
+	case err != nil:
+		return identity{version: unset, sha: sha, warning: "cannot inspect the working tree"}
+	case status != "":
 		return identity{version: unset, sha: sha, warning: "working tree has uncommitted changes"}
 	}
 
