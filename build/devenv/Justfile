@@ -85,11 +85,12 @@ build-images-at ref tag services="":
     trap 'git worktree remove --force "$dir"' EXIT
     git worktree add --detach "$dir" "{{ ref }}" >/dev/null
     echo "Building service images of $(git -C "$dir" rev-parse --short HEAD) as :{{ tag }}"
+    build_args=$("$dir/tools/bin/build-args")
     for svc in verifier executor indexer aggregator; do
-        if want "$svc"; then docker build -f "$dir/$svc/Dockerfile" -t "$svc:{{ tag }}" "$dir"; fi
+        if want "$svc"; then docker build $build_args -f "$dir/$svc/Dockerfile" -t "$svc:{{ tag }}" "$dir"; fi
     done
     if want token-verifier; then
-        docker build -f "$dir/verifier/Dockerfile" --build-arg VERIFIER_TYPE=token -t "token-verifier:{{ tag }}" "$dir"
+        docker build $build_args -f "$dir/verifier/Dockerfile" --build-arg VERIFIER_TYPE=token -t "token-verifier:{{ tag }}" "$dir"
     fi
 
 # NOTE: the `start` images (upgrade-from or upgrade-to) replace the local :latest service images, because devenv starts :latest.
