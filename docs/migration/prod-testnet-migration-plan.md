@@ -57,6 +57,12 @@ staging," execute the staging plan's step with the substitutions in "Conventions
   healthy, and neither aggregator developed authentication errors. This was not a complete legacy
   balance recovery: the accepted exceptions included 12 unconfirmed withdrawals (11 Shibarium and
   one Metis) and the residual-balance/RPC exceptions recorded during the final audit.
+- **Temporary migration-export disposal remains open.** All 20 active verifiers reported the public
+  signer retained in `keyImport.expectedId` on 2026-11-12. Remove the export mounts through a canary
+  rollout and follow staging step 11 before deleting the key-import Secret objects or operator-held
+  copies. Legacy decommissioning did not remove these standalone key-import Secrets, external
+  password copies, or backup/snapshot versions. Do not claim unrecoverable disposal until those
+  copies are deleted or expire under the approved retention process.
 - The full-fleet two-week soak began on 2026-11-11; its earliest completion date is 2026-11-25.
   The restart/rollback drills, monitoring ownership handoff, and prod-mainnet release/config
   decisions remain open. Migration and decommissioning do not constitute prod-mainnet go/no-go.
@@ -270,8 +276,11 @@ Any other warning on a later run is new and needs a decision.
 As in staging P6: three TOMLs per node (verifier bootstrap, verifier app with the
 aggregator HMACs under the P1 `secret_name`s, executor bootstrap), DB URLs composed from
 the P4 connection secrets, created via `$CTX_ENG` with `-v1` naming. The verifier also needs
-its key-import secret and export-password backup. Validate every secret and preserve password
-backups before removing temporary exported key files.
+its key-import secret. Validate every secret. Keep the verifier bootstrap database and its keystore
+password as the durable recovery copy after import; do not add the temporary export or its plaintext
+export password to routine backups. The original CL database remains the rollback copy until its
+separately approved decommissioning. Follow staging step 11 for export unmounting, canary verification,
+and disposal of every temporary copy, including retained backup and secret-manager versions.
 
 ### P7. Griddle releases, both components initially at zero replicas
 

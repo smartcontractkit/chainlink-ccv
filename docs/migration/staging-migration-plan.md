@@ -1037,16 +1037,75 @@ onchain state, and rule 4 covered the signer. Then:
 ```sh
 # If the DON release was suspended, resume it (maintenanceMode keeps $CL at 0).
 flux --context $CTX resume helmrelease chainlink-ccv -n $NS   # or patch spec.suspend=false directly
-rm -rf /tmp/migration-$i /tmp/api-creds.txt
 ```
 
 Commit the chainlink-deployments changes (topology.toml, the combined wave input, executor job
 specs, nodes.json). The CL node's CCV job specs get removed the next time that node runs; while it
 sits at zero replicas this is not blocking.
 
-The keyimport secret can come off the verifier in a later deploy, since the import is skipped once
-the key is in the keystore. Remove only the volume and its two mounts; keep
-`keyImport.expectedId`, which is checked against the stored key on every boot.
+Before deleting key material, distinguish the temporary export from the durable signer in the
+verifier bootstrap database. Keep `keyImport.expectedId`, the rendered `[key_import]` block, the
+runtime Secret, the bootstrap database backups, and the keystore password. The public `expectedId`
+is not sensitive and prevents a wrong or empty key from being accepted on a later boot.
+
+Remove only the `verifier-keyimport` volume and its two mounts through GitOps. Roll out one verifier
+first and verify all of the following before continuing with a batch:
+
+- Its startup log says `key already exists, skipping import` and `Using signer address` with the
+  recorded `$EXPECTED_ID`.
+- Its public address endpoint returns that same address (never export the private key to check):
+
+  ```sh
+  kubectl --context $CTX -n $NS port-forward deploy/$VER 9988:9988 & PF=$!
+  sleep 2
+  curl -fsS -X POST http://localhost:9988/keystore/reader/getaddresses \
+    -H 'Content-Type: application/json' \
+    -d '{"KeyNames":["bootstrap_default_ecdsa_signing_key"]}'
+  kill $PF
+  ```
+
+- Both aggregators accept a new signature from that signer. A healthy pod alone is insufficient.
+
+After the canary passes, delete only the named local migration artifacts. Do not add the temporary
+export or plaintext export password to routine backups; the standalone bootstrap database is the
+new durable recovery copy.
+
+```sh
+rm -- /tmp/migration-$i/ocr2.json /tmp/migration-$i/export-password.txt \
+  /tmp/migration-$i/verifier.key_import.toml
+rmdir /tmp/migration-$i
+rm -f -- /tmp/api-creds.txt
+```
+
+If `rmdir` reports remaining files, stop and inventory them rather than recursively deleting the
+directory. Inventory temporary archives, CI artifacts, support bundles, operator workstations, and
+password-manager entries created during migration. Remove the export-password entry and any old
+versions, without printing their contents. Do not remove the standalone keystore password.
+
+For each verified node, inspect only the key-import Secret's metadata, confirm no active workload or
+ExternalSecret references it, then obtain approval and delete that exact Secret:
+
+```sh
+kubectl --context $CTX -n $NS get secret $VER-keyimport-v1 -o json \
+  | jq '{name: .metadata.name, labels: .metadata.labels, keys: (.data | keys)}'
+kubectl --context $CTX -n $NS delete secret $VER-keyimport-v1
+```
+
+If it has `chain.link/deletion-protection-enabled=true`, follow the explicit-approval procedure
+before removing that label. Do not bulk-delete `$VER-secrets-v2` or `$EXE-secrets-v2`: those are
+runtime secrets, not migration exports. Removing a mount does not delete the Secret, and deleting
+the Secret does not remove external or backed-up copies.
+
+Finally, track host/VM snapshots, Kubernetes/etcd backups, replicated secret versions, and retained
+storage media to deletion or approved expiration. Ordinary `rm`, `shred`, or `kubectl delete` does
+not prove erasure on SSDs, copy-on-write filesystems, or managed storage.
+Record outstanding retention dates; do not claim the migration export is unrecoverable while a
+restorable copy remains.
+
+The retired CL node, its database, and its backups hold another copy of the signer. Dispose of them
+through a separate approved decommissioning step after the rollback window and verification of the
+standalone backup. The active signer necessarily remains in the standalone database and its recovery
+backups; this cleanup targets redundant migration and retired-system copies.
 
 ### 12. Soak, then repeat for the next node
 
