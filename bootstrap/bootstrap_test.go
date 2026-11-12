@@ -222,6 +222,8 @@ func TestNewBootstrapper_CSAInjectionMatrix(t *testing.T) {
 		postgresKeystoreTOML = "[keystore]\npassword = \"x\"\n"
 		kmsBothKeyIDs        = "provider = \"aws\"\necdsa_key_id = \"ec-id\"\ned25519_key_id = \"ed-id\"\n"
 		kmsEcdsaOnly         = "provider = \"aws\"\necdsa_key_id = \"ec-id\"\n"
+		kmsKeyIDsOnly        = "provider = \"aws\"\n[keystore.kms.key_ids]\nmy_signing = \"ec-id\"\n"
+		kmsKeyIDsWithCSA     = kmsKeyIDsOnly + "bootstrap_default_csa_key = \"ed-id\"\n"
 	)
 	defaultCSA := keyToInit{DefaultCSAKeyName, csaKeyPurpose, keystore.Ed25519}
 	ecdsaKey := keyToInit{"my_signing", "signing", keystore.ECDSA_S256}
@@ -247,6 +249,28 @@ func TestNewBootstrapper_CSAInjectionMatrix(t *testing.T) {
 			name:    "JD x KMS without ed25519_key_id fails at load time",
 			toml:    jdBootstrapTOML("[keystore]\nbackend = \"kms\"\n[keystore.kms]\n" + kmsEcdsaOnly),
 			wantErr: "'ed25519_key_id' is required",
+		},
+		{
+			name:    "JD x KMS key_ids without the CSA key fails at load time",
+			toml:    jdBootstrapTOML("[keystore]\nbackend = \"kms\"\n[keystore.kms]\n" + kmsKeyIDsOnly),
+			wantErr: "must map",
+		},
+		{
+			name:     "JD x KMS key_ids with the CSA key injects it",
+			toml:     jdBootstrapTOML("[keystore]\nbackend = \"kms\"\n[keystore.kms]\n" + kmsKeyIDsWithCSA),
+			wantKeys: []keyToInit{defaultCSA},
+		},
+		{
+			name:     "local x KMS key_ids without the CSA key does not inject",
+			toml:     localKMSBootstrapTOML(kmsKeyIDsOnly),
+			opts:     []Option{WithKey(ecdsaKey.name, ecdsaKey.purpose, ecdsaKey.keyType)},
+			wantKeys: []keyToInit{ecdsaKey},
+		},
+		{
+			name:     "local x KMS key_ids with the CSA key injects it",
+			toml:     localKMSBootstrapTOML(kmsKeyIDsWithCSA),
+			opts:     []Option{WithKey(ecdsaKey.name, ecdsaKey.purpose, ecdsaKey.keyType)},
+			wantKeys: []keyToInit{defaultCSA, ecdsaKey},
 		},
 		{
 			name:     "local x postgres injects the CSA key for Beholder auth",

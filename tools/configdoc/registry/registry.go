@@ -320,9 +320,11 @@ func bootstrapSecretsInstance() any {
 			Backend:  bootstrap.KeystoreBackendPostgres,
 			Password: "your-keystore-password",
 			KMS: bootstrap.KMSKeystoreConfig{
-				Provider:     bootstrap.KMSProviderAWS,
-				EcdsaKeyID:   "arn:aws:kms:us-east-1:...:key/abc123-...",
-				Ed25519KeyID: "arn:aws:kms:us-east-1:...:key/def456-...",
+				Provider: bootstrap.KMSProviderAWS,
+				KeyIDs: map[string]string{
+					bootstrap.DefaultCSAKeyName: "arn:aws:kms:us-east-1:...:key/def456-...",
+					"evm/tx/transmitter":        "arn:aws:kms:us-east-1:...:key/abc123-...",
+				},
 				AWSKMSConfig: &bootstrap.AWSKMSConfig{
 					Profile: "my-aws-profile",
 					Region:  "us-east-1",

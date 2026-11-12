@@ -5,8 +5,10 @@ import (
 	"crypto"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -809,8 +811,8 @@ func hasCSAKey(keys []keyToInit) bool {
 // given keystore config. It is the single source of truth shared by the bootstrapper and external tooling such as devenv, which must know whether the info
 // server will expose a CSA key before requesting it.
 //
-// The CSA key exists in every case except a KMS backend with no ed25519_key_id: postgres always
-// generates one for free; KMS uses the configured ed25519_key_id.
+// The CSA key exists in every case except a KMS backend with no CSA key configured: postgres always
+// generates one for free; KMS uses ed25519_key_id, or the key_ids entry for DefaultCSAKeyName.
 func CSAKeyRequired(ks KeystoreConfig) bool {
 	backend, err := ks.resolveBackend()
 	if err != nil {
@@ -819,6 +821,10 @@ func CSAKeyRequired(ks KeystoreConfig) bool {
 		return true
 	}
 	if backend == KeystoreBackendKMS {
+		if ks.KMS.usesKeyIDs() {
+			_, ok := ks.KMS.KeyIDs[DefaultCSAKeyName]
+			return ok
+		}
 		return ks.KMS.Ed25519KeyID != ""
 	}
 	return true
@@ -983,11 +989,12 @@ func resolveKeyImport(backend KeystoreBackend, requiredKeys []keyToInit, keyImpo
 }
 
 // buildKMSNameMap maps logical key names to KMS key identifiers (a Key ID/ARN for AWS, or a
-// CryptoKeyVersion resource name for GCP) by key type. The supported key types and the config field each
-// one draws its identifier from are declared as data (keyIDByType) rather than control flow, so
+// CryptoKeyVersion resource name for GCP). With key_ids, every declared key must be mapped by name;
+// otherwise each key draws from its per-type field. The supported key types and the config field
+// each draws its identifier from are declared as data (keyIDByType) rather than control flow, so
 // adding a type is a one-line table entry.
 func buildKMSNameMap(cfg KMSKeystoreConfig, requiredKeys []keyToInit) (map[string]string, error) {
-	if err := cfg.validateProvider(); err != nil {
+	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
 	provider, err := cfg.resolveProvider()
@@ -1015,24 +1022,30 @@ func buildKMSNameMap(cfg KMSKeystoreConfig, requiredKeys []keyToInit) (map[strin
 		if !supported {
 			return nil, fmt.Errorf("KMS does not support key type %q for key %q", k.keyType, k.name)
 		}
+		if cfg.usesKeyIDs() {
+			entry.id, entry.tomlName = cfg.KeyIDs[k.name], fmt.Sprintf("key_ids entry %q", k.name)
+		}
 		if entry.id == "" {
 			return nil, fmt.Errorf("KMS %s is required for key %q (type %q)", entry.tomlName, k.name, k.keyType)
 		}
 		if err := validateKeyID(entry.id); err != nil {
 			return nil, fmt.Errorf("KMS %s for key %q: %w", entry.tomlName, k.name, err)
 		}
-		// The KMS config carries a single Key ID per key type, so two required keys of the same type
-		// (or two types pointed at the same Key ID) would both resolve here to one KMS Key ID. Each
-		// logical key must map to a distinct KMS key, so reject that instead of silently sharing a key
-		// (which would otherwise fail later in newKMSKeystore with a less specific duplicate-ID error).
+		// Each logical key must map to a distinct KMS key so reject sharing here, with a clearer error
+		// than newKMSKeystore's duplicate-ID check.
 		if prev, dup := assignedTo[entry.id]; dup {
 			return nil, fmt.Errorf(
-				"keys %q and %q both resolve to KMS Key ID %q: each logical key needs a distinct KMS key, "+
-					"but [keystore.kms] maps a single Key ID per type (%s) — the config format must be extended to map per key",
+				"keys %q and %q both resolve to KMS Key ID %q (%s): each logical key needs a distinct KMS key",
 				prev, k.name, entry.id, entry.tomlName)
 		}
 		assignedTo[entry.id] = k.name
 		nameToID[k.name] = entry.id
+	}
+	for _, name := range slices.Sorted(maps.Keys(cfg.KeyIDs)) {
+		if _, declared := nameToID[name]; !declared {
+			return nil, fmt.Errorf("KMS key_ids entry %q matches no key this application declares (declared: %v)",
+				name, slices.Sorted(maps.Keys(nameToID)))
+		}
 	}
 	return nameToID, nil
 }

@@ -67,13 +67,17 @@ type KMSKeystoreConfig struct {
 	// Provider selects the cloud KMS provider: "aws" or "gcp". Required when backend is "kms".
 	Provider KMSProvider `toml:"provider,omitempty"`
 	// EcdsaKeyID is the KMS key for ECDSA_S256 (secp256k1) signing keys. AWS: a Key ID or ARN.
+	// Deprecated: use KeyIDs instead.
 	// GCP: a CryptoKeyVersion resource name (projects/<p>/locations/<l>/keyRings/<r>/cryptoKeys/<k>/cryptoKeyVersions/<n>).
 	EcdsaKeyID string `toml:"ecdsa_key_id,omitempty"`
 	// Ed25519KeyID is the KMS key for Ed25519 keys (e.g. the CSA key for JD auth), same format as
 	// EcdsaKeyID. Required in JD mode, where the CSA key authenticates the node to JD. Optional in
 	// local mode, where the CSA key only backs Beholder auth: set it to enable that, omit it to run
-	// with no Ed25519 key at all.
+	// with no Ed25519 key at all. Deprecated: use KeyIDs instead.
 	Ed25519KeyID string `toml:"ed25519_key_id,omitempty"`
+	// KeyIDs maps each key the application declares to its KMS key, so several keys of one type can
+	// coexist. The CSA key is provisioned only when DefaultCSAKeyName is mapped.
+	KeyIDs map[string]string `toml:"key_ids,omitempty"`
 
 	// AWS holds the AWS-specific settings. Only valid when provider is "aws".
 	*AWSKMSConfig `toml:"aws,omitempty"`
@@ -108,6 +112,36 @@ func (c *KMSKeystoreConfig) resolveProvider() (KMSProvider, error) {
 	}
 }
 
+// usesKeyIDs reports whether the per-key key_ids form is configured; an empty table counts as absent.
+func (c *KMSKeystoreConfig) usesKeyIDs() bool {
+	return len(c.KeyIDs) > 0
+}
+
+// validate checks the provider and that key_ids is not combined with the deprecated per-type fields.
+func (c *KMSKeystoreConfig) validate() error {
+	if err := c.validateProvider(); err != nil {
+		return err
+	}
+	if c.usesKeyIDs() && (c.EcdsaKeyID != "" || c.Ed25519KeyID != "") {
+		return fmt.Errorf("'key_ids' cannot be combined with 'ecdsa_key_id' or 'ed25519_key_id'")
+	}
+	return nil
+}
+
+// validateJDCSAKey checks that a CSA key is configured, which JD mode always needs.
+func (c *KMSKeystoreConfig) validateJDCSAKey() error {
+	if c.usesKeyIDs() {
+		if _, ok := c.KeyIDs[DefaultCSAKeyName]; !ok {
+			return fmt.Errorf("'key_ids' must map %q when backend is 'kms' in %q mode (the JD CSA key is Ed25519)", DefaultCSAKeyName, AppConfigModeJD)
+		}
+		return nil
+	}
+	if c.Ed25519KeyID == "" {
+		return fmt.Errorf("field 'ed25519_key_id' is required when backend is 'kms' in %q mode (the JD CSA key is Ed25519)", AppConfigModeJD)
+	}
+	return nil
+}
+
 // validateProvider checks that the provider is set and that the provider-specific sections present
 // in the config match it — a [keystore.kms.aws] section under provider = "gcp" (or vice versa) is
 // almost certainly a misconfiguration and is rejected instead of silently ignored.
@@ -133,7 +167,7 @@ type KeystoreConfig struct {
 	// Provider selection: [keystore.kms].provider = "aws" or "gcp" (required); the AWS-specific
 	// section [keystore.kms.aws] holds AWS settings (GCP has none — see below). Scope the
 	// workload's credentials as tightly as possible to exactly the keys configured below
-	// (ecdsa_key_id / ed25519_key_id):
+	// (key_ids, or the deprecated ecdsa_key_id / ed25519_key_id):
 	//
 	//   - AWS: grant only kms:Sign, kms:GetPublicKey, and kms:DescribeKey, restricted to exactly the
 	//     key ARNs. Do NOT grant kms:ListKeys or a wildcard Resource ("*").
@@ -177,11 +211,11 @@ func (c *KeystoreConfig) validate(mode AppConfigMode) error {
 		return err
 	}
 	if backend == KeystoreBackendKMS {
-		if err := c.KMS.validateProvider(); err != nil {
+		if err := c.KMS.validate(); err != nil {
 			return err
 		}
-		if mode == AppConfigModeJD && c.KMS.Ed25519KeyID == "" {
-			return fmt.Errorf("field 'ed25519_key_id' is required when backend is 'kms' in %q mode (the JD CSA key is Ed25519)", AppConfigModeJD)
+		if mode == AppConfigModeJD {
+			return c.KMS.validateJDCSAKey()
 		}
 		return nil
 	}
@@ -366,9 +400,11 @@ type NonSecretConfig struct {
 	[keystore.kms]
 	profile = "my-aws-profile"
 	region = "us-east-1"
-	ecdsa_key_id = "arn:aws:kms:us-east-1:...:key/abc123-..."
-	# Required in JD mode (the JD CSA key is Ed25519); optional in local mode.
-	ed25519_key_id = "arn:aws:kms:us-east-1:...:key/def456-..."
+
+	[keystore.kms.key_ids]
+	# bootstrap_default_csa_key is required in JD mode (the JD CSA key is Ed25519); optional in local mode.
+	bootstrap_default_csa_key = "arn:aws:kms:us-east-1:...:key/def456-..."
+	"evm/tx/transmitter" = "arn:aws:kms:us-east-1:...:key/abc123-..."
 
 	[db]
 	url = "postgres://localhost:5432/bootstrapper"
