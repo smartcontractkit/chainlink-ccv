@@ -66,9 +66,11 @@ $ go run ./tools/buildargs
   built without identity. Nothing downstream could tell such an image from a correctly built one.
 - Untracked files do not make a build `unset`, so local build output does not erase the version.
 
-The `just` recipes run the command in a `set -euo pipefail` shell rather than a backtick substitution, so a
+The `just` recipes run the command in a shell with `set -e` rather than a backtick substitution, so a
 failure to run it at all — missing Go toolchain, a module path that does not resolve — fails the recipe
-instead of silently substituting an empty string and building with the `unset` defaults.
+instead of silently substituting an empty string and building with the `unset` defaults. Recipe lines run
+under `sh`, which is dash on Linux CI, so they stay POSIX (`set -eu`, no `pipefail`); the verifier recipe,
+which builds two images, uses a bash shebang instead.
 
 Git is read on the host, not inside the image: `.dockerignore` excludes `.git`.
 

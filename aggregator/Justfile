@@ -7,10 +7,10 @@ default:
     just --list
 
 build:
-    @set -euo pipefail; args=$(go -C .. run ./tools/buildargs); docker build $args -f Dockerfile -t aggregator:latest ..
+    @set -eu; args=$(go -C .. run ./tools/buildargs); docker build $args -f Dockerfile -t aggregator:latest ..
 
 build-rc:
-    @set -euo pipefail; args=$(go -C .. run ./tools/buildargs); docker build $args -f Dockerfile -t aggregator:rc ..
+    @set -eu; args=$(go -C .. run ./tools/buildargs); docker build $args -f Dockerfile -t aggregator:rc ..
 
 build-dev:
     docker build -f Dockerfile.dev -t aggregator:dev ..
