@@ -13,7 +13,7 @@ RUN --mount=type=cache,target=/go/pkg/mod,id=ccv-go-mod \
 COPY . .
 
 ARG VERIFIER_TYPE=committee
-# Build identity for the version/commit metrics; see tools/bin/build-args.
+# Build identity for the version/commit metrics; see tools/buildargs.
 ARG VERSION=unset
 ARG COMMIT_SHA=unset
 WORKDIR /cmd/verifier/${VERIFIER_TYPE}

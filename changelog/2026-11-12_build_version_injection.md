@@ -35,7 +35,9 @@ behavior changes; nothing reads these values yet.
 - `static.Unset` — the sentinel `"unset"`, for a tree that is not a namable commit.
 
 Both variables are set at link time with `-X github.com/smartcontractkit/chainlink-ccv/common/static.Version=…`
-and `…/common/static.Sha=…`. A plain `go build` and every `go test` leave both `unset`.
+and `…/common/static.Sha=…`. A plain `go build` and every `go test` leave both `unset`. The repo-hygiene
+workflow runs `TestInjectedTogether` with both values injected: a broken `-ldflags` path fails silently,
+so CI asserts the value actually lands.
 
 ### Build identity derivation
 
@@ -58,7 +60,8 @@ $ go run ./tools/buildargs
 - Pseudo-versions come from `golang.org/x/mod/module.PseudoVersion`, so the base bump, timestamp and
   12-character revision follow Go's rules rather than a local approximation.
 - Only root tags matching `v[0-9]*.[0-9]*.[0-9]*` count. Module tags (`deployment/vX.Y.Z`,
-  `verifier/v0.0.4-rc`) are ignored.
+  `verifier/v0.0.4-rc`) are ignored, and so are bare prerelease tags (`v0.18.0-rc1`), which the
+  glob cannot distinguish from releases — the version derives from the nearest real release.
 - A shallow clone is reported as `unset` rather than `v0.0.0-…`: without history or tags, a derived
   pseudo-version would sort below every release it actually follows. `COMMIT_SHA` still identifies the
   build, so this is not an error.

@@ -11,7 +11,7 @@ RUN --mount=type=cache,target=/go/pkg/mod,id=ccv-go-mod \
 
 # Then copy the rest of the source and build
 COPY . .
-# Build identity for the version/commit metrics; see tools/bin/build-args.
+# Build identity for the version/commit metrics; see tools/buildargs.
 ARG VERSION=unset
 ARG COMMIT_SHA=unset
 RUN --mount=type=cache,target=/root/.cache/go-build,id=ccv-go-build \

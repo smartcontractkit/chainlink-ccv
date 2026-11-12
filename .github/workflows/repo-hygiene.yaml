@@ -53,6 +53,14 @@ jobs:
       - name: Run repo hygiene checks
         run: tools/bin/check_repo_clean.sh tidy mock generate shellcheck
 
+      # The Dockerfiles inject Version/Sha by -ldflags path; a broken path is silent, so
+      # assert the value actually lands rather than trusting the flags.
+      - name: Check build identity injection
+        run: |
+          go test -v -run TestInjectedTogether \
+            -ldflags="-X github.com/smartcontractkit/chainlink-ccv/common/static.Version=ci -X github.com/smartcontractkit/chainlink-ccv/common/static.Sha=$(git rev-parse HEAD)" \
+            ./common/static | grep 'Version="ci"'
+
       - name: Check metrics golden files are up to date
         run: just metrics-golden-verify
 

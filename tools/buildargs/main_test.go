@@ -96,6 +96,28 @@ func TestDerive(t *testing.T) {
 		}
 	})
 
+	t.Run("bare prerelease tag is not a release", func(t *testing.T) {
+		dir := newRepo(t)
+		runGit(t, dir, "tag", "v0.18.0-rc1")
+
+		if id := derive(dir); !strings.HasPrefix(id.version, "v0.0.0-") {
+			t.Fatalf("version = %q, want a pseudo-version: a bare prerelease tag is not a release", id.version)
+		}
+	})
+
+	t.Run("prerelease tag is not a pseudo-version base", func(t *testing.T) {
+		dir := newRepo(t)
+		runGit(t, dir, "tag", "v0.18.0")
+		commit(t, dir, "two")
+		runGit(t, dir, "tag", "v0.18.1-rc1")
+		commit(t, dir, "three")
+
+		id := derive(dir)
+		if !regexp.MustCompile(`^v0\.18\.1-0\.\d{14}-[0-9a-f]{12}$`).MatchString(id.version) {
+			t.Fatalf("version = %q, want a v0.18.1-0 pseudo-version based on v0.18.0, not the prerelease", id.version)
+		}
+	})
+
 	t.Run("mtime-only change keeps the version", func(t *testing.T) {
 		dir := newRepo(t)
 		runGit(t, dir, "tag", "v0.18.0")

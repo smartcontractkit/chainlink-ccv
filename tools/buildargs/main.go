@@ -21,6 +21,10 @@ const unset = "unset"
 // releaseTag matches root release tags; module tags such as deployment/vX.Y.Z do not match.
 const releaseTag = "v[0-9]*.[0-9]*.[0-9]*"
 
+// excludePrerelease drops bare prerelease tags (v0.18.0-rc1), which the glob cannot
+// distinguish from releases.
+const excludePrerelease = "*-*"
+
 // shortRevLen is the hash length in a Go pseudo-version.
 const shortRevLen = 12
 
@@ -100,7 +104,7 @@ func derive(repo string) identity {
 		return identity{version: unset, sha: sha, warning: "working tree has uncommitted changes"}
 	}
 
-	if tag, err := git(repo, "describe", "--tags", "--exact-match", "--match", releaseTag); err == nil {
+	if tag, err := git(repo, "describe", "--tags", "--exact-match", "--match", releaseTag, "--exclude", excludePrerelease); err == nil {
 		return identity{version: tag, sha: sha}
 	}
 
@@ -113,7 +117,7 @@ func derive(repo string) identity {
 		return identity{version: unset, sha: sha}
 	}
 
-	base, err := git(repo, "describe", "--tags", "--abbrev=0", "--match", releaseTag)
+	base, err := git(repo, "describe", "--tags", "--abbrev=0", "--match", releaseTag, "--exclude", excludePrerelease)
 	if err != nil {
 		base = ""
 	}
