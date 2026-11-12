@@ -55,7 +55,8 @@ $ ./tools/bin/build-args
 Git is read on the host, not inside the image: `.dockerignore` excludes `.git`.
 
 `--kv` prints the same values as `KEY=VALUE` lines, the format `docker/build-push-action`
-takes, for callers that go through a reusable workflow instead of `docker build`:
+takes, for callers that go through a reusable workflow instead of `docker build`. `--repo <path>`
+describes another checkout, such as a worktree of an older ref:
 
 ### Dockerfiles
 
@@ -71,7 +72,9 @@ build:
 ```
 
 Same for `build-rc`, `build/devenv`'s `build-images-at`, and the GCP Marketplace job in
-`.github/workflows/release-publish.yaml`.
+`.github/workflows/release-publish.yaml`. `build-images-at` passes `--repo <worktree>` so it describes the
+ref it is about to build, and calls the current checkout's script because the older ref has no
+`tools/bin/build-args` of its own.
 
 Public ECR release images go through the reusable `reusable-docker-build-publish.yml` workflow, which
 forwards its input verbatim to `docker/build-push-action`'s `build-args` (`KEY=VALUE` lines, not
