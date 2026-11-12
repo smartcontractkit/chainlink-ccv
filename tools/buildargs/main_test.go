@@ -50,6 +50,21 @@ func write(t *testing.T, dir, name, content string) {
 	}
 }
 
+// shallowClone clones origin at depth 1, optionally of a specific ref, and returns its path.
+func shallowClone(t *testing.T, origin, ref string) string {
+	t.Helper()
+	dest := filepath.Join(t.TempDir(), "shallow")
+	args := []string{"clone", "--depth", "1"}
+	if ref != "" {
+		args = append(args, "--branch", ref)
+	}
+	args = append(args, "file://"+origin, dest)
+	if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+		t.Fatalf("clone: %v\n%s", err, out)
+	}
+	return dest
+}
+
 func TestDerive(t *testing.T) {
 	t.Run("exact release tag", func(t *testing.T) {
 		dir := newRepo(t)
@@ -160,18 +175,54 @@ func TestDerive(t *testing.T) {
 		runGit(t, origin, "tag", "v0.18.0")
 		commit(t, origin, "two")
 
-		shallow := filepath.Join(t.TempDir(), "shallow")
-		cmd := exec.Command("git", "clone", "--depth", "1", "file://"+origin, shallow)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("clone: %v\n%s", err, out)
-		}
-
-		id := derive(shallow)
+		id := derive(shallowClone(t, origin, ""))
 		if id.version != unset {
 			t.Fatalf("version = %q, want %s", id.version, unset)
 		}
 		if id.warning == "" {
 			t.Fatal("want a warning explaining why the version is unset")
+		}
+	})
+
+	t.Run("shallow clone at a release tag reports the tag", func(t *testing.T) {
+		origin := newRepo(t)
+		runGit(t, origin, "tag", "v0.18.0")
+
+		// A shallow clone still fetches the tag ref, so the release can be named even though
+		// ancestry is missing; only the pseudo-version needs that.
+		if id := derive(shallowClone(t, origin, "v0.18.0")); id.version != "v0.18.0" {
+			t.Fatalf("version = %q, want v0.18.0", id.version)
+		}
+	})
+
+	t.Run("tag that is not canonical semver is ignored", func(t *testing.T) {
+		dir := newRepo(t)
+		runGit(t, dir, "tag", "v0.18.0")
+		commit(t, dir, "two")
+		runGit(t, dir, "tag", "v1.0.0foo")
+
+		// The nearest tag is junk, so the base must come from the last real release.
+		id := derive(dir)
+		if !strings.HasPrefix(id.version, "v0.18.1-0.") {
+			t.Fatalf("version = %q, want a v0.18.1-0.<ts>-<rev> pseudo-version", id.version)
+		}
+	})
+
+	t.Run("only a non-canonical tag means no base", func(t *testing.T) {
+		dir := newRepo(t)
+		runGit(t, dir, "tag", "v1xxx.2xxx.3xxx")
+
+		if id := derive(dir); !strings.HasPrefix(id.version, "v0.0.0-") {
+			t.Fatalf("version = %q, want the junk tag to be ignored", id.version)
+		}
+	})
+
+	t.Run("prerelease tag is not a release", func(t *testing.T) {
+		dir := newRepo(t)
+		runGit(t, dir, "tag", "v0.19.0-rc1")
+
+		if id := derive(dir); strings.Contains(id.version, "rc1") {
+			t.Fatalf("version = %q, want no prerelease tag", id.version)
 		}
 	})
 

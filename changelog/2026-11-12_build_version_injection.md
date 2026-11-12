@@ -54,17 +54,20 @@ $ go run ./tools/buildargs
 | HEAD after a root release tag | pseudo-version of HEAD, e.g. `v0.18.1-0.20261112144744-8add7e137610` |
 | no reachable root release tag | `v0.0.0-<timestamp>-<rev>` |
 | uncommitted tracked changes | `unset` |
-| shallow clone | `unset`, with a warning on stderr |
-| not a git checkout | `unset` |
+| shallow clone | `unset`, with a warning on stderr, unless HEAD is exactly a release tag |
+| not a git checkout | build fails |
 
 - Pseudo-versions come from `golang.org/x/mod/module.PseudoVersion`, so the base bump, timestamp and
   12-character revision follow Go's rules rather than a local approximation.
 - Only root tags matching `v[0-9]*.[0-9]*.[0-9]*` count. Module tags (`deployment/vX.Y.Z`,
   `verifier/v0.0.4-rc`) are ignored, and so are bare prerelease tags (`v0.18.0-rc1`), which the
   glob cannot distinguish from releases — the version derives from the nearest real release.
-- A shallow clone is reported as `unset` rather than `v0.0.0-…`: without history or tags, a derived
-  pseudo-version would sort below every release it actually follows. `COMMIT_SHA` still identifies the
-  build, so this is not an error.
+- That glob is not a regex, so every candidate is also checked for canonical semver. A malformed tag
+  (`v1.0.0foo`) is skipped rather than published: `module.PseudoVersion` does not validate its base and
+  would otherwise claim a release that does not exist.
+- A shallow clone is reported as `unset` rather than `v0.0.0-…`: without history, a derived
+  pseudo-version would sort below every release it follows. A tag at HEAD still resolves, so a build from
+  a release ref names its release, and `COMMIT_SHA` identifies the build in every case.
 - A checkout with no git metadata is an **error**, not `unset`: the command exits 1, so the image is never
   built without identity. Nothing downstream could tell such an image from a correctly built one.
 - Modifications are detected by content, not by stat: regenerating a file with identical content

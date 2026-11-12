@@ -13,12 +13,14 @@ import (
 	"time"
 
 	"golang.org/x/mod/module"
+	"golang.org/x/mod/semver"
 )
 
 // unset marks a tree that is not a commit we can name: dirty, shallow, or not a repo.
 const unset = "unset"
 
-// releaseTag matches root release tags; module tags such as deployment/vX.Y.Z do not match.
+// releaseTag prefilters root release tags; module tags such as deployment/vX.Y.Z do not match.
+// It is a git glob, not a regex, so candidates are checked against semver before use.
 const releaseTag = "v[0-9]*.[0-9]*.[0-9]*"
 
 // excludePrerelease drops bare prerelease tags (v0.18.0-rc1), which the glob cannot
@@ -27,6 +29,9 @@ const excludePrerelease = "*-*"
 
 // shortRevLen is the hash length in a Go pseudo-version.
 const shortRevLen = 12
+
+// maxTagCandidates bounds the search for a release tag that is canonical semver.
+const maxTagCandidates = 5
 
 type identity struct {
 	version string
@@ -88,12 +93,7 @@ func derive(repo string) identity {
 		return identity{version: unset, sha: unset}
 	}
 
-	// A shallow clone cannot see the tags or ancestry a pseudo-version needs, and deriving one
-	// anyway would report a build older than the release it follows.
-	if shallow, err := git(repo, "rev-parse", "--is-shallow-repository"); err == nil && shallow == "true" {
-		return identity{version: unset, sha: sha, warning: "shallow clone: no version can be derived"}
-	}
-
+	// A dirty tree cannot be named by any commit, tag or not.
 	// Content-based, unlike a stat-only comparison: regenerating a file with identical content
 	// (config docs, say) must not read as a modification. -uno keeps untracked build output out.
 	status, err := git(repo, "--no-optional-locks", "status", "--porcelain", "--untracked-files=no")
@@ -104,8 +104,16 @@ func derive(repo string) identity {
 		return identity{version: unset, sha: sha, warning: "working tree has uncommitted changes"}
 	}
 
-	if tag, err := git(repo, "describe", "--tags", "--exact-match", "--match", releaseTag, "--exclude", excludePrerelease); err == nil {
+	// Checked before the shallow guard: a shallow clone still carries the tag ref, so a build
+	// from a release ref can name its release.
+	if tag, err := git(repo, "describe", "--tags", "--exact-match", "--match", releaseTag, "--exclude", excludePrerelease); err == nil && isReleaseTag(tag) {
 		return identity{version: tag, sha: sha}
+	}
+
+	// A shallow clone cannot see the ancestry a pseudo-version needs, and deriving one anyway
+	// would report a build older than the release it follows.
+	if shallow, err := git(repo, "rev-parse", "--is-shallow-repository"); err == nil && shallow == "true" {
+		return identity{version: unset, sha: sha, warning: "shallow clone: no version can be derived"}
 	}
 
 	committedAt, err := git(repo, "log", "-1", "--format=%ct")
@@ -117,10 +125,7 @@ func derive(repo string) identity {
 		return identity{version: unset, sha: sha}
 	}
 
-	base, err := git(repo, "describe", "--tags", "--abbrev=0", "--match", releaseTag, "--exclude", excludePrerelease)
-	if err != nil {
-		base = ""
-	}
+	base := nearestTag(repo)
 
 	rev := sha
 	if len(rev) > shortRevLen {
@@ -128,6 +133,35 @@ func derive(repo string) identity {
 	}
 	version := module.PseudoVersion(major(base), base, time.Unix(seconds, 0).UTC(), rev)
 	return identity{version: version, sha: sha}
+}
+
+// isReleaseTag reports whether tag can name a release: canonical semver with no prerelease.
+// The glob above also matches junk such as v1.0.0foo, and module.PseudoVersion does not validate
+// its base, so an unchecked tag would produce a version claiming a release that does not exist.
+func isReleaseTag(tag string) bool {
+	return tag != "" && semver.Canonical(tag) == tag && semver.Prerelease(tag) == ""
+}
+
+// nearestTag returns the closest reachable release tag, skipping tags that cannot name a release
+// so a mistyped tag does not become a pseudo-version base.
+func nearestTag(repo string) string {
+	excluded := make([]string, 0, maxTagCandidates)
+	for range maxTagCandidates {
+		args := make([]string, 0, 7+2*len(excluded))
+		args = append(args, "describe", "--tags", "--abbrev=0", "--match", releaseTag, "--exclude", excludePrerelease)
+		for _, tag := range excluded {
+			args = append(args, "--exclude", tag)
+		}
+		tag, err := git(repo, args...)
+		if err != nil {
+			return ""
+		}
+		if isReleaseTag(tag) {
+			return tag
+		}
+		excluded = append(excluded, tag)
+	}
+	return ""
 }
 
 // major returns the major version of a release tag, or v0 when there is no base tag.
