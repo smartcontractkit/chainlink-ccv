@@ -136,8 +136,8 @@ func TestDurableQueue_DedupPerAggregationKey(t *testing.T) {
 	assert.Equal(t, 2, size, "one pending job per aggregation key")
 }
 
-// TestDurableQueue_SameKeyNeverAggregatedConcurrently is CCIP-14089's acceptance case: while replica b
-// aggregates a key, a write on replica a queues a re-run that neither replica starts until b finishes.
+// TestDurableQueue_SameKeyNeverAggregatedConcurrently is CCIP-14089's acceptance case: while one replica
+// aggregates a key, a new write queues a re-run that neither replica starts until the first run finishes.
 func TestDurableQueue_SameKeyNeverAggregatedConcurrently(t *testing.T) {
 	ds, cleanup := testutil.SetupTestPostgresDB(t)
 	defer cleanup()
@@ -194,18 +194,18 @@ func TestDurableQueue_SameKeyNeverAggregatedConcurrently(t *testing.T) {
 
 	trigger := model.AggregationTrigger{MessageID: []byte("message"), AggregationKey: "agg-key"}
 	require.NoError(t, b.CheckAggregation(ctx, trigger))
-	require.Equal(t, "b", nextStart())
+	first := nextStart() // either replica may claim the shared job
 
-	// a wakes on its own write and tries to claim, but the key is still running on b.
+	// A second write queues a re-run, but neither replica may start it while the first run holds the key.
 	require.NoError(t, a.CheckAggregation(ctx, trigger))
 	select {
 	case name := <-started:
-		t.Fatalf("replica %s started the key while b was still aggregating it", name)
+		t.Fatalf("replica %s started the key while %s was still aggregating it", name, first)
 	case <-time.After(500 * time.Millisecond):
 	}
 
 	release <- struct{}{}
-	nextStart() // the queued re-run starts once b releases the key
+	nextStart() // the queued re-run starts once the first run releases the key
 	release <- struct{}{}
 	assert.Equal(t, int64(1), maxActive.Load(), "a key must never be aggregated by two workers at once")
 }

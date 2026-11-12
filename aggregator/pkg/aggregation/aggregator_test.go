@@ -753,7 +753,8 @@ func TestStartBackground_Shutdown(t *testing.T) {
 
 		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{BackgroundWorkerCount: 1, DrainTimeout: 50 * time.Millisecond}}
 		queue := newFakeQueue()
-		a := NewCommitReportAggregator(store, nil, sink, quorum, config, logger.Sugared(logger.Test(t)), monitoring, queue)
+		// Nop logger: the abandoned worker keeps logging after the test returns.
+		a := NewCommitReportAggregator(store, nil, sink, quorum, config, logger.Sugared(logger.Nop()), monitoring, queue)
 
 		ctx, cancel := context.WithCancel(t.Context())
 		a.StartBackground(ctx)

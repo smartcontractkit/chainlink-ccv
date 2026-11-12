@@ -460,12 +460,12 @@ func setupAggregatorTestFixture(t *testing.T) *aggregatorTestFixture {
 	// Setup aggregator with 2-of-3 threshold
 	sourceChainSelStr := fmt.Sprintf("%d", sourceChainSel)
 	out, err := services.NewAggregator(&services.AggregatorInput{
-		CommitteeName:   committeeName,
-		Image:           "aggregator:latest",
-		HostPort:        8110,
-		ExposedHostPort: grpcHostPort, // Expose gRPC port directly for test
-		SourceCodePath:  "../../../aggregator",
-		RootPath:        "../../../../",
+		CommitteeName:         committeeName,
+		Image:                 "aggregator:latest",
+		HostPort:              8110,
+		ExposedHostPort:       grpcHostPort, // Expose gRPC port directly for test
+		SourceCodePath:        "../../../aggregator",
+		RootPath:              "../../../../",
 		BackgroundWorkerCount: 1, // Single worker = slow drain for deterministic tests
 		DB: &services.AggregatorDBInput{
 			Image:    "postgres:16-alpine",
