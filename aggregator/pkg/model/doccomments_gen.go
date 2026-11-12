@@ -17,7 +17,7 @@ func (AggregationConfig) DocComments() map[string]commentparsing.FieldDoc {
 		"ChannelBufferSize":     {Comment: "Deprecated: ignored since aggregation moved to the durable job queue; accepted so existing configs still load."},
 		"DrainTimeout":          {Comment: "DrainTimeout bounds how long shutdown waits for in-flight aggregation workers to complete.\nAfter this duration, shutdown proceeds and in-flight work is dropped. (0 = use default 10s)"},
 		"MaxConsecutiveErrors":  {Comment: "MaxConsecutiveErrors is the maximum number of consecutive errors allowed before the aggregation is considered failed"},
-		"OperationTimeout":      {Comment: "OperationTimeout bounds each aggregation operation (default 30s). Must be under the 2m job lock."},
+		"OperationTimeout":      {Comment: "OperationTimeout bounds each aggregation operation (default 30s, at most 90s)."},
 	}
 }
 

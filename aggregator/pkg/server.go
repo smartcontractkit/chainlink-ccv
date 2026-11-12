@@ -191,6 +191,8 @@ func (s *Server) Start(lis net.Listener) error {
 	g.Add(func() error {
 		s.aggregator.StartBackground(aggregatorCtx)
 		<-aggregatorCtx.Done()
+		// Wait for in-flight jobs to finish or be retried; abandoned ones would block their key until reclaimed.
+		<-s.aggregator.Done()
 		return nil
 	}, func(error) {
 		aggregatorCancel()
@@ -337,6 +339,9 @@ func NewServer(ctx context.Context, l logger.SugaredLogger, config *model.Aggreg
 		"orphan_recovery_enabled", config.OrphanRecovery.Enabled,
 		"aggregation_workers", config.Aggregation.BackgroundWorkerCount,
 	)
+	if config.Aggregation.ChannelBufferSize != 0 { //nolint:staticcheck // warn on the deprecated field
+		l.Warnw("aggregation.channelBufferSize is deprecated and ignored; the aggregation queue is durable")
+	}
 
 	// Fallible middlewares are built before storage is opened: NewServer error
 	// paths must never leak an already-connected database pool.

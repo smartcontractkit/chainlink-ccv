@@ -35,7 +35,7 @@ const (
 	cleanupInterval      = 1 * time.Hour
 	// retentionPeriod keeps archived jobs for debugging only; nothing reads them.
 	retentionPeriod       = 24 * time.Hour
-	queueOperationTimeout = 30 * time.Second
+	queueOperationTimeout = model.AggregationQueueOpTimeout
 	retryDelay            = 30 * time.Second
 )
 
@@ -65,6 +65,8 @@ type CommitReportAggregator struct {
 	done                 chan struct{}
 	maxConsecutiveErrors uint32
 	consecutiveErrors    atomic.Uint32
+	// consecutiveClaimErrors counts failed queue claims; no worker runs when claims fail.
+	consecutiveClaimErrors atomic.Uint32
 
 	// inFlight counts claimed jobs not yet finished; claims never exceed the free worker slots.
 	inFlight atomic.Int64
@@ -353,8 +355,8 @@ func (c *CommitReportAggregator) StartBackground(ctx context.Context) {
 	}()
 }
 
-// consumeBatch claims at most one job per free worker slot, so a claimed job starts at once
-// and its lock never ages unstarted. A full claim marks w starved; the next finishing worker re-arms it.
+// consumeBatch claims at most one job per free worker slot, so a claimed job starts at once and its
+// lock never ages unstarted. w stays starved unless the claim drained the queue, so a finishing worker re-arms it.
 func (c *CommitReportAggregator) consumeBatch(
 	ctx context.Context,
 	p *pool.ContextPool,
@@ -362,20 +364,23 @@ func (c *CommitReportAggregator) consumeBatch(
 	consume func(context.Context, int) ([]jobqueue.Job[aggregationRequest], error),
 	consumeErrMsg string,
 ) {
+	// Set before reading inFlight, so a worker that finishes in between still re-arms w.
+	w.starved.Store(true)
 	free := c.backgroundWorkerCount - int(c.inFlight.Load())
 	if free <= 0 {
-		w.starved.Store(true)
 		return
 	}
 	consumeCtx, cancel := context.WithTimeout(ctx, queueOperationTimeout)
 	jobs, err := consume(consumeCtx, free)
 	cancel()
 	if err != nil {
+		c.consecutiveClaimErrors.Add(1)
 		c.logger(ctx).Errorw(consumeErrMsg, "error", err)
 		return
 	}
-	if len(jobs) == free {
-		w.starved.Store(true)
+	c.consecutiveClaimErrors.Store(0)
+	if len(jobs) < free {
+		w.starved.Store(false)
 	}
 	for _, job := range jobs {
 		c.submitWork(p, job)
@@ -461,6 +466,13 @@ func (c *CommitReportAggregator) waitForPool(lggr logger.SugaredLogger, p *pool.
 	}
 }
 
+// Done is closed once the background worker has drained after StartBackground's context ends.
+func (c *CommitReportAggregator) Done() <-chan struct{} {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.done
+}
+
 func (c *CommitReportAggregator) Ready() error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -478,6 +490,9 @@ func (c *CommitReportAggregator) Ready() error {
 	if c.maxConsecutiveErrors != 0 {
 		if c.consecutiveErrors.Load() >= c.maxConsecutiveErrors {
 			return fmt.Errorf("aggregation worker failed %d times in a row", c.consecutiveErrors.Load())
+		}
+		if c.consecutiveClaimErrors.Load() >= c.maxConsecutiveErrors {
+			return fmt.Errorf("aggregation queue claim failed %d times in a row", c.consecutiveClaimErrors.Load())
 		}
 	}
 

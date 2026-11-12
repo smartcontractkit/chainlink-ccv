@@ -19,6 +19,8 @@ type fakeQueue struct {
 	signals chan struct{}
 	// claims records the batch size of every ConsumePending call.
 	claims []int
+	// consumeErr, when set, makes ConsumePending fail.
+	consumeErr error
 }
 
 func newFakeQueue() *fakeQueue {
@@ -47,6 +49,9 @@ func (q *fakeQueue) ConsumePending(_ context.Context, batchSize int) ([]jobqueue
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.claims = append(q.claims, batchSize)
+	if q.consumeErr != nil {
+		return nil, q.consumeErr
+	}
 	if len(q.pending) < batchSize {
 		batchSize = len(q.pending)
 	}
@@ -77,6 +82,12 @@ func (q *fakeQueue) Size(context.Context) (int, error) {
 	return len(q.pending), nil
 }
 
+func (q *fakeQueue) setConsumeErr(err error) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.consumeErr = err
+}
+
 func (q *fakeQueue) claimSizes() []int {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -85,4 +96,4 @@ func (q *fakeQueue) claimSizes() []int {
 
 func (q *fakeQueue) Name() string { return "fake_aggregation_jobs" }
 
-var _ Queue = (*fakeQueue)(nil)
+var _ jobqueue.JobQueue[aggregationRequest] = (*fakeQueue)(nil)

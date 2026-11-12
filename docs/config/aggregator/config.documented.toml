@@ -95,7 +95,7 @@ maxCommitVerifierNodeResultRequestsPerBatch = 100
 [aggregation]
   # backgroundWorkerCount controls the number of background workers processing aggregation requests
   backgroundWorkerCount = 10
-  # operationTimeout bounds each aggregation operation (default 30s). Must be under the 2m job lock.
+  # operationTimeout bounds each aggregation operation (default 30s, at most 90s).
   operationTimeout = "30s"
   # drainTimeout bounds how long shutdown waits for in-flight aggregation workers to complete.
   # After this duration, shutdown proceeds and in-flight work is dropped. (0 = use default 10s)

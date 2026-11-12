@@ -298,10 +298,10 @@ func TestValidateAggregationConfig(t *testing.T) {
 			errorMsg:    "operationTimeout must be greater than 0",
 		},
 		{
-			name:        "operation timeout at the job lock fails",
-			mutate:      func(c *AggregationConfig) { c.OperationTimeout = AggregationJobLockDuration },
+			name:        "operation timeout above the maximum fails",
+			mutate:      func(c *AggregationConfig) { c.OperationTimeout = MaxAggregationOperationTimeout + time.Second },
 			expectError: true,
-			errorMsg:    "less than the 2m0s job lock",
+			errorMsg:    "at most 1m30s",
 		},
 		{
 			name:        "zero drain timeout fails",

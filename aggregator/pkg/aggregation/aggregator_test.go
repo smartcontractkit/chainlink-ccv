@@ -891,3 +891,34 @@ func TestCheckAggregation_EnqueuesOnlyKeysAtQuorumThreshold(t *testing.T) {
 		assert.Len(t, queued(q), len(triggers))
 	})
 }
+
+func TestReady_ReportsRepeatedQueueClaimFailures(t *testing.T) {
+	monitoring := mocks.NewMockAggregatorMonitoring(t)
+	testutil.StubTracing(monitoring)
+	monitoring.EXPECT().Metrics().Return(mocks.NewMockAggregatorMetricLabeler(t)).Maybe()
+	store := mocks.NewMockCommitVerificationStore(t)
+	store.EXPECT().ListCommitVerificationByAggregationKey(mock.Anything, mock.Anything, mock.Anything).Return(nil, nil).Maybe()
+	quorum := mocks.NewMockQuorumValidator(t)
+	quorum.EXPECT().CheckQuorum(mock.Anything, mock.Anything).Return(false, nil).Maybe()
+	config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{BackgroundWorkerCount: 1, MaxConsecutiveErrors: 2}}
+	queue := newFakeQueue()
+	queue.setConsumeErr(errors.New("database is read-only"))
+	a := NewCommitReportAggregator(store, nil, mocks.NewMockSink(t), quorum, config, logger.Sugared(logger.Test(t)), monitoring, queue)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	a.StartBackground(ctx)
+	trigger := model.AggregationTrigger{MessageID: []byte{1}, AggregationKey: "key"}
+
+	require.Eventually(t, func() bool {
+		_ = a.CheckAggregation(ctx, trigger)
+		return a.Ready() != nil
+	}, 5*time.Second, 20*time.Millisecond, "repeated claim failures must make the aggregator not ready")
+	assert.ErrorContains(t, a.Ready(), "aggregation queue claim failed")
+
+	queue.setConsumeErr(nil)
+	require.Eventually(t, func() bool {
+		_ = a.CheckAggregation(ctx, trigger)
+		return a.Ready() == nil
+	}, 5*time.Second, 20*time.Millisecond, "a successful claim must clear the failure count")
+}

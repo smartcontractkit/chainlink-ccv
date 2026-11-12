@@ -19,8 +19,8 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-// TestDurableQueue_SingleAggregatorProcessesEachRequest runs two aggregator replicas
-// against one database and asserts every published request is processed exactly once.
+// TestDurableQueue_SingleAggregatorProcessesEachRequest runs two replicas on one database and
+// checks that, without failures, each published request is processed by exactly one of them.
 func TestDurableQueue_SingleAggregatorProcessesEachRequest(t *testing.T) {
 	ds, cleanup := testutil.SetupTestPostgresDB(t)
 	defer cleanup()
@@ -82,6 +82,11 @@ func TestDurableQueue_SingleAggregatorProcessesEachRequest(t *testing.T) {
 
 	replicaA.StartBackground(ctx)
 	replicaB.StartBackground(ctx)
+	defer func() {
+		cancel()
+		<-replicaA.Done()
+		<-replicaB.Done()
+	}()
 
 	require.Eventually(t, func() bool {
 		return countA.Load()+countB.Load() >= requestCount
@@ -131,14 +136,16 @@ func TestDurableQueue_DedupPerAggregationKey(t *testing.T) {
 	assert.Equal(t, 2, size, "one pending job per aggregation key")
 }
 
-// TestDurableQueue_SameKeyNeverAggregatedConcurrently is CCIP-14089's acceptance case: writes for one
-// key keep arriving on both replicas, yet only one replica aggregates that key at any moment.
+// TestDurableQueue_SameKeyNeverAggregatedConcurrently is CCIP-14089's acceptance case: while replica b
+// aggregates a key, a write on replica a queues a re-run that neither replica starts until b finishes.
 func TestDurableQueue_SameKeyNeverAggregatedConcurrently(t *testing.T) {
 	ds, cleanup := testutil.SetupTestPostgresDB(t)
 	defer cleanup()
 	require.NoError(t, postgres.RunMigrationsContext(t.Context(), ds, "postgres"))
 
-	var active, maxActive, runs atomic.Int64
+	var active, maxActive atomic.Int64
+	started := make(chan string, 10)
+	release := make(chan struct{})
 	newReplica := func(name string) *CommitReportAggregator {
 		store := mocks.NewMockCommitVerificationStore(t)
 		store.EXPECT().ListCommitVerificationByAggregationKey(mock.Anything, mock.Anything, mock.Anything).
@@ -146,9 +153,9 @@ func TestDurableQueue_SameKeyNeverAggregatedConcurrently(t *testing.T) {
 				n := active.Add(1)
 				for m := maxActive.Load(); n > m && !maxActive.CompareAndSwap(m, n); m = maxActive.Load() {
 				}
-				time.Sleep(50 * time.Millisecond)
+				started <- name
+				<-release
 				active.Add(-1)
-				runs.Add(1)
 				return nil, nil
 			}).Maybe()
 		quorum := mocks.NewMockQuorumValidator(t)
@@ -165,24 +172,40 @@ func TestDurableQueue_SameKeyNeverAggregatedConcurrently(t *testing.T) {
 		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{BackgroundWorkerCount: 4}}
 		return NewCommitReportAggregator(store, nil, mocks.NewMockSink(t), quorum, config, lggr, monitoring, queue)
 	}
-
-	replicas := []*CommitReportAggregator{newReplica("a"), newReplica("b")}
+	a, b := newReplica("a"), newReplica("b")
 	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	for _, r := range replicas {
-		r.StartBackground(ctx)
+	a.StartBackground(ctx)
+	b.StartBackground(ctx)
+	defer func() {
+		cancel()
+		close(release)
+		<-a.Done()
+		<-b.Done()
+	}()
+	nextStart := func() string {
+		select {
+		case name := <-started:
+			return name
+		case <-time.After(5 * time.Second):
+			t.Fatal("no aggregation started")
+			return ""
+		}
 	}
 
 	trigger := model.AggregationTrigger{MessageID: []byte("message"), AggregationKey: "agg-key"}
-	for i := range 20 {
-		require.NoError(t, replicas[i%2].CheckAggregation(ctx, trigger))
-		time.Sleep(10 * time.Millisecond)
-	}
-	require.Eventually(t, func() bool {
-		size, err := replicas[0].queue.Size(t.Context())
-		return err == nil && size == 0
-	}, 10*time.Second, 20*time.Millisecond, "queue did not drain")
+	require.NoError(t, b.CheckAggregation(ctx, trigger))
+	require.Equal(t, "b", nextStart())
 
+	// a wakes on its own write and tries to claim, but the key is still running on b.
+	require.NoError(t, a.CheckAggregation(ctx, trigger))
+	select {
+	case name := <-started:
+		t.Fatalf("replica %s started the key while b was still aggregating it", name)
+	case <-time.After(500 * time.Millisecond):
+	}
+
+	release <- struct{}{}
+	nextStart() // the queued re-run starts once b releases the key
+	release <- struct{}{}
 	assert.Equal(t, int64(1), maxActive.Load(), "a key must never be aggregated by two workers at once")
-	assert.GreaterOrEqual(t, runs.Load(), int64(2), "writes during a run must queue a re-run")
 }

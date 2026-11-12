@@ -788,10 +788,7 @@ func TestRetry(t *testing.T) {
 	assert.Equal(t, 2, consumed2[0].AttemptCount)
 }
 
-// TestRetry_PendingSiblingAvoidsUniqueViolation mirrors the aggregator's schema, which
-// scopes its (owner_id, chain_selector, message_id) unique index to status='pending' so a
-// publish arriving while an earlier job is 'processing' queues a fresh pending row. If that
-// earlier job then fails, Retry must not try to re-pend it into collision with the sibling.
+// Under SerializePerKey, Retry fails the job instead of re-pending it when a pending sibling holds its key.
 func TestRetry_PendingSiblingAvoidsUniqueViolation(t *testing.T) {
 	db := testutil.NewTestDB(t)
 	ctx := context.Background()
@@ -868,6 +865,42 @@ func TestSerializePerKey_OneJobPerKeyAtATime(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, next, 1)
 	assert.Equal(t, "k", next[0].Payload.Key)
+}
+
+func TestSerializePerKey_RetryRacingPublishFailsTheJob(t *testing.T) {
+	db := testutil.NewTestDB(t)
+	ctx := context.Background()
+
+	const table = "jobqueue_retry_race_test"
+	_, err := db.ExecContext(ctx, jobqueue.CreateTablesSQLSerializePerKey(table))
+	require.NoError(t, err)
+	q, err := jobqueue.NewPostgresJobQueue[keylessJob](db, jobqueue.QueueConfig{
+		Name: table, OwnerID: "owner", RetryDuration: time.Hour, LockDuration: time.Minute, SerializePerKey: true,
+	}, logger.Test(t))
+	require.NoError(t, err)
+
+	require.NoError(t, q.Publish(ctx, keylessJob{Key: "k"}))
+	consumed, err := q.ConsumePending(ctx, 1)
+	require.NoError(t, err)
+	require.Len(t, consumed, 1)
+
+	// An uncommitted sibling is invisible to Retry's snapshot but holds the pending index entry.
+	tx, err := db.BeginTxx(ctx, nil)
+	require.NoError(t, err)
+	_, err = tx.ExecContext(ctx, fmt.Sprintf(`INSERT INTO %s (job_id, owner_id, dedup_key, task_data, retry_deadline)
+		VALUES (gen_random_uuid(), 'owner', 'k', '{"key":"k"}', NOW() + INTERVAL '1 hour')`, table))
+	require.NoError(t, err)
+
+	retried := make(chan error, 1)
+	go func() {
+		retried <- q.Retry(ctx, 0, map[string]error{consumed[0].ID: errors.New("transient")}, consumed[0].ID)
+	}()
+	time.Sleep(200 * time.Millisecond)
+	require.NoError(t, tx.Commit())
+
+	require.NoError(t, <-retried)
+	assert.Equal(t, 1, countRows(t, db, table, jobqueue.JobStatusPending), "only the sibling stays pending")
+	assert.Equal(t, 1, countRows(t, db, table+"_archive", jobqueue.JobStatusFailed))
 }
 
 func TestSerializePerKey_RequiresDedupKeyColumn(t *testing.T) {

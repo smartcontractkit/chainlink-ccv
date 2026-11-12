@@ -241,6 +241,37 @@ func (d *DatabaseStorage) GetCommitVerification(ctx context.Context, id model.Co
 // ListCommitVerificationByAggregationKey returns the latest verification record per signer for a
 // given (message_id, aggregation_key). Used to collect the quorum inputs before creating an
 // aggregated report.
+func (d *DatabaseStorage) ListCommitVerificationByAggregationKey(ctx context.Context, messageID model.MessageID, aggregationKey model.AggregationKey) ([]*model.CommitVerificationRecord, error) {
+	ctx, cancel := d.withTimeout(ctx)
+	defer cancel()
+
+	stmt := fmt.Sprintf(`SELECT DISTINCT ON (signer_identifier) %s
+		FROM commit_verification_records 
+		WHERE message_id = $1 AND aggregation_key = $2
+		ORDER BY signer_identifier, seq_num DESC`, allVerificationRecordColumns)
+
+	messageIDHex := protocol.ByteSlice(messageID).String()
+
+	var rows []commitVerificationRecordRow
+	err := d.ds.SelectContext(ctx, &rows, stmt, messageIDHex, aggregationKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query commit verification records: %w", err)
+	}
+
+	records := make([]*model.CommitVerificationRecord, 0, len(rows))
+	for _, row := range rows {
+		record, err := rowToCommitVerificationRecord(&row)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert row to record: %w", err)
+		}
+		records = append(records, record)
+	}
+
+	return records, nil
+}
+
+// CountSigners counts the distinct signers per trigger's (message_id, aggregation_key) and reads the
+// message's source chain from message_data.
 func (d *DatabaseStorage) CountSigners(ctx context.Context, triggers []model.AggregationTrigger) (map[model.AggregationKey]model.SignerCount, error) {
 	if len(triggers) == 0 {
 		return make(map[model.AggregationKey]model.SignerCount), nil
@@ -279,35 +310,6 @@ func (d *DatabaseStorage) CountSigners(ctx context.Context, triggers []model.Agg
 		counts[row.AggregationKey] = model.SignerCount{Signers: row.Signers, SourceChainSelector: selector}
 	}
 	return counts, nil
-}
-
-func (d *DatabaseStorage) ListCommitVerificationByAggregationKey(ctx context.Context, messageID model.MessageID, aggregationKey model.AggregationKey) ([]*model.CommitVerificationRecord, error) {
-	ctx, cancel := d.withTimeout(ctx)
-	defer cancel()
-
-	stmt := fmt.Sprintf(`SELECT DISTINCT ON (signer_identifier) %s
-		FROM commit_verification_records 
-		WHERE message_id = $1 AND aggregation_key = $2
-		ORDER BY signer_identifier, seq_num DESC`, allVerificationRecordColumns)
-
-	messageIDHex := protocol.ByteSlice(messageID).String()
-
-	var rows []commitVerificationRecordRow
-	err := d.ds.SelectContext(ctx, &rows, stmt, messageIDHex, aggregationKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query commit verification records: %w", err)
-	}
-
-	records := make([]*model.CommitVerificationRecord, 0, len(rows))
-	for _, row := range rows {
-		record, err := rowToCommitVerificationRecord(&row)
-		if err != nil {
-			return nil, fmt.Errorf("failed to convert row to record: %w", err)
-		}
-		records = append(records, record)
-	}
-
-	return records, nil
 }
 
 // maxVerificationRecordsPerMessage limits the rows that ListCommitVerificationByMessageID reads.

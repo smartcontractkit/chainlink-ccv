@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 	"strings"
@@ -449,7 +450,21 @@ func (q *PostgresJobQueue[T]) signalKeyReleased() {
 
 // Retry schedules jobs for retry after delay.
 // If the retry deadline has been exceeded, jobs are marked as failed and archived.
-func (q *PostgresJobQueue[T]) Retry(ctx context.Context, delay time.Duration, errors map[string]error, jobIDs ...string) error {
+func (q *PostgresJobQueue[T]) Retry(ctx context.Context, delay time.Duration, errs map[string]error, jobIDs ...string) error {
+	err := q.retry(ctx, delay, errs, jobIDs...)
+	if q.serializePerKey && isUniqueViolation(err) {
+		// A sibling was published after the guard's snapshot; a fresh attempt sees it and fails the job.
+		err = q.retry(ctx, delay, errs, jobIDs...)
+	}
+	return err
+}
+
+func isUniqueViolation(err error) bool {
+	var pgErr interface{ SQLState() string }
+	return errors.As(err, &pgErr) && pgErr.SQLState() == "23505"
+}
+
+func (q *PostgresJobQueue[T]) retry(ctx context.Context, delay time.Duration, errors map[string]error, jobIDs ...string) error {
 	if len(jobIDs) == 0 {
 		return nil
 	}
@@ -468,19 +483,14 @@ func (q *PostgresJobQueue[T]) Retry(ctx context.Context, delay time.Duration, er
 	// so the job is failed instead and the sibling covers the retry.
 	siblingGuard := ""
 	if q.serializePerKey {
-		siblingCols := strings.Split(q.conflictCols, ", ")
-		conds := make([]string, len(siblingCols))
-		for i, c := range siblingCols {
-			conds[i] = fmt.Sprintf("t2.%[1]s = t.%[1]s", c)
-		}
 		siblingGuard = fmt.Sprintf(`
 			        WHEN EXISTS (
 			            SELECT 1 FROM %s t2
 			            WHERE t2.owner_id = t.owner_id
-			              AND %s
+			              AND t2.dedup_key = t.dedup_key
 			              AND t2.status = $2
 			              AND t2.id <> t.id
-			        ) THEN $1`, q.tableName, strings.Join(conds, " AND "))
+			        ) THEN $1`, q.tableName)
 	}
 
 	err := sqlutil.TransactDataSource(ctx, q.ds, nil, func(tx sqlutil.DataSource) error {
