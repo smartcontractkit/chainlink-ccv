@@ -2,8 +2,9 @@
 
 ## Executive Summary
 
-- Adds an optional `[keystore.kms.key_ids]` table mapping a key name to its KMS key, overriding the per-type default (`ecdsa_key_id` / `ed25519_key_id`).
+- Adds a `[keystore.kms.key_ids]` table mapping each declared key name to its KMS key.
 - Lets a service declare several `WithKey` keys of the same type on the KMS backend; previously they collided on the single per-type key.
+- Deprecates `ecdsa_key_id` and `ed25519_key_id`; they cannot be combined with `key_ids`.
 - `verifyKeys` now reports every inaccessible KMS key in one error instead of the first.
 - No breaking changes: without `key_ids`, resolution is unchanged.
 
@@ -23,15 +24,15 @@
 
 ```toml
 [keystore.kms]
-provider     = "aws"
-ecdsa_key_id = "<default-ecdsa-key-id>"
+provider = "aws"
 
 [keystore.kms.key_ids]
-"evm/tx/transmitter"    = "<evm-key-id>"
-"solana/tx/transmitter" = "<solana-key-id>"
+"evm/tx/transmitter"      = "<evm-key-id>"
+"solana/tx/transmitter"   = "<solana-key-id>"
+bootstrap_default_csa_key = "<csa-key-id>"
 ```
 
-Each declared key resolves from its `key_ids` entry, else the default for its type. Startup fails if an entry is empty or names no declared key, or if two keys resolve to the same KMS key.
+Every declared key needs an entry, and every entry must name a declared key. The CSA key is provisioned only when `bootstrap_default_csa_key` is mapped; JD mode requires it. Startup fails if an entry is empty or two keys resolve to the same KMS key.
 
 ## verifyKeys
 

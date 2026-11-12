@@ -22,7 +22,7 @@ type signerReader interface {
 // API, so over-validating here would risk rejecting valid identifiers; only emptiness is rejected.
 func ValidateAWSKeyID(keyID string) error {
 	if keyID == "" {
-		return errors.New("AWS KMS key ID must not be empty: set ecdsa_key_id / ed25519_key_id to a Key ID or ARN")
+		return errors.New("AWS KMS key ID must not be empty: configure a Key ID or ARN")
 	}
 	return nil
 }

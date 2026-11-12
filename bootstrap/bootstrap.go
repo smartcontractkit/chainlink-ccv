@@ -5,8 +5,10 @@ import (
 	"crypto"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -796,8 +798,8 @@ func hasCSAKey(keys []keyToInit) bool {
 // given keystore config. It is the single source of truth shared by the bootstrapper and external tooling such as devenv, which must know whether the info
 // server will expose a CSA key before requesting it.
 //
-// The CSA key exists in every case except a KMS backend with no ed25519_key_id: postgres always
-// generates one for free; KMS uses the configured ed25519_key_id.
+// The CSA key exists in every case except a KMS backend with no CSA key configured: postgres always
+// generates one for free; KMS uses ed25519_key_id, or the key_ids entry for DefaultCSAKeyName.
 func CSAKeyRequired(ks KeystoreConfig) bool {
 	backend, err := ks.resolveBackend()
 	if err != nil {
@@ -806,6 +808,10 @@ func CSAKeyRequired(ks KeystoreConfig) bool {
 		return true
 	}
 	if backend == KeystoreBackendKMS {
+		if ks.KMS.usesKeyIDs() {
+			_, ok := ks.KMS.KeyIDs[DefaultCSAKeyName]
+			return ok
+		}
 		return ks.KMS.Ed25519KeyID != ""
 	}
 	return true
@@ -970,11 +976,12 @@ func resolveKeyImport(backend KeystoreBackend, requiredKeys []keyToInit, keyImpo
 }
 
 // buildKMSNameMap maps logical key names to KMS key identifiers (a Key ID/ARN for AWS, or a
-// CryptoKeyVersion resource name for GCP). A key_ids entry overrides the per-type default. The
-// supported key types and the config field each draws its identifier from are declared as data
-// (keyIDByType) rather than control flow, so adding a type is a one-line table entry.
+// CryptoKeyVersion resource name for GCP). With key_ids, every declared key must be mapped by name;
+// otherwise each key draws from its per-type field. The supported key types and the config field
+// each draws its identifier from are declared as data (keyIDByType) rather than control flow, so
+// adding a type is a one-line table entry.
 func buildKMSNameMap(cfg KMSKeystoreConfig, requiredKeys []keyToInit) (map[string]string, error) {
-	if err := cfg.validateProvider(); err != nil {
+	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
 	provider, err := cfg.resolveProvider()
@@ -1002,8 +1009,8 @@ func buildKMSNameMap(cfg KMSKeystoreConfig, requiredKeys []keyToInit) (map[strin
 		if !supported {
 			return nil, fmt.Errorf("KMS does not support key type %q for key %q", k.keyType, k.name)
 		}
-		if id, ok := cfg.KeyIDs[k.name]; ok {
-			entry.id, entry.tomlName = id, fmt.Sprintf("key_ids entry %q", k.name)
+		if cfg.usesKeyIDs() {
+			entry.id, entry.tomlName = cfg.KeyIDs[k.name], fmt.Sprintf("key_ids entry %q", k.name)
 		}
 		if entry.id == "" {
 			return nil, fmt.Errorf("KMS %s is required for key %q (type %q)", entry.tomlName, k.name, k.keyType)
@@ -1021,9 +1028,10 @@ func buildKMSNameMap(cfg KMSKeystoreConfig, requiredKeys []keyToInit) (map[strin
 		assignedTo[entry.id] = k.name
 		nameToID[k.name] = entry.id
 	}
-	for name := range cfg.KeyIDs {
+	for _, name := range slices.Sorted(maps.Keys(cfg.KeyIDs)) {
 		if _, declared := nameToID[name]; !declared {
-			return nil, fmt.Errorf("KMS key_ids entry %q matches no key this application declares", name)
+			return nil, fmt.Errorf("KMS key_ids entry %q matches no key this application declares (declared: %v)",
+				name, slices.Sorted(maps.Keys(nameToID)))
 		}
 	}
 	return nameToID, nil

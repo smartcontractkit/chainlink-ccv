@@ -34,9 +34,9 @@ func (JDConfig) DocComments() map[string]commentparsing.FieldDoc {
 func (KMSKeystoreConfig) DocComments() map[string]commentparsing.FieldDoc {
 	return map[string]commentparsing.FieldDoc{
 		"AWSKMSConfig": {Comment: "AWS holds the AWS-specific settings. Only valid when provider is \"aws\"."},
-		"EcdsaKeyID":   {Comment: "EcdsaKeyID is the KMS key for ECDSA_S256 (secp256k1) signing keys. AWS: a Key ID or ARN.\nGCP: a CryptoKeyVersion resource name (projects/<p>/locations/<l>/keyRings/<r>/cryptoKeys/<k>/cryptoKeyVersions/<n>)."},
-		"Ed25519KeyID": {Comment: "Ed25519KeyID is the KMS key for Ed25519 keys (e.g. the CSA key for JD auth), same format as\nEcdsaKeyID. Required in JD mode, where the CSA key authenticates the node to JD. Optional in\nlocal mode, where the CSA key only backs Beholder auth: set it to enable that, omit it to run\nwith no Ed25519 key at all."},
-		"KeyIDs":       {Comment: "KeyIDs maps a key name to its KMS key, overriding the per-type default."},
+		"EcdsaKeyID":   {Comment: "EcdsaKeyID is the KMS key for ECDSA_S256 (secp256k1) signing keys. AWS: a Key ID or ARN.\nDeprecated: use KeyIDs instead.\nGCP: a CryptoKeyVersion resource name (projects/<p>/locations/<l>/keyRings/<r>/cryptoKeys/<k>/cryptoKeyVersions/<n>)."},
+		"Ed25519KeyID": {Comment: "Ed25519KeyID is the KMS key for Ed25519 keys (e.g. the CSA key for JD auth), same format as\nEcdsaKeyID. Required in JD mode, where the CSA key authenticates the node to JD. Optional in\nlocal mode, where the CSA key only backs Beholder auth: set it to enable that, omit it to run\nwith no Ed25519 key at all. Deprecated: use KeyIDs instead."},
+		"KeyIDs":       {Comment: "KeyIDs maps each key the application declares to its KMS key, so several keys of one type can\ncoexist. The CSA key is provisioned only when DefaultCSAKeyName is mapped."},
 		"Provider":     {Comment: "Provider selects the cloud KMS provider: \"aws\" or \"gcp\". Required when backend is \"kms\"."},
 	}
 }

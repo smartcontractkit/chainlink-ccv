@@ -153,34 +153,33 @@ The `[keystore].backend` key selects where private keys live:
   `[keystore].password` in the bootstrap Postgres database. Requires `[db].url` and
   `[keystore].password`.
 - `kms`: keys live in AWS KMS and private key material never leaves KMS; the bootstrapper holds
-  only IAM credentials. Configure one KMS Key ID per declared key under `[keystore.kms]`
-  (`ecdsa_key_id`, `ed25519_key_id`). No database or password is needed for the keystore itself
+  only IAM credentials. Map each declared key to its KMS key under `[keystore.kms.key_ids]`. No database or password is needed for the keystore itself
   (JD mode still needs `[db]` for the job store).
-
-The `ecdsa_key_id` and `ed25519_key_id` fields provide per-type defaults.
-`[keystore.kms.key_ids]` maps a key declared with `WithKey` to its own
-KMS key, so a service can hold several keys of one type:
 
 ```toml
 [keystore.kms]
-provider     = "aws"
-ecdsa_key_id = "<default-ecdsa-key-id>"
+provider = "aws"
 
 [keystore.kms.key_ids]
-"evm/tx/transmitter"    = "<evm-key-id>"
-"solana/tx/transmitter" = "<solana-key-id>"
+"evm/tx/transmitter"      = "<evm-key-id>"
+"solana/tx/transmitter"   = "<solana-key-id>"
+bootstrap_default_csa_key = "<csa-key-id>"
 ```
 
-Startup fails if an entry is empty or names no declared key, or if two keys resolve to the same
-KMS key. Every inaccessible KMS key is reported in a single error.
+Every declared key must have an entry and every entry must name a declared key. Two keys cannot
+share a KMS key. Every inaccessible KMS key is reported in a single error.
+
+`ecdsa_key_id` and `ed25519_key_id` are deprecated per-type fields that map every key of that type
+to one KMS key. They cannot be combined with `key_ids`.
 
 The Ed25519 requirement is mode-driven, not backend-driven. The Ed25519 CSA key authenticates the
-node to JD, so it is mandatory in JD mode — with KMS that means `ed25519_key_id` is required. In
-local mode there is no JD and the CSA key only backs Beholder telemetry auth, so it is optional:
-the postgres backend still generates one for free, while the KMS backend uses one only when
-`ed25519_key_id` is explicitly set (KMS keys cannot be created by the service). Omit it to run a
-local-mode KMS deployment with no Ed25519 key at all; Beholder then sends telemetry without auth
-headers.
+node to JD, so it is mandatory in JD mode — with KMS that means `ed25519_key_id`, or a 
+`bootstrap_default_csa_key` entry under `key_ids`, is required. In local mode there is no JD and
+the CSA key only backs Beholder telemetry auth, so it is optional: the postgres backend still 
+generates one for free, while the KMS backend uses one only when `ed25519_key_id` or the 
+`bootstrap_default_csa_key` entry is set (KMS keys cannot be created by the service). 
+Omit it to run a local-mode KMS deployment with no Ed25519 key at all; Beholder then sends 
+telemetry without auth headers.
 
 | Mode  | Backend  | CSA (Ed25519) key         | `ed25519_key_id` |
 |-------|----------|---------------------------|------------------|
