@@ -34,6 +34,12 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
       - name: Install Just
         uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # v3
         with:
@@ -95,6 +101,12 @@ jobs:
     permissions: { contents: read, id-token: write }
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
       - uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2
         with:
           project_id: ${{ secrets.GCP_PROJECT_ID }}
@@ -103,8 +115,9 @@ jobs:
       - run: gcloud auth configure-docker us-docker.pkg.dev --quiet
       - run: |
           IMG_TAG="${GITHUB_REF_NAME#v}"
+          args=$(go run ./tools/buildargs)
           docker buildx build --platform linux/amd64,linux/arm64 \
-            -f ${{ matrix.dockerfile }} ${{ matrix.build_args }} \
+            -f ${{ matrix.dockerfile }} ${{ matrix.build_args }} $args \
             --annotation "index:com.googleapis.cloudmarketplace.product.service.name=services/chainlink-ccv-starter-kit.endpoints.chainlink-labs-ltd-public.cloud.goog" \
             -t us-docker.pkg.dev/chainlink-labs-ltd-public/google-marketplace-chainlink-ccv/${{ matrix.image }}:${{ github.ref_name }} \
             -t us-docker.pkg.dev/chainlink-labs-ltd-public/google-marketplace-chainlink-ccv/${{ matrix.image }}:${IMG_TAG} \
@@ -121,10 +134,34 @@ jobs:
         id: out
         run: echo "bare-version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
+  compute-build-identity:
+    name: Compute build identity
+    runs-on: ubuntu-latest
+    permissions: { contents: read }
+    outputs:
+      args: ${{ steps.out.outputs.args }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Derive VERSION and COMMIT_SHA
+        id: out
+        run: |
+          args=$(go run ./tools/buildargs --kv)
+          {
+            echo "args<<EOF"
+            echo "$args"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
   build-public:
     name: Build, sign & publish public ${{ matrix.module }} image
     if: github.repository == 'smartcontractkit/chainlink-ccv'
-    needs: compute-tags
+    needs: [compute-tags, compute-build-identity]
     strategy:
       fail-fast: false
       matrix:
@@ -147,7 +184,9 @@ jobs:
       build-arm64-image: 'true'
       dockerfile: ${{ matrix.dockerfile }}
       docker-build-context: .
-      docker-build-args: ${{ matrix.build_args }}
+      docker-build-args: |
+        ${{ matrix.build_args }}
+        ${{ needs.compute-build-identity.outputs.args }}
       docker-manifest-sign: 'true'
       docker-manifest-additional-tags: ${{ needs.compute-tags.outputs.bare-version }}
       docker-registry-url-override: public.ecr.aws/chainlink
