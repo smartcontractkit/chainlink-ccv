@@ -85,9 +85,9 @@ build-images-at ref tag services="":
     trap 'git worktree remove --force "$dir"' EXIT
     git worktree add --detach "$dir" "{{ ref }}" >/dev/null
     echo "Building service images of $(git -C "$dir" rev-parse --short HEAD) as :{{ tag }}"
-    # Describe the ref being built, not this checkout, and use this checkout's script so
+    # Describe the ref being built, not this checkout, and run this checkout's tool so
     # refs that predate it still build.
-    build_args=$("../../tools/bin/build-args" --repo "$dir")
+    build_args=$(go -C ../.. run ./tools/buildargs --repo "$dir")
     for svc in verifier executor indexer aggregator; do
         if want "$svc"; then docker build $build_args -f "$dir/$svc/Dockerfile" -t "$svc:{{ tag }}" "$dir"; fi
     done

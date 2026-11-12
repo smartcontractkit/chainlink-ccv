@@ -7,12 +7,18 @@ default:
     just --list
 
 build:
-    docker build `../tools/bin/build-args` -f Dockerfile -t verifier:latest ..
-    docker build `../tools/bin/build-args` -f Dockerfile --build-arg VERIFIER_TYPE=token -t token-verifier:latest ..
+    #!/usr/bin/env bash
+    set -euo pipefail
+    args=$(go -C .. run ./tools/buildargs)
+    docker build $args -f Dockerfile -t verifier:latest ..
+    docker build $args -f Dockerfile --build-arg VERIFIER_TYPE=token -t token-verifier:latest ..
 
 build-rc:
-    docker build `../tools/bin/build-args` -f Dockerfile -t verifier:rc ..
-    docker build `../tools/bin/build-args` -f Dockerfile --build-arg VERIFIER_TYPE=token -t token-verifier:rc ..
+    #!/usr/bin/env bash
+    set -euo pipefail
+    args=$(go -C .. run ./tools/buildargs)
+    docker build $args -f Dockerfile -t verifier:rc ..
+    docker build $args -f Dockerfile --build-arg VERIFIER_TYPE=token -t token-verifier:rc ..
 
 build-dev:
     docker build -f Dockerfile.dev -t verifier:dev ..

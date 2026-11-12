@@ -7,13 +7,13 @@ default:
     just --list
 
 build:
-    docker build `../tools/bin/build-args` -f Dockerfile -t indexer:latest ..
+    @set -euo pipefail; args=$(go -C .. run ./tools/buildargs); docker build $args -f Dockerfile -t indexer:latest ..
 
 build-replay:
     cd .. && go build -o indexer/bin/indexer-replay ./indexer/cmd/replay/main.go
 
 build-rc:
-    docker build `../tools/bin/build-args` -f Dockerfile -t indexer:rc ..
+    @set -euo pipefail; args=$(go -C .. run ./tools/buildargs); docker build $args -f Dockerfile -t indexer:rc ..
 
 build-dev:
     docker build -f Dockerfile.dev -t indexer:dev ..
