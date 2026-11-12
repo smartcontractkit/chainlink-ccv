@@ -400,9 +400,11 @@ type NonSecretConfig struct {
 	[keystore.kms]
 	profile = "my-aws-profile"
 	region = "us-east-1"
-	ecdsa_key_id = "arn:aws:kms:us-east-1:...:key/abc123-..."
-	# Required in JD mode (the JD CSA key is Ed25519); optional in local mode.
-	ed25519_key_id = "arn:aws:kms:us-east-1:...:key/def456-..."
+
+	[keystore.kms.key_ids]
+	# bootstrap_default_csa_key is required in JD mode (the JD CSA key is Ed25519); optional in local mode.
+	bootstrap_default_csa_key = "arn:aws:kms:us-east-1:...:key/def456-..."
+	"evm/tx/transmitter" = "arn:aws:kms:us-east-1:...:key/abc123-..."
 
 	[db]
 	url = "postgres://localhost:5432/bootstrapper"
