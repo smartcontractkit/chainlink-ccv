@@ -8,6 +8,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/google/uuid"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	commontypes "github.com/smartcontractkit/chainlink-common/pkg/types"
 	"github.com/smartcontractkit/chainlink-evm/gethwrappers/shared/generated/initial/erc20"
 	"github.com/smartcontractkit/chainlink-evm/pkg/keys"
 	"github.com/smartcontractkit/chainlink-evm/pkg/txmgr"
@@ -87,9 +89,9 @@ func NewEVMFeeQuoterWriter(lggr logger.Logger, client batchClient, address commo
 // UpdatePrices reads the token decimals, scales the token prices to the on-chain format and submits one
 // updatePrices transaction to the TXM, returning once it is accepted. Without a TXM it only logs.
 // Gas prices are in USD per gas unit with 1e18 precision.
-func (w *EVMFeeQuoterWriter) UpdatePrices(ctx context.Context, tokenPrices []protocol.FeeTokenPriceUpdate, gasPrices []protocol.GasTokenPriceUpdate) error {
+func (w *EVMFeeQuoterWriter) UpdatePrices(ctx context.Context, tokenPrices []protocol.FeeTokenPriceUpdate, gasPrices []protocol.GasTokenPriceUpdate) (string, error) {
 	if len(tokenPrices) == 0 && len(gasPrices) == 0 {
-		return nil
+		return "", nil
 	}
 	tokenAddresses := make([]common.Address, len(tokenPrices))
 	for i, update := range tokenPrices {
@@ -97,16 +99,16 @@ func (w *EVMFeeQuoterWriter) UpdatePrices(ctx context.Context, tokenPrices []pro
 	}
 	decimals, err := w.tokenDecimals(ctx, tokenAddresses)
 	if err != nil {
-		return err
+		return "", err
 	}
 	tokenPrices = w.withDecimals(tokenPrices, decimals)
 	if len(tokenPrices) == 0 && len(gasPrices) == 0 {
 		w.lggr.Warn("No token and gas price updates to be made")
-		return nil
+		return "", nil
 	}
 	scaledTokenPrices, err := scaleTokenPrices(tokenPrices, decimals)
 	if err != nil {
-		return err
+		return "", err
 	}
 	formattedTokenPrices := make([]fee_quoter.InternalTokenPriceUpdate, 0, len(scaledTokenPrices))
 	for _, token := range scaledTokenPrices {
@@ -134,23 +136,26 @@ func (w *EVMFeeQuoterWriter) UpdatePrices(ctx context.Context, tokenPrices []pro
 			"feeQuoter", w.address.Hex(),
 			"prices", priceUpdates,
 		)
-		return nil
+		return "", nil
 	}
 	return w.send(ctx, priceUpdates)
 }
 
 // send submits updatePrices to the TXM. It does not wait for the transaction to be mined.
-func (w *EVMFeeQuoterWriter) send(ctx context.Context, priceUpdates fee_quoter.InternalPriceUpdates) error {
+func (w *EVMFeeQuoterWriter) send(ctx context.Context, priceUpdates fee_quoter.InternalPriceUpdates) (string, error) {
 	payload, err := feeQuoterABI.Pack("updatePrices", priceUpdates)
 	if err != nil {
-		return fmt.Errorf("failed to abi encode updatePrices: %w", err)
+		return "", fmt.Errorf("failed to abi encode updatePrices: %w", err)
 	}
 	from, err := w.keys.GetNextAddress(ctx, w.fromAddresses...)
 	if err != nil {
-		return fmt.Errorf("failed to pick a sender address: %w", err)
+		return "", fmt.Errorf("failed to pick a sender address: %w", err)
 	}
 	updates := uint64(len(priceUpdates.TokenPriceUpdates) + len(priceUpdates.GasPriceUpdates))
-	tx, err := w.txm.CreateTransaction(ctx, txmgr.TxRequest{
+
+	txID := uuid.NewString()
+	_, err = w.txm.CreateTransaction(ctx, txmgr.TxRequest{
+		IdempotencyKey: &txID,
 		FromAddress:    from,
 		ToAddress:      w.address,
 		EncodedPayload: payload,
@@ -158,15 +163,15 @@ func (w *EVMFeeQuoterWriter) send(ctx context.Context, priceUpdates fee_quoter.I
 		Strategy:       txmgrcommon.NewSendEveryStrategy(),
 	})
 	if err != nil {
-		return fmt.Errorf("failed to create updatePrices transaction: %w", err)
+		return "", fmt.Errorf("failed to create updatePrices transaction: %w", err)
 	}
 	w.lggr.Infow("Submitted fee quoter price update to txm",
 		"feeQuoter", w.address.Hex(),
 		"tokenUpdates", len(priceUpdates.TokenPriceUpdates),
 		"gasUpdates", len(priceUpdates.GasPriceUpdates),
-		"txm key", tx.IdempotencyKey,
+		"txm key", txID,
 	)
-	return nil
+	return txID, nil
 }
 
 // withDecimals drops the updates of tokens whose decimals could not be read.
@@ -293,4 +298,13 @@ func packFeeComponents(feeComponents protocol.USDGasPrice) *big.Int {
 		execution.Set(feeComponents.ExecutionFee.ToInt())
 	}
 	return new(big.Int).Or(da.Lsh(da, packedGasPriceBits), execution)
+}
+
+// GetTransactionStatus returns the TXM's status of a transaction, by the idempotency key
+// that UpdatePrices logs as "txm key". It errors when the writer has no TXM.
+func (w *EVMFeeQuoterWriter) GetTransactionStatus(ctx context.Context, txID string) (commontypes.TransactionStatus, error) {
+	if w.txm == nil {
+		return commontypes.Unknown, errors.New("fee quoter writer has no transaction manager")
+	}
+	return w.txm.GetTransactionStatus(ctx, txID)
 }
