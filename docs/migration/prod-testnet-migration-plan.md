@@ -57,12 +57,14 @@ staging," execute the staging plan's step with the substitutions in "Conventions
   healthy, and neither aggregator developed authentication errors. This was not a complete legacy
   balance recovery: the accepted exceptions included 12 unconfirmed withdrawals (11 Shibarium and
   one Metis) and the residual-balance/RPC exceptions recorded during the final audit.
-- **Temporary migration-export disposal remains open.** All 20 active verifiers reported the public
-  signer retained in `keyImport.expectedId` on 2026-11-12. Remove the export mounts through a canary
-  rollout and follow staging step 11 before deleting the key-import Secret objects or operator-held
-  copies. Legacy decommissioning did not remove these standalone key-import Secrets, external
-  password copies, or backup/snapshot versions. Do not claim unrecoverable disposal until those
-  copies are deleted or expire under the approved retention process.
+- **Temporary migration-export mounts were removed on 2026-11-13.** [chainlink-ccv-deploy #551](https://github.com/smartcontractkit/chainlink-ccv-deploy/pull/551)
+  proved the canary and [#552](https://github.com/smartcontractkit/chainlink-ccv-deploy/pull/552)
+  completed the remaining rollout. All 20 active verifiers retained their expected public signers
+  and are running without the export mounts. The remaining disposal work is approved deletion of
+  the 20 unmounted key-import Secrets and any operator-held export-password entries or backup
+  copies. Follow staging step 11 for the exact Secret and local-file cleanup; the runtime Secrets
+  mounted by these instances are `-v1` and must be preserved. Do not claim unrecoverable disposal
+  until every temporary copy is deleted or expires under the approved retention process.
 - The full-fleet two-week soak began on 2026-11-11; its earliest completion date is 2026-11-25.
   The restart/rollback drills, monitoring ownership handoff, and prod-mainnet release/config
   decisions remain open. Migration and decommissioning do not constitute prod-mainnet go/no-go.
@@ -124,7 +126,7 @@ every 8h.
 aws sso login --sso-session griddle-session
 
 # Current kubeconfig context names; adjust if your profile prefix differs.
-export CTX=griddle-platform-ccip-prod-teamccipadmin       # cluster reads, exec, scale
+export CTX=griddle-platform-ccip-prod-teamccipadmin       # cluster reads, exec, scale, approved Secret deletion
 export CTX_ENG=griddle-platform-ccip-prod-teamccipengineer # secret creation (create, not patch)
 export NS=chainlink-ccv-testnet
 

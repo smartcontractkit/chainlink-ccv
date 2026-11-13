@@ -115,7 +115,7 @@ Every command below assumes this block has been pasted into the shell. AWS SSO e
 aws sso login --sso-session griddle-session
 
 # Current kubeconfig context names; adjust if your profile prefix differs.
-export CTX=griddle-platform-ccip-stage-teamccipadmin     # cluster reads, exec, scale
+export CTX=griddle-platform-ccip-stage-teamccipadmin     # cluster reads, exec, scale, approved Secret deletion
 export CTX_ENG=griddle-platform-ccip-stage-teamccipengineer # secret creation (create, not patch)
 export NS=chainlink-ccv
 
@@ -1102,9 +1102,11 @@ kubectl --context $CTX -n $NS delete secret $VER-keyimport-v1
 ```
 
 If it has `chain.link/deletion-protection-enabled=true`, obtain explicit approval before removing
-that label. Do not delete `$VER-secrets-v2` or `$EXE-secrets-v2`; those are runtime secrets, not
-migration exports. Removing a mount does not delete the Secret, and deleting the Secret does not
-remove external or backed-up copies.
+that label. Do not delete the runtime secrets the instance files mount (`-v2` in staging, `-v1` in
+prod-testnet); they are not migration exports. In particular, prod-testnet `$VER-secrets-v1` is
+current, not an old generation, and contains the keystore password required to decrypt the stored
+signer. Removing a mount does not delete the Secret, and deleting the Secret does not remove
+external or backed-up copies.
 
 Track any backup or snapshot known to contain the temporary export or password to deletion or
 approved expiration with the infrastructure owner. Record outstanding retention dates; ordinary
