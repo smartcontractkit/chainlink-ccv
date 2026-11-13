@@ -21,7 +21,7 @@ When the [admin console](../verifier/admin-console.md) is deployed, it is the pr
 
 In plain language: use a **reschedule** when the verifier already holds the message — a failed job retained in its archive — and the fix is to run verification and policy (or just persistence) again on the saved payload. Use **source replay** when the verifier never admitted the message (curse/rule drop, missed interval, expired archive) and the source chain must be re-read to decide. Use the **investigated reader reset** for the replay special case of a finality-disabled reader, and **indexer backfill** when the verifier and aggregator are fine and only the indexer's view needs repair (the indexer's own replay tooling; not a console action). [The admin console guide](../verifier/admin-console.md#the-recovery-actions) walks through what each action does and does not do; in the console these are the actions on the message detail and source recovery pages rather than CLI invocations.
 
-On an EVM chain read through a LogPoller (a CL-mode verifier whose node runs one, or a standalone verifier with `log_poller_source_reader_enabled`; see [Source logs](../migration/evm-cl-to-standalone.md#source-logs-rpc-or-a-logpoller)), source recovery reads the LogPoller's tables, not RPC. Every start replays the LogPoller from the verifier's checkpoint, so a checkpoint rewind followed by a restart refills its range over RPC, while a live replay reads only what the LogPoller still holds. Step 4 has the details.
+On an EVM chain read through a LogPoller (a CL-mode verifier whose node runs one, or a standalone verifier with `log_poller_source_reader_enabled`; see [Source logs](../verifier/evm-standalone.md#source-logs-rpc-or-a-logpoller)), source recovery reads the LogPoller's tables, not RPC. Every start replays the LogPoller from the verifier's checkpoint, so a checkpoint rewind followed by a restart refills its range over RPC, while a live replay reads only what the LogPoller still holds. Step 4 has the details.
 
 ## 2. Check the Time Windows
 
@@ -29,20 +29,10 @@ Automatic retry remains **7 days**, with non-retryable failures (including polic
 
 On a LogPoller-backed chain, that archive retention is independent of the LogPoller's log retention (30 days by default), and a message can age out of either first. A live replay cannot read a range whose logs the LogPoller has pruned, even while its archive rows are still reschedulable. A restart from a rewound checkpoint can, because the startup replay fetches the range over RPC again.
 
-The Verifier Recovery dashboard reports current retained failed jobs by queue, owner, source and bounded failure category. A warning starts at 23 days of archive age, giving seven days before eligibility for deletion. Collection runs once per minute. Check collection success and freshness before interpreting inventory. [Monitoring reference and provisionable alerts](../monitoring/verifier-recovery.md) include the retention warning and collector-health alert.
-
-Inventory is a count of failed **jobs**, including repeated or already recovered messages, not a distinct affected-message count or proof that reschedule is safe. Successful collection clears disappeared groups after reschedule/cleanup. Failed collection keeps the last good inventory and exposes failure/staleness; do not interpret a database outage as zero jobs.
-
-The Verifier Archive Inventory dashboard reports retained failed jobs by queue, owner, source
-chain and bounded failure category, and warns from 23 days of archive age, seven days before a
-row becomes eligible for deletion. Collection runs once a minute; check its success and freshness
-before reading the inventory, since a failed collection is not an empty archive. See the
-[monitoring reference and provisionable alerts](../monitoring/verifier-archive-inventory.md).
-
-Check `job-queue list` (step 3) for the retained rows, their `Last Error`, and `Archived At`
-before planning around reschedule. Even an archive row is only a recovery candidate: it can
-refer to a message already attested by another path, or collide with an active job. Archive
-monitoring is covered by the inventory dashboard above.
+This repo ships no archive inventory dashboard or alert, so nothing warns before rows reach the
+30-day deletion. Check `job-queue list` (step 3) for the retained rows, their `Last Error`, and
+`Archived At` before planning around reschedule. Even an archive row is only a recovery candidate:
+it can refer to a message already attested by another path, or collide with an active job.
 
 Drop evidence is separate from archives. It is retained for 30 days since its last observation and includes coverage limitations. Expired archive rows can no longer be rescheduled; source recovery remains possible when canonical source data is available.
 

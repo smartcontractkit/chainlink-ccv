@@ -9,10 +9,17 @@ verifiers in the same topology already run `mode = "standalone"`, so the per-nod
 in-file precedent. (The `staging-migration` environment is for on-chain migration work and is not
 used here.)
 
-The goal is to convert the staging committee to standalone node by node, proving the
-CL-to-standalone cutover end to end before prod runs it. This environment is live: while a node is
-mid-cutover, the chains it serves run one committee member short, so the pace is one node at a
-time with a soak between nodes. This document is written to be executed; the commands are
+The staging committee proved the CL-to-standalone cutover end to end before prod ran it. Node 1
+was the canary; the remaining nodes used two waves: 2–6, then 7–20 plus node 0. Each wave had one
+deployment PR and one combined CLD PR. **All 21 staging EVM nodes are now standalone.** The final
+wave deployed in [chainlink-ccv-deploy #523](https://github.com/smartcontractkit/chainlink-ccv-deploy/pull/523)
+and activated in [chainlink-deployments #21107](https://github.com/smartcontractkit/chainlink-deployments/pull/21107).
+Do not rerun its completed activation input.
+
+This environment was live during migration: while a node was mid-cutover, its chains ran one
+committee member short, and the aggressive waves could temporarily run below threshold. That was
+accepted only for staging and must not be copied to prod. Keep this document as the per-node
+procedure and historical record for prod-testnet, not as a request to repeat staging. Commands are
 copy-pasteable given the variables in "Conventions". Placeholders in angle brackets name the
 prerequisite or open question that produces them.
 
@@ -27,8 +34,8 @@ imported into the standalone verifier, so the on-chain committee signer set neve
 executor instead generates a fresh transmitter key that we fund; nothing on chain names the
 transmitter, so no reconfiguration is needed.
 
-Reference procedure: `chainlink-ccv/docs/migration/evm-cl-to-standalone.md`, written for external
-operators. This document adapts it for staging, where one team does both halves.
+Technical reference: [EVM standalone verifier and executor](../verifier/evm-standalone.md).
+This document adapts the CL-to-standalone cutover for staging, where one team does both halves.
 
 ## What is already done
 
@@ -41,8 +48,8 @@ operators. This document adapts it for staging, where one team does both halves.
 - Chain-setting parity: standalone carries the node config's chain-level settings over and resolves
   the same chain defaults as the `ccip` node image (chainlink-evm's plus CCIP's, embedded). Compared
   setting by setting against the DON config, the five committee chains run exactly what the CL nodes
-  run, apart from what standalone fixes itself (heads in memory, TXM v2). It needs an image built
-  after that change merged; see P2.
+  run, apart from what standalone fixes itself (heads in memory, TXM v2). The staging values pin a
+  build that includes it (P2).
 - `TestE2EMigration_CLToStandalone` (`build/devenv/tests/e2e/smoke_migration_test.go`) tests the
   key export, the import, and the JD record handoff end to end. It does not test how this plan
   delivers jobs: the test proposes the CL node's existing specs straight to the new records by JD
@@ -73,10 +80,11 @@ operators. This document adapts it for staging, where one team does both halves.
 
 ## Hard rules (from the runbook)
 
-1. One node at a time. Each EVM chain config has 10 members and threshold 6, so a chain tolerates
-   at most 4 of its members mid-cutover; with one node down every chain it serves still runs 9 of
-   6. One at a time is safe on every chain without doing per-chain arithmetic, and it mirrors the
-   prod discipline.
+1. Use node 1 as the canary, then the two staging waves above, validating each before the next.
+   Each EVM chain config has 10 members and threshold 6, so the normal budget is at most 4 members
+   mid-cutover. The aggressive staging waves can temporarily go below threshold; that is an accepted
+   staging risk, not a safe-production-budget claim. Prod still needs per-chain arithmetic and its
+   own batching discipline.
 2. Export while the node is up; stop the node before the standalone verifier starts. One JD
    record cannot have two owners.
 3. Never boot the verifier without its `[key_import]` block. Key generation happens at process
@@ -92,11 +100,12 @@ operators. This document adapts it for staging, where one team does both halves.
 6. From P1 on, every EVM `apply-verifier-config` input sets `consolidateAggregators: true`. The
    flag is read per run, not stored: a run without it goes back to one job per aggregator, and a
    standalone verifier keeps only the last job it receives, so it would write to one aggregator.
-7. Never run `apply-executor-config` for a cut-over node. It proposes by NOP alias, and after step
-   7 that alias's JD record belongs to the standalone verifier, which rejects the executor job at
-   validation. A cut-over node's executor gets its job from `jd_propose_job` (step 9). Leave
-   cut-over nodes out of `targetNops`, and run no unscoped executor input until the changeset can
-   address a separate executor record (open question 5).
+7. During the recorded migration, `jd_propose_job` preserved each executor's exact spec. Reconcile
+   that generic proposal into canonical `standalone`/`appConfig` metadata before generating NOP
+   state or relying on later executor routing. Tooling including #1590 can instead run
+   `apply-executor-config` with the executor's `executor_node_name` or `ExecutorNodeID`; without
+   one of those references or reconciled metadata, it must fail rather than target the verifier's
+   NOP alias. Never run an unscoped legacy executor input during cutover.
 
 ## Conventions
 
@@ -105,19 +114,19 @@ Every command below assumes this block has been pasted into the shell. AWS SSO e
 ```sh
 aws sso login --sso-session griddle-session
 
-# kubeconfig context names as in chainlink-ccv-deploy AGENTS.md; adjust to your kubeconfig
-export CTX=platform-ccip-stage                        # cluster reads, exec, scale
-export CTX_ENG=griddle-platform-ccip-stage-engineer   # secret creation (RBAC: create, not patch)
+# Current kubeconfig context names; adjust if your profile prefix differs.
+export CTX=griddle-platform-ccip-stage-teamccipadmin     # cluster reads, exec, scale, approved Secret deletion
+export CTX_ENG=griddle-platform-ccip-stage-teamccipengineer # secret creation (create, not patch)
 export NS=chainlink-ccv
 
-CCV=~/dev/dev/chainlink-ccv
-CLD=~/dev/dev/chainlink-deployments
-DEPLOY=~/dev/dev/chainlink-ccv-deploy
+CCV=~/dev/dev2/chainlink-ccv
+CLD=~/dev/dev2/chainlink-deployments
+DEPLOY=~/dev/dev2/chainlink-ccv-deploy
 EVM_VALUES=$DEPLOY/deploy/config/staging/committee-verifier-evm/config.yaml
 
 # The chainlink-ccv commit the deployed images were built from (P2). Steps 2 and 3 run the
 # migrate tooling from a worktree at this commit, so it matches what the pods run.
-IMAGE_SHA=51125e91f2d01d4ad326efa59f8d18beec780862
+IMAGE_SHA=45c7148eaaa84fe6cc73f9baa4de12612971c665
 CCV_IMG=/tmp/ccv-image
 
 # per cutover; i = 0..20
@@ -142,8 +151,10 @@ address, and the export fails if the node behind the port-forward holds a differ
 
 Deploys are IssueOps: branch in chainlink-ccv-deploy, open a PR (ready, not draft), comment
 `.deploy stage` on it, thumbs-up the confirmation comment. There is no auto-deploy on merge, and
-the `.deploy` comment deploys every instance in the env. `gcli deploy render -e stage` and
-`gcli helm template -e stage -N <instance> -c griddle.yaml` preview locally.
+the `.deploy` comment deploys every instance in the env, rendered from the branch. Merge main into
+the branch first: a branch behind main rolls back whatever main changed since, other teams'
+releases included. `.noop stage` shows the rendered diff without pushing. `gcli deploy render -e
+stage` and `gcli helm template -e stage -N <instance> -c griddle.yaml` preview locally.
 
 Pipeline runs in chainlink-deployments are either local
 (`go run ./domains/ccv/cmd durable-pipeline run --environment staging_testnet --input-file
@@ -229,10 +240,9 @@ committee members with threshold 6, so no batch can take enough verifiers offlin
 Replace the example names with the current batch, and never run this input unscoped.
 
 ```sh
-cat > $CLD/domains/ccv/staging_testnet/durable_pipelines/inputs/consolidate_verifier_jobs.yaml <<'EOF'
+cat > $CLD/domains/ccv/staging_testnet/durable_pipelines/inputs/evm_consolidate_verifier_jobs.yaml <<'EOF'
 environment: staging_testnet
 domain: ccv
-merge-proposals: true
 changesets:
   - apply-verifier-config:
       payload:
@@ -240,24 +250,33 @@ changesets:
         defaultExecutorQualifier: "default"
         chainFamily: evm
         consolidateAggregators: true
-        revokeOrphanedJobs: true
+        revokeOrphanedJobs: false
         targetNops: ["chainlink-ccv-staging-1", "chainlink-ccv-staging-2", "chainlink-ccv-staging-3"]
 EOF
 cd $CLD
 go run ./domains/ccv/cmd durable-pipeline run --environment staging_testnet \
-  --input-file consolidate_verifier_jobs.yaml --dry-run
+  --input-file evm_consolidate_verifier_jobs.yaml --dry-run
 # then without --dry-run, or commit + /run-pipelines
 ```
 
-The payload spelling is proven: the Solana committee verifiers were consolidated with the same
-keys on 2026-10-30 (`durable_pipelines/archived/solana_consolidate_verifier_jobs_20261030_005630.yaml`).
-The EVM DON has not been; its nodes still run one job per aggregator.
+Keep `revokeOrphanedJobs: false`. The payload spelling otherwise matches the Solana consolidation
+on 2026-10-30 (`durable_pipelines/archived/solana_consolidate_verifier_jobs_20261030_005630.yaml`).
+Before P1, the EVM DON runs one job per aggregator; P1 replaces those with the consolidated default
+job while leaving the inactive secondary records alone.
 
 What P1 does to the 21 CL nodes, beyond the job count:
 
-- Each node gets a new job proposal, and a CL node holds proposals until someone approves them
-  in the JD UI. `revokeOrphanedJobs` revokes the per-aggregator jobs in the same run, so approve
-  every replacement in the current batch and verify each consolidated job before starting another batch.
+- Each node gets a new job proposal and holds it until someone approves it in the node's Feeds
+  Manager tab (operator UI, through step 3's port-forward). CL nodes only auto-approve workflow
+  specs.
+- The per-aggregator jobs keep running. A CL node only revokes pending specs, and JD refused
+  all four approved jobs in the Solana run (`job cannot be revoked`). With revocation enabled, the
+  changeset can log that failure and drop the jobs from the datastore anyway, losing information
+  later steps need. Cancel each node's two old proposals in Feeds Manager instead, which deletes
+  the jobs and tells JD (`chainlink jobs delete` refuses a feeds-manager job). Approve first, then
+  cancel: the aggregators drop duplicate signatures (`ON CONFLICT ... DO NOTHING`), while
+  cancelling first stops the node signing until the approval. Finish and verify every node in the
+  batch before starting another.
 - The consolidated job has a new `verifier_id` (`default-verifier` instead of
   `<aggregator>-default-verifier`), and chain status is keyed by `verifier_id`. The new job starts
   with no chain-status rows: no checkpoint and no disabled flags. It scans from 500 blocks behind
@@ -266,12 +285,14 @@ What P1 does to the 21 CL nodes, beyond the job count:
   `default-verifier` after P1 (`chainlink node ccv chain-statuses disable`; the change takes
   effect on the node's next start, so stop the node first).
 - Hard rule 6 starts here: every later EVM `apply-verifier-config` input sets
-  `consolidateAggregators: true`, the step 9 cutover input included.
+  `consolidateAggregators: true` and keeps `revokeOrphanedJobs: false`, step 9 included.
 
 Node 0 is also the sole member of the `secondary` committee
-(`[nop_topology.committees.secondary]` in `domains/ccv/staging_testnet/topology.toml`), so it
-carries a secondary-committee verifier job this consolidation does not touch and its preflight
-will show two jobs; see open question 1 and leave node 0 for last.
+(`[nop_topology.committees.secondary]` in `domains/ccv/staging_testnet/topology.toml`). Its secondary
+records are stale: there is no live secondary job in Feeds Manager and no secondary-aggregator
+service. There is nothing to migrate or clean up. Do not deploy a second standalone verifier and do
+not change the secondary onchain contracts. Node 0 uses only its live default verifier and executor
+in the final wave.
 
 ### P2. Images
 
@@ -280,14 +301,13 @@ the verifier, aggregator, indexer, and executor images for that commit and publi
 `containers/chainlink-ccv-<module>:<sha>-rc` (full 40-char commit SHA) to the primary and
 secondary private ECRs. The staging aggregator and indexer values already pin images this way.
 
-The staging values pin `$IMAGE_SHA-rc` (main at #1563) for both processes. Move both to a main
-commit that includes chain-setting parity (carried node settings and the embedded chain defaults)
-before node 1's window: an image without it runs gas, node-pool and head-tracker settings that
-differ from the CL node's. The tag has to be a
+The staging values pin `$IMAGE_SHA-rc` (main at #1577) for both processes. That build includes
+chain-setting parity (carried node settings and the embedded chain defaults); an older image runs
+gas, node-pool and head-tracker settings that differ from the CL node's. A later bump has to name a
 real main commit: a short SHA padded out to 40 characters names an image that was never built.
-The executor deploys at `replicas: 1` in P7, so its pod pulling the image is the check that the
-build exists, well before any cutover window; the verifier image comes from the same workflow
-run. To check directly:
+Both standalone components deploy at `replicas: 0` in P7, so no pod proves the image until the
+cutover starts. Check the image directly before approving the wave's start PR; the verifier image
+comes from the same workflow run:
 
 ```sh
 aws ecr describe-images --region us-west-2 --registry-id 809128755817 \
@@ -399,7 +419,7 @@ and it is what would need one: its `evm` schema (LogPoller blocks plus 30 days o
 `CCIPMessageSent` logs per OnRamp) goes in the database named by `[db].url` in the EVM secrets
 file, which can be the app database or its own. Those tables are forward-only migrations like the
 rest, so never point an older image at a database a newer one has migrated. See
-[Source logs](evm-cl-to-standalone.md#source-logs-rpc-or-a-logpoller).
+[Source logs](../verifier/evm-standalone.md#source-logs-rpc-or-a-logpoller).
 
 `deletionProtection: true` is enforced by Gatekeeper (`prevent-xr-deletion-protection`). Wiping
 a node's cluster after a bad cutover first takes a deploy that sets it to `false`; a delete
@@ -450,7 +470,7 @@ Running `ccv migrate inspect-config` against the staging node EVM config
 | `ethereum-testnet-sepolia-arbitrum-1` | `3478487238524512106` | `421614` | `50` | `true` | `2s` | `generic_fallback` | 3 (all WS) |
 | `ethereum-testnet-sepolia-base-1` | `10344971235874465080` | `84532` | `200` | `true` | `2s` | `generic_fallback` | 2 (all WS) |
 | `polygon-testnet-amoy` | `16281711391670634445` | `80002` | `500` | `true` | `2s` | `generic_fallback` | 2 (all WS) |
-| `avalanche-testnet-fuji` | `14767482510784806043` | `43113` | `10` | `true` | `2s` | `generic_fallback` | 2 (all WS) |
+| `avalanche-testnet-fuji` | `14767482510784806043` | `43113` | `1` | `true` | `2s` | `generic_fallback` | 2 (all WS) |
 
 No manual `Transactions.TransactionManagerV2.BlockTime` overrides are needed in the staging
 `evm-config.toml`: Ethereum Sepolia receives `12s` from `curatedTXMBlockTimeByChainID` (PR #1461),
@@ -460,10 +480,18 @@ Avalanche Fuji. Verified again in cutover step 2 with `inspect-config`.
 
 ### P6. Secrets per node
 
-Three TOMLs per node: verifier bootstrap secrets (bootstrap DB `[db].url` plus
-`[keystore].password`), verifier app secrets (app DB `[db].url` plus `[[aggregators]]` HMACs,
-reusing the creds the CL jobs use today, keyed by the P1 `secret_name`s), executor bootstrap
-secrets. Schemas: `docs/config/bootstrap/secrets.documented.toml` and
+Two runtime secrets per node before its window and a third during it, all created by hand through
+`$CTX_ENG` and never committed. The names are the ones the node's values files mount. Prepare each
+node just in time and delete each local TOML immediately after its runtime Secret create succeeds.
+
+| Secret | Key | Holds | Must exist before |
+|---|---|---|---|
+| `$EXE-secrets-v2` | `bootstrap-secrets.toml` | executor bootstrap `[db].url`, `[keystore].password` | step 6 |
+| `$VER-secrets-v2` | `bootstrap-secrets.toml` | verifier bootstrap `[db].url`, `[keystore].password` | step 6 |
+| `$VER-secrets-v2` | `verifier-secrets.toml` | verifier app `[db].url`, one `[[aggregators]]` HMAC pair per aggregator | step 6 |
+| `$VER-keyimport-v1` | `key.json`, `export-password.txt` | the step 3 export | created in step 4 |
+
+Schemas: `docs/config/bootstrap/secrets.documented.toml` and
 `docs/config/verifier/secrets.documented.toml` in chainlink-ccv. Compose the DB URLs from the P4
 connection secrets:
 
@@ -472,25 +500,77 @@ db_url() { kubectl --context $CTX -n $NS get secret "$1" -o go-template='postgre
 db_url ccv-evm-$i-verifier-bootstrap-database-connection
 ```
 
-Create versioned secrets named after the instance (create-not-patch RBAC; a change later means
-`-v2` plus a values repoint, per the canton README workflow):
+Give each process its own keystore password (`openssl rand -hex 32`). The keystore holds the
+process's CSA key, the verifier's imported signing key, and the executor's funded transmitter key,
+so keep a copy of each password outside the cluster in a secret store (for example macOS Keychain),
+not in terminal output or an unencrypted worktree.
 
-```sh
-kubectl --context $CTX_ENG -n $NS create secret generic $VER-secrets-v1 \
-  --from-file=bootstrap-secrets.toml=/tmp/$VER-bootstrap-secrets.toml \
-  --from-file=verifier-secrets.toml=/tmp/$VER-app-secrets.toml
-kubectl --context $CTX_ENG -n $NS create secret generic $EXE-secrets-v1 \
-  --from-file=bootstrap-secrets.toml=/tmp/$EXE-bootstrap-secrets.toml
+```toml
+# /tmp/$EXE-bootstrap-secrets.toml. /tmp/$VER-bootstrap-secrets.toml has the same shape, with the
+# verifier bootstrap database and its own password.
+[db]
+url = "<db_url ccv-evm-$i-executor-bootstrap-database-connection>"
+
+[keystore]
+password = "<openssl rand -hex 32>"
 ```
 
-There is no EVM secrets file (`EVM_SECRETS_PATH`, default `/etc/evm/secrets.toml`). It holds the
-standalone LogPoller's `[db].url` and is only read when a chain turns that reader on, which
-staging does not.
+```toml
+# /tmp/$VER-app-secrets.toml
+[db]
+url = "<db_url ccv-evm-$i-verifier-app-database-connection>"
 
-### P7. Griddle releases, verifiers at zero replicas
+[[aggregators]]
+secret_name = "aggregator-1-default-verifier"
+api_key = "<APIKey>"
+secret_key = "<APISecret>"
 
-Two entries per node in `$DEPLOY/griddle.yaml` under the stage env, after the Solana entries; add
-them per migration batch rather than all 42 upfront. `ccip_env: stage` matches the rest of the
+[[aggregators]]
+secret_name = "aggregator-2-default-verifier"
+api_key = "<APIKey>"
+secret_key = "<APISecret>"
+```
+
+The HMAC pairs are the ones the CL node signs with today: the `[[CCV.AggregatorSecrets]]` entries
+in the node's own secrets file, key `user-secret.toml` of the `$CL-usr-v3` secret. Each entry's
+`VerifierID` is the `secret_name` (P1's consolidated job reuses the per-aggregator verifier IDs),
+`APIKey` is `api_key`, and `APISecret` is `secret_key`. The aggregators already accept these
+pairs, so nothing changes on their side. The same file holds the node's database URL and keystore
+password, so write it to a private file instead of the terminal:
+
+```sh
+umask 077
+kubectl --context $CTX -n $NS get secret $CL-usr-v3 \
+  -o go-template='{{index .data "user-secret.toml" | base64decode}}' > /tmp/$CL-user-secret.toml
+```
+
+Create versioned secrets named after the instance (create-not-patch RBAC; a later replacement means
+`-v3` plus a values repoint, per the canton README workflow), then delete the `/tmp` files:
+
+```sh
+kubectl --context $CTX_ENG -n $NS create secret generic $EXE-secrets-v2 \
+  --from-file=bootstrap-secrets.toml=/tmp/$EXE-bootstrap-secrets.toml &&
+kubectl --context $CTX_ENG -n $NS create secret generic $VER-secrets-v2 \
+  --from-file=bootstrap-secrets.toml=/tmp/$VER-bootstrap-secrets.toml \
+  --from-file=verifier-secrets.toml=/tmp/$VER-app-secrets.toml &&
+rm -- /tmp/$EXE-bootstrap-secrets.toml /tmp/$VER-bootstrap-secrets.toml \
+  /tmp/$VER-app-secrets.toml /tmp/$CL-user-secret.toml
+```
+
+Delete these files as soon as both Secret creates succeed; do not leave them for step 11. In
+particular, the verifier bootstrap TOML contains the password that unlocks the active signing key.
+
+Nothing else here is secret. There is no EVM secrets file (`EVM_SECRETS_PATH`, default
+`/etc/evm/secrets.toml`): it holds the standalone LogPoller's `[db].url` and is only read when a
+chain turns that reader on, which staging does not. The staging verifier jobs set no
+`[policy_hook]`, the admin console on loopback needs no `[admin_ui]` credentials, the executor
+reads the indexer over plain HTTP, and the CSA keys that authenticate to JD are generated at
+first boot.
+
+### P7. Griddle releases, both components at zero replicas
+
+Two entries per node in `$DEPLOY/griddle.yaml` under the stage env, after the Solana entries. Add
+them per wave or prepare all remaining nodes at once. `ccip_env: stage` matches the rest of the
 file, though the image-sync check only requires it for the aggregator, indexer, chainlink-ccv,
 infra, and token-verifier releases. Shape:
 
@@ -521,15 +601,13 @@ infra, and token-verifier releases. Shape:
         upgrade_timeout: 5m0s
 ```
 
-The executors may run immediately (`replicas: 1`); they generate their transmitter key and idle
-until step 7 registers them, and their first pull proves the P2 image exists. The verifiers must
-not: a verifier's first boot has to happen inside its node's cutover window, after the CL node
-stops (rule 2) and its key-import secret exists. Set `replicas: 0` in each verifier's values; the
-`keyImport` block would make an early boot fail rather than generate a key, but the CL node still
-owns the JD record until step 5.
-That keeps the Deployment object present so a later scale works, and Flux drift detection is
-configured to ignore `/spec/replicas`, so a manual scale is not fought by the reconciler (it is
-only overwritten by the next actual deploy of that release). Preview before deploying:
+Set `replicas: 0` for **both** the verifier and executor in the infrastructure-prep PR. This keeps
+their Deployment objects present without starting either process. Runtime secrets are required before
+the cutover start PR, not before the zero-replica infrastructure deploy. Each verifier also carries
+`keyImport.expectedId` and the key-import volume/mounts so the cutover can change only replica counts
+and `maintenanceMode`. The database-provisioner's `upgrade_timeout` is `30m0s` because SQL role,
+database, and grant creation can outlast the default five minutes and then recover on retry. Preview
+before deploying:
 
 ```sh
 cd $DEPLOY && gcli helm template -e stage -N committee-verifier-evm-1 -c griddle.yaml
@@ -561,7 +639,7 @@ Pre-extracted from `domains/ccv/staging_testnet/state_v2.json` and `topology.tom
 
 | `i` | `NODE` (`chainlink-ccv-staging-$i`) | JD `nodeID` | `EXPECTED_ID` (`OnchainSigningAddress`) | Current `csaKey` (for rollback) | `default` Committee Chains |
 |---|---|---|---|---|---|
-| `0` | `chainlink-ccv-staging-0` | `node_tSJyxmzinkkBCTBmmWEif` | `0xf5a79545c47626e887c997947bc151dd8e1cd119` | `be7b515dcba8644713ef97b2d13d14a8bb9bd82dae57166db29c406e4e2baa51` | sepolia, base-sepolia, fuji (+ `secondary` on all 5) |
+| `0` | `chainlink-ccv-staging-0` | `node_tSJyxmzinkkBCTBmmWEif` | `0xf5a79545c47626e887c997947bc151dd8e1cd119` | `be7b515dcba8644713ef97b2d13d14a8bb9bd82dae57166db29c406e4e2baa51` | sepolia, base-sepolia, fuji (+ stale `secondary` config on all 5; no live job) |
 | `1` | `chainlink-ccv-staging-1` | `node_i2JZrhxmAg8K9fW5Gvc3p` | `0x7a73ab91f326ff363a809a0a1f2fca775a7b833a` | `90f6e2c9ff28bac3842795ba8e9376e8ab5caa22f3e2614de7525c06a9df3fa1` | sepolia, base-sepolia, fuji |
 | `2` | `chainlink-ccv-staging-2` | `node_ETjCLpmUnUZVCmbR5x2Bs` | `0xd560730b7cc1b0121285d8f00e65be7094e185e5` | `79ff7e4178d64f6e7a87f5b7d9df27b6e90dcada6a0c5c33cdf422a3521005dd` | sepolia, amoy, fuji |
 | `3` | `chainlink-ccv-staging-3` | `node_12Rgtg5jTpyodhKhqyKcQ` | `0x5f9788949ed8c6bc0aab30a23d7b987047ff2f01` | `ba310e8dee96fd13fc07d00d189262d5eb15b084bf87d1ec78aadbad0f679cd5` | sepolia, amoy, fuji |
@@ -585,7 +663,14 @@ Pre-extracted from `domains/ccv/staging_testnet/state_v2.json` and `topology.tom
 
 ### P9. Funding source
 
-Identify what funds staging node accounts today and who sends from it (open question 2).
+Use the [Internal Faucets API](https://smartcontract-it.atlassian.net/wiki/spaces/dapp/pages/585924700/Internal+Faucets+API)
+to top up the migration wallet. Request only the shortfall to **2.5 native tokens per chain**, using
+the current UI's `activeNetwork` object and `nativeTokenToSend`; do not request LINK. Do not retry
+failed or unsupported networks without investigating them, since faucet balances are limited.
+
+Fund each new executor with **0.15 native token on each of the five staging EVM chains**. That is
+0.75 per node and 2.25 for the 15-node final wave, plus funder gas. Verify every receipt and balance
+before running the CLD input.
 
 Balance alerts are out of scope for staging. The CL nodes have none today that this plan could
 carry over: `[EVM.BalanceMonitor] Enabled = true` in
@@ -594,15 +679,24 @@ chainlink-ccv-deploy defines an alert on it. The standalone executor does not ru
 monitor at all, so an unfunded transmitter surfaces as failed broadcasts. The soak in step 12
 therefore includes a manual balance check on the five testnets. Alerts are a prod item.
 
-## The cutover, per node (one at a time)
+## The cutover, by wave
+
+Apply steps 1–12 to each node in the wave. Use one deployment PR for replica counts and
+`maintenanceMode`, and one combined CLD input for CSA handoff, verifier jobs, and executor jobs.
+The combined input must be the only active file under `durable_pipelines/inputs`; archive or remove
+completed wave inputs before running it.
 
 ### 1. Preflight
 
 ```sh
 kubectl --context $CTX -n $NS exec deploy/$CL -- chainlink admin login --file /v2Secret/.api
 kubectl --context $CTX -n $NS exec deploy/$CL -- chainlink jobs list
-kubectl --context $CTX -n $NS exec deploy/$CL -- chainlink node ccv chain-statuses list
+kubectl --context $CTX -n $NS exec deploy/$CL -- bash -c 'psql "$(sed -n "/^\[Database\]/,/^\[/p" /v2Secret/secret.toml | grep -E "^\s*URL\s*=" | sed -E "s/^\s*URL\s*=\s*\"([^\"]+)\".*/\1/")" -X -c "SELECT chain_selector, verifier_id, finalized_block_height, disabled FROM ccv_chain_statuses ORDER BY 1, 2"'
 ```
+
+The chain statuses are read with `psql`, using the DB URL extraction from the chart's init container.
+`chainlink node ccv chain-statuses list` does not work here: like every local `chainlink node`
+command it takes the database lease, which the running node holds, so it waits forever.
 
 `/v2Secret/.api` is inside the node container. The `chainlink-cluster` chart mounts the node's
 `$CL-v2` secret at `/v2Secret` and starts the node with `-a /v2Secret/.api`
@@ -668,32 +762,29 @@ grep expected_id /tmp/migration-$i/verifier.key_import.toml
 grep -A1 '^keyImport:' $DEPLOY/deploy/config/staging/committee-verifier-evm/$VER.yaml   # same address
 ```
 
-Then prepare (do not deploy yet) one chainlink-ccv-deploy PR that:
+Then prepare (do not deploy yet) one chainlink-ccv-deploy PR for the wave that:
 
-- uncomments the `verifier-keyimport` volume and its two mounts in `$VER.yaml`
+- keeps the `verifier-keyimport` volume and its two mounts from P7
   (`/etc/ccv/migration/key.json` and `/etc/ccv/migration/export-password.txt`);
-- sets `replicas: 1` in `$VER.yaml`;
-- adds this node's index to `maintenanceMode.specificNodes` in
-  `deploy/config/staging/chainlink-ccv/overrides.yaml`, the durable form of step 5.
+- sets `replicas: 1` in both `$VER.yaml` and `$EXE.yaml`;
+- adds every node index in the wave to `maintenanceMode.specificNodes` in
+  `deploy/config/staging/chainlink-ccv/overrides.yaml`, retaining earlier waves' indices so no
+  earlier CL node restarts.
 
 Do not put `[key_import]` in `config.yaml`: every verifier instance shares that file.
 
-### 5. Stop the CL node
+### 5. Stop the CL nodes through the start PR
 
-```sh
-flux --context $CTX suspend helmrelease chainlink-ccv -n $NS   # freeze the DON release for the window
-kubectl --context $CTX -n $NS scale deploy/$CL --replicas=0
-kubectl --context $CTX -n $NS get pods | grep $CL              # gone; the port-forward from step 3 drops
-```
+Comment `.deploy stage` on the start PR and confirm. `maintenanceMode` stops the selected CL nodes,
+so no manual scale is required. The `chainlink-ccv` release applies before the standalone releases;
+verify every selected Deployment is at zero and its pod is gone before the standalone pods start.
+If you suspend the DON release for the window, resume it after validation so `maintenanceMode`
+continues to hold those nodes at zero durably.
 
-The suspend keeps any concurrent deploy from touching the DON release mid-window; step 11 resumes
-it, at which point the maintenanceMode entry from the step 4 PR holds the node at zero durably.
+### 6. Check the standalone pair
 
-### 6. Start the standalone pair
-
-Comment `.deploy stage` on the step 4 PR and confirm. Then check what is checkable now. No job
-exists yet, so the app ports (8100/8101) serve nothing and bootstrap `/ready` stays 503; that is
-expected here. The images are distroless (no shell, no wget), so probe over a
+No job exists yet, so the app ports (8100/8101) serve nothing and bootstrap `/ready` stays 503;
+that is expected here. The images are distroless (no shell, no wget), so probe over a
 port-forward with curl from your workstation.
 
 ```sh
@@ -722,21 +813,22 @@ done
 echo '<PublicKey>' | base64 -d | xxd -p -c 999
 ```
 
-Repoint the node's existing JD record at the verifier's CSA key (this keeps the node ID and
-alias), and register the executor as a new JD node named after its release, with a `target` label
-step 9 uses to address it. The old CSA key and the node ID are in the P8 table; rollback is
-repointing the record back at the old key.
+Repoint each node's existing JD record at its verifier's CSA key (this preserves the node ID and
+alias), and register each executor as a new JD node named after its release, with a `target` label
+step 9 uses to address it. The old CSA key and node ID are in the P8 table; rollback repoints the
+record to the old key. Put both changesets at the start of the wave's one combined input:
 
-```sh
-cat > $CLD/domains/ccv/staging_testnet/durable_pipelines/inputs/csa_handoff_node_$i.yaml <<EOF
+```yaml
 environment: staging_testnet
 domain: ccv
+merge-proposals: true
 changesets:
   - jd_update_nodes:
       payload:
         nodes:
           - id: <node_id from P8>
             csa_key: "<verifier_csa_hex>"
+          # one entry per verifier in the wave
   - jd_register_nodes:
       payload:
         domain: ccv
@@ -746,12 +838,17 @@ changesets:
             is_bootstrap: false
             labels:
               target: $EXE
-EOF
+          # one entry per executor in the wave
 ```
 
-Commit it and comment `/run-pipelines`, or run it locally (`--dry-run` first) if you have the P0
-local config. `jd_register_nodes` rewrites `domains/ccv/staging_testnet/nodes.json` from JD after a
-successful batch; make sure that change lands in the repo.
+Step 9 appends the verifier and executor changesets to this file. After approval, `/run-pipelines`
+executes the indexed changesets sequentially (`max-parallel: 1`), so the CSA updates are visible to
+the later verifier runs.
+
+`jd_register_nodes` also writes `domains/ccv/staging_testnet/nodes.json` from JD. Confirm that file
+actually lands in the PR. If the report says `was_registered: true` but the file is missing from the
+pipeline commits, add the returned executor node IDs from the registration report and leave every
+existing record unchanged. Do not rerun a successful pipeline just to regenerate it.
 
 Then wait for both processes to dial in. Each logs `Connected to Job Distributor` once JD accepts
 its key; a job proposed to a record whose owner has not dialed in sits unclaimed.
@@ -780,7 +877,7 @@ source, for example:
 
 ```sh
 for RPC in $RPC_SEPOLIA $RPC_ARB_SEPOLIA $RPC_BASE_SEPOLIA $RPC_AMOY $RPC_FUJI; do
-  cast send <evmAddress> --value 0.5ether --rpc-url $RPC --private-key $FUNDER_KEY
+  cast send <evmAddress> --value 0.15ether --rpc-url $RPC --private-key $FUNDER_KEY
 done
 ```
 
@@ -800,32 +897,41 @@ name = "chainlink-ccv-staging-1"
 mode = "standalone"
 ```
 
-The verifier job comes from `apply-verifier-config`, scoped to this node. With the mode flipped it
-emits the standalone job shape and proposes it to the record named `$NODE`, which step 7 handed to
-the standalone verifier. Do not add `apply-executor-config` to this input (rule 7).
+The verifier jobs come from `apply-verifier-config`, one changeset per node in the wave. With the
+mode flipped it emits the standalone job shape and proposes to the record named `$NODE`, which step 7
+handed to the standalone verifier. Append these to the combined input after the CSA changesets, then
+append one `jd_propose_job` per executor for the exact-spec compatibility path used in staging. Do
+not create separate verifier, executor, or CSA input files for the wave.
 
-```sh
-cat > $CLD/domains/ccv/staging_testnet/durable_pipelines/inputs/cutover_node_$i.yaml <<EOF
-environment: staging_testnet
-domain: ccv
-merge-proposals: true
-changesets:
+With tooling including #1590, a later executor update can use `apply-executor-config` after the
+NOP declares `executor_node_name = "$EXE"` (or supplies the executor node ID) and that registration
+is in the environment node list. This is also an alternative initial-delivery path when the
+registration is already persisted. Do not run it without that routing metadata; the alias now
+belongs to the verifier. On either path, compare the spec before delivery and require the existing
+job name, `externalJobID`, `executor_id`, and intended executor-pool membership.
+
+```yaml
+# One changeset per verifier after the two CSA changesets:
   - apply-verifier-config:
       payload:
         committeeQualifier: "default"
         defaultExecutorQualifier: "default"
         chainFamily: evm
         consolidateAggregators: true
+        revokeOrphanedJobs: false
         targetNops: ["$NODE"]
-EOF
-cd $CLD
-go run ./domains/ccv/cmd durable-pipeline run --environment staging_testnet \
-  --input-file cutover_node_$i.yaml --dry-run
-# then without --dry-run, or commit + /run-pipelines
+
+# One changeset per executor after all verifier changesets:
+  - jd_propose_job:
+      payload:
+        domain: ccv
+        jobspec_path: domains/ccv/staging_testnet/inputs/jobspecs/$EXE.toml
+        node_labels:
+          target: $EXE
 ```
 
-Rule 4 applies here. The changeset reads the signer from what the verifier published to JD and
-writes it into the job, so check that job before going further:
+After the run, check every generated verifier job against P8 before validating the wave. The
+changeset reads the signer from what the verifier published to JD and writes it into the job:
 
 ```sh
 jq -r --arg n "$NODE" '.metadata.offchainConfigs.nopJobs[$n][$n + "-default-verifier"].spec' \
@@ -845,29 +951,14 @@ put on the executor:
 ```sh
 SPEC=$CLD/domains/ccv/staging_testnet/inputs/jobspecs/$EXE.toml
 mkdir -p $(dirname $SPEC)
-jq -r --arg n "$NODE" '.metadata.offchainConfigs.nopJobs[$n][$n + "-default-executor"].spec' \
+jq -j --arg n "$NODE" '.metadata.offchainConfigs.nopJobs[$n][$n + "-default-executor"].spec' \
   $CLD/domains/ccv/staging_testnet/datastore/env_metadata.json \
   | sed "s/^executorConfig = '''$/appConfig = '''/" > $SPEC
 grep -c "^appConfig = '''$" $SPEC    # 1
 grep -c executorConfig $SPEC         # 0
-
-cat > $CLD/domains/ccv/staging_testnet/durable_pipelines/inputs/executor_job_node_$i.yaml <<EOF
-environment: staging_testnet
-domain: ccv
-changesets:
-  - jd_propose_job:
-      payload:
-        domain: ccv
-        jobspec_path: domains/ccv/staging_testnet/inputs/jobspecs/$EXE.toml
-        node_labels:
-          target: $EXE
-EOF
-cd $CLD
-go run ./domains/ccv/cmd durable-pipeline run --environment staging_testnet \
-  --input-file executor_job_node_$i.yaml --dry-run
-# then without --dry-run, or commit + /run-pipelines
 ```
 
+`jq -j` avoids adding a second trailing newline, so the only diff is the envelope rename. The
 `jobspec_path` is relative to the repo root, where both local and CI runs execute. The job goes to
 every enabled node in this product and environment that carries the label, which is only the
 executor. A label that matches nothing proposes nothing and still reports success, so confirm the
@@ -893,6 +984,26 @@ has no config for non-EVM chains. So `ready`, or `degraded` naming only those tw
 result; anything else degraded is a finding. On images built from #1521 on, the bootstrap server
 also answers `/health/live` and `/health/ready` on 9988.
 
+The generic `jd_propose_job` path delivers the job but does not canonicalize its saved metadata.
+After the executor approves it, run `jd_reconcile_jobs` with the node ID returned by step 7 and the
+exact standalone spec:
+
+```yaml
+  - jd_reconcile_jobs:
+      payload:
+        jobs:
+          - nop_alias: $NODE
+            jobspec_path: domains/ccv/staging_testnet/inputs/jobspecs/$EXE.toml
+            node_id: <returned-executor-jd-node-id>
+```
+
+This changes only CLD metadata after reading JD jobs and proposals; it does not propose, revoke, or
+delete a live job. Require one approved, byte-identical spec and confirm the saved executor job has
+`mode = standalone`, its standalone node ID, and `appConfig`. Add reconciliation last in the
+activation input when the returned IDs and environment node list are available to that run.
+Otherwise use a separate read-only follow-up, as prod-testnet #21204 did; never rerun a completed
+activation to add it. Do not regenerate NOP state until this is done.
+
 ### 10. Re-apply disabled chains, if step 1 recorded any
 
 This can only happen now: the standalone `verifier_id` and the app-database rows exist only once
@@ -916,25 +1027,96 @@ new one.
 
 ### 11. Prove it, then clean up
 
-Send a message across a lane this node verifies (the same tooling stage smoke tests use today) and
-confirm it is verified and executed. That proves the committee path, not this node's executor:
-the pool has 20 other executors that can land the same message. To prove this one, send a batch on
-its chains and confirm its transmitter's nonce moves on at least one destination chain
-(`cast nonce <evmAddress> --rpc-url $RPC` before and after). There is no onchain signer set to
-re-check: `apply-verifier-config` touches no onchain state, and rule 4 covered the signer. Then:
+Prove both signing and the intended executor, not just committee execution. For signing, choose a
+source in the verifier job's `on_ramp_addresses`: executor-pool membership does not imply that the
+verifier serves the same source, so use separate messages when necessary. For executor targeting,
+read `getExpectedNextMessageNumber(destChainSelector)`, build the canonical message with the
+actual `executionGasLimit` from FeeQuoter's `quoteGasForExec` (which varies with payload length),
+and compute `binary.BigEndian.Uint64(messageID[:8]) % len(executorPool)` with executor IDs sorted
+lexicographically. Search payload suffixes until that index selects the target executor instead of
+sending a probabilistic batch. Confirm the new signer appears at **both aggregators**, and confirm
+the destination transaction came from that executor (`cast nonce <evmAddress> --rpc-url $RPC`
+before and after). There is no onchain signer set to re-check: `apply-verifier-config` touches no
+onchain state, and rule 4 covered the signer. Then:
 
 ```sh
-flux --context $CTX resume helmrelease chainlink-ccv -n $NS   # maintenanceMode now holds $CL at 0
-rm -rf /tmp/migration-$i /tmp/api-creds.txt
+# If the DON release was suspended, resume it (maintenanceMode keeps $CL at 0).
+flux --context $CTX resume helmrelease chainlink-ccv -n $NS   # or patch spec.suspend=false directly
 ```
 
-Commit the chainlink-deployments changes (topology.toml, the three input files, the executor job
-spec, nodes.json). The CL node's CCV job specs get removed the next time that node runs; while it
+Commit the chainlink-deployments changes (topology.toml, the combined wave input, executor job
+specs, nodes.json). The CL node's CCV job specs get removed the next time that node runs; while it
 sits at zero replicas this is not blocking.
 
-The keyimport secret can come off the verifier in a later deploy, since the import is skipped once
-the key is in the keystore. Remove only the volume and its two mounts; keep
-`keyImport.expectedId`, which is checked against the stored key on every boot.
+Before deleting key material, distinguish the temporary export from the durable signer in the
+verifier bootstrap database. Keep `keyImport.expectedId`, the rendered `[key_import]` block, the
+runtime Secret, the bootstrap database backups, and the keystore password. The public `expectedId`
+is not sensitive and prevents a wrong or empty key from being accepted on a later boot.
+
+Remove only the `verifier-keyimport` volume and its two mounts through GitOps. Roll out one verifier
+first and verify all of the following before continuing with a batch:
+
+- Its startup log says `key already exists, skipping import` and `Using signer address` with the
+  recorded `$EXPECTED_ID`.
+- Its public address endpoint returns that same address (never export the private key to check):
+
+  ```sh
+  kubectl --context $CTX -n $NS port-forward deploy/$VER 9988:9988 & PF=$!
+  sleep 2
+  curl -fsS -X POST http://localhost:9988/keystore/reader/getaddresses \
+    -H 'Content-Type: application/json' \
+    -d '{"KeyNames":["bootstrap_default_ecdsa_signing_key"]}'
+  kill $PF
+  ```
+
+- Both aggregators accept a new signature from that signer. A healthy pod alone is insufficient.
+
+After the canary passes, delete only the named local migration artifacts. Do not add the temporary
+export or plaintext export password to routine backups; the standalone bootstrap database is the
+new durable recovery copy.
+
+```sh
+rm -- /tmp/migration-$i/ocr2.json /tmp/migration-$i/export-password.txt \
+  /tmp/migration-$i/verifier.key_import.toml
+rmdir /tmp/migration-$i
+rm -f -- /tmp/api-creds.txt /tmp/$EXE-bootstrap-secrets.toml \
+  /tmp/$VER-bootstrap-secrets.toml /tmp/$VER-app-secrets.toml \
+  /tmp/$CL-user-secret.toml
+```
+
+The final `rm` is idempotent cleanup for earlier runs; current runs already deleted the P6 TOMLs
+immediately after their Secret creates. If `rmdir` reports remaining files, stop and inventory them
+rather than recursively deleting the directory. Delete any password-manager entry created for the
+export password, including one retained under the earlier backup instruction and its old versions.
+Do not print secret contents or remove the standalone keystore password.
+
+For each verified node, inspect only the key-import Secret's metadata, confirm no active workload or
+ExternalSecret references it, then obtain approval and delete that exact Secret. Use `$CTX`, the
+`TeamCCIPAdmin` context, for deletion; `$CTX_ENG` grants Secret creation, not deletion. If the admin
+role is unavailable or the request is denied, stop and open a platform request instead:
+
+```sh
+kubectl --context $CTX -n $NS get secret $VER-keyimport-v1 -o json \
+  | jq '{name: .metadata.name, labels: .metadata.labels, keys: (.data | keys)}'
+kubectl --context $CTX -n $NS delete secret $VER-keyimport-v1
+```
+
+If it has `chain.link/deletion-protection-enabled=true`, obtain explicit approval before removing
+that label. Do not delete the runtime secrets the instance files mount (`-v2` in staging, `-v1` in
+prod-testnet); they are not migration exports. In particular, prod-testnet `$VER-secrets-v1` is
+current, not an old generation, and contains the keystore password required to decrypt the stored
+signer. Removing a mount does not delete the Secret, and deleting the Secret does not remove
+external or backed-up copies.
+
+Track any backup or snapshot known to contain the temporary export or password to deletion or
+approved expiration with the infrastructure owner. Record outstanding retention dates; ordinary
+deletion does not prove that no restorable copy remains.
+
+The staging CL database was deleted with `skipFinalSnapshot: true` in
+[chainlink-ccv-deploy#527](https://github.com/smartcontractkit/chainlink-ccv-deploy/pull/527) and is
+not a rollback copy. After the temporary migration copies are disposed, the standalone bootstrap
+database, its recovery backups, and its keystore password are the only signer recovery path. Do not
+delete them.
 
 ### 12. Soak, then repeat for the next node
 
@@ -975,7 +1157,7 @@ faster than expected is a reason to look at transmit failures before the next no
   [remediation runbook](../runbooks/remediating-stuck-or-dropped-messages.md).
 - Rollback path (exercise it on purpose at least once before the fleet is deep into the migration):
   1. Set `replicas: 0` in both standalone values files and deploy that change, so a later deploy
-     cannot restart them. Scale both Deployments to 0 now and wait for both standalone pods to terminate.
+     cannot restart them. Wait for both standalone pods to terminate; no manual scale is needed.
   2. Repoint the JD record at the CSA key recorded in P8 (`jd_update_nodes` with the original
      `csa_key`) and remove `mode = "standalone"` from the node's topology block. With the CL topology
      and JD record restored, run `apply-verifier-config` (still with `consolidateAggregators: true`)
@@ -986,18 +1168,14 @@ faster than expected is a reason to look at transmit failures before the next no
 
 ## Open questions for the team
 
-1. Node 0 is the sole member of the `secondary` committee
-   (`[nop_topology.committees.secondary]` in `domains/ccv/staging_testnet/topology.toml`:
-   threshold 1 on all five chains, with two aggregators of its own at
-   `chainlink-ccv-secondary-aggregator-1/2.ccip.stage.internal.griddle.sh`). It is real on both
-   sides: the staging datastore holds a `secondary`-qualified `CommitteeVerifier` and
-   `CommitteeVerifierResolver` per chain, and node 0's job
-   `chainlink-ccv-staging-0-secondary-aggregator-secondary-verifier` is in `state_v2.json`. No
-   release in chainlink-ccv-deploy's `griddle.yaml` serves those two aggregator hostnames,
-   though. So after P1 node 0 still runs two verifier jobs and fails the one-job preflight. Do we
-   retire the secondary committee (revoke the job, leave the contracts), or give node 0 a second
-   standalone verifier for it? Either way node 0 migrates last.
-2. What is the staging funding source for node accounts, and who owns sending from it? (P9)
+1. *(Resolved)* Node 0's `secondary` records are stale. Feeds Manager has no live secondary job,
+   the namespace has no secondary-aggregator service, and the current metadata lists only node 0's
+   default verifier and executor. There is no secondary migration or cleanup: no second standalone
+   verifier and no onchain secondary-contract change. Node 0 joins the final wave with its live
+   default jobs only.
+2. *(Resolved)* Staging uses the internal faucet API for native-only shortfall top-ups to 2.5 per
+   chain, then funds each executor 0.15 on all five chains. Failed or unsupported faucet requests
+   need investigation or a faucet owner, not blind retries (P9).
 3. *(Resolved)* Per-chain `txm_block_time` values for the five chains: Ethereum Sepolia (`11155111`)
    gets `12s` via `curatedTXMBlockTimeByChainID` (PR #1461), and Arbitrum Sepolia (`421614`),
    Base Sepolia (`84532`), Polygon Amoy (`80002`), and Avalanche Fuji (`43113`) use `2s` (the
@@ -1012,16 +1190,16 @@ faster than expected is a reason to look at transmit failures before the next no
    finality checks. To see which reader a CL node runs, query its database:
    `select name from evm.log_poller_filters where name like 'ccv-verifier - %'`. Is RPC
    acceptable for staging, and should prod move to the standalone-format config?
-5. Executor job routing. `apply-executor-config` proposes by NOP alias, so it cannot reach a
-   standalone executor registered under its own name while the verifier holds the alias's record.
-   Staging works around it with `jd_propose_job` (step 9) and hard rule 7, which also means any
-   executor config change for a cut-over node is a hand retarget. Before prod-testnet the changeset
-   should be able to target a standalone NOP's executor record (for example a separate executor
-   node name in the topology), so unscoped executor runs work again.
+5. *(Resolved in #1590)* `apply-executor-config` now routes to a standalone executor declared by
+   `executor_node_name` or `ExecutorNodeID`, and fails closed without that reference or complete
+   reconciled metadata. Staging's exact-spec `jd_propose_job` compatibility path remains documented
+   in step 9, but it requires `jd_reconcile_jobs` afterward. The CLD dependency must include #1590;
+   merely updating the input YAML on an older dependency does not add this routing.
 
 ## What staging does not decide
 
-Prod batching (16 members, threshold 9, so at most 7 nodes mid-cutover at once), external
-operator comms, public image publishing (F2), operator-facing docs (F3), sweeping prod
-transmitter balances (F1), and transmitter balance alerts (P9). Those get decided later, with
-staging results in hand.
+Prod batching must be derived from each affected chain's live membership and threshold;
+prod-testnet does not have uniform 16-member committees, and the last migration wave includes
+active nodes 16, 17, 18, and 20 while retiring idle node 19. External operator comms, public
+image publishing (F2), operator-facing docs (F3), sweeping prod transmitter balances (F1),
+and transmitter balance alerts (P9) get decided later, with staging results in hand.

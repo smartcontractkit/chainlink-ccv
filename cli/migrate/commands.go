@@ -3,7 +3,7 @@
 // github.com/smartcontractkit/chainlink-ccv/migration and is shared with the devenv cutover, so
 // the command an operator runs and the path the e2e test exercises cannot drift apart.
 //
-// The procedure these commands serve is docs/migration/evm-cl-to-standalone.md.
+// Key import and config conversion are documented in docs/verifier/evm-standalone.md.
 package migrate
 
 import (
@@ -31,7 +31,7 @@ func InitMigrateCommands(lggr logger.Logger) []cli.Command {
 				"CL-to-standalone migration",
 			Description: "Finds the node's EVM OCR2 bundle itself, exports it under a generated password, " +
 				"verifies the export decodes to the identity the node registered, and writes a ready-made " +
-				"[key_import] snippet with expected_id filled in. See docs/migration/evm-cl-to-standalone.md.",
+				"[key_import] snippet with expected_id filled in. See docs/verifier/evm-standalone.md.",
 			Flags: []cli.Flag{
 				cli.StringFlag{Name: "node-url", Usage: "base URL of the Chainlink node's API, e.g. http://localhost:6688", Required: true},
 				cli.StringFlag{Name: "api-creds", Usage: "path to the node's API credentials file (email on line 1, password on line 2)", Required: true},
@@ -128,14 +128,14 @@ Files written to %s:
   %s  (the password it is encrypted under, mode 0600)
   %s
 
-Next — continue from step 3 of docs/migration/evm-cl-to-standalone.md:
+Next — continue with your coordinated migration procedure:
 
-  3. Mount your node's TOML config into both containers, mount the key and password files into the
-     verifier, and paste the [key_import] block from %s into the verifier's bootstrap config.
-  4. Stop the Chainlink node.
-  5. Start the verifier and the executor.
-  6. Send Chainlink Labs the two CSA public keys.
-  7. Fund the executor's transmitter.
+  - Review the effective EVM settings with ccv migrate inspect-config.
+  - Mount your node's TOML config into both containers, mount the key and password files into the
+    verifier, and paste the [key_import] block from %s into the verifier's bootstrap config.
+  - Start only the executor, fund its transmitter, and wait for every funding transfer to confirm.
+  - Stop the Chainlink node before starting the verifier.
+  - Send Chainlink Labs both services' public keystore payloads.
 `,
 		r.SigningAddress, outDir,
 		migration.OCR2ExportFileName, migration.PasswordFileName,

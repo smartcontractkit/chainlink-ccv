@@ -29,7 +29,7 @@ func inspectConfigCommand() cli.Command {
 			"overrides, as on a ccip node image), and each chain's effective settings: finality, TXM block time (with " +
 			"the default source — operator, curated chain default, or generic 2s fallback), " +
 			"head-tracker persistence, and the RPC node set. " +
-			"RPC URLs are never printed — they can carry API keys. See docs/migration/evm-cl-to-standalone.md.",
+			"RPC URLs are never printed — they can carry API keys. See docs/verifier/evm-standalone.md#evm-config-conversion.",
 		Flags: []cli.Flag{
 			cli.StringFlag{Name: "config", Usage: "path to the EVM config: the node's TOML or a standalone-format file", Required: true},
 			cli.StringFlag{Name: "chain-selector", Usage: "optional: print only this chain"},
