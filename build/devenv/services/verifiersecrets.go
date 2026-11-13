@@ -7,16 +7,21 @@ import (
 )
 
 const (
-	DefaultAdminConsolePort       = 8105
-	DefaultAdminConsolePortTCP    = "8105/tcp"
-	DefaultAdminConsoleListenAddr = "0.0.0.0:8105"
-	DefaultAdminConsoleConfigPath = "/etc/ccv-admin/config.toml"
-	DefaultAdminUIUsername        = "admin"
-	DefaultAdminUIPassword        = "admin"
+	DefaultAdminConsolePort        = 8105
+	DefaultAdminConsolePortTCP     = "8105/tcp"
+	DefaultAdminConsoleListenAddr  = "0.0.0.0:8105"
+	DefaultAdminConsoleConfigPath  = "/etc/ccv-admin/config.toml"
+	DefaultAdminConsoleSecretsPath = "/etc/ccv-admin/secrets.toml"
+	DefaultAdminUIUsername         = "admin"
+	DefaultAdminUIPassword         = "admin"
 )
 
 type adminConsoleConfig struct {
 	ListenAddress string `toml:"listen_address"`
+}
+
+type adminConsoleSecrets struct {
+	AdminUI *vsecrets.AdminUISecret `toml:"admin_ui"`
 }
 
 // GenerateVerifierSecrets marshals the verifier secrets file with [db], [admin_ui],
@@ -25,6 +30,16 @@ func GenerateVerifierSecrets(dbURL string, aggregators []vsecrets.AggregatorSecr
 	return toml.Marshal(vsecrets.SecretsFile{
 		DB:          vsecrets.DBSecrets{URL: dbURL},
 		Aggregators: aggregators,
+		AdminUI: &vsecrets.AdminUISecret{
+			Username: DefaultAdminUIUsername,
+			Password: DefaultAdminUIPassword,
+		},
+	})
+}
+
+// GenerateAdminConsoleSecrets marshals optional executor console authentication without changing bootstrap secrets.
+func GenerateAdminConsoleSecrets() ([]byte, error) {
+	return toml.Marshal(adminConsoleSecrets{
 		AdminUI: &vsecrets.AdminUISecret{
 			Username: DefaultAdminUIUsername,
 			Password: DefaultAdminUIPassword,

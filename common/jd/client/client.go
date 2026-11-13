@@ -10,6 +10,9 @@ import (
 	"crypto"
 	"crypto/ed25519"
 	"fmt"
+	"maps"
+	"slices"
+	"strings"
 	"sync"
 
 	"github.com/smartcontractkit/wsrpc"
@@ -196,7 +199,8 @@ func (c *Client) CancelJob(ctx context.Context, id string, version int64) error 
 	return nil
 }
 
-// UpdateNode pushes the node's chain configs to the Job Distributor.
+// UpdateNode pushes the node's chain configs to the Job Distributor. A chain config JD rejects is
+// an error too: JD answers the call but keeps no config for that chain.
 func (c *Client) UpdateNode(ctx context.Context, req *pb.UpdateNodeRequest) error {
 	c.mu.Lock()
 	fm := c.feedsManager
@@ -206,11 +210,24 @@ func (c *Client) UpdateNode(ctx context.Context, req *pb.UpdateNodeRequest) erro
 		return fmt.Errorf("not connected to JD")
 	}
 
-	_, err := fm.UpdateNode(ctx, req)
+	resp, err := fm.UpdateNode(ctx, req)
 	if err != nil {
 		return fmt.Errorf("failed to update node: %w", err)
 	}
-	return nil
+	return chainConfigErrors(resp.GetChainConfigErrors())
+}
+
+// chainConfigErrors names each chain config JD rejected, sorted so the message is stable.
+func chainConfigErrors(errs map[string]*pb.ChainConfigError) error {
+	if len(errs) == 0 {
+		return nil
+	}
+	keys := slices.Sorted(maps.Keys(errs))
+	msgs := make([]string, 0, len(keys))
+	for _, key := range keys {
+		msgs = append(msgs, fmt.Sprintf("%s: %s", key, errs[key].GetMessage()))
+	}
+	return fmt.Errorf("JD rejected %d chain config(s): %s", len(keys), strings.Join(msgs, "; "))
 }
 
 // Close closes the connection to the Job Distributor.

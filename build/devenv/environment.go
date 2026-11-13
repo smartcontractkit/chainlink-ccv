@@ -562,6 +562,10 @@ func generateExecutorJobSpecs(
 			if err != nil {
 				return nil, fmt.Errorf("failed to get executor job spec for %s: %w", exec.ContainerName, err)
 			}
+			// e2e gate: the changeset itself must route the job to this executor's JD node.
+			if e.Offchain != nil && exec.Out != nil && exec.Out.JDNodeID != "" && job.NodeID != exec.Out.JDNodeID {
+				return nil, fmt.Errorf("executor %s job was proposed to JD node %q, not its own node %q", exec.ContainerName, job.NodeID, exec.Out.JDNodeID)
+			}
 
 			// TODO: Use bootstrap.JobSpec in CLD to avoid this conversion here
 			bootSpec, err := jobspec.ParseExecutorBootstrapJobSpec(job.Spec)

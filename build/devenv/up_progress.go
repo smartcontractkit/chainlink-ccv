@@ -55,6 +55,12 @@ func printUpSummary(in *Cfg, addrPath string) {
 				ver.ContainerName+":", ver.Out.AdminUIURL, services.DefaultAdminUIUsername, services.DefaultAdminUIPassword)
 		}
 	}
+	for _, exec := range in.Executor {
+		if exec != nil && exec.Out != nil && exec.Out.AdminUIURL != "" {
+			fmt.Fprintf(os.Stdout, "  admin ui %-16s %s (basic auth: %s/%s)\n",
+				exec.ContainerName+":", exec.Out.AdminUIURL, services.DefaultAdminUIUsername, services.DefaultAdminUIPassword)
+		}
+	}
 	if addrPath != "" {
 		fmt.Fprintf(os.Stdout, "  %-24s %s\n", "addresses:", addrPath)
 	}

@@ -369,6 +369,19 @@ func TestKMSKeystore_VerifyKeysExist_FailsOnMissingKey(t *testing.T) {
 	require.Contains(t, err.Error(), "my_key")
 }
 
+func TestKMSKeystore_VerifyKeysExist_ReportsEveryMissingKey(t *testing.T) {
+	t.Parallel()
+
+	client := newMockKMSClient()
+	inner, err := kms.NewKeystore(client)
+	require.NoError(t, err)
+
+	_, err = newKMSKeystore(context.Background(), inner, map[string]string{"key_a": "missing-a", "key_b": "missing-b"})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "missing-a")
+	require.Contains(t, err.Error(), "missing-b")
+}
+
 func TestKMSKeystore_DuplicateKeyIDFails(t *testing.T) {
 	t.Parallel()
 

@@ -1,28 +1,25 @@
 # The CCV admin console
 
-The admin console is a small web UI for finding and recovering dropped messages, shipped
-inside the verifier image and served **in-process** by the verifier itself. When the
-container has a console config at `/etc/ccv-admin/config.toml` (override with
-`CCV_ADMIN_CONFIG_PATH`), the verifier serves the console on its own port; no config
-file means the console stays off. To enable it, add the config file (and optionally the
-`[admin_ui]` credential) and restart the pod.
+The admin console is an operational web UI shipped in the verifier and executor images
+and served **in-process** by each service. When the container has a console config at
+`/etc/ccv-admin/config.toml` (override with `CCV_ADMIN_CONFIG_PATH`), the service serves
+the console on its own port; no config file means the console stays off. To enable it,
+add the config file (and optionally the `[admin_ui]` credential) and restart the pod.
 
-It is a server-rendered UI (templ/htmx) over the verifier's own application database —
-the console administers the verifier it runs beside, and only that verifier. It drives
-the same recovery machinery as the `ccv job-queue` and `ccv recovery` CLIs, with the
-same semantics. What it replaces is the manual part of those flows: pointing a CLI at
-the database, copying message IDs and owner IDs between commands, and keeping your own
-notes about who did what. The console searches the failed-job archive, shows what
-happened to a message, executes the recovery action, and records it in an action log.
-The [remediation runbook](../runbooks/remediating-stuck-or-dropped-messages.md) reads
+It is a server-rendered UI (templ/htmx). On a verifier it administers that verifier's own
+application database and drives the same recovery machinery as the `ccv job-queue` and
+`ccv recovery` CLIs, with the same semantics. The console searches the failed-job archive,
+shows what happened to a message, executes the recovery action, and records it in an action
+log. The [remediation runbook](../runbooks/remediating-stuck-or-dropped-messages.md) reads
 console-first; the CLI remains the documented fallback.
 
-The console administers **verifier databases only** (committee and token verifiers).
-Indexer-data backfill and other admin UIs are deliberately out of scope for now: repair
-indexer records with the indexer's own replay tooling until that workflow ships.
+Verifier recovery pages administer **verifier databases only** (committee and token
+verifiers). The executor console is read-only: it shows its active job specification and
+transmitter key balances, with no recovery or mutation routes. Indexer-data backfill and
+other admin UIs remain out of scope.
 
-What it does not change is the semantics: a reschedule from the console is the same
-reschedule the CLI performs, against the same tables, with the same limits.
+What the verifier console does not change is recovery semantics: a reschedule from the
+console is the same reschedule the CLI performs, against the same tables, with the same limits.
 
 ## Safety model
 
@@ -37,15 +34,15 @@ tool, and anything beyond that is an explicit, validated choice.
   names.
 - **Non-loopback requires basic auth.** Serving a page grants privileged actions, so
   the console refuses to start on a non-loopback address unless `[admin_ui]` basic
-  auth is configured in the verifier secrets file (the console verifies the
+  auth is configured in the service secrets file (the console verifies the
   credential itself).
-- **Optional basic auth.** `[admin_ui]` username + password in the verifier secrets file
+- **Optional basic auth.** `[admin_ui]` username + password in the service secrets file
   gates every page except `/healthz` (kept open for probes); the authenticated username
   becomes the audit actor. A half-supplied pair is a startup error, never a silent
   downgrade to unauthenticated serving.
-- **No new credentials or databases.** The console shares the verifier's application
-  database and its secrets file; there is nothing extra to provision. Database URLs are
-  never rendered into a page or logged.
+- **No new credentials or databases.** Verifier recovery shares the verifier's application
+  database. Authentication uses the existing `[admin_ui]` secret shape, read only from a
+  secrets file. Database URLs are never rendered into a page or logged.
 - **Mutations are CSRF-protected.** Every state-changing request must carry the
   per-browser token (form field `csrf_token` or header `X-CSRF-Token`) matching the
   `ccv_admin_csrf` cookie. Pages also ship restrictive security headers
@@ -60,7 +57,7 @@ tool, and anything beyond that is an explicit, validated choice.
 ## Setup
 
 Add `/etc/ccv-admin/config.toml` (path override: `CCV_ADMIN_CONFIG_PATH`) and restart
-the verifier. The file is decoded strictly: unknown keys are a startup error, and a
+the service. The file is decoded strictly: unknown keys are a startup error, and a
 present-but-malformed file fails startup. The minimal config is empty — every field is
 optional:
 
@@ -79,12 +76,14 @@ Attestation freshness checks use the verifier's own first configured aggregator
 (`GetVerifierResultsForMessage`); a token verifier has no aggregators, so its reschedule
 targets stay gated on `unknown` until a follow-up checks all configured aggregators.
 
-Basic auth, if you want it, goes in the verifier secrets file — the same file the
-verifier process loads
-([reference](../config/verifier/secrets.documented.toml)):
+Basic auth, if you want it, uses the same `[admin_ui]` table in both services. Verifiers read
+it from their existing [verifier secrets file](../config/verifier/secrets.documented.toml).
+Executors read it from `/etc/ccv-admin/secrets.toml` (override with
+`CCV_ADMIN_SECRETS_PATH`). The path override carries no credential value; the secret itself is
+only read from the file.
 
 ```toml
-# <verifier secrets file>
+# <verifier secrets file or executor /etc/ccv-admin/secrets.toml>
 [admin_ui]
   username = "operator"
   password = "<password>"
@@ -96,10 +95,34 @@ verifier process loads
 verifier ccv admin check-config --config /etc/ccv-admin/config.toml
 ```
 
-`check-config` runs the same loading, `[admin_ui]`, and access-policy validation as
-console startup and prints the listen address and access mode. Run it after every
+For verifier consoles, `check-config` runs the same loading, `[admin_ui]`, and access-policy
+validation as console startup and prints the listen address and access mode. Run it after every
 config change — it catches misspelled keys, a half-supplied `[admin_ui]` pair, and a
-non-loopback bind without an identity source before the verifier does it at startup.
+non-loopback bind without an identity source before the verifier does it at startup. The
+executor performs the same checks when its console starts.
+
+## Job, chain, and transmitter visibility
+
+Both services expose `/job`, a read-only snapshot of the active job envelope (name, external
+job ID, type, and schema version) and the raw application TOML from its `appConfig` field.
+The snapshot belongs to the running job, so a JD job replacement restarts the console with
+the replacement spec. Credentials must not be embedded in job specs.
+
+Both services also expose `/chains`, showing each configured chain's roles, sanitized RPC
+endpoints, effective attributes and their sources, and diagnostics. The data model is
+chain-family neutral; each chain driver supplies and sanitizes its own view through the
+optional `chainaccess.ChainInspector` capability. EVM is the first implementation. RPC URLs
+are reduced to scheme and host, while user info, paths, query strings, credentials, raw secret
+files, and private keys are never rendered. Chains without inspection support are named with
+an unavailable diagnostic rather than omitted.
+
+The executor also exposes `/transmitter-keys`, listing each configured destination chain,
+public key name and address, native-token balance, and exact base-unit amount. Balances are
+fetched through the executor's existing chain clients when the page loads; use **Refresh
+balances** to query again. Each chain has a bounded, independent lookup, so an RPC or key
+failure is shown beside that chain and does not blank the others. This is on-demand UI
+visibility, not background balance alerting. The executor does not register message search,
+recovery, rescheduling, or action-log routes.
 
 ## The recovery actions
 
@@ -182,28 +205,29 @@ attestations are never deleted by a reset; there is no automatic undo of prior r
 
 ## Operations
 
-**Upgrades.** The console ships in the verifier image and runs in the verifier process,
-so it upgrades when your verifier image does — there is nothing separate to deploy.
-Recovery actions submitted through it take effect on the running verifier (a restored
-job is picked up on the queue's fallback poll). Run the console from the same image
-version as the verifier it administers: recovery features need the schema that carries
-them.
+**Upgrades.** The console ships in the verifier and executor images and runs in the
+corresponding process, so it upgrades with that service — there is nothing separate to
+deploy. Recovery actions submitted through a verifier console take effect on the running
+verifier (a restored job is picked up on the queue's fallback poll). Run the console from
+the same image version as the service it administers: recovery features need the schema
+that carries them.
 
-**Console state.** The console keeps no state of its own beyond the session audit log
-(in-memory); recovery operations themselves are durable in the verifier's application
-database. There is no separate console database to provision, back up, or migrate.
+**Console state.** A verifier console keeps no state of its own beyond the session audit
+log (in-memory); recovery operations themselves are durable in the verifier's application
+database. The executor console keeps no state. There is no separate console database to
+provision, back up, or migrate.
 
 **Health.** `GET /healthz` returns `200 {"status":"ok"}`. It is a process liveness
 check only.
 
-**Config checks.** `verifier ccv admin check-config` validates the config file without
-starting anything.
+**Config checks.** `verifier ccv admin check-config` validates the verifier console config
+file without starting anything.
 
 ## Serving beyond loopback
 
 On loopback, every action is audited as actor `local` — appropriate for a personal tool
 reached over SSH. Serving beyond loopback (including a wildcard bind) requires
-`[admin_ui]` basic auth from the verifier secrets file: the console verifies the
+`[admin_ui]` basic auth from the service secrets file: the console verifies the
 credential itself on every request except `/healthz` (kept open for probes), and the
 username becomes the audit actor. Basic auth carries the password base64-encoded, so
 serve it over TLS — or keep the console on loopback and SSH-forward. A fronting proxy

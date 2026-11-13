@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"maps"
 	"time"
 
 	"github.com/grafana/pyroscope-go"
@@ -87,12 +88,28 @@ func SetupBeholder(config BeholderConfig, signer crypto.Signer, metricViews []sd
 
 var _ beholder.Signer = (*beholderSigner)(nil)
 
+// serviceNameAttribute is the OTel resource attribute that names the service.
+const serviceNameAttribute = "service.name"
+
 // ResourceAttributes converts config telemetry attributes into OTel resource attributes.
 func ResourceAttributes(attrs map[string]string) []attribute.KeyValue {
 	out := make([]attribute.KeyValue, 0, len(attrs))
 	for k, v := range attrs {
 		out = append(out, attribute.String(k, v))
 	}
+	return out
+}
+
+// WithDefaultServiceName returns attrs with the resource "service.name" set to name unless the
+// operator supplied one. Dashboards group series by service.name, so a service without it is
+// indistinguishable from the ones beside it.
+func WithDefaultServiceName(attrs map[string]string, name string) map[string]string {
+	if _, ok := attrs[serviceNameAttribute]; ok {
+		return attrs
+	}
+	out := make(map[string]string, len(attrs)+1)
+	maps.Copy(out, attrs)
+	out[serviceNameAttribute] = name
 	return out
 }
 

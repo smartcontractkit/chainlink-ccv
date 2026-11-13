@@ -73,6 +73,7 @@ type Server struct {
 	batchWriteCommitVerifierNodeResultHandler *handlers.BatchWriteCommitVerifierNodeResultHandler
 	healthHTTPServer                          *http.Server
 	healthManager                             *health.Manager
+	healthRecorder                            *health.MetricsRecorder
 	runGroup                                  *run.Group
 	stopChan                                  chan struct{}
 	mu                                        sync.Mutex
@@ -126,6 +127,15 @@ func (s *Server) Start(lis net.Listener) error {
 	}
 
 	s.stopChan = make(chan struct{})
+
+	recorder, err := health.NewMetricsRecorder(s.l, s.healthManager)
+	if err != nil {
+		return fmt.Errorf("failed to create health metrics recorder: %w", err)
+	}
+	if err := recorder.Start(context.Background()); err != nil {
+		return fmt.Errorf("failed to start health metrics recorder: %w", err)
+	}
+	s.healthRecorder = recorder
 
 	g := &run.Group{}
 
@@ -206,7 +216,7 @@ func (s *Server) Start(lis net.Listener) error {
 
 	healthManagerCtx, healthManagerCancel := context.WithCancel(context.Background())
 	g.Add(func() error {
-		return s.healthManager.StartPeriodicHealthLogging(healthManagerCtx, s.l, time.Minute)
+		return s.healthManager.StartPeriodicHealthLogging(healthManagerCtx, time.Minute)
 	}, func(error) {
 		healthManagerCancel()
 	})
@@ -236,6 +246,10 @@ func (s *Server) Start(lis net.Listener) error {
 		s.mu.Lock()
 		s.started = false
 		s.runGroup = nil
+		if s.healthRecorder != nil {
+			_ = s.healthRecorder.Close()
+			s.healthRecorder = nil
+		}
 		if s.stopChan != nil {
 			close(s.stopChan)
 			s.stopChan = nil
@@ -429,7 +443,7 @@ func NewServer(ctx context.Context, l logger.SugaredLogger, config *model.Aggreg
 
 	var recoverer *OrphanRecoverer
 
-	healthManager := health.NewManager()
+	healthManager := health.NewManager(l)
 	healthManager.Register(store)
 	healthManager.Register(rateLimitingMiddleware)
 	healthManager.Register(agg)

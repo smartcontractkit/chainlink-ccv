@@ -16,12 +16,12 @@ func NewHTTPAPI(
 	storage protocol.VerifierResultsAPI,
 	healthReporters []protocol.HealthReporter,
 	monitoring verifier.Monitoring,
-) *gin.Engine {
+) (*gin.Engine, *health.Manager) {
 	router := gin.New()
 	router.Use(middleware.GinLogger(lggr))
 	router.Use(middleware.SecureRecovery(lggr))
 
-	healthManager := health.NewManager()
+	healthManager := health.NewManager(lggr)
 	for _, hr := range healthReporters {
 		healthManager.Register(hr)
 	}
@@ -39,5 +39,5 @@ func NewHTTPAPI(
 	verifierResultsHandler := v1.NewVerifierResultsHandler(lggr, storage)
 	v1Group.GET("/verifications", verifierResultsHandler.Handle)
 
-	return router
+	return router, healthManager
 }

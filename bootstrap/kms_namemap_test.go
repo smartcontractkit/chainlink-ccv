@@ -121,4 +121,120 @@ func TestBuildKMSNameMap(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, map[string]string{"signing": "ecdsa-id"}, got)
 	})
+
+	t.Run("key_ids map two keys of one type to distinct KMS keys", func(t *testing.T) {
+		t.Parallel()
+		cfg := KMSKeystoreConfig{
+			Provider: KMSProviderAWS,
+			KeyIDs: map[string]string{
+				"signing-a": "ecdsa-a",
+				"signing-b": "ecdsa-b",
+			},
+		}
+		got, err := buildKMSNameMap(cfg, []keyToInit{
+			{name: "signing-a", purpose: "signing", keyType: keystore.ECDSA_S256},
+			{name: "signing-b", purpose: "transmitting", keyType: keystore.ECDSA_S256},
+		})
+		require.NoError(t, err)
+		require.Equal(t, cfg.KeyIDs, got)
+		require.Equal(t, map[string]string{"signing-a": "ecdsa-a", "signing-b": "ecdsa-b"}, cfg.KeyIDs)
+	})
+
+	t.Run("key_ids cannot be combined with the per-type fields", func(t *testing.T) {
+		t.Parallel()
+		for _, cfg := range []KMSKeystoreConfig{
+			{Provider: KMSProviderAWS, EcdsaKeyID: "ecdsa-default", KeyIDs: map[string]string{"signing": "a"}},
+			{Provider: KMSProviderAWS, Ed25519KeyID: "ed-default", KeyIDs: map[string]string{"signing": "a"}},
+		} {
+			_, err := buildKMSNameMap(cfg, []keyToInit{{name: "signing", purpose: "signing", keyType: keystore.ECDSA_S256}})
+			require.ErrorContains(t, err, "cannot be combined")
+		}
+	})
+
+	t.Run("an empty key_ids table counts as absent", func(t *testing.T) {
+		t.Parallel()
+		got, err := buildKMSNameMap(KMSKeystoreConfig{
+			Provider:   KMSProviderAWS,
+			EcdsaKeyID: "ecdsa-id",
+			KeyIDs:     map[string]string{},
+		}, []keyToInit{{name: "signing", purpose: "signing", keyType: keystore.ECDSA_S256}})
+		require.NoError(t, err)
+		require.Equal(t, map[string]string{"signing": "ecdsa-id"}, got)
+	})
+
+	t.Run("key_ids must map every declared key", func(t *testing.T) {
+		t.Parallel()
+		_, err := buildKMSNameMap(KMSKeystoreConfig{
+			Provider: KMSProviderAWS,
+			KeyIDs:   map[string]string{"signing-a": "ecdsa-a"},
+		}, []keyToInit{
+			{name: "signing-a", purpose: "signing", keyType: keystore.ECDSA_S256},
+			{name: "signing-b", purpose: "transmitting", keyType: keystore.ECDSA_S256},
+		})
+		require.ErrorContains(t, err, `key_ids entry "signing-b"`)
+		require.ErrorContains(t, err, "is required")
+	})
+
+	t.Run("key_ids entry for an undeclared key errors", func(t *testing.T) {
+		t.Parallel()
+		_, err := buildKMSNameMap(KMSKeystoreConfig{
+			Provider: KMSProviderAWS,
+			KeyIDs:   map[string]string{"signing": "ecdsa-id", "typo": "other"},
+		}, []keyToInit{
+			{name: "signing", purpose: "signing", keyType: keystore.ECDSA_S256},
+		})
+		require.ErrorContains(t, err, "matches no key")
+		require.ErrorContains(t, err, "typo")
+		require.ErrorContains(t, err, "[signing]")
+	})
+
+	t.Run("empty key_ids entry errors", func(t *testing.T) {
+		t.Parallel()
+		_, err := buildKMSNameMap(KMSKeystoreConfig{
+			Provider: KMSProviderAWS,
+			KeyIDs:   map[string]string{"signing": ""},
+		}, []keyToInit{
+			{name: "signing", purpose: "signing", keyType: keystore.ECDSA_S256},
+		})
+		require.ErrorContains(t, err, `key_ids entry "signing"`)
+		require.ErrorContains(t, err, "is required")
+	})
+
+	t.Run("key_ids entries cannot share a KMS key", func(t *testing.T) {
+		t.Parallel()
+		_, err := buildKMSNameMap(KMSKeystoreConfig{
+			Provider: KMSProviderAWS,
+			KeyIDs:   map[string]string{"signing-a": "shared", "signing-b": "shared"},
+		}, []keyToInit{
+			{name: "signing-a", purpose: "signing", keyType: keystore.ECDSA_S256},
+			{name: "signing-b", purpose: "transmitting", keyType: keystore.ECDSA_S256},
+		})
+		require.ErrorContains(t, err, "both resolve to KMS Key ID")
+	})
+
+	t.Run("gcp named IDs require CryptoKeyVersion resource names", func(t *testing.T) {
+		t.Parallel()
+		const id = "projects/p/locations/l/keyRings/r/cryptoKeys/signing/cryptoKeyVersions/1"
+		cfg := KMSKeystoreConfig{
+			Provider: KMSProviderGCP,
+			KeyIDs:   map[string]string{"signing": id},
+		}
+		required := []keyToInit{{name: "signing", purpose: "signing", keyType: keystore.ECDSA_S256}}
+		got, err := buildKMSNameMap(cfg, required)
+		require.NoError(t, err)
+		require.Equal(t, map[string]string{"signing": id}, got)
+
+		cfg.KeyIDs["signing"] = "not-a-resource-name"
+		_, err = buildKMSNameMap(cfg, required)
+		require.ErrorContains(t, err, "invalid GCP CryptoKeyVersion resource name")
+	})
+
+	t.Run("named IDs do not enable unsupported declared types", func(t *testing.T) {
+		t.Parallel()
+		_, err := buildKMSNameMap(KMSKeystoreConfig{
+			Provider: KMSProviderAWS,
+			KeyIDs:   map[string]string{"signing": "key-id"},
+		}, []keyToInit{{name: "signing", purpose: "signing", keyType: keystore.X25519}})
+		require.ErrorContains(t, err, "KMS does not support key type")
+	})
 }

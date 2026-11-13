@@ -126,7 +126,7 @@ The standalone executor reads each message's onchain execution state before exec
 
 ## Health and readiness endpoints
 
-Each standalone process serves two HTTP servers. Keep both private; the bootstrap server also exposes keystore reader endpoints.
+Each standalone process serves bootstrap and application HTTP servers, plus the optional admin console when `/etc/ccv-admin/config.toml` is mounted. Keep all of them private; the bootstrap server also exposes keystore reader endpoints.
 
 The bootstrap server listens on `listen_port` from bootstrap config. Its endpoints concern process and job lifecycle, not component health:
 
@@ -150,6 +150,8 @@ Its `/health` returns:
 Degraded can be expected during startup or for intentionally unsupported chains, so read the component report. It also names a verifier chain whose log scans or finality checks keep failing beyond the staleness threshold, and `jd.UpdateNode` while JD has not accepted chain configs.
 
 The verifier also serves `/stats`. Application and chainlink-evm metrics export through Beholder/OpenTelemetry; scrape the telemetry sidecar's Prometheus endpoint rather than adding an application-port `/metrics` endpoint. A stalled LogPoller additionally needs the head-progress check described under [Source logs](#source-logs-rpc-or-a-logpoller).
+
+The optional admin console defaults to `127.0.0.1:8105` and has its own `/healthz` liveness endpoint. Both services expose the active job at `/job` and sanitized effective chain configuration at `/chains`; the executor also exposes transmitter balances at `/transmitter-keys`. Verifier search, recovery, and action-log routes are not registered on the executor. See the [admin console guide](admin-console.md).
 
 For Kubernetes, probe the bootstrap port. The application server starts only after JD proposes the job, so an application liveness probe restarts the pod until then and an application readiness probe holds every rollout. Use bootstrap `/health` or `/health/live` for both probes and add a startup probe with a few minutes of budget. Monitor application `/health` and bootstrap `/ready` separately because the probes cannot see later component failures. Run one replica with a `Recreate` update strategy: a rolling update briefly runs two processes on one signing or transmitter key.
 

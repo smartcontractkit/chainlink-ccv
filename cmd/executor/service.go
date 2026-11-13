@@ -25,6 +25,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/admin"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -45,10 +46,12 @@ const (
 
 // Factory is a bootstrap.ServiceFactory that starts the executor service.
 type Factory struct {
-	coordinator *executorsvc.Coordinator
-	server      *http.Server
-	profiler    *pyroscope.Profiler
-	lggr        logger.Logger
+	coordinator    *executorsvc.Coordinator
+	server         *http.Server
+	profiler       *pyroscope.Profiler
+	adminStop      func()
+	lggr           logger.Logger
+	healthRecorder *health.MetricsRecorder
 }
 
 var (
@@ -84,6 +87,13 @@ func (f *Factory) Validate(spec bootstrap.JobSpec) error {
 // or a Stop after a failed Start — does not close components twice.
 func (f *Factory) Stop(ctx context.Context) error {
 	var err error
+	if f.adminStop != nil {
+		f.adminStop()
+	}
+	if f.healthRecorder != nil {
+		err = errors.Join(err, f.healthRecorder.Close())
+		f.healthRecorder = nil
+	}
 	if f.server != nil {
 		// Stop is routinely called with an already-canceled context (process teardown, failed
 		// Start). Shutdown would then return that context error immediately without draining
@@ -101,6 +111,7 @@ func (f *Factory) Stop(ctx context.Context) error {
 	f.server = nil
 	f.coordinator = nil
 	f.profiler = nil
+	f.adminStop = nil
 	return err
 }
 
@@ -145,6 +156,8 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	contractTransmitters := make(map[protocol.ChainSelector]chainaccess.ContractTransmitter)
 	destReaders := make(map[protocol.ChainSelector]chainaccess.DestinationReader)
 	rmnReaders := make(map[protocol.ChainSelector]chainaccess.RMNCurseReader)
+	balanceReaders := make(map[protocol.ChainSelector]chainaccess.TransmitterBalanceReader)
+	chainInspectors := make(map[protocol.ChainSelector]chainaccess.ChainInspector)
 	enabledDestChains := make([]protocol.ChainSelector, 0)
 	// Skipped chains are reported on /health as degraded. The factory fails below when none is usable.
 	startupSkips := health.NewStartupSkips("executor.StartupSkips")
@@ -193,6 +206,12 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 			destReaders[selector] = dr
 			rmnReaders[selector] = dr
 			contractTransmitters[selector] = ct
+			if reader, ok := accessor.(chainaccess.TransmitterBalanceReader); ok {
+				balanceReaders[selector] = reader
+			}
+			if inspector, ok := accessor.(chainaccess.ChainInspector); ok {
+				chainInspectors[selector] = inspector
+			}
 			enabledDestChains = append(enabledDestChains, selector)
 		})
 	}
@@ -219,6 +238,7 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	execPool := make(map[protocol.ChainSelector][]string)
 	execIntervals := make(map[protocol.ChainSelector]time.Duration)
 	defaultExecutorAddresses := make(map[protocol.ChainSelector]protocol.UnknownAddress)
+	balanceSelectors := make([]protocol.ChainSelector, 0, len(executorConfig.ChainConfiguration))
 
 	for strSel, chainConfig := range executorConfig.ChainConfiguration {
 		selectorUint, err := strconv.ParseUint(strSel, 10, 64)
@@ -227,6 +247,7 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 			continue
 		}
 		sel := protocol.ChainSelector(selectorUint)
+		balanceSelectors = append(balanceSelectors, sel)
 		execPool[sel] = chainConfig.ExecutorPool
 		execIntervals[sel] = chainConfig.ExecutionInterval
 		defaultExecutorAddresses[sel], err = protocol.NewUnknownAddressFromHex(chainConfig.DefaultExecutorAddress)
@@ -296,10 +317,22 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		c.String(http.StatusOK, "CCV Executor is running!\nExecutor ID: %s\n", executorConfig.ExecutorID)
 	})
 
-	healthManager := health.NewManager()
+	healthManager := health.NewManager(f.lggr)
 	healthManager.Register(f.coordinator)
 	healthManager.Register(startupSkips)
+	for _, reporter := range deps.HealthReporters {
+		healthManager.Register(reporter)
+	}
 	health.RegisterOn(healthManager, router)
+
+	recorder, err := health.NewMetricsRecorder(f.lggr, healthManager)
+	if err != nil {
+		return fmt.Errorf("failed to create health metrics recorder: %w", err)
+	}
+	if err := recorder.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start health metrics recorder: %w", err)
+	}
+	f.healthRecorder = recorder
 
 	server := &http.Server{
 		Addr:         ":" + strconv.Itoa(executorConfig.HTTPListenPort),
@@ -314,6 +347,13 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		}
 	}()
 	f.server = server
+
+	f.adminStop, err = startAdminConsole(f.lggr, spec, &transmitterBalanceSource{
+		selectors: balanceSelectors, readers: balanceReaders,
+	}, admin.NewChainInspectionSource(balanceSelectors, chainInspectors))
+	if err != nil {
+		return fmt.Errorf("failed to start admin console: %w", err)
+	}
 
 	return nil
 }

@@ -17,6 +17,8 @@ type JobSpecInput struct {
 	NOPAlias      shared.NOPAlias
 	InternalJobID shared.JobID
 	Spec          string
+	// NodeID targets an exact JD node instead of resolving NOPAlias to a node name.
+	NodeID string
 }
 
 type ProposeJobsInput struct {
@@ -69,10 +71,17 @@ var ProposeJobs = operations.NewOperation(
 		for _, jobSpecInput := range input.JobSpecs {
 			nopAlias := string(jobSpecInput.NOPAlias)
 			node, ok := lookup.FindByName(nopAlias)
+			if jobSpecInput.NodeID != "" {
+				node, ok = lookup.FindByID(jobSpecInput.NodeID)
+			}
 			if !ok {
 				lggr.Warnw("Node not found for job spec",
 					"nopAlias", nopAlias,
+					"nodeId", jobSpecInput.NodeID,
 					"internalJobId", jobSpecInput.InternalJobID)
+				if jobSpecInput.NodeID != "" {
+					return output, fmt.Errorf("node ID %q not found for job spec %s", jobSpecInput.NodeID, jobSpecInput.InternalJobID)
+				}
 				return output, fmt.Errorf("node not found for job spec: %s", nopAlias)
 			}
 

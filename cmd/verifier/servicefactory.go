@@ -28,6 +28,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/admin"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/heartbeat"
@@ -60,6 +61,7 @@ type factory struct {
 	aggregatorWriter *storageaccess.FanOutWriter
 	heartbeatClient  heartbeatclient.HeartbeatSender
 	adminStop        func()
+	healthRecorder   *health.MetricsRecorder
 
 	// db is the verifier database, opened in Start and closed last in Stop.
 	dbMu sync.Mutex
@@ -243,6 +245,7 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	sourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
 	finalityReporters := make(map[protocol.ChainSelector]chainaccess.FinalityViolationReporter)
 	healthReporters := make(map[protocol.ChainSelector]chainaccess.SourceHealthReporter)
+	chainInspectors := make(map[protocol.ChainSelector]chainaccess.ChainInspector)
 	skip := func(selector protocol.ChainSelector, msg string, err error) {
 		lggr.Errorw(msg+", skipping chain", "selector", selector, "error", err)
 		startupSkips.SkipChain(selector, err)
@@ -259,6 +262,11 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 			if err != nil {
 				skip(selector, "Failed to get accessor", err)
 				return
+			}
+			if inspector, ok := accessor.(chainaccess.ChainInspector); ok {
+				readersMu.Lock()
+				chainInspectors[selector] = inspector
+				readersMu.Unlock()
 			}
 			reader, err := accessor.SourceReader()
 			if err != nil {
@@ -517,10 +525,22 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		lggr.Infow("Verifier ID: %s\n", coordinatorConfig.VerifierID)
 	})
 
-	healthManager := health.NewManager()
+	healthManager := health.NewManager(lggr)
 	healthManager.Register(coordinator)
 	healthManager.Register(startupSkips)
+	for _, reporter := range deps.HealthReporters {
+		healthManager.Register(reporter)
+	}
 	health.RegisterOn(healthManager, router)
+
+	recorder, err := health.NewMetricsRecorder(lggr, healthManager)
+	if err != nil {
+		return fmt.Errorf("failed to create health metrics recorder: %w", err)
+	}
+	if err := recorder.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start health metrics recorder: %w", err)
+	}
+	f.healthRecorder = recorder
 
 	router.GET("/stats", func(c *gin.Context) {
 		stats := fanOutWriter.GetStats()
@@ -558,7 +578,7 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		aggregatorAddress = resolvedAggregators[0].Address
 		aggregatorInsecure = resolvedAggregators[0].InsecureConnection
 	}
-	adminStop, err := startAdminConsole(lggr, chainStatusDB, secrets, aggregatorAddress, aggregatorInsecure)
+	adminStop, err := startAdminConsole(lggr, spec, chainStatusDB, secrets, aggregatorAddress, aggregatorInsecure, admin.NewChainInspectionSource(chainSelectors, chainInspectors))
 	if err != nil {
 		return fmt.Errorf("failed to start admin console: %w", err)
 	}
@@ -576,6 +596,13 @@ func (f *factory) MetricViews() []sdkmetric.View {
 // Stop implements [bootstrap.ServiceFactory].
 func (f *factory) Stop(ctx context.Context) error {
 	var allErrors error
+	if f.healthRecorder != nil {
+		if err := f.healthRecorder.Close(); err != nil {
+			f.lggr.Errorw("Health metrics recorder close error", "error", err)
+			allErrors = errors.Join(allErrors, err)
+		}
+		f.healthRecorder = nil
+	}
 	// Stop HTTP server. Stop is routinely called with an already-canceled context (process
 	// teardown, failed Start). Shutdown would then return that context error immediately
 	// without draining in-flight requests, so drop the caller's cancellation and bound the

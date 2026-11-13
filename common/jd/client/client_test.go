@@ -10,6 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	pb "github.com/smartcontractkit/chainlink-protos/orchestrator/feedsmanager"
+
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -99,4 +101,14 @@ func TestClient_Close_BeforeConnect(t *testing.T) {
 	// Closing again should also be safe (idempotent)
 	err = client.Close()
 	assert.NoError(t, err)
+}
+
+// JD answers UpdateNode with per-chain errors instead of failing the call; they must not be dropped.
+func TestChainConfigErrors(t *testing.T) {
+	require.NoError(t, chainConfigErrors(nil))
+	err := chainConfigErrors(map[string]*pb.ChainConfigError{
+		"421614":   {Message: "invalid OCR2 key bundle"},
+		"11155111": {Message: "chain not found"},
+	})
+	require.EqualError(t, err, "JD rejected 2 chain config(s): 11155111: chain not found; 421614: invalid OCR2 key bundle")
 }

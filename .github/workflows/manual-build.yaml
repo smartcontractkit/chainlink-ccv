@@ -24,6 +24,12 @@ jobs:
           fetch-depth: 0
           ref: ${{ inputs.git-ref }}
 
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
       - name: Install Just
         uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # v3
         with:

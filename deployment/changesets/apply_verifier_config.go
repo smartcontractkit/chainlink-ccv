@@ -50,12 +50,9 @@ type ApplyVerifierConfigInput struct {
 	DisableFinalityCheckers []string
 	// RevokeOrphanedJobs when true revokes and cleans up orphaned jobs; default false.
 	RevokeOrphanedJobs bool
-	// ConsolidateAggregators when true emits a single verifier job per NOP that writes to ALL of
-	// the committee's aggregators (using the aggregators list in the verifier config), instead of
-	// one job per aggregator. Default false preserves the legacy one-job-per-aggregator output
-	// byte-for-byte. Flipping it to true changes the verifier_id (the consolidated job omits the
-	// aggregator name) and orphans the old per-aggregator jobs; pair it with RevokeOrphanedJobs to
-	// clean those up.
+	// ConsolidateAggregators emits one job per NOP writing to all aggregators instead of one per aggregator.
+	// Standalone NOPs with multiple aggregators require true; false preserves legacy output otherwise.
+	// Switching an existing CL NOP changes its verifier_id and orphans the old per-aggregator jobs.
 	ConsolidateAggregators bool
 }
 
@@ -119,12 +116,32 @@ func createApplyVerifierConfigValidateFunc() func(e deployment.Environment, cfg 
 			}
 		}
 
+		if len(cfg.Committee.ChainConfigs) > 0 && !cfg.ConsolidateAggregators {
+			committeeNOPs := shared.NOPAliasSliceToSet(committeeNOPAliasesFromInput(cfg.Committee, cfg.NOPs))
+			targetedNOPs := shared.NOPAliasSliceToSet(cfg.TargetNOPs)
+			for _, nop := range cfg.NOPs {
+				if !committeeNOPs[nop.Alias] || (len(cfg.TargetNOPs) > 0 && !targetedNOPs[nop.Alias]) {
+					continue
+				}
+				if err := requireConsolidatedAggregatorsForStandalone(nop.Alias, nop.GetMode(), len(cfg.Committee.Aggregators), cfg.ConsolidateAggregators); err != nil {
+					return err
+				}
+			}
+		}
+
 		if shared.IsProductionEnvironment(e.Name) && cfg.PyroscopeURL != "" {
 			return fmt.Errorf("pyroscope URL is not supported for production environments")
 		}
 
 		return nil
 	}
+}
+
+func requireConsolidatedAggregatorsForStandalone(nopAlias shared.NOPAlias, mode shared.NOPMode, aggregatorCount int, consolidate bool) error {
+	if mode != shared.NOPModeStandalone || aggregatorCount <= 1 || consolidate {
+		return nil
+	}
+	return fmt.Errorf("NOP %q runs in standalone mode with %d aggregators and requires consolidateAggregators: true; per-aggregator jobs replace one another on a standalone verifier", nopAlias, aggregatorCount)
 }
 
 type applyVerifierConfigApplyOverrides struct {
@@ -497,6 +514,9 @@ func buildVerifierJobSpecs(
 		if err != nil {
 			return nil, affectedScope, err
 		}
+		if err := requireConsolidatedAggregatorsForStandalone(nopAlias, mode, len(committee.Aggregators), consolidateAggregators); err != nil {
+			return nil, affectedScope, err
+		}
 
 		// A verifier running inside a Chainlink node rejects [policy_hook] at startup: the
 		// endpoint credential comes from the standalone verifier's secrets file, which that
@@ -783,7 +803,7 @@ func validateVerifierChainSupport(
 
 	nopAliasStrings := shared.ConvertNopAliasToString(nopsToValidate)
 
-	supportedChains, err := fetchNodeChainSupport(e, nopAliasStrings)
+	supportedChains, err := fetchNodeChainSupport(e, nopAliasStrings, nil)
 	if err != nil {
 		return fmt.Errorf("failed to fetch node chain support: %w", err)
 	}

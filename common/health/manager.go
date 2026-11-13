@@ -2,6 +2,7 @@ package health
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -13,21 +14,37 @@ import (
 // Manager coordinates health checks across multiple components.
 type Manager struct {
 	components []protocol.HealthReporter
+	lggr       logger.Logger
 	mu         sync.RWMutex
 }
 
 // NewManager creates a new health check manager.
-func NewManager() *Manager {
+func NewManager(lggr logger.Logger) *Manager {
 	return &Manager{
 		components: make([]protocol.HealthReporter, 0),
+		lggr:       lggr,
 	}
 }
 
-// Register adds a component to be monitored for health checks.
+// Register adds a component to be monitored for health checks. Names key the /health entries, so a
+// component registered twice would be listed twice and give any name-keyed metric two writers; the
+// later registration wins and the duplicate is logged, because it is a wiring mistake.
 func (m *Manager) Register(component protocol.HealthReporter) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	for i, existing := range m.components {
+		if existing.Name() != component.Name() {
+			continue
+		}
+		m.lggr.Warnw("Replacing a health component with a duplicate name",
+			"name", component.Name(),
+			"existing", fmt.Sprintf("%T", existing),
+			"replacement", fmt.Sprintf("%T", component),
+		)
+		m.components[i] = component
+		return
+	}
 	m.components = append(m.components, component)
 }
 
@@ -51,7 +68,7 @@ func (m *Manager) CheckReadiness(ctx context.Context) ReadinessResponse {
 
 // StartPeriodicHealthLogging blocks and periodically logs the health status
 // of all registered components until the context is canceled.
-func (m *Manager) StartPeriodicHealthLogging(ctx context.Context, l logger.SugaredLogger, interval time.Duration) error {
+func (m *Manager) StartPeriodicHealthLogging(ctx context.Context, interval time.Duration) error {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
@@ -69,9 +86,9 @@ func (m *Manager) StartPeriodicHealthLogging(ctx context.Context, l logger.Sugar
 				componentStatus[svc.Name] = status
 			}
 
-			logFn := l.Debugw
+			logFn := m.lggr.Debugw
 			if response.Status != Ready {
-				logFn = l.Warnw
+				logFn = m.lggr.Warnw
 			}
 
 			// SERVICE LOG (status): periodic health summary; Debug when healthy, Warn otherwise.

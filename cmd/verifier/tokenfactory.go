@@ -21,6 +21,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/admin"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/storage"
@@ -36,10 +37,11 @@ import (
 type tokenVerifierFactory struct {
 	bootstrap.ServiceFactory
 
-	coordinators []*verifier.Coordinator
-	httpServer   *http.Server
-	adminStop    func()
-	lggr         logger.Logger
+	coordinators   []*verifier.Coordinator
+	httpServer     *http.Server
+	adminStop      func()
+	lggr           logger.Logger
+	healthRecorder *health.MetricsRecorder
 }
 
 var _ bootstrap.ServiceFactoryValidator = (*tokenVerifierFactory)(nil)
@@ -64,8 +66,11 @@ func validateTokenJobSpec(spec bootstrap.JobSpec) (token.Config, error) {
 // a bad config is rejected without stopping the current one, and `validate-config`
 // reuses it in CI.
 func (tvf *tokenVerifierFactory) Validate(spec bootstrap.JobSpec) error {
-	_, err := validateTokenJobSpec(spec)
-	return err
+	cfg, err := validateTokenJobSpec(spec)
+	if err != nil {
+		return err
+	}
+	return validateCCTPDomains(cfg)
 }
 
 // NewTokenVerifierServiceFactory creates a new ServiceFactory for the token verifier service.
@@ -78,6 +83,10 @@ func NewTokenVerifierServiceFactory() bootstrap.ServiceFactory {
 // Stop tries to stop all services gracefully.
 func (tvf *tokenVerifierFactory) Stop(_ context.Context) error {
 	var errs []error
+	if tvf.healthRecorder != nil {
+		errs = append(errs, tvf.healthRecorder.Close())
+		tvf.healthRecorder = nil
+	}
 	if tvf.adminStop != nil {
 		tvf.adminStop()
 		tvf.adminStop = nil
@@ -188,10 +197,16 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 		return fmt.Errorf("failed to connect to Postgres database: %w", err)
 	}
 
+	chainInspectors := make(map[protocol.ChainSelector]chainaccess.ChainInspector)
+	for selector, accessor := range accessors {
+		if inspector, ok := accessor.(chainaccess.ChainInspector); ok {
+			chainInspectors[selector] = inspector
+		}
+	}
 	// The admin console serves in-process when its config file is present; it shares
 	// this verifier's application database and secrets. The token verifier has no
 	// aggregator of its own, so freshness checks need aggregator_address in the file.
-	tvf.adminStop, err = startAdminConsole(tvf.lggr, db, secrets, "", false)
+	tvf.adminStop, err = startAdminConsole(tvf.lggr, spec, db, secrets, "", false, admin.NewChainInspectionSource(chainSelectors, chainInspectors))
 	if err != nil {
 		return fmt.Errorf("failed to start admin console: %w", err)
 	}
@@ -301,8 +316,17 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 		healthReporters = append(healthReporters, coordinator)
 	}
 	healthReporters = append(healthReporters, startupSkips)
-	ginRouter := tokenapi.NewHTTPAPI(tvf.lggr, storage.NewCCVReader(postgresStorage), healthReporters, verifierMonitoring)
+	ginRouter, healthManager := tokenapi.NewHTTPAPI(tvf.lggr, storage.NewCCVReader(postgresStorage), healthReporters, verifierMonitoring)
 	verifierMonitoring.RecordServiceStarted(ctx)
+
+	recorder, err := health.NewMetricsRecorder(tvf.lggr, healthManager)
+	if err != nil {
+		return fmt.Errorf("failed to create health metrics recorder: %w", err)
+	}
+	if err := recorder.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start health metrics recorder: %w", err)
+	}
+	tvf.healthRecorder = recorder
 
 	// Start HTTP server with Gin router
 	tvf.httpServer = &http.Server{

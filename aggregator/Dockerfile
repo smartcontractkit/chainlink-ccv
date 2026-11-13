@@ -11,9 +11,14 @@ RUN --mount=type=cache,target=/go/pkg/mod,id=ccv-go-mod \
 
 # Then copy the rest of the source and build
 COPY . .
+# Build identity for the version/commit metrics; see tools/buildargs.
+ARG VERSION=unset
+ARG COMMIT_SHA=unset
 RUN --mount=type=cache,target=/root/.cache/go-build,id=ccv-go-build \
     --mount=type=cache,target=/go/pkg/mod,id=ccv-go-mod \
-    cd aggregator && CGO_ENABLED=0 go build -ldflags='-s -w' -o /bin/aggregator cmd/main.go
+    cd aggregator && CGO_ENABLED=0 go build \
+    -ldflags="-s -w -X github.com/smartcontractkit/chainlink-ccv/common/static.Version=${VERSION} -X github.com/smartcontractkit/chainlink-ccv/common/static.Sha=${COMMIT_SHA}" \
+    -o /bin/aggregator cmd/main.go
 
 # Stage the /app/migrations symlink for the final image, which has no shell to create it
 RUN mkdir -p /staging/app && ln -s /migrations /staging/app/migrations

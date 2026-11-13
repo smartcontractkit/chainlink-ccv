@@ -56,6 +56,7 @@ func newWorkingEVMFactory(t *testing.T) {
 	acc := mocks.NewMockAccessor(t)
 	acc.EXPECT().ContractTransmitter().Return(ct, nil)
 	acc.EXPECT().DestinationReader().Return(dr, nil)
+	dr.EXPECT().IsReady(mock.Anything).Return(true).Maybe()
 	fac := mocks.NewMockAccessorFactory(t)
 	fac.EXPECT().GetAccessor(mock.Anything, mock.Anything).Return(acc, nil)
 	evmFactory = fac

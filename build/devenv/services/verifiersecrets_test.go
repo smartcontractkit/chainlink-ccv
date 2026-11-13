@@ -38,3 +38,18 @@ func TestGenerateVerifierSecretsAndAdminConsoleConfig(t *testing.T) {
 	require.Empty(t, md.Undecoded())
 	require.Equal(t, DefaultAdminConsoleListenAddr, cfg.ListenAddress)
 }
+
+func TestGenerateAdminConsoleSecrets(t *testing.T) {
+	secretsBytes, err := GenerateAdminConsoleSecrets()
+	require.NoError(t, err)
+	require.NotContains(t, string(secretsBytes), "[db]")
+	require.NotContains(t, string(secretsBytes), "[keystore]")
+
+	path := filepath.Join(t.TempDir(), "admin-secrets.toml")
+	require.NoError(t, os.WriteFile(path, secretsBytes, 0o600))
+	secrets, err := vsecrets.Load(path)
+	require.NoError(t, err)
+	require.NotNil(t, secrets.AdminUIAuth())
+	require.Equal(t, DefaultAdminUIUsername, secrets.AdminUIAuth().Username)
+	require.Equal(t, DefaultAdminUIPassword, secrets.AdminUIAuth().Password)
+}

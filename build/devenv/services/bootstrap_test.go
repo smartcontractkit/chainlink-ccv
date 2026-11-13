@@ -45,6 +45,7 @@ func TestGenerateBootstrap_SplitFiles(t *testing.T) {
 	// The secrets file must not carry the non-secret sections.
 	require.NotContains(t, string(secretsTOML), "server_wsrpc_url")
 	require.NotContains(t, string(secretsTOML), "listen_port")
+	require.NotContains(t, string(secretsTOML), "admin_ui")
 
 	// Decoding both into one struct (config first, secrets overlay) reconstructs the full config.
 	var cfg bootstrap.Config
