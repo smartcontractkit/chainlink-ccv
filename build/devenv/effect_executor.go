@@ -9,6 +9,7 @@ import (
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
+	ccldf "github.com/smartcontractkit/chainlink-ccv/build/devenv/cldf"
 	blockchainscomp "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/blockchains"
 	jdcomp "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/jd"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
@@ -127,6 +128,11 @@ func executeJobProposalEffects(ctx context.Context, effects []devenvruntime.JobP
 		}
 		if err := jobs.SyncAndVerifyJobProposals(&syncEnv); err != nil {
 			return fmt.Errorf("syncing job proposals: %w", err)
+		}
+		e.DataStore = syncEnv.DataStore
+		cldf, _ := accumulated["cldf"].(*ccldf.CLDF)
+		if err := updateCLDFOutput(cldf, syncEnv.DataStore); err != nil {
+			return fmt.Errorf("updating CLDF output after syncing job proposals: %w", err)
 		}
 	}
 

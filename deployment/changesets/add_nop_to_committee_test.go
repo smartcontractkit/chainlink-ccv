@@ -622,7 +622,8 @@ type stubOffchainClient struct {
 	csav1.CSAServiceClient
 
 	// nodes maps nodeID → node name (NOP alias). Used by ListNodes and ProposeJob stubs.
-	nodes map[string]string
+	nodes        map[string]string
+	chainConfigs []*nodev1.ChainConfig
 }
 
 func (s *stubOffchainClient) ListNodes(_ context.Context, in *nodev1.ListNodesRequest, _ ...grpc.CallOption) (*nodev1.ListNodesResponse, error) {
@@ -634,9 +635,19 @@ func (s *stubOffchainClient) ListNodes(_ context.Context, in *nodev1.ListNodesRe
 				continue
 			}
 		}
-		result = append(result, &nodev1.Node{Id: id, Name: name})
+		result = append(result, ccvTestNode(id, name, "test", ""))
 	}
 	return &nodev1.ListNodesResponse{Nodes: result}, nil
+}
+
+func (s *stubOffchainClient) ListNodeChainConfigs(_ context.Context, in *nodev1.ListNodeChainConfigsRequest, _ ...grpc.CallOption) (*nodev1.ListNodeChainConfigsResponse, error) {
+	result := make([]*nodev1.ChainConfig, 0, len(s.chainConfigs))
+	for _, cfg := range s.chainConfigs {
+		if len(in.GetFilter().GetNodeIds()) == 0 || slices.Contains(in.GetFilter().GetNodeIds(), cfg.GetNodeId()) {
+			result = append(result, cfg)
+		}
+	}
+	return &nodev1.ListNodeChainConfigsResponse{ChainConfigs: result}, nil
 }
 
 func (s *stubOffchainClient) ProposeJob(_ context.Context, _ *jobv1.ProposeJobRequest, _ ...grpc.CallOption) (*jobv1.ProposeJobResponse, error) {
@@ -852,6 +863,7 @@ func newTestEnvForApply(t *testing.T, nopAlias string, chainSelectors []uint64) 
 		operations.NewMemoryReporter(),
 	)
 	return deployment.Environment{
+		Name:             "test",
 		Logger:           lggr,
 		BlockChains:      newTestBlockChains(chainSelectors),
 		DataStore:        datastore.NewMemoryDataStore().Seal(),

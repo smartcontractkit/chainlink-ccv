@@ -4,16 +4,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"sort"
 
 	"github.com/Masterminds/semver/v3"
-
-	nodev1 "github.com/smartcontractkit/chainlink-protos/job-distributor/v1/node"
-	"github.com/smartcontractkit/chainlink-protos/job-distributor/v1/shared/ptypes"
 
 	"github.com/smartcontractkit/chainlink-deployments-framework/engine/cld/domain"
 	"github.com/smartcontractkit/chainlink-deployments-framework/offchain"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
+
+	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 )
 
 type SaveNodesJSONDeps struct {
@@ -23,8 +21,9 @@ type SaveNodesJSONDeps struct {
 }
 
 type SaveNodesJSONOutput struct {
-	Path      string `json:"path"`
-	NodeCount int    `json:"node_count"`
+	Path      string                          `json:"path"`
+	NodeCount int                             `json:"node_count"`
+	Nodes     map[string]ccvdeployment.JDNode `json:"-" yaml:"-"`
 }
 
 // SaveNodesJSON snapshots the full JD product/environment into nodes.json.
@@ -36,41 +35,23 @@ var SaveNodesJSON = operations.NewOperation(
 		domainKey := deps.Domain.Key()
 		envKey := deps.EnvKey
 
-		nodes, err := deps.JDClient.ListNodes(b.GetContext(), &nodev1.ListNodesRequest{
-			Filter: &nodev1.ListNodesRequest_Filter{
-				Selectors: []*ptypes.Selector{
-					{Key: "product", Op: ptypes.SelectorOp_EQ, Value: &domainKey},
-					{Key: "environment", Op: ptypes.SelectorOp_EQ, Value: &envKey},
-				},
-			},
-		})
+		nodes, err := ccvdeployment.FetchJDNodes(b.GetContext(), deps.JDClient, domainKey, envKey)
 		if err != nil {
-			return SaveNodesJSONOutput{}, fmt.Errorf("failed to list nodes from JD: %w", err)
+			return SaveNodesJSONOutput{}, err
 		}
-
-		jdNodes := nodes.GetNodes()
-		if len(jdNodes) == 0 {
+		if len(nodes) == 0 {
 			return SaveNodesJSONOutput{}, fmt.Errorf(
 				"no nodes registered in JD for product=%s environment=%s, refusing to overwrite nodes.json with an empty result",
 				domainKey, envKey)
 		}
-		for _, node := range jdNodes {
-			if node == nil || node.Id == "" {
-				return SaveNodesJSONOutput{}, fmt.Errorf("invalid JD response while listing nodes for product=%s environment=%s", domainKey, envKey)
-			}
-		}
-
-		sort.Slice(jdNodes, func(i, j int) bool {
-			return jdNodes[i].Name < jdNodes[j].Name
-		})
 
 		nodesData := struct {
 			Nodes map[string]map[string]string `json:"nodes"`
 		}{
-			Nodes: make(map[string]map[string]string, len(jdNodes)),
+			Nodes: make(map[string]map[string]string, len(nodes)),
 		}
-		for _, node := range jdNodes {
-			nodesData.Nodes[node.Id] = map[string]string{"name": node.Name}
+		for id, node := range nodes {
+			nodesData.Nodes[id] = map[string]string{"name": node.Name}
 		}
 
 		jsonData, err := json.MarshalIndent(nodesData, "", "  ")
@@ -83,6 +64,6 @@ var SaveNodesJSON = operations.NewOperation(
 			return SaveNodesJSONOutput{}, fmt.Errorf("failed to write nodes.json file: %w", err)
 		}
 
-		return SaveNodesJSONOutput{Path: nodesFilePath, NodeCount: len(nodesData.Nodes)}, nil
+		return SaveNodesJSONOutput{Path: nodesFilePath, NodeCount: len(nodes), Nodes: nodes}, nil
 	},
 )

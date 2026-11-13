@@ -94,16 +94,21 @@ func (cs CsRegisterNodesWithJD) Apply(e cldf.Environment, input CsRegisterNodesW
 	}
 
 	saveDeps := SaveNodesJSONDeps{JDClient: e.Offchain, Domain: d, EnvKey: e.Name}
-	if _, err := operations.ExecuteOperation(
+	saveReport, err := operations.ExecuteOperation(
 		e.OperationsBundle,
 		SaveNodesJSON,
 		saveDeps,
 		operations.EmptyInput{},
 		operations.WithForceExecute[operations.EmptyInput, SaveNodesJSONDeps](),
-	); err != nil {
+	)
+	if err != nil {
 		return cldf.ChangesetOutput{}, fmt.Errorf("failed to write nodes.json after registration: %w", err)
 	}
-	return cldf.ChangesetOutput{}, nil
+	ds, err := saveJDNodeInventory(e, saveReport.Output.Nodes)
+	if err != nil {
+		return cldf.ChangesetOutput{}, err
+	}
+	return cldf.ChangesetOutput{DataStore: ds}, nil
 }
 
 func resolveDomain(override *domain.Domain, key string) domain.Domain {
