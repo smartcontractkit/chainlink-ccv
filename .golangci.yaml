@@ -55,17 +55,49 @@ linters:
     # https://golangci-lint.run/usage/linters/#depguard
     depguard:
       rules:
+        # The protocol layer is default-deny: an import must be named here or it
+        # fails. This is deliberately stricter than the other rules -- a blocklist
+        # only stops dependencies we already thought of.
+        # Adding an entry here should be a considered decision.
         protocol:
-          list-mode: lax
+          list-mode: strict
           files:
             - ${config-path}/protocol/*.go
             - ${config-path}/protocol/**/*.go
           allow:
             - $gostd
             - github.com/smartcontractkit/chainlink-ccv/protocol
+            - github.com/smartcontractkit/chain-selectors
+            # See the evm_chain_access rationale: secp256k1 signing is protocol work.
+            # common is allowed for common.Address, the 20-byte signer address shared
+            # by every chain family. common/hexutil is denied by evm_hex_formatting.
+            - github.com/ethereum/go-ethereum/crypto
+            - github.com/ethereum/go-ethereum/common
+            - github.com/google/uuid
+            - github.com/stretchr/testify
+            - go.uber.org/zap
+            - golang.org/x/crypto
+            - google.golang.org/grpc
+            - google.golang.org/protobuf
+
+        # go-ethereum/common is allowed above as an address/crypto primitive, but
+        # depguard matches by prefix, so common/hexutil rides in on that allow by
+        # accident. hexutil is Ethereum hex formatting, not a crypto primitive --
+        # encoding/hex covers the same ground. Denied separately so the `common`
+        # carve-out stays as narrow as it reads.
+        evm_hex_formatting:
+          list-mode: lax
+          files:
+            - $all
+            - "!${config-path}/integration/evm/**"
+            - "!${config-path}/build/devenv/**"
+            - "!${config-path}/deployment/**"
+            # Two call sites: hexutil.Decode in signer.go, hexutil.Encode in
+            # verifier.go. Port both to encoding/hex and delete this line.
+            - "!${config-path}/verifier/pkg/commit/**"
           deny:
-            - pkg: github.com/smartcontractkit/chainlink
-              desc: No chainlink dependencies in protocol abstraction layer
+            - pkg: github.com/ethereum/go-ethereum/common/hexutil
+              desc: Ethereum hex formatting is chain-specific; use encoding/hex.
         executor_verifier:
           list-mode: lax
           files:
@@ -86,6 +118,45 @@ linters:
           deny:
             - pkg: github.com/smartcontractkit/chainlink
               desc: No chainlink dependencies in verifier or executor packages
+
+        # CCV EVM split (CCIP-13534/13535). The principle: crypto primitives are
+        # protocol code, chain interaction is EVM code.
+        #
+        # go-ethereum/{crypto,common,accounts/keystore} are allowed everywhere on
+        # purpose, not by oversight. CCV committee signatures are ECDSA on secp256k1
+        # for every chain family -- chainlink-ccip-solana provisions an ECDSA_S256
+        # key and signs through this same shared path. That dependency is protocol
+        # work, not chain work.
+        #
+        # Everything else in go-ethereum, and all of chainlink-evm, is chain
+        # interaction and belongs in an EVM-specific package.
+        evm_chain_access:
+          list-mode: lax
+          files:
+            - $all
+            # EVM-specific by design.
+            - "!${config-path}/integration/evm/**"
+            - "!${config-path}/build/devenv/**"
+            - "!${config-path}/deployment/**"
+            # EVM code that has not moved to integration/evm yet. Delete each entry
+            # as its package is split out (CCIP-13534); do not add new ones.
+            - "!${config-path}/integration/pkg/accessors/**"
+            - "!${config-path}/integration/pkg/constructors/**"
+            - "!${config-path}/integration/pkg/contracttransmitter/**"
+            - "!${config-path}/integration/pkg/destinationreader/**"
+            - "!${config-path}/integration/pkg/rmnremotereader/**"
+            - "!${config-path}/pricer/**"
+            - "!${config-path}/verifier/pkg/token/lombard/**"
+          allow:
+            # Crypto primitives for the shared, chain-family-agnostic signing path.
+            - github.com/ethereum/go-ethereum/crypto
+            - github.com/ethereum/go-ethereum/common
+            - github.com/ethereum/go-ethereum/accounts/keystore
+          deny:
+            - pkg: github.com/ethereum/go-ethereum
+              desc: Chain interaction belongs in an EVM package (integration/evm). Only go-ethereum crypto/common/accounts-keystore are protocol code.
+            - pkg: github.com/smartcontractkit/chainlink-evm
+              desc: Chain interaction belongs in an EVM package (integration/evm), not in shared or protocol code.
 
         test:
           list-mode: lax
