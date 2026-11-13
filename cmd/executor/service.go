@@ -45,10 +45,11 @@ const (
 
 // Factory is a bootstrap.ServiceFactory that starts the executor service.
 type Factory struct {
-	coordinator *executorsvc.Coordinator
-	server      *http.Server
-	profiler    *pyroscope.Profiler
-	lggr        logger.Logger
+	coordinator    *executorsvc.Coordinator
+	server         *http.Server
+	profiler       *pyroscope.Profiler
+	lggr           logger.Logger
+	healthRecorder *health.MetricsRecorder
 }
 
 var (
@@ -84,6 +85,10 @@ func (f *Factory) Validate(spec bootstrap.JobSpec) error {
 // or a Stop after a failed Start — does not close components twice.
 func (f *Factory) Stop(ctx context.Context) error {
 	var err error
+	if f.healthRecorder != nil {
+		err = errors.Join(err, f.healthRecorder.Close())
+		f.healthRecorder = nil
+	}
 	if f.server != nil {
 		// Stop is routinely called with an already-canceled context (process teardown, failed
 		// Start). Shutdown would then return that context error immediately without draining
@@ -303,6 +308,15 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		healthManager.Register(reporter)
 	}
 	health.RegisterOn(healthManager, router)
+
+	recorder, err := health.NewMetricsRecorder(f.lggr, healthManager)
+	if err != nil {
+		return fmt.Errorf("failed to create health metrics recorder: %w", err)
+	}
+	if err := recorder.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start health metrics recorder: %w", err)
+	}
+	f.healthRecorder = recorder
 
 	server := &http.Server{
 		Addr:         ":" + strconv.Itoa(executorConfig.HTTPListenPort),

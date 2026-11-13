@@ -196,11 +196,20 @@ func main() {
 		}()
 	}
 
-	v1 := api.NewV1API(lggr, config, indexerStorage, indexerMonitoring, healthReporters)
+	v1, healthManager := api.NewV1API(lggr, config, indexerStorage, indexerMonitoring, healthReporters)
 	listenPort := config.API.ListenPort
 	if listenPort == 0 {
 		listenPort = 8100
 	}
+
+	recorder, err := ccvhealth.NewMetricsRecorder(lggr, healthManager)
+	if err != nil {
+		lggr.Fatalf("Failed to create health metrics recorder: %v", err)
+	}
+	if err := recorder.Start(ctx); err != nil {
+		lggr.Fatalf("Failed to start health metrics recorder: %v", err)
+	}
+	defer func() { _ = recorder.Close() }()
 
 	indexerMonitoring.RecordServiceStarted(ctx)
 

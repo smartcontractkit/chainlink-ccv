@@ -60,6 +60,7 @@ type factory struct {
 	aggregatorWriter *storageaccess.FanOutWriter
 	heartbeatClient  heartbeatclient.HeartbeatSender
 	adminStop        func()
+	healthRecorder   *health.MetricsRecorder
 
 	// db is the verifier database, opened in Start and closed last in Stop.
 	dbMu sync.Mutex
@@ -525,6 +526,15 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	}
 	health.RegisterOn(healthManager, router)
 
+	recorder, err := health.NewMetricsRecorder(lggr, healthManager)
+	if err != nil {
+		return fmt.Errorf("failed to create health metrics recorder: %w", err)
+	}
+	if err := recorder.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start health metrics recorder: %w", err)
+	}
+	f.healthRecorder = recorder
+
 	router.GET("/stats", func(c *gin.Context) {
 		stats := fanOutWriter.GetStats()
 		lggr.Infow("Storage Statistics:\n")
@@ -579,6 +589,13 @@ func (f *factory) MetricViews() []sdkmetric.View {
 // Stop implements [bootstrap.ServiceFactory].
 func (f *factory) Stop(ctx context.Context) error {
 	var allErrors error
+	if f.healthRecorder != nil {
+		if err := f.healthRecorder.Close(); err != nil {
+			f.lggr.Errorw("Health metrics recorder close error", "error", err)
+			allErrors = errors.Join(allErrors, err)
+		}
+		f.healthRecorder = nil
+	}
 	// Stop HTTP server. Stop is routinely called with an already-canceled context (process
 	// teardown, failed Start). Shutdown would then return that context error immediately
 	// without draining in-flight requests, so drop the caller's cancellation and bound the
