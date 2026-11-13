@@ -251,3 +251,32 @@ func TestTheLastAccessorCloseReleasesTheFactoryLeaseAfterItsRuntime(t *testing.T
 	require.Equal(t, int32(1), fake.releases.Load())
 	require.Equal(t, runtime.closeCalls, closesAtRelease, "the lease is released after the last runtime closes")
 }
+
+// The RPC reader gets the chain's LogBackfillBatchSize as its eth_getLogs cap and reports it, so the
+// verifier sizes its scans to it; the LogPoller reader reads its database and reports no cap.
+func TestRPCSourceReaderCarriesTheChainsLogBlockRange(t *testing.T) {
+	t.Parallel()
+
+	runtime := newStubRuntime(t)
+	runtime.sourceReaderMaxLogBlockRange = 99
+	runtime.sourceReaderHeaderFetchBatchSize = 20
+	reader, err := newSourceAccessor(t, runtime).SourceReader()
+	require.NoError(t, err)
+
+	limiter, ok := reader.(chainaccess.LogBlockRangeLimiter)
+	require.True(t, ok, "the RPC reader must report its log range cap")
+	require.Equal(t, uint64(99), limiter.MaxLogBlockRange())
+	require.Equal(t, 20, reader.(*SourceReader).sourceReaderHeaderFetchBatchSize)
+
+	_, ok = any(&LogPollerSourceReader{}).(chainaccess.LogBlockRangeLimiter)
+	require.False(t, ok, "LogPoller reads come from its database and need no cap")
+}
+
+func TestStandaloneHeaderFetchBatchSize(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, 25, standaloneHeaderFetchBatchSize(0, 250), "the default stands when the chain allows more")
+	require.Equal(t, 20, standaloneHeaderFetchBatchSize(0, 20), "a node's lower RPCDefaultBatchSize lowers the default")
+	require.Equal(t, 40, standaloneHeaderFetchBatchSize(40, 20), "an operator's explicit value is kept")
+	require.Equal(t, 25, standaloneHeaderFetchBatchSize(0, 0), "an unset chain batch size leaves the default")
+}

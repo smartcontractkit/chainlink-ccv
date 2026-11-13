@@ -86,6 +86,8 @@ type chainRuntime interface {
 	DAGasPriceOracle(ctx context.Context) (rollups.L1Oracle, error)
 	TransmitterAddresses(ctx context.Context, ks keystore.Keystore, keyName string) ([]common.Address, error)
 	SourceReaderHeaderFetchBatchSize() int
+	// SourceReaderMaxLogBlockRange is the chain's LogBackfillBatchSize: the widest eth_getLogs its RPCs take.
+	SourceReaderMaxLogBlockRange() uint64
 	NewContractTransmitter(
 		ctx context.Context,
 		chainSelector protocol.ChainSelector,
@@ -123,6 +125,7 @@ type standaloneChain struct {
 	txmBlockTimeSource evmconfig.TXMBlockTimeSource
 
 	sourceReaderHeaderFetchBatchSize int
+	sourceReaderMaxLogBlockRange     uint64
 
 	mu                  sync.Mutex
 	txm                 txmgr.TxManager
@@ -206,7 +209,8 @@ func newStandaloneChain(ctx context.Context, selector protocol.ChainSelector, in
 		configEmitter:                    configEmitter,
 		txmBlockTime:                     txmBlockTime,
 		txmBlockTimeSource:               txmBlockTimeSource,
-		sourceReaderHeaderFetchBatchSize: sourceReaderHeaderFetchBatchSize(info.SourceReaderHeaderFetchBatchSize),
+		sourceReaderHeaderFetchBatchSize: standaloneHeaderFetchBatchSize(info.SourceReaderHeaderFetchBatchSize, chainConfig.EVM().RPCDefaultBatchSize()),
+		sourceReaderMaxLogBlockRange:     uint64(chainConfig.EVM().LogBackfillBatchSize()),
 		newLogPoller:                     buildLogPoller,
 		recoveryStop:                     make(services.StopChan),
 	}
@@ -220,6 +224,11 @@ func (c *standaloneChain) SourceReaderHeaderFetchBatchSize() int {
 	return c.sourceReaderHeaderFetchBatchSize
 }
 
+// SourceReaderMaxLogBlockRange implements chainRuntime.
+func (c *standaloneChain) SourceReaderMaxLogBlockRange() uint64 {
+	return c.sourceReaderMaxLogBlockRange
+}
+
 // sourceReaderHeaderFetchBatchSize returns batchSize or
 // DefaultSourceReaderHeaderFetchBatchSize when batchSize is not positive.
 func sourceReaderHeaderFetchBatchSize(batchSize int) int {
@@ -227,6 +236,18 @@ func sourceReaderHeaderFetchBatchSize(batchSize int) int {
 		return evmconfig.DefaultSourceReaderHeaderFetchBatchSize
 	}
 	return batchSize
+}
+
+// standaloneHeaderFetchBatchSize keeps an operator's batch size and otherwise lowers the default to
+// the chain's RPCDefaultBatchSize, which a mounted node config sets for its own RPC batches.
+func standaloneHeaderFetchBatchSize(configured int, rpcBatchSize uint32) int {
+	if configured > 0 {
+		return configured
+	}
+	if rpcBatchSize > 0 && int64(rpcBatchSize) < evmconfig.DefaultSourceReaderHeaderFetchBatchSize {
+		return int(rpcBatchSize)
+	}
+	return evmconfig.DefaultSourceReaderHeaderFetchBatchSize
 }
 
 func (c *standaloneChain) ChainClient() (client.Client, error) {

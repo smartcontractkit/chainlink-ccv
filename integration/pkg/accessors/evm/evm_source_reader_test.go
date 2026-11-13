@@ -135,7 +135,7 @@ func blockNumFromArg(arg any) int64 {
 
 func newTestSourceReader(t *testing.T, cc evmclient.Client) *SourceReader {
 	t.Helper()
-	return &SourceReader{sourceReaderCore{
+	return &SourceReader{sourceReaderCore: sourceReaderCore{
 		chainClient: cc,
 		lggr:        logger.Test(t),
 	}}
@@ -605,4 +605,65 @@ func TestFetchMessageSentEvents_NonCriticalViolationKeepsServing(t *testing.T) {
 	events, err := src.FetchMessageSentEvents(t.Context(), 90, 100)
 	require.NoError(t, err)
 	require.Empty(t, events)
+}
+
+// A provider that caps eth_getLogs (the node's LogBackfillBatchSize) must never see a wider range.
+func TestRPCLogsSplitsRangesWiderThanTheLimit(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		from, to uint64
+		limit    uint64
+		want     [][2]uint64
+	}{
+		{name: "a range within the limit is one query", from: 100, to: 198, limit: 99, want: [][2]uint64{{100, 198}}},
+		{name: "a wider range splits at the limit", from: 100, to: 299, limit: 99, want: [][2]uint64{{100, 198}, {199, 297}, {298, 299}}},
+		{name: "an exact multiple leaves no empty tail", from: 1, to: 200, limit: 100, want: [][2]uint64{{1, 100}, {101, 200}}},
+		{name: "an open-ended range is one query", from: 100, to: 0, limit: 10, want: [][2]uint64{{100, 0}}},
+		{name: "no limit is one query", from: 100, to: 5_000, limit: 0, want: [][2]uint64{{100, 5_000}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var got [][2]uint64
+			cc := &mockFilterLogsClient{filterLogsFunc: func(_ context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
+				var to uint64
+				if q.ToBlock != nil {
+					to = q.ToBlock.Uint64()
+				}
+				got = append(got, [2]uint64{q.FromBlock.Uint64(), to})
+				return []types.Log{{BlockNumber: q.FromBlock.Uint64()}}, nil
+			}}
+			r := newTestSourceReader(t, cc)
+			r.maxLogBlockRange = tt.limit
+
+			logs, err := r.rpcLogs(t.Context(), tt.from, tt.to)
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
+			require.Len(t, logs, len(tt.want), "every chunk's logs are returned")
+		})
+	}
+}
+
+// One failed chunk fails the whole read: returning the chunks before it would let the caller
+// advance past blocks it never saw.
+func TestRPCLogsFailsTheWholeRangeWhenAChunkFails(t *testing.T) {
+	t.Parallel()
+
+	calls := 0
+	cc := &mockFilterLogsClient{filterLogsFunc: func(context.Context, ethereum.FilterQuery) ([]types.Log, error) {
+		calls++
+		if calls == 2 {
+			return nil, errors.New("block range too large")
+		}
+		return []types.Log{{}}, nil
+	}}
+	r := newTestSourceReader(t, cc)
+	r.maxLogBlockRange = 10
+
+	logs, err := r.rpcLogs(t.Context(), 1, 30)
+	require.Error(t, err)
+	require.Nil(t, logs)
+	require.Equal(t, 2, calls, "chunks after the failed one are not requested")
 }

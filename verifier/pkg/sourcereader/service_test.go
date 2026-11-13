@@ -1311,7 +1311,7 @@ func TestSRS_MultiCycle_SmallRangeCompletesInOneTick(t *testing.T) {
 
 	events := createTestMessageSentEvents(t, 1, chain, defaultDestChain, []uint64{110, 120})
 
-	// Range fits in one chunk (< 5000 default), last chunk uses 0 toBlock (open-ended)
+	// Range fits in one chunk, so it is open-ended (0 toBlock)
 	zeroToBlock := mock.MatchedBy(func(arg uint64) bool { return arg == 0 })
 	reader.EXPECT().
 		FetchMessageSentEvents(mock.Anything, uint64(99), zeroToBlock).
@@ -1363,7 +1363,7 @@ func TestSRS_LargeRangeChunkedInSingleCycle(t *testing.T) {
 		Maybe()
 
 	// Split events so each falls in the chunk matching its block number.
-	// maxBlockRange=1500: chunks are [99,1599],[1600,3100],[3101,4601],[4602,6102],[6103,7603],[7604,9104],[9105,10605],[10606,nil]
+	// maxBlockRange=1500 blocks per chunk: [99,1598],[1599,3098],[3099,4598],[4599,6098],[6099,7598],[7599,9098],[9099,10598],[10599,nil]
 	event500 := createTestMessageSentEvents(t, 1, chain, defaultDestChain, []uint64{500})
 	event2000 := createTestMessageSentEvents(t, 2, chain, defaultDestChain, []uint64{2000})
 	events2 := createTestMessageSentEvents(t, 10, chain, defaultDestChain, []uint64{6000})
@@ -1371,44 +1371,44 @@ func TestSRS_LargeRangeChunkedInSingleCycle(t *testing.T) {
 
 	zeroToBlock := mock.MatchedBy(func(arg uint64) bool { return arg == 0 })
 
-	// chunk 1: [99, 1599]  (99 + 1500 = 1599) — block 500 falls here
+	// chunk 1: [99, 1598], 1500 blocks — block 500 falls here
 	reader.EXPECT().
-		FetchMessageSentEvents(mock.Anything, uint64(99), uint64(1599)).
+		FetchMessageSentEvents(mock.Anything, uint64(99), uint64(1598)).
 		Return(event500, nil).
 		Once()
-	// chunk 2: [1600, 3100]  (1600 + 1500 = 3100) — block 2000 falls here
+	// chunk 2: [1599, 3098] — block 2000 falls here
 	reader.EXPECT().
-		FetchMessageSentEvents(mock.Anything, uint64(1600), uint64(3100)).
+		FetchMessageSentEvents(mock.Anything, uint64(1599), uint64(3098)).
 		Return(event2000, nil).
 		Once()
-	// chunk 3: [3101, 4601]
+	// chunk 3: [3099, 4598]
 	reader.EXPECT().
-		FetchMessageSentEvents(mock.Anything, uint64(3101), uint64(4601)).
+		FetchMessageSentEvents(mock.Anything, uint64(3099), uint64(4598)).
 		Return([]protocol.MessageSentEvent{}, nil).
 		Once()
-	// chunk 4: [4602, 6102]  — block 6000 falls here
+	// chunk 4: [4599, 6098] — block 6000 falls here
 	reader.EXPECT().
-		FetchMessageSentEvents(mock.Anything, uint64(4602), uint64(6102)).
+		FetchMessageSentEvents(mock.Anything, uint64(4599), uint64(6098)).
 		Return(events2, nil).
 		Once()
-	// chunk 5: [6103, 7603]
+	// chunk 5: [6099, 7598]
 	reader.EXPECT().
-		FetchMessageSentEvents(mock.Anything, uint64(6103), uint64(7603)).
+		FetchMessageSentEvents(mock.Anything, uint64(6099), uint64(7598)).
 		Return([]protocol.MessageSentEvent{}, nil).
 		Once()
-	// chunk 6: [7604, 9104]
+	// chunk 6: [7599, 9098]
 	reader.EXPECT().
-		FetchMessageSentEvents(mock.Anything, uint64(7604), uint64(9104)).
+		FetchMessageSentEvents(mock.Anything, uint64(7599), uint64(9098)).
 		Return([]protocol.MessageSentEvent{}, nil).
 		Once()
-	// chunk 7: [9105, 10605]
+	// chunk 7: [9099, 10598]
 	reader.EXPECT().
-		FetchMessageSentEvents(mock.Anything, uint64(9105), uint64(10605)).
+		FetchMessageSentEvents(mock.Anything, uint64(9099), uint64(10598)).
 		Return([]protocol.MessageSentEvent{}, nil).
 		Once()
-	// chunk 8: [10606, nil]  (10606 + 1500 = 12106 >= 12000) — block 11500 falls here
+	// chunk 8: [10599, nil] (1402 blocks to 12000 fit one chunk) — block 11500 falls here
 	reader.EXPECT().
-		FetchMessageSentEvents(mock.Anything, uint64(10606), zeroToBlock).
+		FetchMessageSentEvents(mock.Anything, uint64(10599), zeroToBlock).
 		Return(events3, nil).
 		Once()
 
@@ -1459,20 +1459,25 @@ func TestSRS_CustomMaxBlockRangeChunksCorrectly(t *testing.T) {
 
 	zeroToBlock := mock.MatchedBy(func(arg uint64) bool { return arg == 0 })
 
-	// All chunks processed in single cycle with maxBlockRange=100
-	// Chunk 1: [99, 199]
+	// All chunks processed in single cycle with maxBlockRange=100, each spanning at most 100 blocks
+	// Chunk 1: [99, 198]
 	reader.EXPECT().
-		FetchMessageSentEvents(mock.Anything, uint64(99), uint64(199)).
+		FetchMessageSentEvents(mock.Anything, uint64(99), uint64(198)).
 		Return(nil, nil).
 		Once()
-	// Chunk 2: [200, 300]
+	// Chunk 2: [199, 298]
 	reader.EXPECT().
-		FetchMessageSentEvents(mock.Anything, uint64(200), uint64(300)).
+		FetchMessageSentEvents(mock.Anything, uint64(199), uint64(298)).
 		Return(nil, nil).
 		Once()
-	// Chunk 3: [301, 0] - toBlock >= latest so use 0 (open-ended)
+	// Chunk 3: [299, 398]
 	reader.EXPECT().
-		FetchMessageSentEvents(mock.Anything, uint64(301), zeroToBlock).
+		FetchMessageSentEvents(mock.Anything, uint64(299), uint64(398)).
+		Return(nil, nil).
+		Once()
+	// Chunk 4: [399, 0] - the rest fits one chunk, so it is open-ended
+	reader.EXPECT().
+		FetchMessageSentEvents(mock.Anything, uint64(399), zeroToBlock).
 		Return(nil, nil).
 		Once()
 
@@ -1815,11 +1820,11 @@ func TestSRS_FinalizedBehindLastProcessed_QueriesAndUpdatesToFinalized(t *testin
 
 	// Queries all chunks up to latest
 	reader.EXPECT().
-		FetchMessageSentEvents(mock.Anything, uint64(100), uint64(5100)).
+		FetchMessageSentEvents(mock.Anything, uint64(100), uint64(5099)).
 		Return(nil, nil).
 		Once()
 	reader.EXPECT().
-		FetchMessageSentEvents(mock.Anything, uint64(5101), zeroToBlock).
+		FetchMessageSentEvents(mock.Anything, uint64(5100), zeroToBlock).
 		Return(nil, nil).
 		Once()
 
@@ -2035,20 +2040,20 @@ func TestSRS_PartialRead_EventsFromSuccessfulChunksQueued(t *testing.T) {
 
 	reader := mocks.NewMockSourceReader(t)
 
-	// maxBlockRange=500 splits [100, 700) into two chunks: [100,600] and [601,nil].
+	// maxBlockRange=500 splits [100, 700] into two chunks: [100,599] and [600,nil].
 	latest := &protocol.BlockHeader{Number: 700}
 	finalized := &protocol.BlockHeader{Number: 600}
 	reader.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(latest, finalized, nil).Maybe()
 
 	eventsChunk1 := createTestMessageSentEvents(t, 1, chain, defaultDestChain, []uint64{200, 400})
 	reader.EXPECT().
-		FetchMessageSentEvents(mock.Anything, uint64(100), uint64(600)).
+		FetchMessageSentEvents(mock.Anything, uint64(100), uint64(599)).
 		Return(eventsChunk1, nil).
 		Once()
 
 	zeroToBlock := mock.MatchedBy(func(arg uint64) bool { return arg == 0 })
 	reader.EXPECT().
-		FetchMessageSentEvents(mock.Anything, uint64(601), zeroToBlock).
+		FetchMessageSentEvents(mock.Anything, uint64(600), zeroToBlock).
 		Return(nil, assert.AnError).
 		Once()
 
@@ -2088,21 +2093,21 @@ func TestSRS_PartialRead_ProgressAdvancesToLastSuccessfulChunkBound(t *testing.T
 
 	reader := mocks.NewMockSourceReader(t)
 
-	// maxBlockRange=500 splits [100, 700) into [100,600] and [601,nil].
+	// maxBlockRange=500 splits [100, 700] into [100,599] and [600,nil].
 	latest := &protocol.BlockHeader{Number: 700}
 	finalized := &protocol.BlockHeader{Number: 600}
 	reader.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(latest, finalized, nil).Maybe()
 
-	// Events at blocks 200 and 400 — the chunk boundary (toBlock) is 600.
+	// Events at blocks 200 and 400 — the chunk boundary (toBlock) is 599.
 	eventsChunk1 := createTestMessageSentEvents(t, 1, chain, defaultDestChain, []uint64{200, 400})
 	reader.EXPECT().
-		FetchMessageSentEvents(mock.Anything, uint64(100), uint64(600)).
+		FetchMessageSentEvents(mock.Anything, uint64(100), uint64(599)).
 		Return(eventsChunk1, nil).
 		Once()
 
 	zeroToBlock := mock.MatchedBy(func(arg uint64) bool { return arg == 0 })
 	reader.EXPECT().
-		FetchMessageSentEvents(mock.Anything, uint64(601), zeroToBlock).
+		FetchMessageSentEvents(mock.Anything, uint64(600), zeroToBlock).
 		Return(nil, assert.AnError).
 		Once()
 
@@ -2121,10 +2126,10 @@ func TestSRS_PartialRead_ProgressAdvancesToLastSuccessfulChunkBound(t *testing.T
 
 	srs.processEventCycle(ctx, latest, finalized)
 
-	// err != nil, finalQueriedBlock (chunk 1 toBlock = 600) >= fromBlock (100)
-	// → partial-read branch → progress = 600.
+	// err != nil, finalQueriedBlock (chunk 1 toBlock = 599) >= fromBlock (100)
+	// → partial-read branch → progress = 599.
 	// Progress must NOT stay at fromBlock (100) as if it were a total failure.
-	require.Equal(t, uint64(600), srs.lastProcessedFinalizedBlock.Load(),
+	require.Equal(t, uint64(599), srs.lastProcessedFinalizedBlock.Load(),
 		"progress should advance to the toBlock of the last successful chunk, not stay at fromBlock")
 }
 
@@ -2137,27 +2142,26 @@ func TestSRS_PartialRead_MultipleChunksSucceedBeforeFailure(t *testing.T) {
 
 	reader := mocks.NewMockSourceReader(t)
 
-	// maxBlockRange=300 splits [100, 1000) into three chunks:
-	// [100,400], [401,701], [702,nil].
+	// maxBlockRange=300 splits [100, 1000] into four chunks:
+	// [100,399], [400,699], [700,999], [1000,nil].
 	latest := &protocol.BlockHeader{Number: 1000}
 	finalized := &protocol.BlockHeader{Number: 800}
 	reader.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(latest, finalized, nil).Maybe()
 
 	eventsChunk1 := createTestMessageSentEvents(t, 1, chain, defaultDestChain, []uint64{150, 300})
 	eventsChunk2 := createTestMessageSentEvents(t, 10, chain, defaultDestChain, []uint64{500, 650})
-	zeroToBlock := mock.MatchedBy(func(arg uint64) bool { return arg == 0 })
 
 	reader.EXPECT().
-		FetchMessageSentEvents(mock.Anything, uint64(100), uint64(400)).
+		FetchMessageSentEvents(mock.Anything, uint64(100), uint64(399)).
 		Return(eventsChunk1, nil).
 		Once()
 	reader.EXPECT().
-		FetchMessageSentEvents(mock.Anything, uint64(401), uint64(701)).
+		FetchMessageSentEvents(mock.Anything, uint64(400), uint64(699)).
 		Return(eventsChunk2, nil).
 		Once()
 	// Third chunk fails — no further chunks should be fetched.
 	reader.EXPECT().
-		FetchMessageSentEvents(mock.Anything, uint64(702), zeroToBlock).
+		FetchMessageSentEvents(mock.Anything, uint64(700), uint64(999)).
 		Return(nil, assert.AnError).
 		Once()
 
@@ -2187,9 +2191,9 @@ func TestSRS_PartialRead_MultipleChunksSucceedBeforeFailure(t *testing.T) {
 		require.True(t, ok, "task for message %s should be in pending queue", ev.MessageID.String())
 	}
 
-	// finalQueriedBlock = toBlock of last successful chunk = 701 (chunk 2 boundary).
-	// err != nil, 701 >= fromBlock(100) → partial-read branch → progress=701.
-	require.Equal(t, uint64(701), srs.lastProcessedFinalizedBlock.Load(),
+	// finalQueriedBlock = toBlock of last successful chunk = 699 (chunk 2 boundary).
+	// err != nil, 699 >= fromBlock(100) → partial-read branch → progress=699.
+	require.Equal(t, uint64(699), srs.lastProcessedFinalizedBlock.Load(),
 		"progress should advance to the toBlock of the last successful chunk, not to finalized or last event block")
 }
 
@@ -2208,7 +2212,7 @@ func TestSRS_PartialRead_TotalFailureDoesNotAdvanceProgress(t *testing.T) {
 
 	// Chunk 1 fails immediately — no events, no subsequent chunk calls.
 	reader.EXPECT().
-		FetchMessageSentEvents(mock.Anything, uint64(100), uint64(600)).
+		FetchMessageSentEvents(mock.Anything, uint64(100), uint64(599)).
 		Return(nil, assert.AnError).
 		Once()
 	// Chunk 2 must NOT be called: testify will fail the test on any unexpected call.
@@ -2291,8 +2295,8 @@ func TestSRS_PartialRead_ProgressCapsAtFinalizedWhenChunkBoundExceedsIt(t *testi
 
 	reader := mocks.NewMockSourceReader(t)
 
-	// maxBlockRange=400 splits [100, 1000) into chunks [100,500], [501,901], [902,nil].
-	// finalized is 600, so the successful chunk 2 boundary (901) exceeds finalized.
+	// maxBlockRange=400 splits [100, 1000] into chunks [100,499], [500,899], [900,nil].
+	// finalized is 600, so the successful chunk 2 boundary (899) exceeds finalized.
 	latest := &protocol.BlockHeader{Number: 1000}
 	finalized := &protocol.BlockHeader{Number: 600}
 	reader.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(latest, finalized, nil).Maybe()
@@ -2302,14 +2306,14 @@ func TestSRS_PartialRead_ProgressCapsAtFinalizedWhenChunkBoundExceedsIt(t *testi
 	zeroToBlock := mock.MatchedBy(func(arg uint64) bool { return arg == 0 })
 
 	reader.EXPECT().
-		FetchMessageSentEvents(mock.Anything, uint64(100), uint64(500)).
+		FetchMessageSentEvents(mock.Anything, uint64(100), uint64(499)).
 		Return(eventsChunk1, nil).Once()
 	reader.EXPECT().
-		FetchMessageSentEvents(mock.Anything, uint64(501), uint64(901)).
+		FetchMessageSentEvents(mock.Anything, uint64(500), uint64(899)).
 		Return(eventsChunk2, nil).Once()
-	// Third chunk fails — lastQueriedBlock lands at 901, which is > finalized (600).
+	// Third chunk fails — lastQueriedBlock lands at 899, which is > finalized (600).
 	reader.EXPECT().
-		FetchMessageSentEvents(mock.Anything, uint64(902), zeroToBlock).
+		FetchMessageSentEvents(mock.Anything, uint64(900), zeroToBlock).
 		Return(nil, assert.AnError).Once()
 
 	chainStatusMgr := mocks.NewMockChainStatusManager(t)
@@ -2327,7 +2331,7 @@ func TestSRS_PartialRead_ProgressCapsAtFinalizedWhenChunkBoundExceedsIt(t *testi
 
 	srs.processEventCycle(ctx, latest, finalized)
 
-	// lastQueriedBlock = 901 > finalized = 600 → min(901, 600) = 600.
+	// lastQueriedBlock = 899 > finalized = 600 → min(899, 600) = 600.
 	// Progress must NOT advance past finalized even though we successfully fetched beyond it.
 	require.Equal(t, uint64(600), srs.lastProcessedFinalizedBlock.Load(),
 		"progress must be capped at finalized when the last successful chunk boundary exceeds it")
@@ -2438,11 +2442,74 @@ func TestGetBlockRangesNearMaxHeight(t *testing.T) {
 
 	t.Run("multiple ranges stay ordered at the top", func(t *testing.T) {
 		require.Equal(t, []blockRange{
-			{fromBlock: math.MaxUint64 - 25, toBlock: math.MaxUint64 - 15},
-			{fromBlock: math.MaxUint64 - 14, toBlock: math.MaxUint64 - 4},
-			{fromBlock: math.MaxUint64 - 3},
+			{fromBlock: math.MaxUint64 - 25, toBlock: math.MaxUint64 - 16},
+			{fromBlock: math.MaxUint64 - 15, toBlock: math.MaxUint64 - 6},
+			{fromBlock: math.MaxUint64 - 5},
 		}, srs.getBlockRanges(math.MaxUint64-25, math.MaxUint64))
 	})
+}
+
+// logRangeLimitedReader adds a log range cap to a mock reader, as the EVM RPC reader reports one.
+type logRangeLimitedReader struct {
+	*mocks.MockSourceReader
+	limit uint64
+}
+
+func (r logRangeLimitedReader) MaxLogBlockRange() uint64 { return r.limit }
+
+// A reader's log range cap only ever narrows the configured span; it never widens it.
+func TestNewServiceNarrowsScansToTheReadersLogRangeCap(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name       string
+		configured uint64
+		limit      uint64
+		want       uint64
+	}{
+		{name: "a lower cap narrows the default", limit: 99, want: 99},
+		{name: "a higher cap leaves the default", limit: 1_000, want: DefaultMaxBlockRange},
+		{name: "no cap leaves the default", limit: 0, want: DefaultMaxBlockRange},
+		{name: "a lower cap narrows a configured span", configured: 500, limit: 250, want: 250},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			reader := logRangeLimitedReader{MockSourceReader: mocks.NewMockSourceReader(t), limit: tt.limit}
+			srs, err := NewService("test-verifier", reader, 1337, mocks.NewMockChainStatusManager(t), logger.Test(t),
+				verifier.SourceConfig{PollInterval: time.Second, MaxBlockRange: tt.configured},
+				mocks.NewMockCurseCheckerService(t), &noopFilter{}, verifiermonitoring.NewFakeVerifierMonitoring(),
+				&fakeTaskQueue{}, common.AllowAllMessagesChecker{})
+			require.NoError(t, err)
+			require.Equal(t, tt.want, srs.maxBlockRange)
+		})
+	}
+}
+
+// Providers that cap eth_getLogs count both ends of the range, so a chunk must span at most
+// maxBlockRange blocks, and the chunks must still cover [from, latest] without gaps.
+func TestGetBlockRangesSpanAtMostMaxBlockRange(t *testing.T) {
+	t.Parallel()
+
+	const from = uint64(1_000)
+	for _, maxBlockRange := range []uint64{1, 2, 99, 100} {
+		srs := &Service{maxBlockRange: maxBlockRange}
+		for span := range uint64(250) {
+			latest := from + span
+			ranges := srs.getBlockRanges(from, latest)
+			next := from
+			for i, br := range ranges {
+				require.Equal(t, next, br.fromBlock, "max %d span %d: range %d leaves a gap", maxBlockRange, span, i)
+				end := br.toBlock
+				if end == 0 {
+					require.Equal(t, len(ranges)-1, i, "only the last range is open-ended")
+					end = latest
+				}
+				require.LessOrEqual(t, end-br.fromBlock+1, maxBlockRange, "max %d span %d: range %d too wide", maxBlockRange, span, i)
+				next = end + 1
+			}
+			require.Equal(t, latest+1, next, "max %d span %d: ranges must reach latest", maxBlockRange, span)
+		}
+	}
 }
 
 // A read the log poller cannot serve yet must not advance the checkpoint past the unscanned range.

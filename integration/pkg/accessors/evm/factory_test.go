@@ -52,6 +52,7 @@ type stubChainRuntime struct {
 	gotWriterAddress common.Address
 
 	sourceReaderHeaderFetchBatchSize int
+	sourceReaderMaxLogBlockRange     uint64
 }
 
 type runtimeContextMarkerKey struct{}
@@ -77,6 +78,10 @@ func (s *stubChainRuntime) TransmitterAddresses(_ context.Context, _ keystore.Ke
 
 func (s *stubChainRuntime) SourceReaderHeaderFetchBatchSize() int {
 	return s.sourceReaderHeaderFetchBatchSize
+}
+
+func (s *stubChainRuntime) SourceReaderMaxLogBlockRange() uint64 {
+	return s.sourceReaderMaxLogBlockRange
 }
 
 func (s *stubChainRuntime) NewContractTransmitter(
