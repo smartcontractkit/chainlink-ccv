@@ -343,6 +343,26 @@ func TestCheckAggregation_Publishes(t *testing.T) {
 	assert.Equal(t, 1, size)
 }
 
+func TestCheckAggregation_PublishesInKeyOrder(t *testing.T) {
+	monitoring := mocks.NewMockAggregatorMonitoring(t)
+	testutil.StubTracing(monitoring)
+	config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{BackgroundWorkerCount: 1}}
+	queue := newFakeQueue()
+	a := NewCommitReportAggregator(mocks.NewMockCommitVerificationStore(t), nil, mocks.NewMockSink(t), mocks.NewMockQuorumValidator(t), config, logger.Sugared(logger.Test(t)), monitoring, queue)
+
+	require.NoError(t, a.CheckAggregation(t.Context(),
+		model.AggregationTrigger{MessageID: []byte{3}, AggregationKey: "c"},
+		model.AggregationTrigger{MessageID: []byte{1}, AggregationKey: "a"},
+		model.AggregationTrigger{MessageID: []byte{2}, AggregationKey: "b"},
+	))
+
+	keys := make([]string, 0, len(queue.pending))
+	for _, job := range queue.pending {
+		keys = append(keys, job.Payload.AggregationKey)
+	}
+	assert.Equal(t, []string{"a", "b", "c"}, keys)
+}
+
 func TestCheckAggregationAndSubmitComplete(t *testing.T) {
 	ctx := t.Context()
 	msgID := model.MessageID{0x1}

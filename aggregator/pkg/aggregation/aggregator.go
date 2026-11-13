@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -115,6 +117,8 @@ func (c *CommitReportAggregator) CheckAggregation(ctx context.Context, triggers 
 		}
 		requests[i] = aggregationRequest(t)
 	}
+	// Insert in key order so concurrent batches can't deadlock on each other's pending rows.
+	slices.SortFunc(requests, func(a, b aggregationRequest) int { return strings.Compare(a.AggregationKey, b.AggregationKey) })
 	publishCtx, cancel := context.WithTimeout(ctx, queueOperationTimeout)
 	defer cancel()
 	return c.queue.Publish(publishCtx, requests...)

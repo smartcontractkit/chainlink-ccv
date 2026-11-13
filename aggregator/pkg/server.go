@@ -77,6 +77,7 @@ type Server struct {
 	healthManager                             *health.Manager
 	runGroup                                  *run.Group
 	stopChan                                  chan struct{}
+	runDone                                   chan struct{}
 	mu                                        sync.Mutex
 	started                                   bool
 }
@@ -242,8 +243,11 @@ func (s *Server) Start(lis net.Listener) error {
 
 	s.runGroup = g
 	s.started = true
+	runDone := make(chan struct{})
+	s.runDone = runDone
 
 	go func() {
+		defer close(runDone)
 		if err := g.Run(); err != nil {
 			s.l.Errorw("Run group stopped with error", "error", err)
 		}
@@ -261,11 +265,11 @@ func (s *Server) Start(lis net.Listener) error {
 	return nil
 }
 
+// Stop signals shutdown and waits for the run group to finish, so in-flight aggregations drain.
 func (s *Server) Stop() error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if !s.started || s.stopChan == nil {
+		s.mu.Unlock()
 		return nil
 	}
 
@@ -273,7 +277,10 @@ func (s *Server) Stop() error {
 
 	close(s.stopChan)
 	s.stopChan = nil
+	runDone := s.runDone
+	s.mu.Unlock()
 
+	<-runDone
 	return nil
 }
 
