@@ -197,12 +197,9 @@ type Config struct {
 	// 50 poll intervals. Stored as a string for the same reason as MessageDisablementRulesPollInterval.
 	SourceReaderStalenessThreshold string `toml:"source_reader_staleness_threshold"`
 
-	// SignerAddress is the on-chain address of the verifier's result-signing key. When set to a hex
-	// address it is validated strictly on boot: the keystore's key must match, or the verifier fails
-	// loudly. Set it to the literal "auto" (the AutoSignerAddress constant) to explicitly opt out and
-	// adopt whatever address the keystore holds (the postgres auto-generate backend's first boot).
-	// Empty is an error: it means the value was forgotten, not that auto-adoption was chosen, and is
-	// never conflated with it.
+	// SignerAddress pins the expected signing identity: an EVM address or a 33/65-byte SEC1 public key.
+	// Startup rejects a different keystore key; "auto" explicitly adopts the keystore identity instead.
+	// Empty is an error rather than an implicit opt-out.
 	SignerAddress string `toml:"signer_address"`
 
 	// PyroscopeURL is the Pyroscope server URL for continuous profiling; empty disables it.

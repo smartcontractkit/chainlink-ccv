@@ -3,6 +3,9 @@
 Please read this before opening a PR. It exists so reviewers don't have to explain the same
 things repeatedly.
 
+For chain-agnostic package boundaries and when chain-family behavior must be behind an interface, see
+[AGENTS.md](AGENTS.md#chain-agnostic-core).
+
 ## Pull request titles & commit messages
 
 This repository follows the [Conventional Commits](https://www.conventionalcommits.org/)
