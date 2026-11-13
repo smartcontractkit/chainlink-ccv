@@ -23,7 +23,7 @@ import (
 
 const (
 	TestnetCCTPAttestationAPI    = "https://iris-api-sandbox.circle.com"
-	TestnetLombardAttestationAPI = "https://gastald-testnet.prod.lombard.finance/api/"
+	TestnetLombardAttestationAPI = "https://gastald-testnet.prod.lombard-fi.com/api/"
 	MainnetCCTPAttestationAPI    = "https://iris-api.circle.com"
 	MainnetLombardAttestationAPI = "https://mainnet.prod.lombard.finance/api/"
 )
