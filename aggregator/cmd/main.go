@@ -177,7 +177,7 @@ func runServer(configPath, logLevelStr string, lggr logger.Logger, sugaredLggr l
 			TraceSampleRatio:         config.Monitoring.Beholder.TraceSampleRatio,
 			TraceBatchTimeout:        time.Duration(config.Monitoring.Beholder.TraceBatchTimeout) * time.Second,
 		}
-		beholderConfig.ResourceAttributes = ccvmonitoring.ResourceAttributes(config.Monitoring.Beholder.TelemetryAttributes)
+		beholderConfig.ResourceAttributes = ccvmonitoring.ResourceAttributes(ccvmonitoring.WithDefaultServiceName(config.Monitoring.Beholder.TelemetryAttributes, "aggregator"))
 		m, err := monitoring.InitMonitoring(beholderConfig)
 		if err != nil {
 			sugaredLggr.Fatalf("Failed to initialize aggregator monitoring: %v", err)
@@ -192,6 +192,12 @@ func runServer(configPath, logLevelStr string, lggr logger.Logger, sugaredLggr l
 		lggr = logging.WithService(streamLggr, "aggregator")
 		sugaredLggr = logger.Sugared(lggr)
 		lggr.Info("Monitoring enabled")
+
+		configRecorder := ccvmonitoring.NewConfigRecorder(lggr)
+		if err := configRecorder.Start(context.Background()); err != nil {
+			sugaredLggr.Fatalf("Failed to start beholder config recorder: %v", err)
+		}
+		defer func() { _ = configRecorder.Close() }()
 	}
 
 	if config.PyroscopeURL != "" {

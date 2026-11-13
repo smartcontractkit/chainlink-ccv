@@ -789,6 +789,33 @@
       ]
     }
   ],
+  "monitoring": [
+    {
+      "name": "beholder.config.info",
+      "kind": "Int64Gauge",
+      "unit": "{info}",
+      "description": "Beholder config info metric",
+      "labels": [
+        "chip_ingress_enabled",
+        "emitter_batch_processor",
+        "emitter_export_interval",
+        "emitter_export_max_batch_size",
+        "emitter_max_queue_size",
+        "log_batch_processor",
+        "log_compressor",
+        "log_export_interval",
+        "log_export_max_batch_size",
+        "log_level",
+        "log_max_queue_size",
+        "log_streaming_enabled",
+        "metric_compressor",
+        "metric_reader_interval",
+        "trace_batch_timeout",
+        "trace_compressor",
+        "trace_sample_ratio"
+      ]
+    }
+  ],
   "verifier": [
     {
       "name": "verifier_critical_source_invariant_violations_total",

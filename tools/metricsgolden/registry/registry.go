@@ -12,9 +12,11 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/common/jd/lifecycle"
 	commonmetrics "github.com/smartcontractkit/chainlink-ccv/common/metrics"
 	"github.com/smartcontractkit/chainlink-ccv/common/metrics/metricstest"
+	ccvmonitoring "github.com/smartcontractkit/chainlink-ccv/common/monitoring"
 	execmonitoring "github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	idxmonitoring "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/monitoring"
 	vermonitoring "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/metrics"
 )
 
@@ -91,6 +93,15 @@ var Targets = []Target{
 			m, err := lifecycle.InitMetrics()
 			require.NoError(t, err)
 			metricstest.CallAll(t, m, nil)
+		},
+	},
+	{
+		Name:    "monitoring",
+		Package: "common/monitoring",
+		Exercise: func(t *testing.T) {
+			recorder := ccvmonitoring.NewConfigRecorder(logger.Test(t))
+			require.NoError(t, recorder.Start(t.Context()))
+			t.Cleanup(func() { require.NoError(t, recorder.Close()) })
 		},
 	},
 }

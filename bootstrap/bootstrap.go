@@ -268,6 +268,8 @@ type Bootstrapper struct {
 	localStartErr chan error
 	// pyroscope is a saved reference to profiler to close it on stop
 	pyroscope *pyroscope.Profiler
+	// configRecorder records the beholder config metric; closed on stop.
+	configRecorder *monitoring.ConfigRecorder
 }
 
 // NewBootstrapper creates a new [Bootstrapper] with the given config and service factory.
@@ -335,6 +337,8 @@ func (b *Bootstrapper) initMonitoring(signer crypto.Signer) error {
 	if b.config != nil && b.config.Monitoring != nil {
 		mon = *b.config.Monitoring
 	}
+	// The app knows its own name; an operator-supplied service.name still wins.
+	mon.Beholder.TelemetryAttributes = monitoring.WithDefaultServiceName(mon.Beholder.TelemetryAttributes, b.name)
 	err := monitoring.SetupBeholder(mon.Beholder, signer, b.fac.MetricViews())
 	if err != nil {
 		return fmt.Errorf("failed to setup beholder: %w", err)
@@ -353,6 +357,15 @@ func (b *Bootstrapper) initMonitoring(signer crypto.Signer) error {
 		return fmt.Errorf("failed to setup pyroscope: %w", err)
 	}
 	b.pyroscope = pyroscopeProfiler
+	// Started here, after SetupBeholder has installed the client, and only from the bootstrapper:
+	// the app and the bootstrapper share a process, so a second recorder would duplicate the series.
+	// Nothing to report when Beholder is off, and no goroutine worth waking for it.
+	if mon.Beholder.Enabled {
+		b.configRecorder = monitoring.NewConfigRecorder(lggr)
+		if err := b.configRecorder.Start(context.Background()); err != nil {
+			return fmt.Errorf("failed to start beholder config recorder: %w", err)
+		}
+	}
 	lggr.Infow("Monitoring initialized", "config", mon)
 	return nil
 }
@@ -758,6 +771,12 @@ func (b *Bootstrapper) Stop(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("failed to stop pyroscope: %w", err)
 		}
+	}
+	if b.configRecorder != nil {
+		if err := b.configRecorder.Close(); err != nil {
+			return fmt.Errorf("failed to stop beholder config recorder: %w", err)
+		}
+		b.configRecorder = nil
 	}
 	if b.mode == AppConfigModeLocal {
 		return b.stopLocal(ctx)
