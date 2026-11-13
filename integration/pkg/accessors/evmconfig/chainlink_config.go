@@ -51,15 +51,23 @@ var curatedTXMBlockTimeByChainID = map[string]time.Duration{
 	"1":        12 * time.Second, // Ethereum mainnet
 	"11155111": 12 * time.Second, // Ethereum Sepolia
 	"17000":    12 * time.Second, // Ethereum Holesky
+	"560048":   12 * time.Second, // Ethereum Hoodi
 	"30":       30 * time.Second, // Rootstock (merge-mined)
+	"31":       30 * time.Second, // Rootstock testnet
 	"100":      5 * time.Second,  // Gnosis
 	"10200":    5 * time.Second,  // Gnosis Chiado
 	"109":      5 * time.Second,  // Shibarium
+	"157":      5 * time.Second,  // Shibarium Puppynet
 	"592":      12 * time.Second, // Astar (Substrate)
+	"81":       12 * time.Second, // Astar Shibuya (Substrate)
 	"964":      12 * time.Second, // Bittensor EVM (Substrate)
+	"945":      12 * time.Second, // Bittensor EVM testnet (Substrate)
 	"1116":     3 * time.Second,  // Core
+	"1114":     3 * time.Second,  // Core testnet2
 	"2020":     3 * time.Second,  // Ronin
+	"2021":     3 * time.Second,  // Ronin Saigon
 	"534352":   3 * time.Second,  // Scroll
+	"534351":   3 * time.Second,  // Scroll Sepolia
 }
 
 // ResolveTXMBlockTime resolves the block time a chain will run: the operator's explicit value when

@@ -95,14 +95,54 @@ func TestNewTxmV2RejectsUnsupportedConfig(t *testing.T) {
 		"newTxmV2 passes a nil error handler and rejects configs that enable dual broadcast")
 }
 
+func TestRetryBlockThreshold(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		bumpThreshold uint64
+		resendAfter   time.Duration
+		blockTime     time.Duration
+		want          uint16
+	}{
+		{name: "a positive BumpThreshold passes through", bumpThreshold: 3, resendAfter: time.Minute, blockTime: 2 * time.Second, want: 3},
+		{name: "a BumpThreshold above uint16 is clamped, not wrapped", bumpThreshold: 70_000, blockTime: 2 * time.Second, want: math.MaxUint16},
+		{name: "zero takes the v1 resend cadence", resendAfter: 2 * time.Minute, blockTime: 2 * time.Second, want: 60},
+		{name: "the resend cadence rounds up to whole blocks", resendAfter: time.Minute, blockTime: 7 * time.Second, want: 9},
+		{name: "a resend shorter than a block still waits one block", resendAfter: time.Second, blockTime: 2 * time.Second, want: 1},
+		{name: "zero with resend off never rebroadcasts a sent attempt", resendAfter: 0, blockTime: 2 * time.Second, want: math.MaxUint16},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tt.want, retryBlockThreshold(tt.bumpThreshold, tt.resendAfter, tt.blockTime))
+		})
+	}
+}
+
+// Hedera ships BumpThreshold = 0; passed straight through, TXM v2 would rebroadcast every 2s tick.
+func TestRetryBlockThresholdForHederaUsesItsResendCadence(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := newChainlinkEVMConfig(Info{ChainID: "296", Nodes: []Node{{HTTPUrl: "http://node.internal:8545"}}})
+	require.NoError(t, err)
+	evmCfg := cfg.EVM()
+	require.Zero(t, evmCfg.GasEstimator().BumpThreshold(), "the premise: Hedera disables v1 gas bumping")
+
+	got := retryBlockThreshold(evmCfg.GasEstimator().BumpThreshold(), evmCfg.Transactions().ResendAfterThreshold(),
+		*evmCfg.Transactions().TransactionManagerV2().BlockTime())
+	require.Greater(t, got, uint16(1), "Hedera must not rebroadcast on every TXM tick")
+	require.Less(t, got, uint16(math.MaxUint16), "Hedera resends, so a stuck attempt is still retried")
+}
+
 // TestSeedOrphanedNonceCreatesPurgeableTransaction covers the whole point of forking upstream's
 // builder: holding the store so a nonce the TXM has no record of can be put back under its control.
 //
 // The purgeable flag is what makes the seeded transaction useful. It is what tells the backfill loop
-// to rebroadcast every tick with an escalating fee rather than waiting out RetryBlockThreshold, and
-// it is what makes the attempt builder price the attempt to displace whatever is already occupying
-// the nonce. A seeded transaction without it would sit behind the same stuck original it was
-// created to clear.
+// to rebroadcast every tick rather than waiting out RetryBlockThreshold, and it is what makes the
+// attempt builder price the attempt at the max fee to displace whatever is already occupying the
+// nonce. A seeded transaction without it would sit behind the same stuck original it was created
+// to clear.
 func TestSeedOrphanedNonceCreatesPurgeableTransaction(t *testing.T) {
 	t.Parallel()
 
