@@ -73,6 +73,7 @@ type Server struct {
 	batchWriteCommitVerifierNodeResultHandler *handlers.BatchWriteCommitVerifierNodeResultHandler
 	healthHTTPServer                          *http.Server
 	healthManager                             *health.Manager
+	healthRecorder                            *health.MetricsRecorder
 	runGroup                                  *run.Group
 	stopChan                                  chan struct{}
 	mu                                        sync.Mutex
@@ -126,6 +127,15 @@ func (s *Server) Start(lis net.Listener) error {
 	}
 
 	s.stopChan = make(chan struct{})
+
+	recorder, err := health.NewMetricsRecorder(s.l, s.healthManager)
+	if err != nil {
+		return fmt.Errorf("failed to create health metrics recorder: %w", err)
+	}
+	if err := recorder.Start(context.Background()); err != nil {
+		return fmt.Errorf("failed to start health metrics recorder: %w", err)
+	}
+	s.healthRecorder = recorder
 
 	g := &run.Group{}
 
@@ -236,6 +246,10 @@ func (s *Server) Start(lis net.Listener) error {
 		s.mu.Lock()
 		s.started = false
 		s.runGroup = nil
+		if s.healthRecorder != nil {
+			_ = s.healthRecorder.Close()
+			s.healthRecorder = nil
+		}
 		if s.stopChan != nil {
 			close(s.stopChan)
 			s.stopChan = nil

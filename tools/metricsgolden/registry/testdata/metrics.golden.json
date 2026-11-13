@@ -528,6 +528,34 @@
       "labels": []
     }
   ],
+  "health": [
+    {
+      "name": "health",
+      "kind": "Int64Gauge",
+      "unit": "",
+      "description": "Health status by service",
+      "labels": [
+        "service_id"
+      ]
+    },
+    {
+      "name": "uptime_seconds",
+      "kind": "Float64Counter",
+      "unit": "",
+      "description": "Uptime of the service in seconds",
+      "labels": []
+    },
+    {
+      "name": "version",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "Version and SHA of the service",
+      "labels": [
+        "commit",
+        "version"
+      ]
+    }
+  ],
   "indexer": [
     {
       "name": "indexer_active_readers",
