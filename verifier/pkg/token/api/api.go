@@ -21,7 +21,7 @@ func NewHTTPAPI(
 	router.Use(middleware.GinLogger(lggr))
 	router.Use(middleware.SecureRecovery(lggr))
 
-	healthManager := health.NewManager()
+	healthManager := health.NewManager(lggr)
 	for _, hr := range healthReporters {
 		healthManager.Register(hr)
 	}

@@ -52,7 +52,7 @@ func NewV1API(lggr logger.Logger, cfg *config.Config, storage common.IndexerStor
 	v1Group.GET("/messages", messagesHandler.Handle)
 
 	// App liveness and readiness endpoints
-	healthManager := health.NewManager()
+	healthManager := health.NewManager(lggr)
 	for _, hr := range healthReporters {
 		healthManager.Register(hr)
 	}
