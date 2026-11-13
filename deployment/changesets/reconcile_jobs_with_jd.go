@@ -205,7 +205,7 @@ func reconcileJobsWithJD(e deployment.Environment, input ReconcileJobsWithJDInpu
 	if err := ccvdeployment.SaveJobs(ds, reconciledJobs); err != nil {
 		return deployment.ChangesetOutput{}, fmt.Errorf("failed to save reconciled jobs: %w", err)
 	}
-	if _, err := ccvdeployment.SyncJDNodes(ctx, ds, e.Offchain, "ccv", e.Name); err != nil {
+	if _, err := ccvdeployment.SyncJDNodes(ctx, ds, e.Offchain, ccvdeployment.JDProduct, e.Name); err != nil {
 		return deployment.ChangesetOutput{}, fmt.Errorf("failed to sync JD node inventory: %w", err)
 	}
 

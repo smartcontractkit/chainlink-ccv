@@ -15,6 +15,9 @@ import (
 
 const jdNodesPageSize int32 = 100
 
+// JDProduct is the JD product label on CCV nodes; registration sets it from the CLD domain key.
+const JDProduct = "ccv"
+
 // JDNode is the durable, non-sensitive portion of a JD node inventory entry.
 type JDNode struct {
 	Name   string            `json:"name"`

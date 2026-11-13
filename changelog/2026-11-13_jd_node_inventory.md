@@ -46,6 +46,10 @@ Each successful call replaces the complete JD inventory snapshot, so renamed key
 refreshed and removed JD records do not remain indefinitely. An empty or invalid JD response fails
 the changeset instead of erasing a previously usable snapshot.
 
+Proposal management syncs the inventory before it touches JD, so a failed or empty inventory fetch
+stops every changeset that proposes jobs before any proposal is sent. The query matches
+`product=ccv` and `environment=<CLD environment name>`, the labels `jd_register_nodes` sets.
+
 The inventory remains compatible with CLD's normal durable-pipeline flow: changesets return the
 updated datastore, the pipeline saves it as an artifact, and the normal datastore merge persists it
 to `env_metadata.json` or catalog storage. The registration changesets continue writing

@@ -4,7 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"sort"
+	"maps"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -381,20 +382,14 @@ func jdNodeTestMatchesSelectors(node *nodev1.Node, selectors []*ptypes.Selector)
 }
 
 func jdNodeTestProto(id, name, csaKey string, labels map[string]string) *nodev1.Node {
-	keys := jdNodeTestKeys(labels)
 	node := &nodev1.Node{Id: id, Name: name, PublicKey: csaKey}
-	for i := len(keys) - 1; i >= 0; i-- {
-		value := labels[keys[i]]
-		node.Labels = append(node.Labels, &ptypes.Label{Key: keys[i], Value: &value})
+	for _, key := range slices.Backward(jdNodeTestKeys(labels)) {
+		value := labels[key]
+		node.Labels = append(node.Labels, &ptypes.Label{Key: key, Value: &value})
 	}
 	return node
 }
 
 func jdNodeTestKeys[V any](values map[string]V) []string {
-	keys := make([]string, 0, len(values))
-	for key := range values {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	return keys
+	return slices.Sorted(maps.Keys(values))
 }

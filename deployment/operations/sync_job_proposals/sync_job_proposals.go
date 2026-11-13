@@ -90,7 +90,7 @@ var SyncJobProposals = operations.NewOperation(
 			jdClient = e.Offchain
 		}
 
-		if _, err := ccvdeployment.SyncJDNodes(ctx, ds, jdClient, "ccv", e.Name); err != nil {
+		if _, err := ccvdeployment.SyncJDNodes(ctx, ds, jdClient, ccvdeployment.JDProduct, e.Name); err != nil {
 			output.DataStore = nil
 			return output, fmt.Errorf("failed to sync JD node inventory: %w", err)
 		}

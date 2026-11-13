@@ -23,7 +23,7 @@ type SaveNodesJSONDeps struct {
 type SaveNodesJSONOutput struct {
 	Path      string                          `json:"path"`
 	NodeCount int                             `json:"node_count"`
-	Nodes     map[string]ccvdeployment.JDNode `json:"-" yaml:"-"`
+	Nodes     map[string]ccvdeployment.JDNode `json:"-"          yaml:"-"`
 }
 
 // SaveNodesJSON snapshots the full JD product/environment into nodes.json.
