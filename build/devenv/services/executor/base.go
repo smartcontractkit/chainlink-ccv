@@ -94,6 +94,7 @@ type Output struct {
 	ContainerName   string `toml:"container_name"`
 	ExternalHTTPURL string `toml:"http_url"`
 	InternalHTTPURL string `toml:"internal_http_url"`
+	AdminUIURL      string `toml:"admin_ui_url"`
 	UseCache        bool   `toml:"use_cache"`
 
 	// Bootstrap outputs (only populated in bootstrapped mode)
@@ -283,6 +284,22 @@ func launchExecutor(ctx context.Context, in *Input, outputs []*blockchain.Output
 	if err := os.WriteFile(bootstrapSecretsFilePath, bootstrapSecrets, 0o644); err != nil {
 		return nil, fmt.Errorf("failed to write bootstrap secrets to file: %w", err)
 	}
+	adminConsoleConfig, err := services.GenerateAdminConsoleConfig()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate admin console config: %w", err)
+	}
+	adminConsoleConfigFilePath := filepath.Join(confDir, fmt.Sprintf("admin-executor-%s-config.toml", in.ContainerName))
+	if err := os.WriteFile(adminConsoleConfigFilePath, adminConsoleConfig, 0o644); err != nil {
+		return nil, fmt.Errorf("failed to write admin console config to file: %w", err)
+	}
+	adminConsoleSecrets, err := services.GenerateAdminConsoleSecrets()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate admin console secrets: %w", err)
+	}
+	adminConsoleSecretsFilePath := filepath.Join(confDir, fmt.Sprintf("admin-executor-%s-secrets.toml", in.ContainerName))
+	if err := os.WriteFile(adminConsoleSecretsFilePath, adminConsoleSecrets, 0o644); err != nil {
+		return nil, fmt.Errorf("failed to write admin console secrets to file: %w", err)
+	}
 
 	// When the bootstrap keystore uses the KMS backend, the container reaches cloud KMS via the
 	// default credential chain — forward the host's cloud credentials so it can authenticate. AWS
@@ -297,7 +314,7 @@ func launchExecutor(ctx context.Context, in *Input, outputs []*blockchain.Output
 			envVars = services.ForwardedAWSEnv()
 		}
 	}
-	req, err := baseImageRequest(in, envVars, bootstrapConfigFilePath, bootstrapSecretsFilePath)
+	req, err := baseImageRequest(in, envVars, bootstrapConfigFilePath, bootstrapSecretsFilePath, adminConsoleConfigFilePath, adminConsoleSecretsFilePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create base image request: %w", err)
 	}
@@ -372,6 +389,10 @@ func launchExecutor(ctx context.Context, in *Input, outputs []*blockchain.Output
 	if err != nil {
 		return nil, fmt.Errorf("failed to get executor mapped port: %w", err)
 	}
+	adminMapped, err := c.MappedPort(ctx, services.DefaultAdminConsolePortTCP)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get admin console mapped port: %w", err)
+	}
 
 	inspect, err := c.Inspect(ctx)
 	if err != nil {
@@ -388,6 +409,7 @@ func launchExecutor(ctx context.Context, in *Input, outputs []*blockchain.Output
 		ContainerName:   inspect.Name,
 		ExternalHTTPURL: fmt.Sprintf("http://%s:%s", host, executorMapped.Port()),
 		InternalHTTPURL: fmt.Sprintf("http://%s:%d", containerName, DefaultExecutorPort),
+		AdminUIURL:      fmt.Sprintf("http://%s:%s", host, adminMapped.Port()),
 		BootstrapDBURL:  fmt.Sprintf("http://%s:%s", host, bootstrapMapped.Port()),
 		BootstrapDBConnectionString: fmt.Sprintf("postgresql://%s:%s@localhost:%s/%s?sslmode=disable",
 			in.ContainerName, in.ContainerName, dbMapped.Port(), services.DefaultBootstrapDBName),
@@ -436,7 +458,7 @@ func startContainer(ctx context.Context, req testcontainers.ContainerRequest) (t
 	return nil, fmt.Errorf("failed to start container after %d attempts: %w", maxAttempts, lastErr)
 }
 
-func baseImageRequest(in *Input, envVars map[string]string, bootstrapConfigFilePath, bootstrapSecretsFilePath string) (testcontainers.ContainerRequest, error) {
+func baseImageRequest(in *Input, envVars map[string]string, bootstrapConfigFilePath, bootstrapSecretsFilePath, adminConsoleConfigFilePath, adminConsoleSecretsFilePath string) (testcontainers.ContainerRequest, error) {
 	req := testcontainers.ContainerRequest{
 		Image:    in.Image,
 		Name:     in.ContainerName,
@@ -446,7 +468,7 @@ func baseImageRequest(in *Input, envVars map[string]string, bootstrapConfigFileP
 			framework.DefaultNetworkName: {in.ContainerName},
 		},
 		Env:          envVars,
-		ExposedPorts: []string{DefaultExecutorPortTCP, services.DefaultBootstrapListenPortTCP},
+		ExposedPorts: []string{DefaultExecutorPortTCP, services.DefaultBootstrapListenPortTCP, services.DefaultAdminConsolePortTCP},
 		HostConfigModifier: func(h *container.HostConfig) {
 			h.ExtraHosts = append(h.ExtraHosts, services.HostGatewayExtraHost)
 			h.PortBindings = network.PortMap{
@@ -454,6 +476,9 @@ func baseImageRequest(in *Input, envVars map[string]string, bootstrapConfigFileP
 					{HostPort: ""},
 				},
 				network.MustParsePort(services.DefaultBootstrapListenPortTCP): []network.PortBinding{
+					{HostPort: ""},
+				},
+				network.MustParsePort(services.DefaultAdminConsolePortTCP): []network.PortBinding{
 					{HostPort: ""},
 				},
 			}
@@ -487,6 +512,14 @@ func baseImageRequest(in *Input, envVars map[string]string, bootstrapConfigFileP
 	req.Mounts = append(req.Mounts, testcontainers.BindMount(
 		bootstrapSecretsFilePath,
 		bootstrap.DefaultSecretsPath,
+	))
+	req.Mounts = append(req.Mounts, testcontainers.BindMount(
+		adminConsoleConfigFilePath,
+		services.DefaultAdminConsoleConfigPath,
+	))
+	req.Mounts = append(req.Mounts, testcontainers.BindMount(
+		adminConsoleSecretsFilePath,
+		services.DefaultAdminConsoleSecretsPath,
 	))
 	// Note: in local mode the app config is delivered by copying it into the running container
 	// (see DeliverLocalAppConfig), not via a bind mount.

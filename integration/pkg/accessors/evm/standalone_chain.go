@@ -123,6 +123,7 @@ type standaloneChain struct {
 	txmBlockTimeSource evmconfig.TXMBlockTimeSource
 
 	sourceReaderHeaderFetchBatchSize int
+	inspection                       chainaccess.ChainInspection
 
 	mu                  sync.Mutex
 	txm                 txmgr.TxManager
@@ -148,6 +149,10 @@ type standaloneChain struct {
 }
 
 func newStandaloneChain(ctx context.Context, selector protocol.ChainSelector, info Info, lggr logger.Logger) (*standaloneChain, error) {
+	inspection, err := inspectEVMConfig(selector, info)
+	if err != nil {
+		return nil, err
+	}
 	chainClient, chainConfig, err := newMultiNodeClientFromInfo(info, lggr)
 	if err != nil {
 		return nil, err
@@ -207,6 +212,7 @@ func newStandaloneChain(ctx context.Context, selector protocol.ChainSelector, in
 		txmBlockTime:                     txmBlockTime,
 		txmBlockTimeSource:               txmBlockTimeSource,
 		sourceReaderHeaderFetchBatchSize: sourceReaderHeaderFetchBatchSize(info.SourceReaderHeaderFetchBatchSize),
+		inspection:                       inspection,
 		newLogPoller:                     buildLogPoller,
 		recoveryStop:                     make(services.StopChan),
 	}

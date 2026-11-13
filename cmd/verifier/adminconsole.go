@@ -10,6 +10,7 @@ import (
 
 	"github.com/jmoiron/sqlx"
 
+	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	"github.com/smartcontractkit/chainlink-ccv/integration/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/admin"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vsecrets"
@@ -20,7 +21,7 @@ import (
 // startAdminConsole serves the admin console in-process when its config file is
 // present (CCV_ADMIN_CONFIG_PATH or /etc/ccv-admin/config.toml); the console shares
 // the verifier's application DB and [admin_ui] credential. Absent file: disabled.
-func startAdminConsole(lggr logger.Logger, ds sqlutil.DataSource, secrets *vsecrets.VerifierSecrets, aggregatorAddress string, aggregatorInsecure bool) (func(), error) {
+func startAdminConsole(lggr logger.Logger, spec bootstrap.JobSpec, ds sqlutil.DataSource, secrets *vsecrets.VerifierSecrets, aggregatorAddress string, aggregatorInsecure bool, chains admin.ChainInspectionProvider) (func(), error) {
 	path := os.Getenv(admin.ConfigPathEnv)
 	if path == "" {
 		path = admin.DefaultConfigPath
@@ -48,7 +49,7 @@ func startAdminConsole(lggr logger.Logger, ds sqlutil.DataSource, secrets *vsecr
 	dial := func(addr string) (storageaccess.ResultsClient, error) {
 		return storageaccess.DialResultsClient(addr, aggregatorInsecure)
 	}
-	srv, err := admin.NewServer(cfg, admin.Deps{DB: db, Auth: auth, AggregatorAddress: aggregatorAddress, ResultsDialer: dial}, lggr)
+	srv, err := admin.NewServer(cfg, admin.Deps{DB: db, Auth: auth, JobSpec: &spec, AggregatorAddress: aggregatorAddress, ResultsDialer: dial, ChainSource: chains}, lggr)
 	if err != nil {
 		return nil, err
 	}

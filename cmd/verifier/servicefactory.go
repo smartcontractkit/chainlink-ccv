@@ -28,6 +28,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/admin"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/heartbeat"
@@ -244,6 +245,7 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	sourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
 	finalityReporters := make(map[protocol.ChainSelector]chainaccess.FinalityViolationReporter)
 	healthReporters := make(map[protocol.ChainSelector]chainaccess.SourceHealthReporter)
+	chainInspectors := make(map[protocol.ChainSelector]chainaccess.ChainInspector)
 	skip := func(selector protocol.ChainSelector, msg string, err error) {
 		lggr.Errorw(msg+", skipping chain", "selector", selector, "error", err)
 		startupSkips.SkipChain(selector, err)
@@ -260,6 +262,11 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 			if err != nil {
 				skip(selector, "Failed to get accessor", err)
 				return
+			}
+			if inspector, ok := accessor.(chainaccess.ChainInspector); ok {
+				readersMu.Lock()
+				chainInspectors[selector] = inspector
+				readersMu.Unlock()
 			}
 			reader, err := accessor.SourceReader()
 			if err != nil {
@@ -571,7 +578,7 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		aggregatorAddress = resolvedAggregators[0].Address
 		aggregatorInsecure = resolvedAggregators[0].InsecureConnection
 	}
-	adminStop, err := startAdminConsole(lggr, chainStatusDB, secrets, aggregatorAddress, aggregatorInsecure)
+	adminStop, err := startAdminConsole(lggr, spec, chainStatusDB, secrets, aggregatorAddress, aggregatorInsecure, admin.NewChainInspectionSource(chainSelectors, chainInspectors))
 	if err != nil {
 		return fmt.Errorf("failed to start admin console: %w", err)
 	}

@@ -7,6 +7,7 @@ import (
 	"github.com/a-h/templ"
 	"github.com/gin-gonic/gin"
 
+	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/admin/views"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -21,6 +22,11 @@ type handlers struct {
 	actions           *ActionLog
 	aggregatorAddress string
 	dialer            ResultsDialer
+	readOnly          bool
+	jobSpec           *bootstrap.JobSpec
+	balanceSource     TransmitterBalanceSource
+	chainSource       ChainInspectionProvider
+	navigation        views.Navigation
 }
 
 func (h *handlers) actor(c *gin.Context) string {
@@ -57,8 +63,16 @@ func (h *handlers) recordAction(c *gin.Context, a Action) {
 
 func (h *handlers) registerCoreRoutes(r *gin.Engine) {
 	r.GET("/healthz", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "ok"}) })
-	r.GET("/", func(c *gin.Context) { c.Redirect(http.StatusFound, "/search") })
-	r.GET("/actions", h.actionsPage)
+	r.GET("/", func(c *gin.Context) {
+		if h.readOnly {
+			c.Redirect(http.StatusFound, "/job")
+			return
+		}
+		c.Redirect(http.StatusFound, "/search")
+	})
+	if !h.readOnly {
+		r.GET("/actions", h.actionsPage)
+	}
 }
 
 func (h *handlers) actionsPage(c *gin.Context) {

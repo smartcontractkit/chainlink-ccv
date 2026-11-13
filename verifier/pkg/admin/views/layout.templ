@@ -1,7 +1,19 @@
 package views
 
+// Navigation selects the route groups shown in the shared page frame.
+type Navigation struct {
+	Recovery        bool
+	Chains          bool
+	JobSpec         bool
+	TransmitterKeys bool
+}
+
 // Layout is the shared page frame: themed header nav, content container, footer.
-templ Layout(title string) {
+templ Layout(title string, customNav ...Navigation) {
+	{{ nav := Navigation{Recovery: true, Chains: true, JobSpec: true} }}
+	if len(customNav) > 0 {
+		{{ nav = customNav[0] }}
+	}
 	<!DOCTYPE html>
 	<html lang="en">
 		<head>
@@ -21,9 +33,22 @@ templ Layout(title string) {
 						<span>CCV <strong>Admin</strong></span>
 					</a>
 					<nav>
-						@navLink("/search", "Message search", title)
-						@navLink("/recovery", "Source recovery", title)
-						@navLink("/actions", "Action log", title)
+						if nav.Recovery {
+							@navLink("/search", "Message search", title)
+							@navLink("/recovery", "Source recovery", title)
+						}
+						if nav.Chains {
+							@navLink("/chains", "Chain configurations", title)
+						}
+						if nav.JobSpec {
+							@navLink("/job", "Job specification", title)
+						}
+						if nav.TransmitterKeys {
+							@navLink("/transmitter-keys", "Transmitter keys", title)
+						}
+						if nav.Recovery {
+							@navLink("/actions", "Action log", title)
+						}
 					</nav>
 				</div>
 			</header>
@@ -31,7 +56,11 @@ templ Layout(title string) {
 				{ children... }
 			</main>
 			<footer class="footer">
-				CCV admin console — actions are previewed and audited. Verify targets before acting.
+				if nav.Recovery {
+					CCV admin console — actions are previewed and audited. Verify targets before acting.
+				} else {
+					CCV admin console — read-only operational visibility.
+				}
 			</footer>
 		</body>
 	</html>
@@ -64,6 +93,12 @@ func navSection(title string) string {
 		return "/recovery"
 	case "Action log":
 		return "/actions"
+	case "Chain configurations":
+		return "/chains"
+	case "Job specification":
+		return "/job"
+	case "Transmitter keys":
+		return "/transmitter-keys"
 	}
 	return ""
 }

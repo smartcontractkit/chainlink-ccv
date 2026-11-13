@@ -1,0 +1,112 @@
+package views
+
+import "time"
+
+// JobSpecVM is the active job envelope and raw application config rendered on the job page.
+type JobSpecVM struct {
+	Available     bool
+	Name          string
+	ExternalJobID string
+	SchemaVersion int
+	Type          string
+	ConfigFieldName string
+	AppConfig     string
+}
+
+templ JobSpecPage(spec JobSpecVM, nav Navigation) {
+	@Layout("Job specification", nav) {
+		<h1>Job specification</h1>
+		<p>The job envelope and application configuration that started this process.</p>
+		if !spec.Available {
+			<div class="banner">No active job specification is available.</div>
+		} else {
+			<div class="card">
+				<table>
+					<tbody>
+						<tr><th scope="row">Name</th><td>{ spec.Name }</td></tr>
+						<tr>
+							<th scope="row">External job ID</th>
+							<td>
+								if spec.ExternalJobID != "" {
+									<code class="mid">{ spec.ExternalJobID }</code>
+									@CopyButton(spec.ExternalJobID)
+								} else {
+									—
+								}
+							</td>
+						</tr>
+						<tr><th scope="row">Type</th><td><code>{ spec.Type }</code></td></tr>
+						<tr><th scope="row">Schema version</th><td>{ spec.SchemaVersion }</td></tr>
+					</tbody>
+				</table>
+			</div>
+			<h2>Application configuration</h2>
+			<p><small>Raw TOML from the job envelope's <code>{ spec.ConfigFieldName }</code> field.</small></p>
+			<pre class="job-spec">{ spec.AppConfig }</pre>
+		}
+	}
+}
+
+// TransmitterKeyVM is one public key and its formatted balance.
+type TransmitterKeyVM struct {
+	KeyName   string
+	Address   string
+	Balance   string
+	BaseUnits string
+}
+
+// TransmitterChainVM groups transmitter keys and any lookup failure for one chain.
+type TransmitterChainVM struct {
+	ChainSelector string
+	ChainName     string
+	Keys          []TransmitterKeyVM
+	Error         string
+}
+
+// TransmitterKeysVM is the refreshed balance snapshot for all configured chains.
+type TransmitterKeysVM struct {
+	RefreshedAt time.Time
+	Chains      []TransmitterChainVM
+}
+
+templ TransmitterKeysPage(vm TransmitterKeysVM, nav Navigation) {
+	@Layout("Transmitter keys", nav) {
+		<h1>Transmitter keys</h1>
+		<p>Public transmitter addresses and native-token balances for the active executor job.</p>
+		<p>
+			<small>Refreshed { vm.RefreshedAt.Format(time.RFC3339) }. Balances are queried when this page loads.</small><br/>
+			<a class="btn-link" href="/transmitter-keys">Refresh balances</a>
+		</p>
+		if len(vm.Chains) == 0 {
+			<div class="banner">No destination chains with transmitter balance support are configured.</div>
+		}
+		for _, chain := range vm.Chains {
+			<section class="card">
+				<h2>{ chain.ChainName }</h2>
+				<p><small>Chain selector <code>{ chain.ChainSelector }</code></small></p>
+				if chain.Error != "" {
+					<div class="error">Balance lookup failed: { chain.Error }</div>
+				}
+				if len(chain.Keys) > 0 {
+					<div class="table-wrap">
+						<table>
+							<thead><tr><th>Key name</th><th>Address</th><th>Native balance</th><th>Base units</th></tr></thead>
+							<tbody>
+								for _, key := range chain.Keys {
+									<tr>
+										<td><code>{ key.KeyName }</code></td>
+										<td><code class="mid">{ key.Address }</code>@CopyButton(key.Address)</td>
+										<td>{ key.Balance }</td>
+										<td><code>{ key.BaseUnits }</code></td>
+									</tr>
+								}
+							</tbody>
+						</table>
+					</div>
+				} else if chain.Error == "" {
+					<p><em>No transmitter keys returned for this chain.</em></p>
+				}
+			</section>
+		}
+	}
+}

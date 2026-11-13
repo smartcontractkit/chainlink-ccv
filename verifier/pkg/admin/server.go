@@ -17,6 +17,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
 
+	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/api/middleware"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/admin/views"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -28,14 +29,21 @@ const (
 	maxRequestBodyBytes = 1 << 20
 )
 
-// Deps are the in-process dependencies the console needs from the verifier it runs
-// beside: its application database (migrations already applied) and its secrets.
+// Deps are the in-process dependencies the console needs from its host service.
 type Deps struct {
-	// DB is the verifier's application database. The action log is written here too.
+	// DB is the verifier's application database. It is required unless ReadOnly is set.
 	DB *sqlx.DB
-	// Auth is the basic-auth credential from the verifier secrets file's [admin_ui]
+	// Auth is the basic-auth credential from the service secrets file's [admin_ui]
 	// table; nil serves without basic auth (the loopback personal-tool default).
 	Auth *BasicAuth
+	// ReadOnly omits verifier recovery routes and redirects the home page to the job spec.
+	ReadOnly bool
+	// JobSpec is the active job displayed by the job specification page.
+	JobSpec *bootstrap.JobSpec
+	// BalanceSource enables the transmitter key page when supplied.
+	BalanceSource TransmitterBalanceSource
+	// ChainSource enables effective chain configuration inspection when supplied.
+	ChainSource ChainInspectionProvider
 	// AggregatorAddress (host:port) enables attestation freshness checks; empty
 	// disables them and reschedule execution stays blocked on "unknown".
 	AggregatorAddress string
@@ -56,14 +64,12 @@ type Server struct {
 	httpSrv   *http.Server
 }
 
-// NewServer builds the console over the verifier's own database. The access policy
-// (non-loopback needs an identity source) is enforced here, where the secrets-derived
-// credential is available.
+// NewServer builds the console and enforces the non-loopback identity policy.
 func NewServer(cfg *Config, deps Deps, lggr logger.Logger) (*Server, error) {
 	if cfg == nil {
 		return nil, errors.New("config is required")
 	}
-	if deps.DB == nil {
+	if deps.DB == nil && !deps.ReadOnly {
 		return nil, errors.New("the verifier application database is required")
 	}
 	if err := ValidateAccessPolicy(cfg, deps.Auth); err != nil {
@@ -81,16 +87,22 @@ func NewServer(cfg *Config, deps Deps, lggr logger.Logger) (*Server, error) {
 		basicAuth: deps.Auth,
 		dialer:    dialer,
 	}
-	s.router = s.buildRouter(deps.AggregatorAddress)
+	s.router = s.buildRouter(deps)
 	return s, nil
 }
 
-func (s *Server) buildRouter(aggregatorAddress string) *gin.Engine {
+func (s *Server) buildRouter(deps Deps) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(s.hostAllowlistMiddleware, middleware.GinLogger(s.lggr), middleware.SecureRecovery(s.lggr), s.securityHeaders, s.basicAuthMiddleware, s.maxBodyBytesMiddleware, s.csrfMiddleware)
 
-	h := &handlers{cfg: s.cfg, lggr: s.lggr, stores: s.stores, actions: s.actions, aggregatorAddress: aggregatorAddress, dialer: s.dialer}
+	h := &handlers{
+		cfg: s.cfg, lggr: s.lggr, stores: s.stores, actions: s.actions,
+		aggregatorAddress: deps.AggregatorAddress, dialer: s.dialer,
+		readOnly: deps.ReadOnly, jobSpec: jobSpecSnapshot(deps.JobSpec), balanceSource: deps.BalanceSource,
+		chainSource: deps.ChainSource,
+		navigation:  views.Navigation{Recovery: !deps.ReadOnly, Chains: true, JobSpec: true, TransmitterKeys: deps.BalanceSource != nil},
+	}
 	staticSub, err := fs.Sub(views.StaticFS, "static")
 	if err != nil {
 		s.lggr.Errorw("failed to mount static assets", "error", err)
@@ -98,10 +110,14 @@ func (s *Server) buildRouter(aggregatorAddress string) *gin.Engine {
 		r.StaticFS("/static", http.FS(staticSub))
 	}
 	h.registerCoreRoutes(r)
-	h.registerSearchRoutes(r)
-	h.registerDetailRoutes(r)
-	h.registerRescheduleRoutes(r)
-	h.registerRecoveryRoutes(r)
+	h.registerObservabilityRoutes(r)
+	h.registerChainConfigRoutes(r)
+	if !deps.ReadOnly {
+		h.registerSearchRoutes(r)
+		h.registerDetailRoutes(r)
+		h.registerRescheduleRoutes(r)
+		h.registerRecoveryRoutes(r)
+	}
 	return r
 }
 

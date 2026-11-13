@@ -582,7 +582,7 @@ checked against the stored key on every boot.
 
 ## Health and readiness endpoints
 
-Each standalone process serves two HTTP servers.
+Each standalone process serves bootstrap and application HTTP servers, plus the optional admin console when `/etc/ccv-admin/config.toml` is mounted. Keep all of them private; the bootstrap server also exposes keystore reader endpoints.
 
 The bootstrapper's server listens on `listen_port` from the bootstrap config (9988 in this
 procedure). Its endpoints are about the job lifecycle, not component health:
@@ -606,6 +606,8 @@ The application's own server carries the real health signal. By default the veri
 `http_listen_port`. Its `/health` is 200 only when every component in the coordinator's health
 report is healthy, and 503 with the failing component named otherwise. The verifier also serves
 `/stats` on the same port.
+
+The optional admin console defaults to `127.0.0.1:8105` and has its own `/healthz` liveness endpoint. Both services expose the active job at `/job` and sanitized effective chain configuration at `/chains`; the executor also exposes transmitter balances at `/transmitter-keys`. Verifier search, recovery, and action-log routes are not registered on the executor. See the [admin console guide](../verifier/admin-console.md).
 
 A stalled LogPoller is the case to watch outside `/health`; see
 [Source logs](#source-logs-rpc-or-a-logpoller).

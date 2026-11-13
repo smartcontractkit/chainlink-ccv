@@ -21,6 +21,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/admin"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/storage"
@@ -196,10 +197,16 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 		return fmt.Errorf("failed to connect to Postgres database: %w", err)
 	}
 
+	chainInspectors := make(map[protocol.ChainSelector]chainaccess.ChainInspector)
+	for selector, accessor := range accessors {
+		if inspector, ok := accessor.(chainaccess.ChainInspector); ok {
+			chainInspectors[selector] = inspector
+		}
+	}
 	// The admin console serves in-process when its config file is present; it shares
 	// this verifier's application database and secrets. The token verifier has no
 	// aggregator of its own, so freshness checks need aggregator_address in the file.
-	tvf.adminStop, err = startAdminConsole(tvf.lggr, db, secrets, "", false)
+	tvf.adminStop, err = startAdminConsole(tvf.lggr, spec, db, secrets, "", false, admin.NewChainInspectionSource(chainSelectors, chainInspectors))
 	if err != nil {
 		return fmt.Errorf("failed to start admin console: %w", err)
 	}

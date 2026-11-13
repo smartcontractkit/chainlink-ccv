@@ -1,6 +1,5 @@
-// Package admin implements the CCV admin console: a server-rendered UI over one
-// verifier's recovery stores, wrapping the job-queue / recovery CLI semantics so
-// operators can find, explain, and recover dropped messages without database access.
+// Package admin implements the CCV admin console: verifier recovery workflows and
+// read-only job and transmitter visibility for standalone services.
 package admin
 
 import (
@@ -18,14 +17,17 @@ const (
 	DefaultListenAddress = "127.0.0.1:8105"
 	// ConfigPathEnv overrides the default console config path.
 	ConfigPathEnv = "CCV_ADMIN_CONFIG_PATH"
+	// SecretsPathEnv overrides the executor console secrets path; it carries no credential value.
+	SecretsPathEnv = "CCV_ADMIN_SECRETS_PATH"
 	// DefaultConfigPath is the console config file's default location. A present file
-	// enables the console: the verifier factory serves it in-process alongside the job.
+	// enables the host service's in-process console alongside the active job.
 	DefaultConfigPath = "/etc/ccv-admin/config.toml"
+	// DefaultSecretsPath is the executor console's optional basic-auth secrets file.
+	DefaultSecretsPath = "/etc/ccv-admin/secrets.toml" //nolint:gosec // G101: file path, not a credential
 )
 
 // Config is the console configuration file schema. It carries no credentials and no
-// database settings: the console administers the verifier it runs beside, sharing its
-// application database and its secrets file's [admin_ui].
+// database settings; authentication comes from the host service's secrets file.
 type Config struct {
 	// ListenAddress is the bind address; loopback by default.
 	ListenAddress string `toml:"listen_address"`
