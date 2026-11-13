@@ -460,17 +460,13 @@ func setupAggregatorTestFixture(t *testing.T) *aggregatorTestFixture {
 	// Setup aggregator with 2-of-3 threshold
 	sourceChainSelStr := fmt.Sprintf("%d", sourceChainSel)
 	out, err := services.NewAggregator(&services.AggregatorInput{
-		CommitteeName:   committeeName,
-		Image:           "aggregator:latest",
-		HostPort:        8110,
-		ExposedHostPort: grpcHostPort, // Expose gRPC port directly for test
-		SourceCodePath:  "../../../aggregator",
-		RootPath:        "../../../../",
-		// Buffer must be >= the default max batch size (100, config validation), so it can't be made
-		// artificially tiny here. Sized with headroom above 100 so a max-size batch still fits
-		// alongside any requests left over from earlier subtests in this single slow-draining worker.
-		AggregationChannelBufferSize: 150,
-		BackgroundWorkerCount:        1, // Single worker = slow drain for deterministic tests
+		CommitteeName:         committeeName,
+		Image:                 "aggregator:latest",
+		HostPort:              8110,
+		ExposedHostPort:       grpcHostPort, // Expose gRPC port directly for test
+		SourceCodePath:        "../../../aggregator",
+		RootPath:              "../../../../",
+		BackgroundWorkerCount: 1, // Single worker = slow drain for deterministic tests
 		DB: &services.AggregatorDBInput{
 			Image:    "postgres:16-alpine",
 			HostPort: 7440,
@@ -868,15 +864,15 @@ func TestServiceAggregatorSecurityFeatures(t *testing.T) {
 		})
 	})
 
-	// Channel exhaustion vulnerability tests
-	// Channel exhaustion regression tests - verify fix is in place
-	t.Run("channel_exhaustion_protection", func(t *testing.T) {
+	// Aggregation backlog tests: the durable job queue is shared, not per-client, so a
+	// flood of jobs from one client is just more backlog rather than exhausting isolation.
+	t.Run("aggregation_queue_backlog_protection", func(t *testing.T) {
 		t.Run("concurrent_submissions_should_not_block_honest_verifiers", func(t *testing.T) {
 			// Wait for any pending aggregations to drain
 			time.Sleep(500 * time.Millisecond)
 
-			// With the fix in place (per-client channel isolation), concurrent submissions
-			// from a malicious client should not affect honest clients.
+			// A burst of jobs from a malicious client just adds to the shared queue's
+			// backlog; it should not block an honest client's job from being processed.
 			numMalicious := 10
 			maliciousErrs := make([]error, numMalicious)
 			var wg sync.WaitGroup
@@ -898,7 +894,7 @@ func TestServiceAggregatorSecurityFeatures(t *testing.T) {
 			}
 			wg.Wait()
 
-			// Honest verifier should always be able to submit (isolated channel)
+			// Honest verifier should always be able to submit
 			msg := fixture.createValidMessage(t)
 			req := fixture.signMessage(t, fixture.honestSigner1, msg)
 			_, honestErr := fixture.honest1CommitteeClient.WriteCommitteeVerifierNodeResult(ctx, req)
@@ -906,12 +902,12 @@ func TestServiceAggregatorSecurityFeatures(t *testing.T) {
 			require.NoError(t, honestErr, "Honest verifier should not be blocked by malicious traffic")
 		})
 
-		t.Run("large_batch_request_should_succeed_with_isolated_channels", func(t *testing.T) {
+		t.Run("large_batch_request_should_succeed_with_queue_backlog", func(t *testing.T) {
 			// Wait for any pending aggregations to drain
 			time.Sleep(500 * time.Millisecond)
 
-			// With the fix, each client has their own channel, so batch requests
-			// should succeed regardless of channel buffer size
+			// The durable queue has no per-request buffer limit, so batch requests
+			// should succeed regardless of how much backlog is already queued
 			requests := make([]*committeepb.WriteCommitteeVerifierNodeResultRequest, 0, 10)
 			for range 10 {
 				msg := fixture.createValidMessage(t)
@@ -935,7 +931,7 @@ func TestServiceAggregatorSecurityFeatures(t *testing.T) {
 				}
 			}
 
-			require.Equal(t, 0, failedCount, "No batch items should fail due to channel exhaustion")
+			require.Equal(t, 0, failedCount, "No batch items should fail due to aggregation queue backlog")
 		})
 	})
 }

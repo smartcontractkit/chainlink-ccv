@@ -437,6 +437,39 @@ func TestListCommitVerificationByAggregationKey(t *testing.T) {
 	require.True(t, foundSigner2, "Should find record from signer2")
 }
 
+func TestCountSigners(t *testing.T) {
+	storage, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	message := createTestProtocolMessage()
+	signer1, signer2 := newTestSigner(t), newTestSigner(t)
+
+	msgWithCCV1 := createTestMessageWithCCV(t, message, signer1)
+	messageID := getMessageIDFromProto(t, msgWithCCV1)
+	twoSigners, oneSigner := "key-two-signers", "key-one-signer"
+
+	record1 := createTestCommitVerificationRecord(t, msgWithCCV1, signer1)
+	record2 := createTestCommitVerificationRecord(t, createTestMessageWithCCV(t, message, signer2), signer2)
+	require.NoError(t, storage.SaveCommitVerification(ctx, []model.CommitVerificationWrite{
+		{Record: record1, AggregationKey: twoSigners},
+		{Record: record2, AggregationKey: twoSigners},
+		{Record: record1, AggregationKey: oneSigner},
+	}))
+
+	counts, err := storage.CountSigners(ctx, []model.AggregationTrigger{
+		{MessageID: messageID, AggregationKey: twoSigners},
+		{MessageID: messageID, AggregationKey: oneSigner},
+		{MessageID: messageID, AggregationKey: "key-without-rows"},
+	})
+	require.NoError(t, err)
+	selector := uint64(message.SourceChainSelector)
+	require.Equal(t, map[model.AggregationKey]model.SignerCount{
+		twoSigners: {Signers: 2, SourceChainSelector: selector},
+		oneSigner:  {Signers: 1, SourceChainSelector: selector},
+	}, counts)
+}
+
 func TestListCommitVerificationByAggregationKey_DifferentAggregationKey(t *testing.T) {
 	storage, cleanup := setupTestDB(t)
 	defer cleanup()

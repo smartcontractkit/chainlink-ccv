@@ -83,11 +83,7 @@ func (c *NoopAggregatorMetricLabeler) RecordMessageSinceNumberOfRecordsReturned(
 	// No-op
 }
 
-func (c *NoopAggregatorMetricLabeler) IncrementPendingAggregationsChannelBuffer(ctx context.Context, count int) {
-	// No-op
-}
-
-func (c *NoopAggregatorMetricLabeler) DecrementPendingAggregationsChannelBuffer(ctx context.Context, count int) {
+func (c *NoopAggregatorMetricLabeler) SetAggregationQueueSize(ctx context.Context, size int64) {
 	// No-op
 }
 

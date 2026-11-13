@@ -257,7 +257,6 @@ func (c *Cfg) expandAggregators() error {
 				RootPath:                           agg.RootPath,
 				CommitteeName:                      agg.CommitteeName,
 				MonitoringOtelExporterHTTPEndpoint: agg.MonitoringOtelExporterHTTPEndpoint,
-				AggregationChannelBufferSize:       agg.AggregationChannelBufferSize,
 				BackgroundWorkerCount:              agg.BackgroundWorkerCount,
 				APIClients:                         deepCopyAggregatorAPIClients(agg.APIClients),
 			}

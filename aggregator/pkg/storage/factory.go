@@ -15,6 +15,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/common/messagerules"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
 	_ "github.com/lib/pq" // PostgreSQL driver
 )
@@ -34,6 +35,9 @@ type CommitVerificationStorage interface {
 	common.Sink
 	messagerules.Store
 	protocol.HealthReporter
+
+	// DataSource exposes the connection pool so the aggregation queue can share it.
+	DataSource() sqlutil.DataSource
 }
 
 // Factory creates storage instances based on configuration.

@@ -3,6 +3,7 @@ package aggregation
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -41,7 +42,7 @@ func exportableAggregationFixture(t *testing.T, ctx context.Context) (
 	}
 	require.NoError(t, (&model.AggregatorConfig{Committee: blockedCommittee}).ValidateCommitteeConfig())
 
-	agg := model.AggregationConfig{ChannelBufferSize: 1, BackgroundWorkerCount: 1}
+	agg := model.AggregationConfig{BackgroundWorkerCount: 1}
 	exportConfig = &model.AggregatorConfig{Committee: exportCommittee, Aggregation: agg}
 	blockedConfig = &model.AggregatorConfig{Committee: blockedCommittee, Aggregation: agg}
 
@@ -75,12 +76,11 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 
 		config := &model.AggregatorConfig{
 			Aggregation: model.AggregationConfig{
-				ChannelBufferSize:     10,
 				BackgroundWorkerCount: 1,
 			},
 		}
 
-		channelManager := NewChannelManager([]model.ChannelKey{}, config.Aggregation.ChannelBufferSize)
+		queue := newFakeQueue()
 		aggregator := NewCommitReportAggregator(
 			store,
 			nil,
@@ -89,7 +89,7 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 			config,
 			logger.Sugared(logger.Test(t)),
 			monitoring,
-			channelManager,
+			queue,
 		)
 
 		shouldSkip := aggregator.shouldSkipAggregationDueToExistingQuorum(ctx, messageID, aggregationKey)
@@ -111,12 +111,11 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 
 		config := &model.AggregatorConfig{
 			Aggregation: model.AggregationConfig{
-				ChannelBufferSize:     10,
 				BackgroundWorkerCount: 1,
 			},
 		}
 
-		channelManager := NewChannelManager([]model.ChannelKey{}, config.Aggregation.ChannelBufferSize)
+		queue := newFakeQueue()
 		aggregator := NewCommitReportAggregator(
 			store,
 			aggStore,
@@ -125,7 +124,7 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 			config,
 			logger.Sugared(logger.Test(t)),
 			monitoring,
-			channelManager,
+			queue,
 		)
 
 		shouldSkip := aggregator.shouldSkipAggregationDueToExistingQuorum(ctx, messageID, aggregationKey)
@@ -146,7 +145,6 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 
 		config := &model.AggregatorConfig{
 			Aggregation: model.AggregationConfig{
-				ChannelBufferSize:     10,
 				BackgroundWorkerCount: 1,
 			},
 		}
@@ -160,7 +158,7 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 		aggStore.EXPECT().GetCommitAggregatedReportByAggregationKey(ctx, messageID, aggregationKey).Return(existingReport, nil)
 		quorum.EXPECT().CheckQuorum(ctx, existingReport).Return(true, nil)
 
-		channelManager := NewChannelManager([]model.ChannelKey{}, config.Aggregation.ChannelBufferSize)
+		queue := newFakeQueue()
 		aggregator := NewCommitReportAggregator(
 			store,
 			aggStore,
@@ -169,7 +167,7 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 			config,
 			logger.Sugared(logger.Test(t)),
 			monitoring,
-			channelManager,
+			queue,
 		)
 
 		shouldSkip := aggregator.shouldSkipAggregationDueToExistingQuorum(ctx, messageID, aggregationKey)
@@ -191,7 +189,6 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 
 		config := &model.AggregatorConfig{
 			Aggregation: model.AggregationConfig{
-				ChannelBufferSize:     10,
 				BackgroundWorkerCount: 1,
 			},
 		}
@@ -205,7 +202,7 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 		aggStore.EXPECT().GetCommitAggregatedReportByAggregationKey(ctx, messageID, aggregationKey).Return(existingReport, nil)
 		quorum.EXPECT().CheckQuorum(ctx, existingReport).Return(false, nil)
 
-		channelManager := NewChannelManager([]model.ChannelKey{}, config.Aggregation.ChannelBufferSize)
+		queue := newFakeQueue()
 		aggregator := NewCommitReportAggregator(
 			store,
 			aggStore,
@@ -214,7 +211,7 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 			config,
 			logger.Sugared(logger.Test(t)),
 			monitoring,
-			channelManager,
+			queue,
 		)
 
 		shouldSkip := aggregator.shouldSkipAggregationDueToExistingQuorum(ctx, messageID, aggregationKey)
@@ -234,9 +231,9 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 		monitoring.EXPECT().Metrics().Return(metricLabeler).Maybe()
 		aggStore.EXPECT().GetCommitAggregatedReportByAggregationKey(ctx, messageID, aggregationKey).Return(nil, errors.New("boom"))
 
-		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{ChannelBufferSize: 1, BackgroundWorkerCount: 1}}
-		channelManager := NewChannelManager([]model.ChannelKey{}, config.Aggregation.ChannelBufferSize)
-		a := NewCommitReportAggregator(store, aggStore, sink, quorum, config, logger.Sugared(logger.Test(t)), monitoring, channelManager)
+		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{BackgroundWorkerCount: 1}}
+		queue := newFakeQueue()
+		a := NewCommitReportAggregator(store, aggStore, sink, quorum, config, logger.Sugared(logger.Test(t)), monitoring, queue)
 		shouldSkip := a.shouldSkipAggregationDueToExistingQuorum(ctx, messageID, aggregationKey)
 		assert.False(t, shouldSkip)
 	})
@@ -257,9 +254,9 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 		aggStore.EXPECT().GetCommitAggregatedReportByAggregationKey(ctx, messageID, aggregationKey).Return(existingReport, nil)
 		quorum.EXPECT().CheckQuorum(ctx, existingReport).Return(false, errors.New("boom"))
 
-		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{ChannelBufferSize: 1, BackgroundWorkerCount: 1}}
-		channelManager := NewChannelManager([]model.ChannelKey{}, config.Aggregation.ChannelBufferSize)
-		a := NewCommitReportAggregator(store, aggStore, sink, quorum, config, logger.Sugared(logger.Test(t)), monitoring, channelManager)
+		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{BackgroundWorkerCount: 1}}
+		queue := newFakeQueue()
+		a := NewCommitReportAggregator(store, aggStore, sink, quorum, config, logger.Sugared(logger.Test(t)), monitoring, queue)
 		shouldSkip := a.shouldSkipAggregationDueToExistingQuorum(ctx, messageID, aggregationKey)
 		assert.False(t, shouldSkip)
 	})
@@ -277,9 +274,9 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 		monitoring.EXPECT().Metrics().Return(metricLabeler).Maybe()
 		aggStore.EXPECT().GetCommitAggregatedReportByAggregationKey(ctx, messageID, aggregationKey).Return(nil, common.ErrNotFound)
 
-		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{ChannelBufferSize: 1, BackgroundWorkerCount: 1}}
-		channelManager := NewChannelManager([]model.ChannelKey{}, config.Aggregation.ChannelBufferSize)
-		a := NewCommitReportAggregator(store, aggStore, sink, quorum, config, logger.Sugared(logger.Test(t)), monitoring, channelManager)
+		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{BackgroundWorkerCount: 1}}
+		queue := newFakeQueue()
+		a := NewCommitReportAggregator(store, aggStore, sink, quorum, config, logger.Sugared(logger.Test(t)), monitoring, queue)
 		shouldSkip := a.shouldSkipAggregationDueToExistingQuorum(ctx, messageID, aggregationKey)
 		assert.False(t, shouldSkip)
 	})
@@ -288,18 +285,14 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 func TestHealthCheck(t *testing.T) {
 	cases := []struct {
 		name           string
-		pending        int
-		capacity       int
 		stopped        bool
 		notStarted     bool
 		wantReadyError bool
 		wantMsgPrefix  string
 	}{
-		{name: "healthy", pending: 0, capacity: 10, wantReadyError: false},
-		{name: "high", pending: 9, capacity: 10, wantReadyError: false},
-		{name: "full", pending: 10, capacity: 10, wantReadyError: false},
-		{name: "stopped", pending: 0, capacity: 10, stopped: true, wantReadyError: true, wantMsgPrefix: "aggregation worker stopped"},
-		{name: "not_started", pending: 0, capacity: 10, notStarted: true, wantReadyError: true, wantMsgPrefix: "aggregation worker not started"},
+		{name: "healthy", wantReadyError: false},
+		{name: "stopped", stopped: true, wantReadyError: true, wantMsgPrefix: "aggregation worker stopped"},
+		{name: "not_started", notStarted: true, wantReadyError: true, wantMsgPrefix: "aggregation worker not started"},
 	}
 
 	for _, tc := range cases {
@@ -311,13 +304,9 @@ func TestHealthCheck(t *testing.T) {
 			metric := mocks.NewMockAggregatorMetricLabeler(t)
 			monitoring.EXPECT().Metrics().Return(metric).Maybe()
 
-			config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{ChannelBufferSize: tc.capacity, BackgroundWorkerCount: 1}}
-			channelManager := NewChannelManager([]model.ChannelKey{"test-client"}, config.Aggregation.ChannelBufferSize)
-			a := NewCommitReportAggregator(store, nil, sink, mocks.NewMockQuorumValidator(t), config, logger.Sugared(logger.Test(t)), monitoring, channelManager)
+			config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{BackgroundWorkerCount: 1}}
+			a := NewCommitReportAggregator(store, nil, sink, mocks.NewMockQuorumValidator(t), config, logger.Sugared(logger.Test(t)), monitoring, newFakeQueue())
 
-			for i := 0; i < tc.pending; i++ {
-				_ = channelManager.Enqueue(t.Context(), "test-client", aggregationRequest{})
-			}
 			if tc.stopped {
 				a.done = make(chan struct{})
 				close(a.done)
@@ -334,43 +323,44 @@ func TestHealthCheck(t *testing.T) {
 	}
 }
 
-func TestCheckAggregation_EnqueueAndFull(t *testing.T) {
-	t.Run("enqueues and records metric", func(t *testing.T) {
-		store := mocks.NewMockCommitVerificationStore(t)
-		sink := mocks.NewMockSink(t)
-		monitoring := mocks.NewMockAggregatorMonitoring(t)
-		testutil.StubTracing(monitoring)
-		metric := mocks.NewMockAggregatorMetricLabeler(t)
-		monitoring.EXPECT().Metrics().Return(metric).Maybe()
-		metric.EXPECT().With(mock.Anything, mock.Anything).Return(metric).Maybe()
-		metric.EXPECT().IncrementPendingAggregationsChannelBuffer(mock.Anything, 1)
+func TestCheckAggregation_Publishes(t *testing.T) {
+	store := mocks.NewMockCommitVerificationStore(t)
+	sink := mocks.NewMockSink(t)
+	monitoring := mocks.NewMockAggregatorMonitoring(t)
+	testutil.StubTracing(monitoring)
+	metric := mocks.NewMockAggregatorMetricLabeler(t)
+	monitoring.EXPECT().Metrics().Return(metric).Maybe()
+	metric.EXPECT().With(mock.Anything, mock.Anything).Return(metric).Maybe()
 
-		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{ChannelBufferSize: 2, BackgroundWorkerCount: 1}}
-		channelManager := NewChannelManager([]model.ChannelKey{"test-client"}, config.Aggregation.ChannelBufferSize)
-		a := NewCommitReportAggregator(store, nil, sink, mocks.NewMockQuorumValidator(t), config, logger.Sugared(logger.Test(t)), monitoring, channelManager)
+	config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{BackgroundWorkerCount: 1}}
+	queue := newFakeQueue()
+	a := NewCommitReportAggregator(store, nil, sink, mocks.NewMockQuorumValidator(t), config, logger.Sugared(logger.Test(t)), monitoring, queue)
 
-		err := a.CheckAggregation(t.Context(), []byte{1}, "test-key", "test-client")
-		require.NoError(t, err)
-	})
+	require.NoError(t, a.CheckAggregation(t.Context(), model.AggregationTrigger{MessageID: []byte{1}, AggregationKey: "test-key"}))
 
-	t.Run("returns error when channel full", func(t *testing.T) {
-		store := mocks.NewMockCommitVerificationStore(t)
-		sink := mocks.NewMockSink(t)
-		monitoring := mocks.NewMockAggregatorMonitoring(t)
-		testutil.StubTracing(monitoring)
-		metric := mocks.NewMockAggregatorMetricLabeler(t)
-		monitoring.EXPECT().Metrics().Return(metric).Maybe()
+	size, err := queue.Size(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, 1, size)
+}
 
-		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{ChannelBufferSize: 1, BackgroundWorkerCount: 1}}
-		channelManager := NewChannelManager([]model.ChannelKey{"test-client"}, config.Aggregation.ChannelBufferSize)
-		a := NewCommitReportAggregator(store, nil, sink, mocks.NewMockQuorumValidator(t), config, logger.Sugared(logger.Test(t)), monitoring, channelManager)
+func TestCheckAggregation_PublishesInKeyOrder(t *testing.T) {
+	monitoring := mocks.NewMockAggregatorMonitoring(t)
+	testutil.StubTracing(monitoring)
+	config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{BackgroundWorkerCount: 1}}
+	queue := newFakeQueue()
+	a := NewCommitReportAggregator(mocks.NewMockCommitVerificationStore(t), nil, mocks.NewMockSink(t), mocks.NewMockQuorumValidator(t), config, logger.Sugared(logger.Test(t)), monitoring, queue)
 
-		_ = channelManager.Enqueue(t.Context(), "test-client", aggregationRequest{})
+	require.NoError(t, a.CheckAggregation(t.Context(),
+		model.AggregationTrigger{MessageID: []byte{3}, AggregationKey: "c"},
+		model.AggregationTrigger{MessageID: []byte{1}, AggregationKey: "a"},
+		model.AggregationTrigger{MessageID: []byte{2}, AggregationKey: "b"},
+	))
 
-		err := a.CheckAggregation(t.Context(), []byte{1}, "test-key", "test-client")
-		require.Error(t, err)
-		assert.ErrorIs(t, err, common.ErrAggregationChannelFull)
-	})
+	keys := make([]string, 0, len(queue.pending))
+	for _, job := range queue.pending {
+		keys = append(keys, job.Payload.AggregationKey)
+	}
+	assert.Equal(t, []string{"a", "b", "c"}, keys)
 }
 
 func TestCheckAggregationAndSubmitComplete(t *testing.T) {
@@ -398,9 +388,9 @@ func TestCheckAggregationAndSubmitComplete(t *testing.T) {
 		metric := mocks.NewMockAggregatorMetricLabeler(t)
 		monitoring.EXPECT().Metrics().Return(metric).Maybe()
 
-		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{ChannelBufferSize: 1, BackgroundWorkerCount: 1}}
-		channelManager := NewChannelManager([]model.ChannelKey{}, config.Aggregation.ChannelBufferSize)
-		a := NewCommitReportAggregator(storage, nil, mocks.NewMockSink(t), mocks.NewMockQuorumValidator(t), config, logger.Sugared(logger.Test(t)), monitoring, channelManager)
+		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{BackgroundWorkerCount: 1}}
+		queue := newFakeQueue()
+		a := NewCommitReportAggregator(storage, nil, mocks.NewMockSink(t), mocks.NewMockQuorumValidator(t), config, logger.Sugared(logger.Test(t)), monitoring, queue)
 		err := a.checkAggregationAndSubmitComplete(ctx, request)
 		require.Error(t, err)
 	})
@@ -416,9 +406,9 @@ func TestCheckAggregationAndSubmitComplete(t *testing.T) {
 		metric := mocks.NewMockAggregatorMetricLabeler(t)
 		monitoring.EXPECT().Metrics().Return(metric).Maybe()
 
-		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{ChannelBufferSize: 1, BackgroundWorkerCount: 1}}
-		channelManager := NewChannelManager([]model.ChannelKey{}, config.Aggregation.ChannelBufferSize)
-		a := NewCommitReportAggregator(storage, nil, mocks.NewMockSink(t), quorum, config, logger.Sugared(logger.Test(t)), monitoring, channelManager)
+		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{BackgroundWorkerCount: 1}}
+		queue := newFakeQueue()
+		a := NewCommitReportAggregator(storage, nil, mocks.NewMockSink(t), quorum, config, logger.Sugared(logger.Test(t)), monitoring, queue)
 		err := a.checkAggregationAndSubmitComplete(ctx, request)
 		require.Error(t, err)
 	})
@@ -439,8 +429,8 @@ func TestCheckAggregationAndSubmitComplete(t *testing.T) {
 		metric.EXPECT().IncrementCompletedAggregations(mock.Anything)
 		metric.EXPECT().RecordTimeToAggregation(mock.Anything, mock.Anything)
 
-		channelManager := NewChannelManager([]model.ChannelKey{}, exportConfig.Aggregation.ChannelBufferSize)
-		a := NewCommitReportAggregator(storage, nil, sink, quorum, exportConfig, logger.Sugared(logger.Test(t)), monitoring, channelManager)
+		queue := newFakeQueue()
+		a := NewCommitReportAggregator(storage, nil, sink, quorum, exportConfig, logger.Sugared(logger.Test(t)), monitoring, queue)
 		err := a.checkAggregationAndSubmitComplete(ctx, exportRequest)
 		require.NoError(t, err)
 	})
@@ -459,8 +449,8 @@ func TestCheckAggregationAndSubmitComplete(t *testing.T) {
 		monitoring.EXPECT().Metrics().Return(metric).Maybe()
 		metric.EXPECT().With("component", "aggregator_worker").Return(metric).Maybe()
 
-		channelManager := NewChannelManager([]model.ChannelKey{}, exportConfig.Aggregation.ChannelBufferSize)
-		a := NewCommitReportAggregator(storage, nil, sink, quorum, exportConfig, logger.Sugared(logger.Test(t)), monitoring, channelManager)
+		queue := newFakeQueue()
+		a := NewCommitReportAggregator(storage, nil, sink, quorum, exportConfig, logger.Sugared(logger.Test(t)), monitoring, queue)
 		err := a.checkAggregationAndSubmitComplete(ctx, exportRequest)
 		require.Error(t, err)
 	})
@@ -479,8 +469,8 @@ func TestCheckAggregationAndSubmitComplete(t *testing.T) {
 		metric.EXPECT().With("component", "aggregator_worker").Return(metric).Maybe()
 		metric.EXPECT().IncrementAggregationsBlockedUnexportable(mock.Anything)
 
-		channelManager := NewChannelManager([]model.ChannelKey{}, blockedConfig.Aggregation.ChannelBufferSize)
-		a := NewCommitReportAggregator(storage, nil, sink, quorum, blockedConfig, logger.Sugared(logger.Test(t)), monitoring, channelManager)
+		queue := newFakeQueue()
+		a := NewCommitReportAggregator(storage, nil, sink, quorum, blockedConfig, logger.Sugared(logger.Test(t)), monitoring, queue)
 		err := a.checkAggregationAndSubmitComplete(ctx, exportRequest)
 		require.NoError(t, err)
 	})
@@ -500,8 +490,8 @@ func TestCheckAggregationAndSubmitComplete(t *testing.T) {
 		metric.EXPECT().IncrementAggregationsBlockedUnexportable(mock.Anything)
 
 		config := &model.AggregatorConfig{Aggregation: exportConfig.Aggregation}
-		channelManager := NewChannelManager([]model.ChannelKey{}, config.Aggregation.ChannelBufferSize)
-		a := NewCommitReportAggregator(storage, nil, sink, quorum, config, logger.Sugared(logger.Test(t)), monitoring, channelManager)
+		queue := newFakeQueue()
+		a := NewCommitReportAggregator(storage, nil, sink, quorum, config, logger.Sugared(logger.Test(t)), monitoring, queue)
 		err := a.checkAggregationAndSubmitComplete(ctx, exportRequest)
 		require.NoError(t, err)
 	})
@@ -517,9 +507,9 @@ func TestCheckAggregationAndSubmitComplete(t *testing.T) {
 		metric := mocks.NewMockAggregatorMetricLabeler(t)
 		monitoring.EXPECT().Metrics().Return(metric).Maybe()
 
-		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{ChannelBufferSize: 1, BackgroundWorkerCount: 1}}
-		channelManager := NewChannelManager([]model.ChannelKey{}, config.Aggregation.ChannelBufferSize)
-		a := NewCommitReportAggregator(storage, nil, mocks.NewMockSink(t), quorum, config, logger.Sugared(logger.Test(t)), monitoring, channelManager)
+		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{BackgroundWorkerCount: 1}}
+		queue := newFakeQueue()
+		a := NewCommitReportAggregator(storage, nil, mocks.NewMockSink(t), quorum, config, logger.Sugared(logger.Test(t)), monitoring, queue)
 		err := a.checkAggregationAndSubmitComplete(ctx, request)
 		require.NoError(t, err)
 	})
@@ -533,9 +523,9 @@ func TestHealthCheck_ReportsStoppedAfterContextCancellation(t *testing.T) {
 	metric := mocks.NewMockAggregatorMetricLabeler(t)
 	monitoring.EXPECT().Metrics().Return(metric).Maybe()
 
-	config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{ChannelBufferSize: 10, BackgroundWorkerCount: 1}}
-	channelManager := NewChannelManager([]model.ChannelKey{}, config.Aggregation.ChannelBufferSize)
-	a := NewCommitReportAggregator(store, nil, sink, mocks.NewMockQuorumValidator(t), config, logger.Sugared(logger.Test(t)), monitoring, channelManager)
+	config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{BackgroundWorkerCount: 1}}
+	queue := newFakeQueue()
+	a := NewCommitReportAggregator(store, nil, sink, mocks.NewMockQuorumValidator(t), config, logger.Sugared(logger.Test(t)), monitoring, queue)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	a.StartBackground(ctx)
@@ -559,8 +549,6 @@ func TestHealthCheck_RecoversPanicEmitsMetricAndKeepsRunning(t *testing.T) {
 	testutil.StubTracing(monitoring)
 	metric := mocks.NewMockAggregatorMetricLabeler(t)
 	monitoring.EXPECT().Metrics().Return(metric).Maybe()
-	metric.EXPECT().IncrementPendingAggregationsChannelBuffer(mock.Anything, 1).Maybe()
-	metric.EXPECT().DecrementPendingAggregationsChannelBuffer(mock.Anything, 1).Maybe()
 	metric.EXPECT().With(mock.Anything, mock.Anything).Return(metric).Maybe()
 	metric.EXPECT().IncrementPanics(mock.Anything).Times(1)
 
@@ -576,9 +564,9 @@ func TestHealthCheck_RecoversPanicEmitsMetricAndKeepsRunning(t *testing.T) {
 	quorum := mocks.NewMockQuorumValidator(t)
 	quorum.EXPECT().CheckQuorum(mock.Anything, mock.Anything).Return(false, nil).Maybe()
 
-	config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{ChannelBufferSize: 10, BackgroundWorkerCount: 1}}
-	channelManager := NewChannelManager([]model.ChannelKey{"test-client"}, config.Aggregation.ChannelBufferSize)
-	a := NewCommitReportAggregator(store, nil, sink, quorum, config, logger.Sugared(logger.Test(t)), monitoring, channelManager)
+	config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{BackgroundWorkerCount: 1}}
+	queue := newFakeQueue()
+	a := NewCommitReportAggregator(store, nil, sink, quorum, config, logger.Sugared(logger.Test(t)), monitoring, queue)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	a.StartBackground(ctx)
@@ -586,14 +574,14 @@ func TestHealthCheck_RecoversPanicEmitsMetricAndKeepsRunning(t *testing.T) {
 	require.NoError(t, a.Ready())
 
 	// First request panics
-	_ = a.CheckAggregation(ctx, []byte{1, 2, 3}, "test-key", "test-client")
+	_ = a.CheckAggregation(ctx, model.AggregationTrigger{MessageID: []byte{1, 2, 3}, AggregationKey: "test-key"})
 	time.Sleep(100 * time.Millisecond)
 
 	// Still healthy after panic - we now emit metrics instead of tracking consecutive panics
 	require.NoError(t, a.Ready())
 
 	// Second request succeeds
-	_ = a.CheckAggregation(ctx, []byte{4, 5, 6}, "test-key-2", "test-client")
+	_ = a.CheckAggregation(ctx, model.AggregationTrigger{MessageID: []byte{4, 5, 6}, AggregationKey: "test-key-2"})
 	time.Sleep(100 * time.Millisecond)
 
 	require.NoError(t, a.Ready())
@@ -611,8 +599,6 @@ func TestHealthCheck_ReturnsErrorAfterConsecutiveWorkerFailures(t *testing.T) {
 	testutil.StubTracing(monitoring)
 	metric := mocks.NewMockAggregatorMetricLabeler(t)
 	monitoring.EXPECT().Metrics().Return(metric).Maybe()
-	metric.EXPECT().IncrementPendingAggregationsChannelBuffer(mock.Anything, 1).Maybe()
-	metric.EXPECT().DecrementPendingAggregationsChannelBuffer(mock.Anything, 1).Maybe()
 	metric.EXPECT().With(mock.Anything, mock.Anything).Return(metric).Maybe()
 
 	var listCallCount atomic.Int32
@@ -631,13 +617,12 @@ func TestHealthCheck_ReturnsErrorAfterConsecutiveWorkerFailures(t *testing.T) {
 
 	config := &model.AggregatorConfig{
 		Aggregation: model.AggregationConfig{
-			ChannelBufferSize:     10,
 			BackgroundWorkerCount: 1,
 			MaxConsecutiveErrors:  3,
 		},
 	}
-	channelManager := NewChannelManager([]model.ChannelKey{"test-client"}, config.Aggregation.ChannelBufferSize)
-	a := NewCommitReportAggregator(store, nil, sink, quorum, config, logger.Sugared(logger.Test(t)), monitoring, channelManager)
+	queue := newFakeQueue()
+	a := NewCommitReportAggregator(store, nil, sink, quorum, config, logger.Sugared(logger.Test(t)), monitoring, queue)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	a.StartBackground(ctx)
@@ -645,9 +630,9 @@ func TestHealthCheck_ReturnsErrorAfterConsecutiveWorkerFailures(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	require.NoError(t, a.Ready(), "should be ready after start")
 
-	_ = a.CheckAggregation(ctx, []byte{1}, "key-1", "test-client")
-	_ = a.CheckAggregation(ctx, []byte{2}, "key-2", "test-client")
-	_ = a.CheckAggregation(ctx, []byte{3}, "key-3", "test-client")
+	_ = a.CheckAggregation(ctx, model.AggregationTrigger{MessageID: []byte{1}, AggregationKey: "key-1"})
+	_ = a.CheckAggregation(ctx, model.AggregationTrigger{MessageID: []byte{2}, AggregationKey: "key-2"})
+	_ = a.CheckAggregation(ctx, model.AggregationTrigger{MessageID: []byte{3}, AggregationKey: "key-3"})
 
 	require.Eventually(t, func() bool {
 		err := a.Ready()
@@ -658,7 +643,7 @@ func TestHealthCheck_ReturnsErrorAfterConsecutiveWorkerFailures(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "times in a row")
 
-	_ = a.CheckAggregation(ctx, []byte{4}, "key-4", "test-client")
+	_ = a.CheckAggregation(ctx, model.AggregationTrigger{MessageID: []byte{4}, AggregationKey: "key-4"})
 
 	require.Eventually(t, func() bool {
 		return a.Ready() == nil
@@ -671,7 +656,7 @@ func TestHealthCheck_ReturnsErrorAfterConsecutiveWorkerFailures(t *testing.T) {
 }
 
 func TestStartBackground_Shutdown(t *testing.T) {
-	t.Run("drains buffered items and in-flight workers before signaling done", func(t *testing.T) {
+	t.Run("drains in-flight workers and leaves unclaimed jobs pending", func(t *testing.T) {
 		store := mocks.NewMockCommitVerificationStore(t)
 		sink := mocks.NewMockSink(t)
 		monitoring := mocks.NewMockAggregatorMonitoring(t)
@@ -679,8 +664,6 @@ func TestStartBackground_Shutdown(t *testing.T) {
 		metric := mocks.NewMockAggregatorMetricLabeler(t)
 		monitoring.EXPECT().Metrics().Return(metric).Maybe()
 		metric.EXPECT().With(mock.Anything, mock.Anything).Return(metric).Maybe()
-		metric.EXPECT().IncrementPendingAggregationsChannelBuffer(mock.Anything, 1).Maybe()
-		metric.EXPECT().DecrementPendingAggregationsChannelBuffer(mock.Anything, 1).Maybe()
 		metric.EXPECT().IncrementCompletedAggregations(mock.Anything).Maybe()
 		metric.EXPECT().RecordTimeToAggregation(mock.Anything, mock.Anything).Maybe()
 
@@ -696,16 +679,16 @@ func TestStartBackground_Shutdown(t *testing.T) {
 		quorum := mocks.NewMockQuorumValidator(t)
 		quorum.EXPECT().CheckQuorum(mock.Anything, mock.Anything).Return(false, nil).Maybe()
 
-		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{ChannelBufferSize: 10, BackgroundWorkerCount: 2, DrainTimeout: 5 * time.Second}}
-		channelManager := NewChannelManager([]model.ChannelKey{"test-client"}, config.Aggregation.ChannelBufferSize)
-		a := NewCommitReportAggregator(store, nil, sink, quorum, config, logger.Sugared(logger.Test(t)), monitoring, channelManager)
+		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{BackgroundWorkerCount: 2, DrainTimeout: 5 * time.Second}}
+		queue := newFakeQueue()
+		a := NewCommitReportAggregator(store, nil, sink, quorum, config, logger.Sugared(logger.Test(t)), monitoring, queue)
 
 		ctx, cancel := context.WithCancel(t.Context())
 		a.StartBackground(ctx)
 
-		_ = a.CheckAggregation(ctx, []byte{1}, "key-1", "test-client")
-		_ = a.CheckAggregation(ctx, []byte{2}, "key-2", "test-client")
-		_ = a.CheckAggregation(ctx, []byte{3}, "key-3", "test-client")
+		_ = a.CheckAggregation(ctx, model.AggregationTrigger{MessageID: []byte{1}, AggregationKey: "key-1"})
+		_ = a.CheckAggregation(ctx, model.AggregationTrigger{MessageID: []byte{2}, AggregationKey: "key-2"})
+		_ = a.CheckAggregation(ctx, model.AggregationTrigger{MessageID: []byte{3}, AggregationKey: "key-3"})
 
 		time.Sleep(50 * time.Millisecond)
 		require.Equal(t, int32(0), processedCount.Load(), "no requests should be processed before drain")
@@ -716,7 +699,10 @@ func TestStartBackground_Shutdown(t *testing.T) {
 			return a.Ready() != nil
 		}, 5*time.Second, 10*time.Millisecond, "aggregator should signal done after drain")
 
-		require.Equal(t, int32(3), processedCount.Load(), "all 3 requests should be processed during drain")
+		require.Equal(t, int32(2), processedCount.Load(), "both in-flight requests should finish during drain")
+		size, err := queue.Size(t.Context())
+		require.NoError(t, err)
+		assert.Equal(t, 1, size, "the unclaimed request stays queued for the next replica")
 	})
 
 	t.Run("in-flight worker completes with valid context after cancellation", func(t *testing.T) {
@@ -727,8 +713,6 @@ func TestStartBackground_Shutdown(t *testing.T) {
 		metric := mocks.NewMockAggregatorMetricLabeler(t)
 		monitoring.EXPECT().Metrics().Return(metric).Maybe()
 		metric.EXPECT().With(mock.Anything, mock.Anything).Return(metric).Maybe()
-		metric.EXPECT().IncrementPendingAggregationsChannelBuffer(mock.Anything, 1).Maybe()
-		metric.EXPECT().DecrementPendingAggregationsChannelBuffer(mock.Anything, 1).Maybe()
 
 		workerStarted := make(chan struct{})
 		var ctxWasCancelled atomic.Bool
@@ -743,14 +727,14 @@ func TestStartBackground_Shutdown(t *testing.T) {
 		quorum := mocks.NewMockQuorumValidator(t)
 		quorum.EXPECT().CheckQuorum(mock.Anything, mock.Anything).Return(false, nil).Maybe()
 
-		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{ChannelBufferSize: 10, BackgroundWorkerCount: 1, DrainTimeout: 5 * time.Second}}
-		channelManager := NewChannelManager([]model.ChannelKey{"test-client"}, config.Aggregation.ChannelBufferSize)
-		a := NewCommitReportAggregator(store, nil, sink, quorum, config, logger.Sugared(logger.Test(t)), monitoring, channelManager)
+		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{BackgroundWorkerCount: 1, DrainTimeout: 5 * time.Second}}
+		queue := newFakeQueue()
+		a := NewCommitReportAggregator(store, nil, sink, quorum, config, logger.Sugared(logger.Test(t)), monitoring, queue)
 
 		ctx, cancel := context.WithCancel(t.Context())
 		a.StartBackground(ctx)
 
-		_ = a.CheckAggregation(ctx, []byte{1}, "key-1", "test-client")
+		_ = a.CheckAggregation(ctx, model.AggregationTrigger{MessageID: []byte{1}, AggregationKey: "key-1"})
 
 		<-workerStarted
 		cancel()
@@ -770,8 +754,6 @@ func TestStartBackground_Shutdown(t *testing.T) {
 		metric := mocks.NewMockAggregatorMetricLabeler(t)
 		monitoring.EXPECT().Metrics().Return(metric).Maybe()
 		metric.EXPECT().With(mock.Anything, mock.Anything).Return(metric).Maybe()
-		metric.EXPECT().IncrementPendingAggregationsChannelBuffer(mock.Anything, 1).Maybe()
-		metric.EXPECT().DecrementPendingAggregationsChannelBuffer(mock.Anything, 1).Maybe()
 
 		workerStarted := make(chan struct{})
 		workerRelease := make(chan struct{})
@@ -789,14 +771,15 @@ func TestStartBackground_Shutdown(t *testing.T) {
 		quorum := mocks.NewMockQuorumValidator(t)
 		quorum.EXPECT().CheckQuorum(mock.Anything, mock.Anything).Return(false, nil).Maybe()
 
-		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{ChannelBufferSize: 10, BackgroundWorkerCount: 1, DrainTimeout: 50 * time.Millisecond}}
-		channelManager := NewChannelManager([]model.ChannelKey{"test-client"}, config.Aggregation.ChannelBufferSize)
-		a := NewCommitReportAggregator(store, nil, sink, quorum, config, logger.Sugared(logger.Test(t)), monitoring, channelManager)
+		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{BackgroundWorkerCount: 1, DrainTimeout: 50 * time.Millisecond}}
+		queue := newFakeQueue()
+		// Nop logger: the abandoned worker keeps logging after the test returns.
+		a := NewCommitReportAggregator(store, nil, sink, quorum, config, logger.Sugared(logger.Nop()), monitoring, queue)
 
 		ctx, cancel := context.WithCancel(t.Context())
 		a.StartBackground(ctx)
 
-		_ = a.CheckAggregation(ctx, []byte{1}, "key-1", "test-client")
+		_ = a.CheckAggregation(ctx, model.AggregationTrigger{MessageID: []byte{1}, AggregationKey: "key-1"})
 		<-workerStarted
 		cancel()
 
@@ -815,22 +798,20 @@ func TestStartBackground_Shutdown(t *testing.T) {
 		metric := mocks.NewMockAggregatorMetricLabeler(t)
 		monitoring.EXPECT().Metrics().Return(metric).Maybe()
 		metric.EXPECT().With(mock.Anything, mock.Anything).Return(metric).Maybe()
-		metric.EXPECT().IncrementPendingAggregationsChannelBuffer(mock.Anything, 1).Maybe()
-		metric.EXPECT().DecrementPendingAggregationsChannelBuffer(mock.Anything, 1).Maybe()
 
 		store.EXPECT().ListCommitVerificationByAggregationKey(mock.Anything, mock.Anything, mock.Anything).
 			Return(nil, errors.New("storage unavailable")).Maybe()
 
 		quorum := mocks.NewMockQuorumValidator(t)
 
-		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{ChannelBufferSize: 10, BackgroundWorkerCount: 1, DrainTimeout: 5 * time.Second}}
-		channelManager := NewChannelManager([]model.ChannelKey{"test-client"}, config.Aggregation.ChannelBufferSize)
-		a := NewCommitReportAggregator(store, nil, sink, quorum, config, logger.Sugared(logger.Test(t)), monitoring, channelManager)
+		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{BackgroundWorkerCount: 1, DrainTimeout: 5 * time.Second}}
+		queue := newFakeQueue()
+		a := NewCommitReportAggregator(store, nil, sink, quorum, config, logger.Sugared(logger.Test(t)), monitoring, queue)
 
 		ctx, cancel := context.WithCancel(t.Context())
 		a.StartBackground(ctx)
 
-		_ = a.CheckAggregation(ctx, []byte{1}, "key-1", "test-client")
+		_ = a.CheckAggregation(ctx, model.AggregationTrigger{MessageID: []byte{1}, AggregationKey: "key-1"})
 
 		time.Sleep(50 * time.Millisecond)
 		cancel()
@@ -839,4 +820,126 @@ func TestStartBackground_Shutdown(t *testing.T) {
 			return a.Ready() != nil
 		}, 5*time.Second, 10*time.Millisecond, "aggregator should shut down cleanly despite worker errors")
 	})
+}
+
+// TestStartBackground_ClaimsOnlyFreeWorkerSlots checks claims never exceed free workers and
+// that a freed slot picks up the backlog without waiting for the fallback tick.
+func TestStartBackground_ClaimsOnlyFreeWorkerSlots(t *testing.T) {
+	const workers, jobs = 2, 6
+	release := make(chan struct{})
+	var started atomic.Int64
+
+	store := mocks.NewMockCommitVerificationStore(t)
+	store.EXPECT().ListCommitVerificationByAggregationKey(mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(context.Context, model.MessageID, model.AggregationKey) ([]*model.CommitVerificationRecord, error) {
+			started.Add(1)
+			<-release
+			return nil, nil
+		})
+	quorum := mocks.NewMockQuorumValidator(t)
+	quorum.EXPECT().CheckQuorum(mock.Anything, mock.Anything).Return(false, nil)
+	monitoring := mocks.NewMockAggregatorMonitoring(t)
+	testutil.StubTracing(monitoring)
+	monitoring.EXPECT().Metrics().Return(mocks.NewMockAggregatorMetricLabeler(t)).Maybe()
+
+	config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{BackgroundWorkerCount: workers}}
+	queue := newFakeQueue()
+	a := NewCommitReportAggregator(store, nil, mocks.NewMockSink(t), quorum, config, logger.Sugared(logger.Test(t)), monitoring, queue)
+	for i := range jobs {
+		require.NoError(t, a.CheckAggregation(t.Context(), model.AggregationTrigger{MessageID: []byte{byte(i)}, AggregationKey: fmt.Sprintf("key-%d", i)}))
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	a.StartBackground(ctx)
+
+	require.Eventually(t, func() bool { return started.Load() == workers }, 5*time.Second, 10*time.Millisecond)
+	size, err := queue.Size(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, jobs-workers, size, "jobs beyond the free slots must stay pending")
+
+	close(release)
+	require.Eventually(t, func() bool { return started.Load() == jobs }, 5*time.Second, 10*time.Millisecond)
+	for _, claim := range queue.claimSizes() {
+		assert.LessOrEqual(t, claim, workers)
+	}
+}
+
+func TestCheckAggregation_EnqueuesOnlyKeysAtQuorumThreshold(t *testing.T) {
+	newAggregator := func(t *testing.T, store *mocks.MockCommitVerificationStore) (*CommitReportAggregator, *fakeQueue) {
+		monitoring := mocks.NewMockAggregatorMonitoring(t)
+		monitoring.EXPECT().Metrics().Return(mocks.NewMockAggregatorMetricLabeler(t)).Maybe()
+		config := &model.AggregatorConfig{
+			Aggregation: model.AggregationConfig{BackgroundWorkerCount: 1},
+			Committee:   &model.Committee{QuorumConfigs: map[model.SourceSelector]*model.QuorumConfig{"1": {Threshold: 2}}},
+		}
+		queue := newFakeQueue()
+		return NewCommitReportAggregator(store, nil, mocks.NewMockSink(t), mocks.NewMockQuorumValidator(t), config, logger.Sugared(logger.Test(t)), monitoring, queue), queue
+	}
+	triggers := []model.AggregationTrigger{
+		{MessageID: []byte{1}, AggregationKey: "below-threshold"},
+		{MessageID: []byte{2}, AggregationKey: "at-threshold"},
+		{MessageID: []byte{3}, AggregationKey: "unknown-chain"},
+		{MessageID: []byte{4}, AggregationKey: "no-rows"},
+	}
+	queued := func(q *fakeQueue) []model.AggregationKey {
+		jobs, err := q.ConsumePending(t.Context(), 10)
+		require.NoError(t, err)
+		keys := make([]model.AggregationKey, 0, len(jobs))
+		for _, j := range jobs {
+			keys = append(keys, j.Payload.AggregationKey)
+		}
+		return keys
+	}
+
+	t.Run("drops keys below their chain's threshold", func(t *testing.T) {
+		store := mocks.NewMockCommitVerificationStore(t)
+		store.EXPECT().CountSigners(mock.Anything, triggers).Return(map[model.AggregationKey]model.SignerCount{
+			"below-threshold": {Signers: 1, SourceChainSelector: 1},
+			"at-threshold":    {Signers: 2, SourceChainSelector: 1},
+			"unknown-chain":   {Signers: 1, SourceChainSelector: 99},
+		}, nil)
+		a, q := newAggregator(t, store)
+		require.NoError(t, a.CheckAggregation(t.Context(), triggers...))
+		assert.Equal(t, []model.AggregationKey{"at-threshold", "unknown-chain"}, queued(q))
+	})
+
+	t.Run("enqueues every trigger when counting fails", func(t *testing.T) {
+		store := mocks.NewMockCommitVerificationStore(t)
+		store.EXPECT().CountSigners(mock.Anything, triggers).Return(nil, errors.New("db down"))
+		a, q := newAggregator(t, store)
+		require.NoError(t, a.CheckAggregation(t.Context(), triggers...))
+		assert.Len(t, queued(q), len(triggers))
+	})
+}
+
+func TestReady_ReportsRepeatedQueueClaimFailures(t *testing.T) {
+	monitoring := mocks.NewMockAggregatorMonitoring(t)
+	testutil.StubTracing(monitoring)
+	monitoring.EXPECT().Metrics().Return(mocks.NewMockAggregatorMetricLabeler(t)).Maybe()
+	store := mocks.NewMockCommitVerificationStore(t)
+	store.EXPECT().ListCommitVerificationByAggregationKey(mock.Anything, mock.Anything, mock.Anything).Return(nil, nil).Maybe()
+	quorum := mocks.NewMockQuorumValidator(t)
+	quorum.EXPECT().CheckQuorum(mock.Anything, mock.Anything).Return(false, nil).Maybe()
+	config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{BackgroundWorkerCount: 1, MaxConsecutiveErrors: 2}}
+	queue := newFakeQueue()
+	queue.setConsumeErr(errors.New("database is read-only"))
+	a := NewCommitReportAggregator(store, nil, mocks.NewMockSink(t), quorum, config, logger.Sugared(logger.Test(t)), monitoring, queue)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	a.StartBackground(ctx)
+	trigger := model.AggregationTrigger{MessageID: []byte{1}, AggregationKey: "key"}
+
+	require.Eventually(t, func() bool {
+		_ = a.CheckAggregation(ctx, trigger)
+		return a.Ready() != nil
+	}, 5*time.Second, 20*time.Millisecond, "repeated claim failures must make the aggregator not ready")
+	assert.ErrorContains(t, a.Ready(), "aggregation queue claim failed")
+
+	queue.setConsumeErr(nil)
+	require.Eventually(t, func() bool {
+		_ = a.CheckAggregation(ctx, trigger)
+		return a.Ready() == nil
+	}, 5*time.Second, 20*time.Millisecond, "a successful claim must clear the failure count")
 }

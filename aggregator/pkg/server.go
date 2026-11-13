@@ -35,6 +35,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage"
 	"github.com/smartcontractkit/chainlink-ccv/common/health"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/services"
 
 	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
 	heartbeatpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/heartbeat/v1"
@@ -61,6 +62,7 @@ type Server struct {
 	store                                     common.CommitVerificationStore
 	messageRulesRegistry                      *messagerules.Registry
 	aggregator                                *aggregation.CommitReportAggregator
+	aggregationQueueObserver                  services.Service
 	recoverer                                 *OrphanRecoverer
 	readCommitVerifierNodeResultHandler       *handlers.ReadCommitVerifierNodeResultHandler
 	writeCommitVerifierNodeResultHandler      *handlers.WriteCommitVerifierNodeResultHandler
@@ -76,6 +78,7 @@ type Server struct {
 	healthRecorder                            *health.MetricsRecorder
 	runGroup                                  *run.Group
 	stopChan                                  chan struct{}
+	runDone                                   chan struct{}
 	mu                                        sync.Mutex
 	started                                   bool
 }
@@ -183,11 +186,24 @@ func (s *Server) Start(lis net.Listener) error {
 		return nil
 	}, func(error) {})
 
+	observerCtx, observerCancel := context.WithCancel(context.Background())
+	g.Add(func() error {
+		if err := s.aggregationQueueObserver.Start(observerCtx); err != nil {
+			return fmt.Errorf("failed to start aggregation queue observer: %w", err)
+		}
+		<-observerCtx.Done()
+		return s.aggregationQueueObserver.Close()
+	}, func(error) {
+		observerCancel()
+	})
+
 	// Start aggregator background worker with cancellable context
 	aggregatorCtx, aggregatorCancel := context.WithCancel(context.Background())
 	g.Add(func() error {
 		s.aggregator.StartBackground(aggregatorCtx)
 		<-aggregatorCtx.Done()
+		// Wait for in-flight jobs to finish or be retried; abandoned ones would block their key until reclaimed.
+		<-s.aggregator.Done()
 		return nil
 	}, func(error) {
 		aggregatorCancel()
@@ -237,8 +253,11 @@ func (s *Server) Start(lis net.Listener) error {
 
 	s.runGroup = g
 	s.started = true
+	runDone := make(chan struct{})
+	s.runDone = runDone
 
 	go func() {
+		defer close(runDone)
 		if err := g.Run(); err != nil {
 			s.l.Errorw("Run group stopped with error", "error", err)
 		}
@@ -260,11 +279,11 @@ func (s *Server) Start(lis net.Listener) error {
 	return nil
 }
 
+// Stop signals shutdown and waits for the run group to finish, so in-flight aggregations drain.
 func (s *Server) Stop() error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if !s.started || s.stopChan == nil {
+		s.mu.Unlock()
 		return nil
 	}
 
@@ -272,12 +291,11 @@ func (s *Server) Stop() error {
 
 	close(s.stopChan)
 	s.stopChan = nil
+	runDone := s.runDone
+	s.mu.Unlock()
 
+	<-runDone
 	return nil
-}
-
-func createAggregator(storage common.CommitVerificationStore, aggregatedStore common.CommitVerificationAggregatedStore, sink common.Sink, validator aggregation.QuorumValidator, config *model.AggregatorConfig, lggr logger.SugaredLogger, monitoring common.AggregatorMonitoring) *aggregation.CommitReportAggregator {
-	return aggregation.NewCommitReportAggregator(storage, aggregatedStore, sink, validator, config, lggr, monitoring, aggregation.NewChannelManagerFromConfig(config))
 }
 
 func buildGRPCServerOptions(serverConfig model.ServerConfig, m common.AggregatorMetricLabeler) []grpc.ServerOption {
@@ -340,9 +358,11 @@ func NewServer(ctx context.Context, l logger.SugaredLogger, config *model.Aggreg
 		"rate_limiting_enabled", config.RateLimiting.Enabled,
 		"health_check_enabled", config.HealthCheck.Enabled,
 		"orphan_recovery_enabled", config.OrphanRecovery.Enabled,
-		"aggregation_buffer_size", config.Aggregation.ChannelBufferSize,
 		"aggregation_workers", config.Aggregation.BackgroundWorkerCount,
 	)
+	if config.Aggregation.ChannelBufferSize != 0 { //nolint:staticcheck // warn on the deprecated field
+		l.Warnw("aggregation.channelBufferSize is deprecated and ignored; the aggregation queue is durable")
+	}
 
 	// Fallible middlewares are built before storage is opened: NewServer error
 	// paths must never leak an already-connected database pool.
@@ -377,7 +397,13 @@ func NewServer(ctx context.Context, l logger.SugaredLogger, config *model.Aggreg
 	store := storage.WrapWithMetrics(rawStore, aggMonitoring, l)
 	validator := quorum.NewQuorumValidator(config, l)
 
-	agg := createAggregator(store, store, store, validator, config, l, aggMonitoring)
+	// Shares the storage connection pool.
+	aggregationQueue, err := aggregation.NewQueue(rawStore.DataSource(), logger.With(l, "component", "aggregation_queue"), aggMonitoring.Metrics().SetAggregationQueueSize)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create aggregation queue: %w", err)
+	}
+
+	agg := aggregation.NewCommitReportAggregator(store, store, store, validator, config, l, aggMonitoring, aggregationQueue)
 
 	writeCommitVerifierNodeResultHandler := handlers.NewWriteCommitCCVNodeDataHandler(store, agg, aggMonitoring, l, validator, messageDisablementRegistry)
 	readCommitVerifierNodeResultHandler := handlers.NewReadCommitVerifierNodeResultHandler(store, l)
@@ -402,7 +428,6 @@ func NewServer(ctx context.Context, l logger.SugaredLogger, config *model.Aggreg
 			callMeta.FullMethod() == committeepb.CommitteeVerifier_GetMessageStatus_FullMethodName
 	}
 
-	aggMonitoring.Metrics().IncrementPendingAggregationsChannelBuffer(context.Background(), config.Aggregation.ChannelBufferSize) // Pre-increment the buffer size metric
 	grpcPanicRecoveryHandler := func(p any) (err error) {
 		l.Error("recovered from panic", "panic", p, "stack", debug.Stack())
 		return status.Error(codes.Internal, "internal server error")
@@ -473,6 +498,7 @@ func NewServer(ctx context.Context, l logger.SugaredLogger, config *model.Aggreg
 		store:                                store,
 		messageRulesRegistry:                 messageDisablementRegistry,
 		aggregator:                           agg,
+		aggregationQueueObserver:             aggregationQueue,
 		readCommitVerifierNodeResultHandler:  readCommitVerifierNodeResultHandler,
 		writeCommitVerifierNodeResultHandler: writeCommitVerifierNodeResultHandler,
 		getMessagesSinceHandler:              getMessagesSinceHandler,

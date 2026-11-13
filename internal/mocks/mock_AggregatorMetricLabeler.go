@@ -56,40 +56,6 @@ func (_c *MockAggregatorMetricLabeler_DecrementActiveRequestsCounter_Call) RunAn
 	return _c
 }
 
-// DecrementPendingAggregationsChannelBuffer provides a mock function with given fields: ctx, count
-func (_m *MockAggregatorMetricLabeler) DecrementPendingAggregationsChannelBuffer(ctx context.Context, count int) {
-	_m.Called(ctx, count)
-}
-
-// MockAggregatorMetricLabeler_DecrementPendingAggregationsChannelBuffer_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DecrementPendingAggregationsChannelBuffer'
-type MockAggregatorMetricLabeler_DecrementPendingAggregationsChannelBuffer_Call struct {
-	*mock.Call
-}
-
-// DecrementPendingAggregationsChannelBuffer is a helper method to define mock.On call
-//   - ctx context.Context
-//   - count int
-func (_e *MockAggregatorMetricLabeler_Expecter) DecrementPendingAggregationsChannelBuffer(ctx interface{}, count interface{}) *MockAggregatorMetricLabeler_DecrementPendingAggregationsChannelBuffer_Call {
-	return &MockAggregatorMetricLabeler_DecrementPendingAggregationsChannelBuffer_Call{Call: _e.mock.On("DecrementPendingAggregationsChannelBuffer", ctx, count)}
-}
-
-func (_c *MockAggregatorMetricLabeler_DecrementPendingAggregationsChannelBuffer_Call) Run(run func(ctx context.Context, count int)) *MockAggregatorMetricLabeler_DecrementPendingAggregationsChannelBuffer_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(int))
-	})
-	return _c
-}
-
-func (_c *MockAggregatorMetricLabeler_DecrementPendingAggregationsChannelBuffer_Call) Return() *MockAggregatorMetricLabeler_DecrementPendingAggregationsChannelBuffer_Call {
-	_c.Call.Return()
-	return _c
-}
-
-func (_c *MockAggregatorMetricLabeler_DecrementPendingAggregationsChannelBuffer_Call) RunAndReturn(run func(context.Context, int)) *MockAggregatorMetricLabeler_DecrementPendingAggregationsChannelBuffer_Call {
-	_c.Run(run)
-	return _c
-}
-
 // IncrementAPIRequestErrors provides a mock function with given fields: ctx, method
 func (_m *MockAggregatorMetricLabeler) IncrementAPIRequestErrors(ctx context.Context, method string) {
 	_m.Called(ctx, method)
@@ -353,40 +319,6 @@ func (_c *MockAggregatorMetricLabeler_IncrementPanics_Call) Return() *MockAggreg
 }
 
 func (_c *MockAggregatorMetricLabeler_IncrementPanics_Call) RunAndReturn(run func(context.Context)) *MockAggregatorMetricLabeler_IncrementPanics_Call {
-	_c.Run(run)
-	return _c
-}
-
-// IncrementPendingAggregationsChannelBuffer provides a mock function with given fields: ctx, count
-func (_m *MockAggregatorMetricLabeler) IncrementPendingAggregationsChannelBuffer(ctx context.Context, count int) {
-	_m.Called(ctx, count)
-}
-
-// MockAggregatorMetricLabeler_IncrementPendingAggregationsChannelBuffer_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IncrementPendingAggregationsChannelBuffer'
-type MockAggregatorMetricLabeler_IncrementPendingAggregationsChannelBuffer_Call struct {
-	*mock.Call
-}
-
-// IncrementPendingAggregationsChannelBuffer is a helper method to define mock.On call
-//   - ctx context.Context
-//   - count int
-func (_e *MockAggregatorMetricLabeler_Expecter) IncrementPendingAggregationsChannelBuffer(ctx interface{}, count interface{}) *MockAggregatorMetricLabeler_IncrementPendingAggregationsChannelBuffer_Call {
-	return &MockAggregatorMetricLabeler_IncrementPendingAggregationsChannelBuffer_Call{Call: _e.mock.On("IncrementPendingAggregationsChannelBuffer", ctx, count)}
-}
-
-func (_c *MockAggregatorMetricLabeler_IncrementPendingAggregationsChannelBuffer_Call) Run(run func(ctx context.Context, count int)) *MockAggregatorMetricLabeler_IncrementPendingAggregationsChannelBuffer_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(int))
-	})
-	return _c
-}
-
-func (_c *MockAggregatorMetricLabeler_IncrementPendingAggregationsChannelBuffer_Call) Return() *MockAggregatorMetricLabeler_IncrementPendingAggregationsChannelBuffer_Call {
-	_c.Call.Return()
-	return _c
-}
-
-func (_c *MockAggregatorMetricLabeler_IncrementPendingAggregationsChannelBuffer_Call) RunAndReturn(run func(context.Context, int)) *MockAggregatorMetricLabeler_IncrementPendingAggregationsChannelBuffer_Call {
 	_c.Run(run)
 	return _c
 }
@@ -695,6 +627,40 @@ func (_c *MockAggregatorMetricLabeler_RecordTimeToAggregation_Call) Return() *Mo
 }
 
 func (_c *MockAggregatorMetricLabeler_RecordTimeToAggregation_Call) RunAndReturn(run func(context.Context, time.Duration)) *MockAggregatorMetricLabeler_RecordTimeToAggregation_Call {
+	_c.Run(run)
+	return _c
+}
+
+// SetAggregationQueueSize provides a mock function with given fields: ctx, size
+func (_m *MockAggregatorMetricLabeler) SetAggregationQueueSize(ctx context.Context, size int64) {
+	_m.Called(ctx, size)
+}
+
+// MockAggregatorMetricLabeler_SetAggregationQueueSize_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetAggregationQueueSize'
+type MockAggregatorMetricLabeler_SetAggregationQueueSize_Call struct {
+	*mock.Call
+}
+
+// SetAggregationQueueSize is a helper method to define mock.On call
+//   - ctx context.Context
+//   - size int64
+func (_e *MockAggregatorMetricLabeler_Expecter) SetAggregationQueueSize(ctx interface{}, size interface{}) *MockAggregatorMetricLabeler_SetAggregationQueueSize_Call {
+	return &MockAggregatorMetricLabeler_SetAggregationQueueSize_Call{Call: _e.mock.On("SetAggregationQueueSize", ctx, size)}
+}
+
+func (_c *MockAggregatorMetricLabeler_SetAggregationQueueSize_Call) Run(run func(ctx context.Context, size int64)) *MockAggregatorMetricLabeler_SetAggregationQueueSize_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(int64))
+	})
+	return _c
+}
+
+func (_c *MockAggregatorMetricLabeler_SetAggregationQueueSize_Call) Return() *MockAggregatorMetricLabeler_SetAggregationQueueSize_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockAggregatorMetricLabeler_SetAggregationQueueSize_Call) RunAndReturn(run func(context.Context, int64)) *MockAggregatorMetricLabeler_SetAggregationQueueSize_Call {
 	_c.Run(run)
 	return _c
 }

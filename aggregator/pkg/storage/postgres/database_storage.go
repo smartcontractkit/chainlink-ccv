@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -72,6 +73,12 @@ type DatabaseStorage struct {
 	pageSize     int
 	queryTimeout time.Duration
 	lggr         logger.SugaredLogger
+}
+
+// DataSource exposes the underlying connection so components that need their own tables
+// in the aggregator database (e.g. the aggregation job queue) can share this pool.
+func (d *DatabaseStorage) DataSource() sqlutil.DataSource {
+	return d.ds
 }
 
 func (d *DatabaseStorage) logger(ctx context.Context) logger.SugaredLogger {
@@ -261,6 +268,48 @@ func (d *DatabaseStorage) ListCommitVerificationByAggregationKey(ctx context.Con
 	}
 
 	return records, nil
+}
+
+// CountSigners counts the distinct signers per trigger's (message_id, aggregation_key) and reads the
+// message's source chain from message_data.
+func (d *DatabaseStorage) CountSigners(ctx context.Context, triggers []model.AggregationTrigger) (map[model.AggregationKey]model.SignerCount, error) {
+	if len(triggers) == 0 {
+		return make(map[model.AggregationKey]model.SignerCount), nil
+	}
+	ctx, cancel := d.withTimeout(ctx)
+	defer cancel()
+
+	messageIDs := make([]string, len(triggers))
+	keys := make([]string, len(triggers))
+	for i, t := range triggers {
+		messageIDs[i] = protocol.ByteSlice(t.MessageID).String()
+		keys[i] = t.AggregationKey
+	}
+	var rows []struct {
+		AggregationKey      string `db:"aggregation_key"`
+		Signers             int    `db:"signers"`
+		SourceChainSelector string `db:"source_chain_selector"`
+	}
+	err := d.ds.SelectContext(ctx, &rows, `
+		SELECT aggregation_key,
+		       count(DISTINCT signer_identifier) AS signers,
+		       min(message_data->>'source_chain_selector') AS source_chain_selector
+		FROM commit_verification_records
+		WHERE (message_id, aggregation_key) IN (SELECT * FROM unnest($1::text[], $2::text[]))
+		GROUP BY message_id, aggregation_key`, pq.Array(messageIDs), pq.Array(keys))
+	if err != nil {
+		return nil, fmt.Errorf("failed to count signers: %w", err)
+	}
+
+	counts := make(map[model.AggregationKey]model.SignerCount, len(rows))
+	for _, row := range rows {
+		selector, err := strconv.ParseUint(row.SourceChainSelector, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid source chain selector %q for key %s: %w", row.SourceChainSelector, row.AggregationKey, err)
+		}
+		counts[row.AggregationKey] = model.SignerCount{Signers: row.Signers, SourceChainSelector: selector}
+	}
+	return counts, nil
 }
 
 // maxVerificationRecordsPerMessage limits the rows that ListCommitVerificationByMessageID reads.

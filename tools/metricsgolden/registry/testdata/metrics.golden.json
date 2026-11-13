@@ -8,6 +8,13 @@
       "labels": []
     },
     {
+      "name": "aggregator_aggregation_queue_size",
+      "kind": "Int64Gauge",
+      "unit": "",
+      "description": "Pending and in-flight aggregation requests in the shared durable queue; every replica reports the same total, so aggregate with max",
+      "labels": []
+    },
+    {
       "name": "aggregator_aggregations_blocked_unexportable",
       "kind": "Int64Counter",
       "unit": "",
@@ -203,13 +210,6 @@
       "kind": "Int64Counter",
       "unit": "",
       "description": "Total number of panics recovered by background workers",
-      "labels": []
-    },
-    {
-      "name": "aggregator_pending_aggregations_channel_buffer",
-      "kind": "Int64UpDownCounter",
-      "unit": "",
-      "description": "Current size of the pending aggregations channel buffer",
       "labels": []
     },
     {

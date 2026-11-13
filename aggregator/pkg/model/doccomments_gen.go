@@ -14,10 +14,10 @@ func (APIKeyPairEnv) DocComments() map[string]commentparsing.FieldDoc {
 func (AggregationConfig) DocComments() map[string]commentparsing.FieldDoc {
 	return map[string]commentparsing.FieldDoc{
 		"BackgroundWorkerCount": {Comment: "BackgroundWorkerCount controls the number of background workers processing aggregation requests"},
-		"ChannelBufferSize":     {Comment: "ChannelBufferSize controls the size of the aggregation request channel buffer"},
+		"ChannelBufferSize":     {Comment: "Deprecated: ignored since aggregation moved to the durable job queue; accepted so existing configs still load."},
 		"DrainTimeout":          {Comment: "DrainTimeout bounds how long shutdown waits for in-flight aggregation workers to complete.\nAfter this duration, shutdown proceeds and in-flight work is dropped. (0 = use default 10s)"},
 		"MaxConsecutiveErrors":  {Comment: "MaxConsecutiveErrors is the maximum number of consecutive errors allowed before the aggregation is considered failed"},
-		"OperationTimeout":      {Comment: "OperationTimeout is the timeout for each aggregation operation (0 = no timeout)"},
+		"OperationTimeout":      {Comment: "OperationTimeout bounds each aggregation operation (default 30s, at most 90s)."},
 	}
 }
 
