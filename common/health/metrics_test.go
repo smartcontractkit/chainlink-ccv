@@ -120,7 +120,7 @@ func TestMetricsRecorder_HealthByComponent(t *testing.T) {
 	resetVersionOnce()
 	reader := installCollectingMeter(t)
 
-	manager := NewManager()
+	manager := NewManager(logger.Test(t))
 	manager.Register(&mockHealthyComponent{name: "ready"})
 	manager.Register(&mockDegradedComponent{name: "degraded"})
 	manager.Register(&mockUnhealthyComponent{name: "not_ready"})
@@ -137,7 +137,7 @@ func TestMetricsRecorder_EmptyManager(t *testing.T) {
 	resetVersionOnce()
 	reader := installCollectingMeter(t)
 
-	startRecorder(t, NewManager())
+	startRecorder(t, NewManager(logger.Test(t)))
 	got := collect(t, reader)
 
 	require.Empty(t, got.statuses)
@@ -148,7 +148,7 @@ func TestMetricsRecorder_VersionRecordedOncePerProcess(t *testing.T) {
 	resetVersionOnce()
 	reader := installCollectingMeter(t)
 
-	manager := NewManager()
+	manager := NewManager(logger.Test(t))
 	manager.Register(&mockHealthyComponent{name: "ready"})
 
 	// A JD job replacement rebuilds the recorder: version must not count the same build twice,
@@ -177,7 +177,7 @@ func TestHealthStatusValue(t *testing.T) {
 func TestMetricsRecorder_CloseBeforeStart(t *testing.T) {
 	resetVersionOnce()
 
-	recorder, err := NewMetricsRecorder(logger.Test(t), NewManager())
+	recorder, err := NewMetricsRecorder(logger.Test(t), NewManager(logger.Test(t)))
 	require.NoError(t, err)
 
 	require.NoError(t, recorder.Close(), "closing an unstarted recorder must not fail")

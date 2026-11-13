@@ -13,6 +13,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/common/jd/lifecycle"
 	commonmetrics "github.com/smartcontractkit/chainlink-ccv/common/metrics"
 	"github.com/smartcontractkit/chainlink-ccv/common/metrics/metricstest"
+	ccvmonitoring "github.com/smartcontractkit/chainlink-ccv/common/monitoring"
 	execmonitoring "github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	idxmonitoring "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/monitoring"
 	vermonitoring "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
@@ -99,10 +100,19 @@ var Targets = []Target{
 		Name:    "health",
 		Package: "common/health",
 		Exercise: func(t *testing.T) {
-			manager := health.NewManager()
+			manager := health.NewManager(logger.Test(t))
 			manager.Register(health.NewStartupSkips("skipped"))
 			recorder, err := health.NewMetricsRecorder(logger.Test(t), manager)
 			require.NoError(t, err)
+			require.NoError(t, recorder.Start(t.Context()))
+			t.Cleanup(func() { require.NoError(t, recorder.Close()) })
+		},
+	},
+	{
+		Name:    "monitoring",
+		Package: "common/monitoring",
+		Exercise: func(t *testing.T) {
+			recorder := ccvmonitoring.NewConfigRecorder(logger.Test(t))
 			require.NoError(t, recorder.Start(t.Context()))
 			t.Cleanup(func() { require.NoError(t, recorder.Close()) })
 		},

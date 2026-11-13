@@ -301,7 +301,7 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		c.String(http.StatusOK, "CCV Executor is running!\nExecutor ID: %s\n", executorConfig.ExecutorID)
 	})
 
-	healthManager := health.NewManager()
+	healthManager := health.NewManager(f.lggr)
 	healthManager.Register(f.coordinator)
 	healthManager.Register(startupSkips)
 	for _, reporter := range deps.HealthReporters {

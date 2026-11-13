@@ -165,6 +165,9 @@ func runServer(configPath, logLevelStr string, lggr logger.Logger, sugaredLggr l
 	}
 	lggr.Infow("Successfully resolved secrets")
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	var aggMonitoring common.AggregatorMonitoring = monitoring.NewNoopAggregatorMonitoring()
 	if config.Monitoring.Beholder.Enabled {
 		beholderConfig := beholder.Config{
@@ -177,7 +180,7 @@ func runServer(configPath, logLevelStr string, lggr logger.Logger, sugaredLggr l
 			TraceSampleRatio:         config.Monitoring.Beholder.TraceSampleRatio,
 			TraceBatchTimeout:        time.Duration(config.Monitoring.Beholder.TraceBatchTimeout) * time.Second,
 		}
-		beholderConfig.ResourceAttributes = ccvmonitoring.ResourceAttributes(config.Monitoring.Beholder.TelemetryAttributes)
+		beholderConfig.ResourceAttributes = ccvmonitoring.ResourceAttributes(ccvmonitoring.WithDefaultServiceName(config.Monitoring.Beholder.TelemetryAttributes, "aggregator"))
 		m, err := monitoring.InitMonitoring(beholderConfig)
 		if err != nil {
 			sugaredLggr.Fatalf("Failed to initialize aggregator monitoring: %v", err)
@@ -192,6 +195,12 @@ func runServer(configPath, logLevelStr string, lggr logger.Logger, sugaredLggr l
 		lggr = logging.WithService(streamLggr, "aggregator")
 		sugaredLggr = logger.Sugared(lggr)
 		lggr.Info("Monitoring enabled")
+
+		configRecorder, err := ccvmonitoring.StartConfigRecorder(ctx, lggr)
+		if err != nil {
+			sugaredLggr.Fatalf("%v", err)
+		}
+		defer func() { _ = configRecorder.Close() }()
 	}
 
 	if config.PyroscopeURL != "" {
@@ -213,10 +222,6 @@ func runServer(configPath, logLevelStr string, lggr logger.Logger, sugaredLggr l
 	}
 
 	protocol.InitChainSelectorCache()
-
-	ctx := context.Background()
-	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	// NewServer connects, pings, and migrates the aggregator's own database: a
 	// hung connection must fail fast within a bounded window, not block

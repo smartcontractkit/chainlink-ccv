@@ -10,10 +10,11 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 func newManagerWith(reporters ...protocol.HealthReporter) *Manager {
-	m := NewManager()
+	m := NewManager(logger.Nop())
 	for _, r := range reporters {
 		m.Register(r)
 	}

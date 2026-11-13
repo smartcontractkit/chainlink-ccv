@@ -518,7 +518,7 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		lggr.Infow("Verifier ID: %s\n", coordinatorConfig.VerifierID)
 	})
 
-	healthManager := health.NewManager()
+	healthManager := health.NewManager(lggr)
 	healthManager.Register(coordinator)
 	healthManager.Register(startupSkips)
 	for _, reporter := range deps.HealthReporters {

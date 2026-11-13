@@ -212,7 +212,7 @@ func NewPricerFromConfig(ctx context.Context, cfg Config, keystoreData []byte, k
 			EnableOpenMetrics: true,
 		},
 	)))
-	healthManager := health.NewManager()
+	healthManager := health.NewManager(lggr)
 	healthManager.Register(p)
 	health.RegisterOn(healthManager, ginRouter)
 	p.httpServer = &http.Server{
