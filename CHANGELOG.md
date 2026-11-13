@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.20.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.19.0...v0.20.0) (2026-11-13)
+
+
+### Features
+
+* add job and transmitter visibility to admin console ([#1595](https://github.com/smartcontractkit/chainlink-ccv/issues/1595)) ([00c4ddd](https://github.com/smartcontractkit/chainlink-ccv/commit/00c4ddd0a959b063ab143f060d0dcee801092760))
+
 ## [0.19.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.18.0...v0.19.0) (2026-11-13)
 
 
