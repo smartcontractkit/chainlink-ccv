@@ -331,7 +331,7 @@ func NewBootstrapper(
 	return b, nil
 }
 
-func (b *Bootstrapper) initMonitoring(signer crypto.Signer) error {
+func (b *Bootstrapper) initMonitoring(ctx context.Context, signer crypto.Signer) error {
 	// do not fall back b.config to it
 	mon := monitoring.Config{}
 	if b.config != nil && b.config.Monitoring != nil {
@@ -361,9 +361,9 @@ func (b *Bootstrapper) initMonitoring(signer crypto.Signer) error {
 	// the app and the bootstrapper share a process, so a second recorder would duplicate the series.
 	// Nothing to report when Beholder is off, and no goroutine worth waking for it.
 	if mon.Beholder.Enabled {
-		b.configRecorder = monitoring.NewConfigRecorder(lggr)
-		if err := b.configRecorder.Start(context.Background()); err != nil {
-			return fmt.Errorf("failed to start beholder config recorder: %w", err)
+		b.configRecorder, err = monitoring.StartConfigRecorder(ctx, lggr)
+		if err != nil {
+			return err
 		}
 	}
 	lggr.Infow("Monitoring initialized", "config", mon)
@@ -467,7 +467,7 @@ func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 		return fmt.Errorf("JD mode requires a CSA key (purpose %q) for JD authentication, but none was declared", csaKeyPurpose)
 	}
 
-	err = b.initMonitoring(csaSigner)
+	err = b.initMonitoring(ctx, csaSigner)
 	if err != nil {
 		return fmt.Errorf("failed to initialize monitoring: %w", err)
 	}
@@ -616,7 +616,7 @@ func (b *Bootstrapper) startLocal(ctx context.Context) error {
 		}
 	}
 
-	if err := b.initMonitoring(csaSigner); err != nil {
+	if err := b.initMonitoring(ctx, csaSigner); err != nil {
 		return fmt.Errorf("failed to initialize monitoring: %w", err)
 	}
 

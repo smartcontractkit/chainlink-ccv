@@ -3,6 +3,7 @@ package monitoring
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
@@ -50,6 +51,17 @@ func (r *ConfigRecorder) start(ctx context.Context) error {
 		}
 	})
 	return nil
+}
+
+// StartConfigRecorder builds and starts the recorder. The caller owns its lifecycle — defer Close in
+// a main function, or keep it and close on shutdown — and owns the context: the recorder's goroutine
+// ends on Close, not on ctx, so ctx only bounds the start.
+func StartConfigRecorder(ctx context.Context, lggr logger.Logger) (*ConfigRecorder, error) {
+	recorder := NewConfigRecorder(lggr)
+	if err := recorder.Start(ctx); err != nil {
+		return nil, fmt.Errorf("failed to start beholder config recorder: %w", err)
+	}
+	return recorder, nil
 }
 
 func (r *ConfigRecorder) record(ctx context.Context) {

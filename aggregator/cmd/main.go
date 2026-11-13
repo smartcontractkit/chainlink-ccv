@@ -165,6 +165,9 @@ func runServer(configPath, logLevelStr string, lggr logger.Logger, sugaredLggr l
 	}
 	lggr.Infow("Successfully resolved secrets")
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	var aggMonitoring common.AggregatorMonitoring = monitoring.NewNoopAggregatorMonitoring()
 	if config.Monitoring.Beholder.Enabled {
 		beholderConfig := beholder.Config{
@@ -193,9 +196,9 @@ func runServer(configPath, logLevelStr string, lggr logger.Logger, sugaredLggr l
 		sugaredLggr = logger.Sugared(lggr)
 		lggr.Info("Monitoring enabled")
 
-		configRecorder := ccvmonitoring.NewConfigRecorder(lggr)
-		if err := configRecorder.Start(context.Background()); err != nil {
-			sugaredLggr.Fatalf("Failed to start beholder config recorder: %v", err)
+		configRecorder, err := ccvmonitoring.StartConfigRecorder(ctx, lggr)
+		if err != nil {
+			sugaredLggr.Fatalf("%v", err)
 		}
 		defer func() { _ = configRecorder.Close() }()
 	}
@@ -219,10 +222,6 @@ func runServer(configPath, logLevelStr string, lggr logger.Logger, sugaredLggr l
 	}
 
 	protocol.InitChainSelectorCache()
-
-	ctx := context.Background()
-	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	// NewServer connects, pings, and migrates the aggregator's own database: a
 	// hung connection must fail fast within a bounded window, not block

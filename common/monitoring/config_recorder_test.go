@@ -29,8 +29,8 @@ func TestConfigRecorder_RecordsClientConfig(t *testing.T) {
 	beholder.SetClient(&client)
 	t.Cleanup(func() { beholder.SetClient(prev) })
 
-	recorder := NewConfigRecorder(logger.Test(t))
-	require.NoError(t, recorder.Start(t.Context()))
+	recorder, err := StartConfigRecorder(t.Context(), logger.Test(t))
+	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, recorder.Close()) })
 
 	var rm metricdata.ResourceMetrics

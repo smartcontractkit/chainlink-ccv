@@ -99,9 +99,9 @@ func main() {
 		// references taken after this point: construct any logger-holding component below.
 		lggr = logger.Sugared(logging.WithService(streamLggr, "indexer"))
 
-		configRecorder := ccvmonitoring.NewConfigRecorder(lggr)
-		if err := configRecorder.Start(context.Background()); err != nil {
-			lggr.Fatalf("Failed to start beholder config recorder: %v", err)
+		configRecorder, err := ccvmonitoring.StartConfigRecorder(ctx, lggr)
+		if err != nil {
+			lggr.Fatalf("%v", err)
 		}
 		defer func() { _ = configRecorder.Close() }()
 	} else {
