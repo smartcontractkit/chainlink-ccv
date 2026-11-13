@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.9.0](https://github.com/smartcontractkit/chainlink-ccv/compare/build/devenv/v0.8.0...build/devenv/v0.9.0) (2026-11-13)
+
+
+### Features
+
+* add job and transmitter visibility to admin console ([#1595](https://github.com/smartcontractkit/chainlink-ccv/issues/1595)) ([00c4ddd](https://github.com/smartcontractkit/chainlink-ccv/commit/00c4ddd0a959b063ab143f060d0dcee801092760))
+* Indexer discovery leader election ([#1567](https://github.com/smartcontractkit/chainlink-ccv/issues/1567)) ([1e8fde4](https://github.com/smartcontractkit/chainlink-ccv/commit/1e8fde43ee33f979ab63a3e669de056e3fce1033))
+* inject build version and commit into images ([#1597](https://github.com/smartcontractkit/chainlink-ccv/issues/1597)) ([3ceff9f](https://github.com/smartcontractkit/chainlink-ccv/commit/3ceff9fefbe741b5fcdfdcf711484fc1474480f9))
+
+
+### Bug Fixes
+
+* **deployment:** route executor jobs and trim proposal metadata ([#1590](https://github.com/smartcontractkit/chainlink-ccv/issues/1590)) ([5a40feb](https://github.com/smartcontractkit/chainlink-ccv/commit/5a40febe67bda34397afa03d8fb1fa48f9c903a3))
+* **devenv:** bump loki to v3.7.9 and register hmac codec as CodecV2 ([#1579](https://github.com/smartcontractkit/chainlink-ccv/issues/1579)) ([1cb714e](https://github.com/smartcontractkit/chainlink-ccv/commit/1cb714e6b1bfbf8ea2f31fbf7776b11ce2064849))
+
 ## [0.8.0](https://github.com/smartcontractkit/chainlink-ccv/compare/build/devenv/v0.7.0...build/devenv/v0.8.0) (2026-11-02)
 
 
