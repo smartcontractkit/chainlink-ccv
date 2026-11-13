@@ -15,7 +15,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-func NewV1API(lggr logger.Logger, cfg *config.Config, storage common.IndexerStorage, monitoring common.IndexerMonitoring, healthReporters []protocol.HealthReporter) *gin.Engine {
+func NewV1API(lggr logger.Logger, cfg *config.Config, storage common.IndexerStorage, monitoring common.IndexerMonitoring, healthReporters []protocol.HealthReporter) (*gin.Engine, *health.Manager) {
 	router := gin.New()
 	router.Use(sharedmiddleware.GinLogger(lggr))
 	err := router.SetTrustedProxies(cfg.API.TrustedProxies)
@@ -68,7 +68,7 @@ func NewV1API(lggr logger.Logger, cfg *config.Config, storage common.IndexerStor
 		c.Status(http.StatusOK)
 	})
 
-	return router
+	return router, healthManager
 }
 
 func Serve(router *gin.Engine, port int) {

@@ -9,12 +9,14 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 
 	aggmonitoring "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-ccv/common/health"
 	"github.com/smartcontractkit/chainlink-ccv/common/jd/lifecycle"
 	commonmetrics "github.com/smartcontractkit/chainlink-ccv/common/metrics"
 	"github.com/smartcontractkit/chainlink-ccv/common/metrics/metricstest"
 	execmonitoring "github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	idxmonitoring "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/monitoring"
 	vermonitoring "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/metrics"
 )
 
@@ -91,6 +93,18 @@ var Targets = []Target{
 			m, err := lifecycle.InitMetrics()
 			require.NoError(t, err)
 			metricstest.CallAll(t, m, nil)
+		},
+	},
+	{
+		Name:    "health",
+		Package: "common/health",
+		Exercise: func(t *testing.T) {
+			manager := health.NewManager()
+			manager.Register(health.NewStartupSkips("skipped"))
+			recorder, err := health.NewMetricsRecorder(logger.Test(t), manager)
+			require.NoError(t, err)
+			require.NoError(t, recorder.Start(t.Context()))
+			t.Cleanup(func() { require.NoError(t, recorder.Close()) })
 		},
 	},
 }
