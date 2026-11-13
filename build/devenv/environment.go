@@ -545,6 +545,7 @@ func generateExecutorJobSpecs(
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate executor configs for qualifier %s: %w", qualifier, err)
 		}
+		e.DataStore = output.DataStore.Seal()
 
 		// e2e gate: reconstruct the pool from the just-persisted job specs and require
 		// it to match the topology-derived input. Mismatch fails the bring-up.
@@ -648,6 +649,7 @@ func generateVerifierJobSpecs(
 			if err != nil {
 				return nil, fmt.Errorf("failed to generate verifier configs for committee %s: %w", committeeName, err)
 			}
+			e.DataStore = output.DataStore.Seal()
 
 			// e2e gate: reconstruct committee membership from live on-chain state +
 			// JD + the just-persisted signer index, and require it to match the

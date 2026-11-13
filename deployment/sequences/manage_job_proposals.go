@@ -88,6 +88,10 @@ var ManageJobProposals = operations.NewSequence(
 			return ManageJobProposalsOutput{Jobs: jobs, DataStore: ds}, nil
 		}
 
+		if _, err := ccvdeployment.SyncJDNodes(b.GetContext(), ds, e.Offchain, ccvdeployment.JDProduct, e.Name); err != nil {
+			return ManageJobProposalsOutput{}, fmt.Errorf("failed to sync JD node inventory: %w", err)
+		}
+
 		superseded, err := retargetJobs(b.GetContext(), e.Offchain, jobs, input.StandaloneExecutorNodeIDs)
 		if err != nil {
 			return ManageJobProposalsOutput{}, err

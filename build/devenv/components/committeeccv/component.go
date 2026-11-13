@@ -622,6 +622,7 @@ func buildVerifierJobSpecEffects(
 			if err != nil {
 				return nil, fmt.Errorf("committeeccv: generating verifier configs for committee %s: %w", committeeName, err)
 			}
+			e.DataStore = output.DataStore.Seal()
 			if err := ds.Merge(output.DataStore.Seal()); err != nil {
 				return nil, fmt.Errorf("committeeccv: merging verifier job specs datastore: %w", err)
 			}

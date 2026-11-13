@@ -13,6 +13,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	ccldf "github.com/smartcontractkit/chainlink-ccv/build/devenv/cldf"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/client"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -97,8 +98,12 @@ func NewLibFromCCVEnv(logger *zerolog.Logger, envOutFile string, familiesToLoad 
 		return nil, fmt.Errorf("failed to load environment output: %w", err)
 	}
 
-	// Load CLDF env
-	_, env, err := ccldf.NewCLDFOperationsEnvironment(cfg.Blockchains, cfg.CLDF.DataStore)
+	// Load CLDF env. Name it after the devenv JD environment so JD changesets can sync the node inventory.
+	_, env, err := ccldf.NewCLDFOperationsEnvironmentWithOffchain(ccldf.CLDFEnvironmentConfig{
+		Name:        jobs.DefaultRegistrationEnvironment,
+		Blockchains: cfg.Blockchains,
+		DataStore:   cfg.CLDF.DataStore,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create CLDF operations environment: %w", err)
 	}
