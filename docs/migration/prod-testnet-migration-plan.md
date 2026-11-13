@@ -275,12 +275,19 @@ Any other warning on a later run is new and needs a decision.
 
 As in staging P6: three TOMLs per node (verifier bootstrap, verifier app with the
 aggregator HMACs under the P1 `secret_name`s, executor bootstrap), DB URLs composed from
-the P4 connection secrets, created via `$CTX_ENG` with `-v1` naming. The verifier also needs
-its key-import secret. Validate every secret. Keep the verifier bootstrap database and its keystore
-password as the durable recovery copy after import; do not add the temporary export or its plaintext
-export password to routine backups. The original CL database remains the rollback copy until its
-separately approved decommissioning. Follow staging step 11 for export unmounting, canary verification,
-and disposal of every temporary copy, including retained backup and secret-manager versions.
+the P4 connection secrets, created via `$CTX_ENG` with `-v1` naming. Delete all three local TOMLs
+immediately after the runtime Secret creates succeed, as shown in staging P6. The verifier also
+needs its key-import secret. Validate every secret. Keep the verifier bootstrap database and its
+keystore password as the durable recovery copy after import; do not add the temporary export or its
+plaintext export password to routine backups.
+
+The prod-testnet CL database was deleted with `skipFinalSnapshot: true` in
+[chainlink-ccv-deploy#543](https://github.com/smartcontractkit/chainlink-ccv-deploy/pull/543); it is
+not a rollback copy. After the temporary migration copies are disposed, the standalone bootstrap
+database, its recovery backups, and its keystore password are the only signer recovery path. Follow
+staging step 11 for export unmounting, canary verification, approved Secret deletion with the
+`TeamCCIPAdmin` context, and disposal of password-manager entries created under the earlier
+instruction to preserve export-password backups.
 
 ### P7. Griddle releases, both components initially at zero replicas
 

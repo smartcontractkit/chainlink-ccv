@@ -482,7 +482,7 @@ Avalanche Fuji. Verified again in cutover step 2 with `inspect-config`.
 
 Two runtime secrets per node before its window and a third during it, all created by hand through
 `$CTX_ENG` and never committed. The names are the ones the node's values files mount. Prepare each
-node just in time and delete local material after its key-import secret is created.
+node just in time and delete each local TOML immediately after its runtime Secret create succeeds.
 
 | Secret | Key | Holds | Must exist before |
 |---|---|---|---|
@@ -549,11 +549,16 @@ Create versioned secrets named after the instance (create-not-patch RBAC; a late
 
 ```sh
 kubectl --context $CTX_ENG -n $NS create secret generic $EXE-secrets-v2 \
-  --from-file=bootstrap-secrets.toml=/tmp/$EXE-bootstrap-secrets.toml
+  --from-file=bootstrap-secrets.toml=/tmp/$EXE-bootstrap-secrets.toml &&
 kubectl --context $CTX_ENG -n $NS create secret generic $VER-secrets-v2 \
   --from-file=bootstrap-secrets.toml=/tmp/$VER-bootstrap-secrets.toml \
-  --from-file=verifier-secrets.toml=/tmp/$VER-app-secrets.toml
+  --from-file=verifier-secrets.toml=/tmp/$VER-app-secrets.toml &&
+rm -- /tmp/$EXE-bootstrap-secrets.toml /tmp/$VER-bootstrap-secrets.toml \
+  /tmp/$VER-app-secrets.toml /tmp/$CL-user-secret.toml
 ```
+
+Delete these files as soon as both Secret creates succeed; do not leave them for step 11. In
+particular, the verifier bootstrap TOML contains the password that unlocks the active signing key.
 
 Nothing else here is secret. There is no EVM secrets file (`EVM_SECRETS_PATH`, default
 `/etc/evm/secrets.toml`): it holds the standalone LogPoller's `[db].url` and is only read when a
@@ -1074,16 +1079,21 @@ new durable recovery copy.
 rm -- /tmp/migration-$i/ocr2.json /tmp/migration-$i/export-password.txt \
   /tmp/migration-$i/verifier.key_import.toml
 rmdir /tmp/migration-$i
-rm -f -- /tmp/api-creds.txt
+rm -f -- /tmp/api-creds.txt /tmp/$EXE-bootstrap-secrets.toml \
+  /tmp/$VER-bootstrap-secrets.toml /tmp/$VER-app-secrets.toml \
+  /tmp/$CL-user-secret.toml
 ```
 
-If `rmdir` reports remaining files, stop and inventory them rather than recursively deleting the
-directory. Inventory temporary archives, CI artifacts, support bundles, operator workstations, and
-password-manager entries created during migration. Remove the export-password entry and any old
-versions, without printing their contents. Do not remove the standalone keystore password.
+The final `rm` is idempotent cleanup for earlier runs; current runs already deleted the P6 TOMLs
+immediately after their Secret creates. If `rmdir` reports remaining files, stop and inventory them
+rather than recursively deleting the directory. Delete any password-manager entry created for the
+export password, including one retained under the earlier backup instruction and its old versions.
+Do not print secret contents or remove the standalone keystore password.
 
 For each verified node, inspect only the key-import Secret's metadata, confirm no active workload or
-ExternalSecret references it, then obtain approval and delete that exact Secret:
+ExternalSecret references it, then obtain approval and delete that exact Secret. Use `$CTX`, the
+`TeamCCIPAdmin` context, for deletion; `$CTX_ENG` grants Secret creation, not deletion. If the admin
+role is unavailable or the request is denied, stop and open a platform request instead:
 
 ```sh
 kubectl --context $CTX -n $NS get secret $VER-keyimport-v1 -o json \
@@ -1091,21 +1101,20 @@ kubectl --context $CTX -n $NS get secret $VER-keyimport-v1 -o json \
 kubectl --context $CTX -n $NS delete secret $VER-keyimport-v1
 ```
 
-If it has `chain.link/deletion-protection-enabled=true`, follow the explicit-approval procedure
-before removing that label. Do not bulk-delete `$VER-secrets-v2` or `$EXE-secrets-v2`: those are
-runtime secrets, not migration exports. Removing a mount does not delete the Secret, and deleting
-the Secret does not remove external or backed-up copies.
+If it has `chain.link/deletion-protection-enabled=true`, obtain explicit approval before removing
+that label. Do not delete `$VER-secrets-v2` or `$EXE-secrets-v2`; those are runtime secrets, not
+migration exports. Removing a mount does not delete the Secret, and deleting the Secret does not
+remove external or backed-up copies.
 
-Finally, track host/VM snapshots, Kubernetes/etcd backups, replicated secret versions, and retained
-storage media to deletion or approved expiration. Ordinary `rm`, `shred`, or `kubectl delete` does
-not prove erasure on SSDs, copy-on-write filesystems, or managed storage.
-Record outstanding retention dates; do not claim the migration export is unrecoverable while a
-restorable copy remains.
+Track any backup or snapshot known to contain the temporary export or password to deletion or
+approved expiration with the infrastructure owner. Record outstanding retention dates; ordinary
+deletion does not prove that no restorable copy remains.
 
-The retired CL node, its database, and its backups hold another copy of the signer. Dispose of them
-through a separate approved decommissioning step after the rollback window and verification of the
-standalone backup. The active signer necessarily remains in the standalone database and its recovery
-backups; this cleanup targets redundant migration and retired-system copies.
+The staging CL database was deleted with `skipFinalSnapshot: true` in
+[chainlink-ccv-deploy#527](https://github.com/smartcontractkit/chainlink-ccv-deploy/pull/527) and is
+not a rollback copy. After the temporary migration copies are disposed, the standalone bootstrap
+database, its recovery backups, and its keystore password are the only signer recovery path. Do not
+delete them.
 
 ### 12. Soak, then repeat for the next node
 
