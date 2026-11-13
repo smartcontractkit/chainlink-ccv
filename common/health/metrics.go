@@ -3,6 +3,7 @@ package health
 import (
 	"context"
 	"errors"
+	"sync"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -26,6 +27,9 @@ const (
 	versionAttribute   = "version"
 	commitAttribute    = "commit"
 )
+
+// versionOnce keeps the version counter at one increment per process.
+var versionOnce sync.Once
 
 // MetricsRecorder publishes the health, uptime_seconds and version instruments the CL node emits.
 // It reads the Manager it was built with, so the metric and /health agree on which components exist.
@@ -77,13 +81,29 @@ func NewMetricsRecorder(lggr logger.Logger, manager *Manager) (*MetricsRecorder,
 }
 
 func (r *MetricsRecorder) start(ctx context.Context) error {
-	r.version.Add(ctx, 1, metric.WithAttributes(
-		attribute.String(versionAttribute, static.Version),
-		attribute.String(commitAttribute, static.Sha),
-	))
+	versionOnce.Do(func() {
+		r.version.Add(ctx, 1, metric.WithAttributes(
+			attribute.String(versionAttribute, static.Version),
+			attribute.String(commitAttribute, static.Sha),
+		))
+	})
 	// Record once before ticking so the series exist immediately, as the CL node's checker does.
 	r.record(ctx)
-	r.eng.GoTick(services.NewTicker(r.interval), r.record)
+	// A plain ticker instead of services.NewTicker. The latter fires its first tick immediately,
+	// which would record the start twice, and jitters each period, which drifts the fixed uptime
+	// increment from wall clock.
+	r.eng.Go(func(ctx context.Context) {
+		ticker := time.NewTicker(r.interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				r.record(ctx)
+			}
+		}
+	})
 	return nil
 }
 
