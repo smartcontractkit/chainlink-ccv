@@ -13,11 +13,16 @@ RUN --mount=type=cache,target=/go/pkg/mod,id=ccv-go-mod \
 COPY . .
 
 ARG VERIFIER_TYPE=committee
+# Build identity for the version/commit metrics; see tools/buildargs.
+ARG VERSION=unset
+ARG COMMIT_SHA=unset
 WORKDIR /cmd/verifier/${VERIFIER_TYPE}
 
 RUN --mount=type=cache,target=/root/.cache/go-build,id=ccv-go-build \
     --mount=type=cache,target=/go/pkg/mod,id=ccv-go-mod \
-    CGO_ENABLED=0 go build -ldflags='-s -w' -o /bin/verifier main.go
+    CGO_ENABLED=0 go build \
+    -ldflags="-s -w -X github.com/smartcontractkit/chainlink-ccv/common/static.Version=${VERSION} -X github.com/smartcontractkit/chainlink-ccv/common/static.Sha=${COMMIT_SHA}" \
+    -o /bin/verifier main.go
 
 # Static tini for the final image, which has no package manager
 RUN apk --no-cache add tini-static

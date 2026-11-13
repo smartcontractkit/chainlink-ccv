@@ -37,10 +37,11 @@ import (
 type tokenVerifierFactory struct {
 	bootstrap.ServiceFactory
 
-	coordinators []*verifier.Coordinator
-	httpServer   *http.Server
-	adminStop    func()
-	lggr         logger.Logger
+	coordinators   []*verifier.Coordinator
+	httpServer     *http.Server
+	adminStop      func()
+	lggr           logger.Logger
+	healthRecorder *health.MetricsRecorder
 }
 
 var _ bootstrap.ServiceFactoryValidator = (*tokenVerifierFactory)(nil)
@@ -82,6 +83,10 @@ func NewTokenVerifierServiceFactory() bootstrap.ServiceFactory {
 // Stop tries to stop all services gracefully.
 func (tvf *tokenVerifierFactory) Stop(_ context.Context) error {
 	var errs []error
+	if tvf.healthRecorder != nil {
+		errs = append(errs, tvf.healthRecorder.Close())
+		tvf.healthRecorder = nil
+	}
 	if tvf.adminStop != nil {
 		tvf.adminStop()
 		tvf.adminStop = nil
@@ -311,8 +316,17 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 		healthReporters = append(healthReporters, coordinator)
 	}
 	healthReporters = append(healthReporters, startupSkips)
-	ginRouter := tokenapi.NewHTTPAPI(tvf.lggr, storage.NewCCVReader(postgresStorage), healthReporters, verifierMonitoring)
+	ginRouter, healthManager := tokenapi.NewHTTPAPI(tvf.lggr, storage.NewCCVReader(postgresStorage), healthReporters, verifierMonitoring)
 	verifierMonitoring.RecordServiceStarted(ctx)
+
+	recorder, err := health.NewMetricsRecorder(tvf.lggr, healthManager)
+	if err != nil {
+		return fmt.Errorf("failed to create health metrics recorder: %w", err)
+	}
+	if err := recorder.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start health metrics recorder: %w", err)
+	}
+	tvf.healthRecorder = recorder
 
 	// Start HTTP server with Gin router
 	tvf.httpServer = &http.Server{

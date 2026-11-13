@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.19.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.18.0...v0.19.0) (2026-11-13)
+
+
+### Features
+
+* **bootstrap:** update kms backend to support multiple key_ids ([#1596](https://github.com/smartcontractkit/chainlink-ccv/issues/1596)) ([e389ce6](https://github.com/smartcontractkit/chainlink-ccv/commit/e389ce665c82812a706f53721c17dbe13ab1382c))
+* **CCTP:** Validate CCTP Domains On CCTP Attestation Service Startup ([#1585](https://github.com/smartcontractkit/chainlink-ccv/issues/1585)) ([1bfb2d1](https://github.com/smartcontractkit/chainlink-ccv/commit/1bfb2d1b2501c72c5568df915efabc2c8fcdfb04))
+* **health:** emit health and uptime metrics ([#1598](https://github.com/smartcontractkit/chainlink-ccv/issues/1598)) ([483c9cc](https://github.com/smartcontractkit/chainlink-ccv/commit/483c9cc3081cd1bd922667eefb39a399fc599fe9))
+* inject build version and commit into images ([#1597](https://github.com/smartcontractkit/chainlink-ccv/issues/1597)) ([3ceff9f](https://github.com/smartcontractkit/chainlink-ccv/commit/3ceff9fefbe741b5fcdfdcf711484fc1474480f9))
+* **monitoring:** record beholder config info every hour ([#1599](https://github.com/smartcontractkit/chainlink-ccv/issues/1599)) ([949b9d1](https://github.com/smartcontractkit/chainlink-ccv/commit/949b9d1b7504df69b63261c74547a2f7251c0ae3))
+
+
+### Bug Fixes
+
+* **jd:** retry node registration and surface failures ([#1588](https://github.com/smartcontractkit/chainlink-ccv/issues/1588)) ([2ce98a8](https://github.com/smartcontractkit/chainlink-ccv/commit/2ce98a8f934e857554e59de35971da45b20d22c7))
+
 ## [0.18.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.17.0...v0.18.0) (2026-11-09)
 
 

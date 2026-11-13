@@ -46,11 +46,12 @@ const (
 
 // Factory is a bootstrap.ServiceFactory that starts the executor service.
 type Factory struct {
-	coordinator *executorsvc.Coordinator
-	server      *http.Server
-	profiler    *pyroscope.Profiler
-	adminStop   func()
-	lggr        logger.Logger
+	coordinator    *executorsvc.Coordinator
+	server         *http.Server
+	profiler       *pyroscope.Profiler
+	adminStop      func()
+	lggr           logger.Logger
+	healthRecorder *health.MetricsRecorder
 }
 
 var (
@@ -88,6 +89,10 @@ func (f *Factory) Stop(ctx context.Context) error {
 	var err error
 	if f.adminStop != nil {
 		f.adminStop()
+	}
+	if f.healthRecorder != nil {
+		err = errors.Join(err, f.healthRecorder.Close())
+		f.healthRecorder = nil
 	}
 	if f.server != nil {
 		// Stop is routinely called with an already-canceled context (process teardown, failed
@@ -312,10 +317,22 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		c.String(http.StatusOK, "CCV Executor is running!\nExecutor ID: %s\n", executorConfig.ExecutorID)
 	})
 
-	healthManager := health.NewManager()
+	healthManager := health.NewManager(f.lggr)
 	healthManager.Register(f.coordinator)
 	healthManager.Register(startupSkips)
+	for _, reporter := range deps.HealthReporters {
+		healthManager.Register(reporter)
+	}
 	health.RegisterOn(healthManager, router)
+
+	recorder, err := health.NewMetricsRecorder(f.lggr, healthManager)
+	if err != nil {
+		return fmt.Errorf("failed to create health metrics recorder: %w", err)
+	}
+	if err := recorder.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start health metrics recorder: %w", err)
+	}
+	f.healthRecorder = recorder
 
 	server := &http.Server{
 		Addr:         ":" + strconv.Itoa(executorConfig.HTTPListenPort),

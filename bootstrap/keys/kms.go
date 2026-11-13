@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 
 	"github.com/smartcontractkit/chainlink-common/keystore"
 	"github.com/smartcontractkit/chainlink-common/keystore/kms"
@@ -20,7 +22,7 @@ type signerReader interface {
 // API, so over-validating here would risk rejecting valid identifiers; only emptiness is rejected.
 func ValidateAWSKeyID(keyID string) error {
 	if keyID == "" {
-		return errors.New("AWS KMS key ID must not be empty: set ecdsa_key_id / ed25519_key_id to a Key ID or ARN")
+		return errors.New("AWS KMS key ID must not be empty: configure a Key ID or ARN")
 	}
 	return nil
 }
@@ -87,14 +89,16 @@ func newKMSKeystore(ctx context.Context, inner signerReader, nameToID map[string
 
 // verifyKeys checks that every mapped KMS key exists and is accessible.
 func (k *KMSKeystore) verifyKeys(ctx context.Context) error {
-	for name, id := range k.nameToID {
+	var errs []error
+	for _, name := range slices.Sorted(maps.Keys(k.nameToID)) {
+		id := k.nameToID[name]
 		//nolint:noeagerio // fail-fast by design: the service can sign nothing if a mapped KMS key is missing, so key existence is verified at startup rather than surfacing at first use
 		_, err := k.inner.GetKeys(ctx, keystore.GetKeysRequest{KeyNames: []string{id}})
 		if err != nil {
-			return fmt.Errorf("KMS key %q (logical name %q) not accessible: %w", id, name, err)
+			errs = append(errs, fmt.Errorf("KMS key %q (logical name %q) not accessible: %w", id, name, err))
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 // GetKeys translates logical key names to KMS Key IDs, delegates to the inner KMS keystore,

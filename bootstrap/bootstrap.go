@@ -5,8 +5,10 @@ import (
 	"crypto"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -28,6 +30,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/common/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/common/monitoring/logging"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/keystore"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -79,6 +82,10 @@ type ServiceDeps struct {
 
 	// Registry for chainaccess.Accessor objects.
 	Registry chainaccess.Registry
+
+	// HealthReporters are bootstrap-owned components the service registers on its /health, such
+	// as the JD node registration, which is degraded while JD has not taken the chain configs.
+	HealthReporters []protocol.HealthReporter
 }
 
 // ServiceFactory is an interface implemented by the application that seeks to be bootstrapped.
@@ -261,6 +268,8 @@ type Bootstrapper struct {
 	localStartErr chan error
 	// pyroscope is a saved reference to profiler to close it on stop
 	pyroscope *pyroscope.Profiler
+	// configRecorder records the beholder config metric; closed on stop.
+	configRecorder *monitoring.ConfigRecorder
 }
 
 // NewBootstrapper creates a new [Bootstrapper] with the given config and service factory.
@@ -322,12 +331,14 @@ func NewBootstrapper(
 	return b, nil
 }
 
-func (b *Bootstrapper) initMonitoring(signer crypto.Signer) error {
+func (b *Bootstrapper) initMonitoring(ctx context.Context, signer crypto.Signer) error {
 	// do not fall back b.config to it
 	mon := monitoring.Config{}
 	if b.config != nil && b.config.Monitoring != nil {
 		mon = *b.config.Monitoring
 	}
+	// The app knows its own name; an operator-supplied service.name still wins.
+	mon.Beholder.TelemetryAttributes = monitoring.WithDefaultServiceName(mon.Beholder.TelemetryAttributes, b.name)
 	err := monitoring.SetupBeholder(mon.Beholder, signer, b.fac.MetricViews())
 	if err != nil {
 		return fmt.Errorf("failed to setup beholder: %w", err)
@@ -346,6 +357,15 @@ func (b *Bootstrapper) initMonitoring(signer crypto.Signer) error {
 		return fmt.Errorf("failed to setup pyroscope: %w", err)
 	}
 	b.pyroscope = pyroscopeProfiler
+	// Started here, after SetupBeholder has installed the client, and only from the bootstrapper:
+	// the app and the bootstrapper share a process, so a second recorder would duplicate the series.
+	// Nothing to report when Beholder is off, and no goroutine worth waking for it.
+	if mon.Beholder.Enabled {
+		b.configRecorder, err = monitoring.StartConfigRecorder(ctx, lggr)
+		if err != nil {
+			return err
+		}
+	}
 	lggr.Infow("Monitoring initialized", "config", mon)
 	return nil
 }
@@ -447,7 +467,7 @@ func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 		return fmt.Errorf("JD mode requires a CSA key (purpose %q) for JD authentication, but none was declared", csaKeyPurpose)
 	}
 
-	err = b.initMonitoring(csaSigner)
+	err = b.initMonitoring(ctx, csaSigner)
 	if err != nil {
 		return fmt.Errorf("failed to initialize monitoring: %w", err)
 	}
@@ -457,15 +477,6 @@ func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 		return fmt.Errorf("failed to get JD public key: %w", err)
 	}
 	jdClient := jdclient.New(csaSigner, jdPublicKey, b.config.JD.ServerWSRPCURL, b.lggr)
-
-	// Surface the operator-provided monitoring config to the service. Only the JD path populates this;
-	// static-TOML mode (startWithAppConfig) loads no bootstrap config and leaves it nil.
-	deps := ServiceDeps{
-		Logger:   b.lggr,
-		Keystore: keyStore,
-	}
-
-	jobRunner := &runner{lggr: b.lggr, fac: b.fac, deps: deps, applicationReady: &b.applicationReady}
 
 	// b.keys is populated by WithKey options; collect names of signing keys to publish.
 	var signingKeyNames []string
@@ -494,18 +505,35 @@ func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 			return jdClient.UpdateNode(ctx, req)
 		}
 	}
+
+	// Surface the operator-provided monitoring config to the service. Only the JD path populates this;
+	// static-TOML mode (startWithAppConfig) loads no bootstrap config and leaves it nil.
+	deps := ServiceDeps{
+		Logger:   b.lggr,
+		Keystore: keyStore,
+	}
+	// The service's /health reports degraded while JD has not taken this node's chain configs.
+	var nodeSync *lifecycle.HookStatus
+	if onConnectHook != nil {
+		nodeSync = lifecycle.NewHookStatus("jd.UpdateNode")
+		deps.HealthReporters = append(deps.HealthReporters, nodeSync)
+	}
+
+	jobRunner := &runner{lggr: b.lggr, fac: b.fac, deps: deps, applicationReady: &b.applicationReady}
+
 	jdMetrics, err := lifecycle.InitMetrics()
 	if err != nil {
 		b.lggr.Warnw("Failed to init JD lifecycle metrics; continuing without metrics", "error", err)
 		jdMetrics = nil
 	}
 	lifecycleManager, err := lifecycle.NewManager(lifecycle.Config{
-		JDClient:      jdClient,
-		JobStore:      jobstore.NewPostgresStore(db),
-		Runner:        jobRunner,
-		Logger:        logger.Named(b.lggr, "LifecycleManager"),
-		Metrics:       jdMetrics,
-		OnConnectHook: onConnectHook,
+		JDClient:            jdClient,
+		JobStore:            jobstore.NewPostgresStore(db),
+		Runner:              jobRunner,
+		Logger:              logger.Named(b.lggr, "LifecycleManager"),
+		Metrics:             jdMetrics,
+		OnConnectHook:       onConnectHook,
+		OnConnectHookStatus: nodeSync,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create lifecycle manager: %w", err)
@@ -588,7 +616,7 @@ func (b *Bootstrapper) startLocal(ctx context.Context) error {
 		}
 	}
 
-	if err := b.initMonitoring(csaSigner); err != nil {
+	if err := b.initMonitoring(ctx, csaSigner); err != nil {
 		return fmt.Errorf("failed to initialize monitoring: %w", err)
 	}
 
@@ -744,6 +772,12 @@ func (b *Bootstrapper) Stop(ctx context.Context) error {
 			return fmt.Errorf("failed to stop pyroscope: %w", err)
 		}
 	}
+	if b.configRecorder != nil {
+		if err := b.configRecorder.Close(); err != nil {
+			return fmt.Errorf("failed to stop beholder config recorder: %w", err)
+		}
+		b.configRecorder = nil
+	}
 	if b.mode == AppConfigModeLocal {
 		return b.stopLocal(ctx)
 	}
@@ -796,8 +830,8 @@ func hasCSAKey(keys []keyToInit) bool {
 // given keystore config. It is the single source of truth shared by the bootstrapper and external tooling such as devenv, which must know whether the info
 // server will expose a CSA key before requesting it.
 //
-// The CSA key exists in every case except a KMS backend with no ed25519_key_id: postgres always
-// generates one for free; KMS uses the configured ed25519_key_id.
+// The CSA key exists in every case except a KMS backend with no CSA key configured: postgres always
+// generates one for free; KMS uses ed25519_key_id, or the key_ids entry for DefaultCSAKeyName.
 func CSAKeyRequired(ks KeystoreConfig) bool {
 	backend, err := ks.resolveBackend()
 	if err != nil {
@@ -806,6 +840,10 @@ func CSAKeyRequired(ks KeystoreConfig) bool {
 		return true
 	}
 	if backend == KeystoreBackendKMS {
+		if ks.KMS.usesKeyIDs() {
+			_, ok := ks.KMS.KeyIDs[DefaultCSAKeyName]
+			return ok
+		}
 		return ks.KMS.Ed25519KeyID != ""
 	}
 	return true
@@ -970,11 +1008,12 @@ func resolveKeyImport(backend KeystoreBackend, requiredKeys []keyToInit, keyImpo
 }
 
 // buildKMSNameMap maps logical key names to KMS key identifiers (a Key ID/ARN for AWS, or a
-// CryptoKeyVersion resource name for GCP) by key type. The supported key types and the config field each
-// one draws its identifier from are declared as data (keyIDByType) rather than control flow, so
+// CryptoKeyVersion resource name for GCP). With key_ids, every declared key must be mapped by name;
+// otherwise each key draws from its per-type field. The supported key types and the config field
+// each draws its identifier from are declared as data (keyIDByType) rather than control flow, so
 // adding a type is a one-line table entry.
 func buildKMSNameMap(cfg KMSKeystoreConfig, requiredKeys []keyToInit) (map[string]string, error) {
-	if err := cfg.validateProvider(); err != nil {
+	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
 	provider, err := cfg.resolveProvider()
@@ -1002,24 +1041,30 @@ func buildKMSNameMap(cfg KMSKeystoreConfig, requiredKeys []keyToInit) (map[strin
 		if !supported {
 			return nil, fmt.Errorf("KMS does not support key type %q for key %q", k.keyType, k.name)
 		}
+		if cfg.usesKeyIDs() {
+			entry.id, entry.tomlName = cfg.KeyIDs[k.name], fmt.Sprintf("key_ids entry %q", k.name)
+		}
 		if entry.id == "" {
 			return nil, fmt.Errorf("KMS %s is required for key %q (type %q)", entry.tomlName, k.name, k.keyType)
 		}
 		if err := validateKeyID(entry.id); err != nil {
 			return nil, fmt.Errorf("KMS %s for key %q: %w", entry.tomlName, k.name, err)
 		}
-		// The KMS config carries a single Key ID per key type, so two required keys of the same type
-		// (or two types pointed at the same Key ID) would both resolve here to one KMS Key ID. Each
-		// logical key must map to a distinct KMS key, so reject that instead of silently sharing a key
-		// (which would otherwise fail later in newKMSKeystore with a less specific duplicate-ID error).
+		// Each logical key must map to a distinct KMS key so reject sharing here, with a clearer error
+		// than newKMSKeystore's duplicate-ID check.
 		if prev, dup := assignedTo[entry.id]; dup {
 			return nil, fmt.Errorf(
-				"keys %q and %q both resolve to KMS Key ID %q: each logical key needs a distinct KMS key, "+
-					"but [keystore.kms] maps a single Key ID per type (%s) — the config format must be extended to map per key",
+				"keys %q and %q both resolve to KMS Key ID %q (%s): each logical key needs a distinct KMS key",
 				prev, k.name, entry.id, entry.tomlName)
 		}
 		assignedTo[entry.id] = k.name
 		nameToID[k.name] = entry.id
+	}
+	for _, name := range slices.Sorted(maps.Keys(cfg.KeyIDs)) {
+		if _, declared := nameToID[name]; !declared {
+			return nil, fmt.Errorf("KMS key_ids entry %q matches no key this application declares (declared: %v)",
+				name, slices.Sorted(maps.Keys(nameToID)))
+		}
 	}
 	return nameToID, nil
 }

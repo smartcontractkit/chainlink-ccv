@@ -11,10 +11,17 @@ RUN --mount=type=cache,target=/go/pkg/mod,id=ccv-go-mod \
 
 # Then copy the rest of the source and build
 COPY . .
+# Build identity for the version/commit metrics; see tools/buildargs.
+ARG VERSION=unset
+ARG COMMIT_SHA=unset
 RUN --mount=type=cache,target=/root/.cache/go-build,id=ccv-go-build \
     --mount=type=cache,target=/go/pkg/mod,id=ccv-go-mod \
-    cd indexer && CGO_ENABLED=0 go build -ldflags='-s -w' -o /bin/indexer cmd/main.go && \
-    CGO_ENABLED=0 go build -ldflags='-s -w' -o /bin/indexer-replay cmd/replay/main.go
+    cd indexer && CGO_ENABLED=0 go build \
+    -ldflags="-s -w -X github.com/smartcontractkit/chainlink-ccv/common/static.Version=${VERSION} -X github.com/smartcontractkit/chainlink-ccv/common/static.Sha=${COMMIT_SHA}" \
+    -o /bin/indexer cmd/main.go && \
+    CGO_ENABLED=0 go build \
+    -ldflags="-s -w -X github.com/smartcontractkit/chainlink-ccv/common/static.Version=${VERSION} -X github.com/smartcontractkit/chainlink-ccv/common/static.Sha=${COMMIT_SHA}" \
+    -o /bin/indexer-replay cmd/replay/main.go
 
 # The final base is digest-pinned so the shipped image is supply-chain verifiable
 # (dependabot bumps it weekly); 65532 is the nonroot user it provides.

@@ -7,13 +7,13 @@ default:
     just --list
 
 build:
-    docker build -f Dockerfile -t pricer:latest ..
+    @set -eu; args=$(go -C .. run ./tools/buildargs); docker build $args -f Dockerfile -t pricer:latest ..
 
 build-dev:
     docker build -f Dockerfile.dev -t pricer:dev ..
 
 build-rc:
-    docker build -f Dockerfile -t pricer:rc ..
+    @set -eu; args=$(go -C .. run ./tools/buildargs); docker build $args -f Dockerfile -t pricer:rc ..
 
 clean-dev:
     docker rmi pricer:dev

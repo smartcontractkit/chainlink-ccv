@@ -19,6 +19,9 @@ const (
 	controlPlaneTimeout    = 10 * time.Second
 	defaultJobStartTimeout = 60 * time.Second
 	shutdownTimeout        = 5 * time.Second
+	// A failed on-connect hook is retried with backoff between these bounds until it succeeds.
+	connectHookRetryInitial = 5 * time.Second
+	connectHookRetryMax     = 5 * time.Minute
 )
 
 // State represents the current state of the job lifecycle manager.
@@ -82,8 +85,10 @@ type Config struct {
 	// Metrics records proposal outcomes. Defaults to a no-op when nil.
 	Metrics Metrics
 	// OnConnectHook is an optional function called each time the JD connection is established.
-	// A non-nil error is logged as a warning but does not prevent job processing.
+	// A failure is retried with backoff until it succeeds; it never prevents job processing.
 	OnConnectHook func(ctx context.Context) error
+	// OnConnectHookStatus optionally records the hook's outcome so /health can report it.
+	OnConnectHookStatus *HookStatus
 }
 
 // Manager manages the job lifecycle for JD-connected services.
@@ -102,6 +107,10 @@ type Manager struct {
 	lggr          logger.Logger
 	metrics       Metrics
 	onConnectHook func(ctx context.Context) error
+	hookStatus    *HookStatus
+	// hookRetryInitial and hookRetryMax bound the backoff between failed on-connect hook attempts.
+	hookRetryInitial time.Duration
+	hookRetryMax     time.Duration
 
 	// Control-plane persistence/JD calls should stay short, but starting an application can include
 	// database setup and chain RPC initialization. Keeping separate budgets prevents those startup
@@ -145,6 +154,9 @@ func NewManager(cfg Config) (*Manager, error) {
 		lggr:                logger.With(cfg.Logger, "component", "JobLifecycleManager"),
 		metrics:             metrics,
 		onConnectHook:       cfg.OnConnectHook,
+		hookStatus:          cfg.OnConnectHookStatus,
+		hookRetryInitial:    connectHookRetryInitial,
+		hookRetryMax:        connectHookRetryMax,
 		controlPlaneTimeout: controlPlaneTimeout,
 		jobStartTimeout:     defaultJobStartTimeout,
 		state:               StateWaitingForJob,
@@ -238,17 +250,18 @@ func (m *Manager) Start(ctx context.Context) error {
 func (m *Manager) eventLoop() {
 	m.lggr.Infow("Entering event loop", "state", m.GetState().String())
 
+	// hookRetry fires when a failed on-connect hook is due another attempt; nil when none is due.
+	var hookRetry <-chan time.Time
+	hookBackoff := m.hookRetryInitial
 	for {
 		select {
+		case <-hookRetry:
+			hookRetry = m.runConnectHook(&hookBackoff)
+
 		case <-m.jdConnectedCh:
 			m.lggr.Infow("Connected to Job Distributor")
-			if m.onConnectHook != nil {
-				hookCtx, hookCancel := context.WithTimeout(context.Background(), m.controlPlaneTimeout)
-				if err := m.onConnectHook(hookCtx); err != nil {
-					m.lggr.Warnw("OnConnectHook failed", "error", err)
-				}
-				hookCancel()
-			}
+			hookBackoff = m.hookRetryInitial
+			hookRetry = m.runConnectHook(&hookBackoff)
 			m.mu.Lock()
 			pending := m.pendingJob
 			m.mu.Unlock()
@@ -284,6 +297,26 @@ func (m *Manager) eventLoop() {
 			return
 		}
 	}
+}
+
+// runConnectHook runs the on-connect hook once and records the outcome. On failure it returns a
+// channel that fires when the next attempt is due, doubling backoff up to hookRetryMax.
+func (m *Manager) runConnectHook(backoff *time.Duration) <-chan time.Time {
+	if m.onConnectHook == nil {
+		return nil
+	}
+	hookCtx, hookCancel := context.WithTimeout(context.Background(), m.controlPlaneTimeout)
+	err := m.onConnectHook(hookCtx)
+	hookCancel()
+	m.hookStatus.set(err)
+	if err == nil {
+		m.lggr.Infow("OnConnectHook succeeded")
+		return nil
+	}
+	wait := *backoff
+	*backoff = min(2*wait, m.hookRetryMax)
+	m.lggr.Errorw("OnConnectHook failed, will retry", "error", err, "retryIn", wait)
+	return time.After(wait)
 }
 
 // handleProposal processes a new job proposal from JD.

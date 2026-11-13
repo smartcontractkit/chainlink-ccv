@@ -23,7 +23,7 @@ func TestRateLimitingAppliedToVerificationsEndpoint(t *testing.T) {
 	// Set up fake monitoring
 	mon := monitoring.NewFakeVerifierMonitoring()
 
-	router := NewHTTPAPI(lggr, ccvReader, nil, mon)
+	router, _ := NewHTTPAPI(lggr, ccvReader, nil, mon)
 
 	// Use a valid messageID format (64 hex chars with 0x prefix)
 	validMessageID := "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
@@ -56,7 +56,7 @@ func TestHealthEndpointsNotRateLimited(t *testing.T) {
 	// Set up fake monitoring
 	mon := monitoring.NewFakeVerifierMonitoring()
 
-	router := NewHTTPAPI(lggr, ccvReader, nil, mon)
+	router, _ := NewHTTPAPI(lggr, ccvReader, nil, mon)
 
 	// Health endpoints should not be rate limited
 	// Make 20 requests to verify no rate limiting

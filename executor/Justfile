@@ -7,10 +7,10 @@ default:
     just --list
 
 build:
-    docker build -f Dockerfile -t executor:latest ..
+    @set -eu; args=$(go -C .. run ./tools/buildargs); docker build $args -f Dockerfile -t executor:latest ..
 
 build-rc:
-    docker build -f Dockerfile -t executor:rc ..
+    @set -eu; args=$(go -C .. run ./tools/buildargs); docker build $args -f Dockerfile -t executor:rc ..
 
 build-dev:
     docker build -f Dockerfile.dev -t executor:dev ..

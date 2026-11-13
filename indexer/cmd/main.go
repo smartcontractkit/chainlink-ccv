@@ -12,7 +12,6 @@ import (
 
 	"github.com/grafana/pyroscope-go"
 	"github.com/jmoiron/sqlx"
-	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap/zapcore"
 
 	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
@@ -87,10 +86,7 @@ func main() {
 			TraceSampleRatio:         config.Monitoring.Beholder.TraceSampleRatio,
 			TraceBatchTimeout:        time.Second * time.Duration(config.Monitoring.Beholder.TraceBatchTimeout),
 		}
-		beholderConfig.ResourceAttributes = ccvmonitoring.ResourceAttributes(config.Monitoring.Beholder.TelemetryAttributes)
-		if _, ok := config.Monitoring.Beholder.TelemetryAttributes["service.name"]; !ok {
-			beholderConfig.ResourceAttributes = append(beholderConfig.ResourceAttributes, attribute.String("service.name", "indexer"))
-		}
+		beholderConfig.ResourceAttributes = ccvmonitoring.ResourceAttributes(ccvmonitoring.WithDefaultServiceName(config.Monitoring.Beholder.TelemetryAttributes, "indexer"))
 		indexerMonitoring, err = monitoring.InitMonitoring(beholderConfig)
 		if err != nil {
 			lggr.Fatalf("Failed to initialize indexer monitoring: %v", err)
@@ -102,6 +98,12 @@ func main() {
 		// The streaming logger replaces the stdout-only logger. The rebind affects only
 		// references taken after this point: construct any logger-holding component below.
 		lggr = logger.Sugared(logging.WithService(streamLggr, "indexer"))
+
+		configRecorder, err := ccvmonitoring.StartConfigRecorder(ctx, lggr)
+		if err != nil {
+			lggr.Fatalf("%v", err)
+		}
+		defer func() { _ = configRecorder.Close() }()
 	} else {
 		lggr.Infow("Monitoring disabled, using noop implementation")
 		indexerMonitoring = monitoring.NewNoopIndexerMonitoring()
@@ -194,11 +196,20 @@ func main() {
 		}()
 	}
 
-	v1 := api.NewV1API(lggr, config, indexerStorage, indexerMonitoring, healthReporters)
+	v1, healthManager := api.NewV1API(lggr, config, indexerStorage, indexerMonitoring, healthReporters)
 	listenPort := config.API.ListenPort
 	if listenPort == 0 {
 		listenPort = 8100
 	}
+
+	recorder, err := ccvhealth.NewMetricsRecorder(lggr, healthManager)
+	if err != nil {
+		lggr.Fatalf("Failed to create health metrics recorder: %v", err)
+	}
+	if err := recorder.Start(ctx); err != nil {
+		lggr.Fatalf("Failed to start health metrics recorder: %v", err)
+	}
+	defer func() { _ = recorder.Close() }()
 
 	indexerMonitoring.RecordServiceStarted(ctx)
 
