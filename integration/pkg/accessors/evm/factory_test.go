@@ -3,9 +3,10 @@ package evm
 import (
 	"context"
 	"errors"
-	commontypes "github.com/smartcontractkit/chainlink-common/pkg/types"
 	"math/big"
 	"testing"
+
+	commontypes "github.com/smartcontractkit/chainlink-common/pkg/types"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
