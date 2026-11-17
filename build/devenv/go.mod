@@ -26,8 +26,8 @@ require (
 	github.com/rs/zerolog v1.35.1
 	github.com/sethvargo/go-retry v0.3.0
 	github.com/smartcontractkit/chain-selectors v1.0.112
-	github.com/smartcontractkit/chainlink-ccip/chains/evm v0.0.0-20261028235024-46426ab19422
-	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20261028235024-46426ab19422
+	github.com/smartcontractkit/chainlink-ccip/chains/evm v0.0.0-20261109225951-56f1229544c1
+	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20261109225951-56f1229544c1
 	github.com/smartcontractkit/chainlink-ccv v0.0.2-0.20260608205628-b1fb1b311772
 	github.com/smartcontractkit/chainlink-ccv/deployment v0.0.2-0.20260616151800-9a3a31c4e194
 	github.com/smartcontractkit/chainlink-ccv/integration/evm v0.0.0-00010101000000-000000000000
@@ -391,7 +391,7 @@ require (
 	github.com/smartcontractkit/ccip-owner-contracts v0.2.1 // indirect
 	github.com/smartcontractkit/chainlink-aptos v0.0.0-20260428085939-5c70de12dbfc // indirect
 	github.com/smartcontractkit/chainlink-canton v0.0.0-20260615233851-4e78e7c23a58 // indirect
-	github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20261028235024-46426ab19422 // indirect
+	github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20260624154507-ea7ff77a0ddb // indirect
 	github.com/smartcontractkit/chainlink-ccip/chains/solana v0.0.0-20260129103204-4c8453dd8139 // indirect
 	github.com/smartcontractkit/chainlink-ccip/chains/solana/gobindings v0.0.0-20260129103204-4c8453dd8139 // indirect
 	github.com/smartcontractkit/chainlink-common/pkg/chipingress v0.0.11-0.20260915184316-2730f1867c92 // indirect
