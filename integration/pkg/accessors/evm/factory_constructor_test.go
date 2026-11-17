@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -125,4 +126,32 @@ func TestCreateAccessorFactoryPassesNativeTokenDecimalsToTheFactory(t *testing.T
 
 	_, err = factory.GetAccessor(t.Context(), 5009297550715157269)
 	require.ErrorContains(t, err, "invalid native token decimals 37")
+}
+
+func TestCreateAccessorFactoryWorksWithoutFeeQuoterGasOverrides(t *testing.T) {
+	t.Parallel()
+
+	const selector = "5009297550715157269"
+	tests := []struct {
+		name      string
+		overrides map[string]chainaccess.FeeQuoterGasOverride
+	}{
+		{name: "nil map"},
+		{name: "empty map", overrides: map[string]chainaccess.FeeQuoterGasOverride{}},
+		{name: "only another chain", overrides: map[string]chainaccess.FeeQuoterGasOverride{"1": {BaseGas: 1}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			generic := chainaccess.GenericConfig{PricerConfig: chainaccess.PricerConfig{
+				FeeQuoterAddresses:    map[string]string{selector: validTestFeeQuoterAddress},
+				FeeQuoterGasOverrides: tt.overrides,
+			}}
+			factory, err := CreateAccessorFactory(logger.Test(t), generic, chainaccess.Infos[Info]{})
+			require.NoError(t, err)
+			// No chain info exists, so GetAccessor stops at the runtime builder, after the pricer config passed.
+			_, err = factory.GetAccessor(t.Context(), 5009297550715157269)
+			require.ErrorContains(t, err, "failed to get EVM config for chain")
+		})
+	}
 }

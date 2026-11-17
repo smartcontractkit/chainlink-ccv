@@ -25,9 +25,10 @@ import (
 )
 
 const (
-	// updatePricesBaseGas and updatePricesGasPerUpdate bound the gas limit of an updatePrices call.
-	updatePricesBaseGas      = 100_000
-	updatePricesGasPerUpdate = 50_000
+	// defaultUpdatePricesBaseGas and defaultUpdatePricesGasPerUpdate bound the gas limit of an
+	// updatePrices call: base + perUpdate*updates. WithUpdatePricesGas overrides them.
+	defaultUpdatePricesBaseGas      = 100_000
+	defaultUpdatePricesGasPerUpdate = 50_000
 )
 
 var feeQuoterABI = evmtypes.MustGetABI(fee_quoter.FeeQuoterABI)
@@ -52,6 +53,9 @@ type EVMFeeQuoterWriter struct {
 	fromAddresses []common.Address
 
 	tokens *TokenMetadataCache
+
+	updatePricesBaseGas      uint64
+	updatePricesGasPerUpdate uint64
 }
 
 // WriterOption configures an EVMFeeQuoterWriter.
@@ -66,6 +70,19 @@ func WithTxm(txm txmgr.TxManager, keys keys.RoundRobin, fromAddresses []common.A
 	}
 }
 
+// WithUpdatePricesGas overrides the gas limit of the updatePrices call, which is
+// baseGas + gasPerUpdate * (number of token and gas price updates). A zero value keeps its default.
+func WithUpdatePricesGas(baseGas, gasPerUpdate uint64) WriterOption {
+	return func(w *EVMFeeQuoterWriter) {
+		if baseGas > 0 {
+			w.updatePricesBaseGas = baseGas
+		}
+		if gasPerUpdate > 0 {
+			w.updatePricesGasPerUpdate = gasPerUpdate
+		}
+	}
+}
+
 // WithTokenCache makes the writer use a token metadata cache shared with other components.
 func WithTokenCache(cache *TokenMetadataCache) WriterOption {
 	return func(w *EVMFeeQuoterWriter) {
@@ -77,7 +94,10 @@ func WithTokenCache(cache *TokenMetadataCache) WriterOption {
 
 // NewEVMFeeQuoterWriter creates a writer. It does not call the chain.
 func NewEVMFeeQuoterWriter(lggr logger.Logger, client batchClient, address common.Address, opts ...WriterOption) *EVMFeeQuoterWriter {
-	w := &EVMFeeQuoterWriter{lggr: lggr, client: client, address: address, tokens: NewTokenMetadataCache()}
+	w := &EVMFeeQuoterWriter{
+		lggr: lggr, client: client, address: address, tokens: NewTokenMetadataCache(),
+		updatePricesBaseGas: defaultUpdatePricesBaseGas, updatePricesGasPerUpdate: defaultUpdatePricesGasPerUpdate,
+	}
 	for _, opt := range opts {
 		opt(w)
 	}
@@ -154,7 +174,7 @@ func (w *EVMFeeQuoterWriter) send(ctx context.Context, priceUpdates fee_quoter.I
 		FromAddress:    from,
 		ToAddress:      w.address,
 		EncodedPayload: payload,
-		FeeLimit:       updatePricesBaseGas + updatePricesGasPerUpdate*updates,
+		FeeLimit:       w.updatePricesBaseGas + w.updatePricesGasPerUpdate*updates,
 		Strategy:       txmgrcommon.NewSendEveryStrategy(),
 	})
 	if err != nil {

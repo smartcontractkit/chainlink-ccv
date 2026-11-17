@@ -6,11 +6,14 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/BurntSushi/toml"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap/zapcore"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
@@ -351,5 +354,30 @@ func TestInfos_GetAllChainSelectors(t *testing.T) {
 		if !found[protocol.ChainSelector(20)] {
 			t.Error("expected selector 20, not found")
 		}
+	})
+}
+
+func TestGenericConfig_FeeQuoterGasOverridesAreOptional(t *testing.T) {
+	t.Run("absent table decodes to a nil map", func(t *testing.T) {
+		var cfg chainaccess.GenericConfig
+		_, err := toml.Decode("[fee_quoter_addresses]\n1 = \"0xabc\"\n", &cfg)
+		require.NoError(t, err)
+		require.Nil(t, cfg.FeeQuoterGasOverrides)
+		require.Equal(t, "0xabc", cfg.FeeQuoterAddresses["1"])
+	})
+
+	t.Run("empty config decodes", func(t *testing.T) {
+		var cfg chainaccess.GenericConfig
+		_, err := toml.Decode("", &cfg)
+		require.NoError(t, err)
+		require.Empty(t, cfg.FeeQuoterGasOverrides)
+	})
+
+	t.Run("table decodes per chain with partial fields", func(t *testing.T) {
+		var cfg chainaccess.GenericConfig
+		_, err := toml.Decode("[fee_quoter_gas_overrides.1]\nbase_gas = 150000\n[fee_quoter_gas_overrides.2]\ngas_per_update = 60000\n", &cfg)
+		require.NoError(t, err)
+		require.Equal(t, chainaccess.FeeQuoterGasOverride{BaseGas: 150000}, cfg.FeeQuoterGasOverrides["1"])
+		require.Equal(t, chainaccess.FeeQuoterGasOverride{GasPerUpdate: 60000}, cfg.FeeQuoterGasOverrides["2"])
 	})
 }

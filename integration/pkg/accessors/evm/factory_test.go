@@ -20,6 +20,7 @@ import (
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 	"github.com/smartcontractkit/chainlink-evm/pkg/gas/rollups"
 	"github.com/smartcontractkit/chainlink-evm/pkg/heads"
+	"github.com/smartcontractkit/chainlink-evm/pkg/txmgr"
 )
 
 type stubChainRuntime struct {
@@ -95,7 +96,7 @@ func (s *stubChainRuntime) NewContractTransmitter(
 	return s.transmitter, s.transmitErr
 }
 
-func (s *stubChainRuntime) NewFeeQuoterWriter(_ context.Context, _ keystore.Keystore, keyName string, address common.Address, _ *pricereader.TokenMetadataCache) (chainaccess.FeeQuoterWriter, error) {
+func (s *stubChainRuntime) NewFeeQuoterWriter(_ context.Context, _ keystore.Keystore, keyName string, address common.Address, _ *pricereader.TokenMetadataCache, _ ...pricereader.WriterOption) (chainaccess.FeeQuoterWriter, error) {
 	s.gotWriterKey = keyName
 	s.gotWriterAddress = address
 	if s.writer == nil && s.writerErr == nil {
@@ -228,6 +229,7 @@ func TestFactoryRejectsAccessorWithoutCapabilitiesBeforeStartingRuntime(t *testi
 		nil,
 		nil,
 		nil,
+		nil,
 		0,
 		0,
 		func(context.Context, protocol.ChainSelector, logger.Logger) (chainRuntime, error) {
@@ -301,6 +303,7 @@ func TestFactoryRejectsIncompleteDestinationConfigBeforeStartingRuntime(t *testi
 				map[protocol.ChainSelector]chainaccess.DestinationChainConfig{selector: tt.config},
 				nil,
 				nil,
+				nil,
 				0,
 				0,
 				func(context.Context, protocol.ChainSelector, logger.Logger) (chainRuntime, error) {
@@ -335,6 +338,7 @@ func TestFactoryClosesRuntimeWhenChainClientIsUnavailable(t *testing.T) {
 		},
 		nil,
 		nil,
+		nil,
 		0,
 		0,
 		func(context.Context, protocol.ChainSelector, logger.Logger) (chainRuntime, error) {
@@ -363,6 +367,7 @@ func TestFactoryRejectsNilRuntime(t *testing.T) {
 				RmnAddress:     validTestRMNRemoteAddress,
 			},
 		},
+		nil,
 		nil,
 		nil,
 		0,
@@ -394,6 +399,7 @@ func TestFactoryIncludesRuntimeCloseFailureInComponentError(t *testing.T) {
 				RmnAddress:     validTestRMNRemoteAddress,
 			},
 		},
+		nil,
 		nil,
 		nil,
 		0,
@@ -458,6 +464,7 @@ func newPricerFactoryWithDecimals(
 		nil,
 		map[protocol.ChainSelector]string{pricerTestSelector: feeQuoterAddress},
 		nativeDecimals,
+		nil,
 		0,
 		0,
 		func(context.Context, protocol.ChainSelector, logger.Logger) (chainRuntime, error) {
@@ -702,6 +709,157 @@ func TestSetKeystoreReplacesTheFeeQuoterWriterWithTheRuntimeOne(t *testing.T) {
 	require.Equal(t, "evm-key", runtime.gotWriterKey)
 	require.Equal(t, fq, runtime.gotWriterAddress)
 	require.NoError(t, acc.(*accessor).Degraded())
+}
+
+// txmWriterRuntime builds the real TXM-backed writer on a fake TXM, so a test sees the gas limit it sends.
+type txmWriterRuntime struct {
+	*stubChainRuntime
+	txm *recordingTxm
+}
+
+func (r *txmWriterRuntime) NewFeeQuoterWriter(_ context.Context, _ keystore.Keystore, _ string, address common.Address, tokens *pricereader.TokenMetadataCache, opts ...pricereader.WriterOption) (chainaccess.FeeQuoterWriter, error) {
+	from := common.HexToAddress("0x01")
+	opts = append([]pricereader.WriterOption{
+		pricereader.WithTxm(r.txm, firstAddressKeys{}, []common.Address{from}),
+		pricereader.WithTokenCache(tokens),
+	}, opts...)
+	return pricereader.NewEVMFeeQuoterWriter(logger.Nop(), nil, address, opts...), nil
+}
+
+type recordingTxm struct {
+	txmgr.TxManager
+	requests []txmgr.TxRequest
+}
+
+func (f *recordingTxm) CreateTransaction(_ context.Context, r txmgr.TxRequest) (txmgr.Tx, error) {
+	f.requests = append(f.requests, r)
+	return txmgr.Tx{}, nil
+}
+
+type firstAddressKeys struct{}
+
+func (firstAddressKeys) GetNextAddress(_ context.Context, addrs ...common.Address) (common.Address, error) {
+	return addrs[0], nil
+}
+
+func TestFactoryBuildsFeeQuoterWritersWithAndWithoutGasOverrides(t *testing.T) {
+	t.Parallel()
+
+	const defaultBase, defaultPerUpdate = 100_000, 50_000
+	override := func(base, perUpdate uint64) map[protocol.ChainSelector]chainaccess.FeeQuoterGasOverride {
+		return map[protocol.ChainSelector]chainaccess.FeeQuoterGasOverride{pricerTestSelector: {BaseGas: base, GasPerUpdate: perUpdate}}
+	}
+	tests := []struct {
+		name      string
+		overrides map[protocol.ChainSelector]chainaccess.FeeQuoterGasOverride
+		wantLimit uint64
+	}{
+		{name: "nil overrides use the defaults", wantLimit: defaultBase + defaultPerUpdate},
+		{name: "empty overrides use the defaults", overrides: map[protocol.ChainSelector]chainaccess.FeeQuoterGasOverride{}, wantLimit: defaultBase + defaultPerUpdate},
+		{name: "override of another chain uses the defaults", overrides: map[protocol.ChainSelector]chainaccess.FeeQuoterGasOverride{1: {BaseGas: 1, GasPerUpdate: 1}}, wantLimit: defaultBase + defaultPerUpdate},
+		{name: "full override", overrides: override(200_000, 70_000), wantLimit: 200_000 + 70_000},
+		{name: "base only override", overrides: override(300_000, 0), wantLimit: 300_000 + defaultPerUpdate},
+		{name: "per update only override", overrides: override(0, 70_000), wantLimit: defaultBase + 70_000},
+		{name: "zero override uses the defaults", overrides: override(0, 0), wantLimit: defaultBase + defaultPerUpdate},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			env := pricereadertest.New(t)
+			txm := &recordingTxm{}
+			runtime := &txmWriterRuntime{
+				stubChainRuntime: &stubChainRuntime{
+					Client:    env.Client,
+					daOracle:  fakeDAOracle{price: assets.NewWei(big.NewInt(3e9))},
+					addresses: []common.Address{env.Owner},
+				},
+				txm: txm,
+			}
+			factory := newFactory(
+				logger.Test(t), nil, nil, nil,
+				map[protocol.ChainSelector]string{pricerTestSelector: env.FeeQuoter.Hex()},
+				nil, tt.overrides, 0, 0,
+				func(context.Context, protocol.ChainSelector, logger.Logger) (chainRuntime, error) {
+					return runtime, nil
+				},
+			)
+			got, err := factory.GetAccessor(t.Context(), pricerTestSelector)
+			require.NoError(t, err)
+			require.NoError(t, got.(*accessor).SetKeystore(t.Context(), nil))
+			require.NoError(t, got.(*accessor).Degraded())
+
+			writer, err := got.FeeQuoterWriter()
+			require.NoError(t, err)
+			require.NoError(t, writer.UpdatePrices(t.Context(), nil, []protocol.GasTokenPriceUpdate{{
+				ChainSelector: 1,
+				USDGasPrice:   protocol.USDGasPrice{ExecutionFee: (*protocol.USDPerGasUnit)(big.NewInt(3))},
+			}}))
+
+			require.Len(t, txm.requests, 1)
+			require.EqualValues(t, tt.wantLimit, txm.requests[0].FeeLimit)
+		})
+	}
+}
+
+func TestFactoryAppliesGasOverridesPerChain(t *testing.T) {
+	t.Parallel()
+
+	const (
+		ethereum = protocol.ChainSelector(5009297550715157269)
+		arbitrum = protocol.ChainSelector(4949039107694359620)
+		base     = protocol.ChainSelector(15971525489660198786)
+		unlisted = protocol.ChainSelector(3734403246176062136) // has a fee quoter but no override
+	)
+	overrides := map[protocol.ChainSelector]chainaccess.FeeQuoterGasOverride{
+		ethereum: {BaseGas: 200_000, GasPerUpdate: 70_000},
+		arbitrum: {GasPerUpdate: 120_000},
+		base:     {BaseGas: 300_000},
+	}
+	wantLimit := map[protocol.ChainSelector]uint64{
+		ethereum: 200_000 + 70_000,
+		arbitrum: 100_000 + 120_000,
+		base:     300_000 + 50_000,
+		unlisted: 100_000 + 50_000,
+	}
+
+	env := pricereadertest.New(t)
+	txms := map[protocol.ChainSelector]*recordingTxm{}
+	feeQuoters := map[protocol.ChainSelector]string{}
+	for sel := range wantLimit {
+		txms[sel] = &recordingTxm{}
+		feeQuoters[sel] = env.FeeQuoter.Hex()
+	}
+	factory := newFactory(
+		logger.Test(t), nil, nil, nil, feeQuoters, nil, overrides, 0, 0,
+		func(_ context.Context, sel protocol.ChainSelector, _ logger.Logger) (chainRuntime, error) {
+			return &txmWriterRuntime{
+				stubChainRuntime: &stubChainRuntime{
+					Client:    env.Client,
+					daOracle:  fakeDAOracle{price: assets.NewWei(big.NewInt(3e9))},
+					addresses: []common.Address{env.Owner},
+				},
+				txm: txms[sel],
+			}, nil
+		},
+	)
+
+	gasUpdate := []protocol.GasTokenPriceUpdate{{
+		ChainSelector: 1,
+		USDGasPrice:   protocol.USDGasPrice{ExecutionFee: (*protocol.USDPerGasUnit)(big.NewInt(3))},
+	}}
+	for sel := range wantLimit {
+		got, err := factory.GetAccessor(t.Context(), sel)
+		require.NoError(t, err, "chain %d", sel)
+		require.NoError(t, got.(*accessor).SetKeystore(t.Context(), nil), "chain %d", sel)
+		writer, err := got.FeeQuoterWriter()
+		require.NoError(t, err, "chain %d", sel)
+		require.NoError(t, writer.UpdatePrices(t.Context(), nil, gasUpdate), "chain %d", sel)
+	}
+
+	for sel, want := range wantLimit {
+		require.Len(t, txms[sel].requests, 1, "chain %d", sel)
+		require.EqualValues(t, want, txms[sel].requests[0].FeeLimit, "chain %d", sel)
+	}
 }
 
 func TestSetKeystoreKeepsTheLogOnlyFeeQuoterWriterAndReportsDegradedOnFailure(t *testing.T) {

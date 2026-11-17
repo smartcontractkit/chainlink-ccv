@@ -449,7 +449,7 @@ func TestEVMFeeQuoterWriterSendsUpdatePricesThroughTheTxm(t *testing.T) {
 	req := txm.requests[0]
 	require.Equal(t, from, req.FromAddress)
 	require.Equal(t, fq, req.ToAddress)
-	require.EqualValues(t, updatePricesBaseGas+3*updatePricesGasPerUpdate, req.FeeLimit)
+	require.EqualValues(t, defaultUpdatePricesBaseGas+3*defaultUpdatePricesGasPerUpdate, req.FeeLimit)
 
 	args, err := feeQuoterABI.Methods["updatePrices"].Inputs.Unpack(req.EncodedPayload[4:])
 	require.NoError(t, err)
@@ -482,7 +482,33 @@ func TestEVMFeeQuoterWriterSendsAGasOnlyUpdateWithoutAClient(t *testing.T) {
 	}})
 	require.NoError(t, err)
 	require.Len(t, txm.requests, 1)
-	require.EqualValues(t, updatePricesBaseGas+updatePricesGasPerUpdate, txm.requests[0].FeeLimit)
+	require.EqualValues(t, defaultUpdatePricesBaseGas+defaultUpdatePricesGasPerUpdate, txm.requests[0].FeeLimit)
+}
+
+func TestEVMFeeQuoterWriterUsesTheConfiguredUpdatePricesGas(t *testing.T) {
+	gasUpdate := []protocol.GasTokenPriceUpdate{{
+		ChainSelector: 1,
+		USDGasPrice:   protocol.USDGasPrice{ExecutionFee: (*protocol.USDPerGasUnit)(big.NewInt(3))},
+	}}
+	tests := []struct {
+		name            string
+		base, perUpdate uint64
+		want            uint64
+	}{
+		{"both overridden", 200_000, 70_000, 270_000},
+		{"zero keeps defaults", 0, 0, defaultUpdatePricesBaseGas + defaultUpdatePricesGasPerUpdate},
+		{"only base overridden", 300_000, 0, 300_000 + defaultUpdatePricesGasPerUpdate},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			txm := &fakeTxm{}
+			writer := newTxmWriter(t, nil, txm, fakeKeys{}, common.HexToAddress("0x01"), common.HexToAddress("0xfee"))
+			WithUpdatePricesGas(tt.base, tt.perUpdate)(writer)
+			require.NoError(t, writer.UpdatePrices(t.Context(), nil, gasUpdate))
+			require.Len(t, txm.requests, 1)
+			require.EqualValues(t, tt.want, txm.requests[0].FeeLimit)
+		})
+	}
 }
 
 func TestEVMFeeQuoterWriterReturnsTxmAndKeyErrors(t *testing.T) {
@@ -530,7 +556,7 @@ func TestEVMFeeQuoterWriterSkipsTokensWithoutDecimals(t *testing.T) {
 	require.Len(t, got.TokenPriceUpdates, 1)
 	require.Equal(t, env.USDC, got.TokenPriceUpdates[0].SourceToken)
 	require.Len(t, got.GasPriceUpdates, 1)
-	require.EqualValues(t, updatePricesBaseGas+2*updatePricesGasPerUpdate, txm.requests[0].FeeLimit)
+	require.EqualValues(t, defaultUpdatePricesBaseGas+2*defaultUpdatePricesGasPerUpdate, txm.requests[0].FeeLimit)
 }
 
 func TestEVMFeeQuoterWriterSendsNothingWhenNoUpdateHasDecimals(t *testing.T) {

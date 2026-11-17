@@ -100,6 +100,7 @@ type chainRuntime interface {
 		keyName string,
 		feeQuoterAddress common.Address,
 		tokens *pricereader.TokenMetadataCache,
+		opts ...pricereader.WriterOption,
 	) (chainaccess.FeeQuoterWriter, error)
 	Close() error
 }
@@ -446,6 +447,7 @@ func (c *standaloneChain) NewFeeQuoterWriter(
 	keyName string,
 	feeQuoterAddress common.Address,
 	tokens *pricereader.TokenMetadataCache,
+	opts ...pricereader.WriterOption,
 ) (chainaccess.FeeQuoterWriter, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -463,8 +465,10 @@ func (c *standaloneChain) NewFeeQuoterWriter(
 		logger.With(c.lggr, "component", "FeeQuoterWriter"),
 		c.chainClient,
 		feeQuoterAddress,
-		pricereader.WithTxm(c.txm, c.chainKeystore, c.fromAddresses),
-		pricereader.WithTokenCache(tokens),
+		append([]pricereader.WriterOption{
+			pricereader.WithTxm(c.txm, c.chainKeystore, c.fromAddresses),
+			pricereader.WithTokenCache(tokens),
+		}, opts...)...,
 	), nil
 }
 

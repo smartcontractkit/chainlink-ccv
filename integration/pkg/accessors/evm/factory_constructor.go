@@ -120,6 +120,7 @@ func newAccessorFactory(
 	destChainConfigs := chainaccess.Infos[chainaccess.DestinationChainConfig](generic.ChainConfiguration).GetAllInfos()
 	feeQuoterInfos := chainaccess.Infos[string](generic.FeeQuoterAddresses).GetAllInfos()
 	nativeDecimalsInfos := chainaccess.Infos[uint8](generic.NativeTokenDecimals).GetAllInfos()
+	feeQuoterGasOverrideInfos := chainaccess.Infos[chainaccess.FeeQuoterGasOverride](generic.FeeQuoterGasOverrides).GetAllInfos()
 
 	return newFactory(
 		lggr,
@@ -128,6 +129,7 @@ func newAccessorFactory(
 		destChainConfigs,
 		feeQuoterInfos,
 		nativeDecimalsInfos,
+		feeQuoterGasOverrideInfos,
 		generic.MaxRetryDuration,
 		generic.ReaderStalenessThreshold,
 		func(ctx context.Context, chainSelector protocol.ChainSelector, chainLggr logger.Logger) (chainRuntime, error) {

@@ -12,6 +12,7 @@ import (
 	"github.com/BurntSushi/toml"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -77,6 +78,16 @@ type PricerConfig struct {
 
 	// NativeTokenDecimals overrides the decimals of the native token for each chain selector.
 	NativeTokenDecimals map[string]uint8 `json:"native_token_decimals" toml:"native_token_decimals"`
+
+	// FeeQuoterGasOverrides overrides the gas limit of the FeeQuoter updatePrices transaction for each chain selector.
+	FeeQuoterGasOverrides map[string]FeeQuoterGasOverride `json:"fee_quoter_gas_overrides" toml:"fee_quoter_gas_overrides"`
+}
+
+// FeeQuoterGasOverride sets the gas limit of an updatePrices transaction: BaseGas + GasPerUpdate * updates.
+// A zero field keeps the writer's default.
+type FeeQuoterGasOverride struct {
+	BaseGas      uint64 `json:"base_gas"       toml:"base_gas"`
+	GasPerUpdate uint64 `json:"gas_per_update" toml:"gas_per_update"`
 }
 
 // CommitteeConfig that is defined as part of the app and required by the SourceReader.
