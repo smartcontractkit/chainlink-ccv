@@ -22,9 +22,16 @@ import (
 	_ "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/adapters"
 )
 
-// TestE2ESmoke_MTTPTransfers covers the native multi-token path: three tokens transfer both ways
-// through the MTTP stacks on two chains. It exercises the pool, pool config manager, policy stores,
-// token registry, verifiers and executor together.
+// TestE2ESmoke_MTTPTransfers checks that one multi-token pool per chain can serve several tokens
+// at once.
+//
+// Setup: two EVM chains (A, B), three burn-mint tokens deployed on each, and a single MTTP
+// deployed per chain. Every token is registered on its chain's MTTP and connected to its
+// counterpart on the other chain, so all traffic is MTTP to MTTP.
+//
+// Scenario: each token transfers A->B and B->A, and the shared helper asserts balances and
+// delivery. This proves the per-token policies, connection and TAR registration are isolated
+// per token on a shared pool, and that verification and execution work end to end.
 func TestE2ESmoke_MTTPTransfers(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping e2e test in short mode; requires a running devenv environment")
@@ -53,9 +60,18 @@ func TestE2ESmoke_MTTPTransfers(t *testing.T) {
 	}
 }
 
-// TestE2ESmoke_MTTPMigration covers the migration path: start with normal single-token pools on both
-// chains, move T1 on A to the MTTP while B is still normal, then move T1 on B and finish with MTTP
-// on both sides. T2 migrates next; T3 stays on the normal pools as a control.
+// TestE2ESmoke_MTTPMigration checks that tokens can move from legacy single-token pools to the
+// MTTP one chain at a time without breaking transfers, including while the two sides differ.
+//
+// Setup: two EVM chains (A, B) with three tokens (T1-T3), each with a legacy pool on both chains,
+// connected and proven with an initial round trip.
+//
+// Scenario:
+//  1. T1 on A moves to the MTTP while B keeps its legacy pool. The MTTP uses the legacy pool data
+//     format and B's pool is told to accept the MTTP as a remote. Transfers must still work.
+//  2. T1 on B moves too, so both sides are MTTP and use the native format. Transfers must work.
+//  3. T2 goes through the same two steps, reusing the MTTPs already deployed.
+//  4. T3 is never migrated and must keep working on its legacy pools alongside the migrated tokens.
 func TestE2ESmoke_MTTPMigration(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping e2e test in short mode; requires a running devenv environment")
@@ -88,8 +104,9 @@ func TestE2ESmoke_MTTPMigration(t *testing.T) {
 		tokenpool.RunBidirectionalTokenTransfer(t, lib, poolsA[i], poolsB[i], 1, fCfg, fmt.Sprintf("initial t%d", i+1))
 	}
 
-	// T1 canary on A: the MTTP takes over T1a and talks to B's normal pool. A sends and accepts the
-	// legacy 32-byte pool data while B is still normal.
+	// Step 1: A's MTTP takes over T1 and talks to B's legacy pool. The two true flags make the MTTP
+	// send and accept the legacy 32-byte pool data that B's pool understands.
+	// The legacy pool on B must also be told to trust the MTTP as a remote pool.
 	t1a := common.HexToAddress(poolsA[0].Token())
 	t1b := common.HexToAddress(poolsB[0].Token())
 	mttpA := evm.DeployMTTP(t, env, selA)
@@ -98,14 +115,16 @@ func TestE2ESmoke_MTTPMigration(t *testing.T) {
 	poolMttpA1 := mttpA.AsTokenPool(t1a, evm.TokenDecimals)
 	tokenpool.RunBidirectionalTokenTransfer(t, lib, poolMttpA1, poolsB[0], 1, fCfg, "T1 canary A")
 
-	// T1 canary on B: B's MTTP takes over T1b, then both directions run MTTP to MTTP.
+	// Step 2: B's MTTP takes over T1, then A's MTTP is repointed from B's legacy pool to B's MTTP
+	// with the native format (false flags). Both directions now run MTTP to MTTP.
 	mttpB := evm.DeployMTTP(t, env, selB)
 	mttpB.AddToken(t, env, t1b, evm.TokenDecimals, selA, t1a, mttpA.Pool, false, false)
 	mttpA.AddToken(t, env, t1a, evm.TokenDecimals, selB, t1b, mttpB.Pool, false, false)
 	poolMttpB1 := mttpB.AsTokenPool(t1b, evm.TokenDecimals)
 	tokenpool.RunBidirectionalTokenTransfer(t, lib, poolMttpA1, poolMttpB1, 1, fCfg, "T1 canary complete")
 
-	// T2 migrates on both chains the same way.
+	// Step 3: T2 repeats steps 1 and 2 on the already deployed MTTPs, showing a second token can be
+	// added to a pool that is already serving a migrated token.
 	t2a := common.HexToAddress(poolsA[1].Token())
 	t2b := common.HexToAddress(poolsB[1].Token())
 	mttpA.AddToken(t, env, t2a, evm.TokenDecimals, selB, t2b, common.HexToAddress(poolsB[1].Address()), true, true)
@@ -117,12 +136,13 @@ func TestE2ESmoke_MTTPMigration(t *testing.T) {
 	poolMttpB2 := mttpB.AsTokenPool(t2b, evm.TokenDecimals)
 	tokenpool.RunBidirectionalTokenTransfer(t, lib, poolMttpA2, poolMttpB2, 1, fCfg, "T2 migrated")
 
-	// T3 stays on the normal pools.
+	// Step 4: T3 was never migrated, so this checks the MTTP deployment did not disturb legacy pools.
 	tokenpool.RunBidirectionalTokenTransfer(t, lib, poolsA[2], poolsB[2], 1, fCfg, "T3 control")
 }
 
 // mttpEnvironment loads the running devenv and returns the lib, the CLDF environment and the EVM
-// chains.
+// chains. It also deploys MCMS with the CLL qualifier on every chain, because token admin and pool
+// ownership sit with the timelock and the helpers execute those writes through it.
 func mttpEnvironment(t *testing.T) (ccv.Lib, *deployment.Environment, []ccv.ChainImpl) {
 	t.Helper()
 
@@ -142,9 +162,8 @@ func mttpEnvironment(t *testing.T) (ccv.Lib, *deployment.Environment, []ccv.Chai
 	return lib, env, chains
 }
 
-// deployMTTPTokens deploys n burn-mint tokens on one chain and returns their addresses. The token
-// expansion also deploys a legacy pool for each, which the MTTP registration then replaces in the
-// token admin registry.
+// deployMTTPTokens deploys n burn-mint tokens on one chain and returns their addresses. Token
+// deployment also creates a legacy pool per token; MTTP registration later replaces it in the TAR.
 func deployMTTPTokens(t *testing.T, env *deployment.Environment, sel uint64, qual string, n int) []common.Address {
 	t.Helper()
 

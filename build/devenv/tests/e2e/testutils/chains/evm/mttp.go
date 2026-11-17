@@ -29,9 +29,9 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/testutils/tokenpool"
 )
 
-// MTTP is a test-local deployment of the multi-token pool stack on one chain: the pool, its pool
-// config manager and the three policy stores. Tests configure tokens on it directly instead of
-// going through a CLD changeset, which does not exist for MTTP yet.
+// MTTP is a test-local deployment of the stack on one chain: the pool, its pool config manager
+// (PCM) and the connection, fee and security stores the PCM writes to. Tests configure it
+// directly with the helpers below because no CLD changeset exists for it yet.
 type MTTP struct {
 	Selector        uint64
 	Pool            common.Address
@@ -49,27 +49,27 @@ const (
 	policySecurity     = "SECURITY"
 )
 
+// Destination overhead of the default policy, applied to every token.
 const (
 	defaultDestGasOverhead   = uint32(90_000)
 	defaultDestBytesOverhead = uint32(192)
 )
 
-// policyKey turns a policy name into the bytes32 the contracts use.
+// policyKey right-pads a policy name into the bytes32 key the contracts index policies by.
 func policyKey(name string) [32]byte {
 	var b [32]byte
 	copy(b[:], []byte(name))
 	return b
 }
 
-// evmAddressBytes abi-encodes an address the way the pool config manager stores remote tokens and pools.
+// evmAddressBytes left-pads an address to 32 bytes, the form the PCM stores remote tokens and pools in.
 func evmAddressBytes(addr common.Address) []byte {
 	return common.LeftPadBytes(addr.Bytes(), 32)
 }
 
-// DeployMTTP deploys a BurnMintMultiTokenPool, its PoolConfigManager and the three policy stores on
-// one chain, authorizes the manager on its stores, grants the deployer CONFIG_ROLE, and creates a
-// default fee, rate limit, destination overhead and security policy. Call from a test after the
-// chain contracts exist (router, RMN proxy, token admin registry).
+// DeployMTTP deploys the stores, PCM and pool on one chain, authorizes the PCM on the stores,
+// grants the deployer CONFIG_ROLE, and creates default policies: zero fee, rate limits off and no
+// extra CCVs or hook. Router, RMN proxy and token admin registry must already be deployed.
 func DeployMTTP(t *testing.T, env *deployment.Environment, sel uint64) *MTTP {
 	t.Helper()
 
@@ -179,9 +179,10 @@ func DeployMTTP(t *testing.T, env *deployment.Environment, sel uint64) *MTTP {
 	}
 }
 
-// AddToken registers a token on this MTTP stack and wires it to a remote chain: it sets the token
-// profile, an inline connection and remote pool, assigns the default policies, gives the pool the
-// token's mint/burn roles, and points the token admin registry at the pool.
+// AddToken onboards a token onto this pool and connects it to one remote chain: token profile,
+// remote pool, default policies, connection, TAR registration, then mint/burn roles for the pool.
+// useLegacyOnSend and allowLegacyOnReceive select the legacy pool data format and must be true
+// while the remote is still a legacy pool; use false once the remote is an MTTP.
 func (m *MTTP) AddToken(
 	t *testing.T,
 	env *deployment.Environment,
@@ -244,8 +245,8 @@ func (m *MTTP) AddToken(
 		confirm(t, chain, p.label, p.apply)
 	}
 
-	// The connection setter runs checkLaneRecords, which needs the remote pool record and the fee
-	// and security records to already exist, so it comes after both.
+	// Must come last of the config writes: the connection setter validates that the remote pool
+	// and the policy assignments above already exist.
 	confirm(t, chain, "set inline connection", func() (*types.Transaction, error) {
 		return pcm.ApplyInlineConnectionConfigUpdates(chain.DeployerKey, nil, []pool_config_manager.ConnectionPolicyStoreInlineConnectionConfigArgs{{
 			LocalToken:          token,
@@ -254,9 +255,9 @@ func (m *MTTP) AddToken(
 		}})
 	})
 
-	// The token is not registered yet and its TAR admin is the CLL timelock, so register the MTTP
-	// pool through the same sequence the token expansion uses: propose, accept, setPool. The writes
-	// the deployer is not allowed to make are executed by the timelock.
+	// The TAR admin is the CLL timelock, so register the pool with the token expansion's sequence
+	// (propose admin, accept, setPool) and execute those writes through MCMS.
+	// When the token already has a legacy pool, this replaces it in the TAR.
 	tarAddr, err := (&evmadapters.EVMTokenBase{}).GetTokenAdminRegistryAddress(env.DataStore, m.Selector)
 	require.NoError(t, err, "token admin registry on chain %d", m.Selector)
 	env.OperationsBundle = cldf_ops.NewBundle(env.OperationsBundle.GetContext, env.OperationsBundle.Logger, cldf_ops.NewMemoryReporter())
@@ -276,7 +277,8 @@ func (m *MTTP) AddToken(
 	grantMintAndBurnRoles(t, env, m.Selector, token, m.Pool)
 }
 
-// AsTokenPool exposes the stack as a token pool so the shared transfer helpers can use it.
+// AsTokenPool returns a per-token view of the shared pool, since the transfer helpers expect one
+// pool per token.
 func (m *MTTP) AsTokenPool(token common.Address, decimals uint8) tokenpool.TokenPool {
 	return &TokenPool{
 		selector: m.Selector,
@@ -287,13 +289,14 @@ func (m *MTTP) AsTokenPool(token common.Address, decimals uint8) tokenpool.Token
 	}
 }
 
+// tokenPolicies builds the args that assign the named policy to a token.
 func tokenPolicies(token common.Address, name string) []pool_config_manager.PolicyConfigTokenPolicyArgs {
 	return []pool_config_manager.PolicyConfigTokenPolicyArgs{{LocalToken: token, PolicyName: policyKey(name)}}
 }
 
-// AddLegacyPoolRemotePool adds a remote pool to an existing single-token pool, so a legacy pool
-// trusts a migrated MTTP on the other side during the canary phase. The pool is owned by the CLL
-// timelock, so the write goes through MCMS.
+// AddLegacyPoolRemotePool makes a legacy pool accept an MTTP as a remote pool, so it can receive
+// from the migrated side while it is not migrated itself. The timelock owns the pool, so the write
+// goes through MCMS.
 func AddLegacyPoolRemotePool(t *testing.T, env *deployment.Environment, sel uint64, poolAddr string, remoteChain uint64, remotePool common.Address) {
 	t.Helper()
 
@@ -313,8 +316,8 @@ func AddLegacyPoolRemotePool(t *testing.T, env *deployment.Environment, sel uint
 	devenvmcms.ExecuteWrites(t, env, "Add remote pool to legacy pool", []contract.WriteOutput{addReport.Output})
 }
 
-// grantMintAndBurnRoles gives the pool the token's mint and burn roles. The token's admin is the
-// CLL timelock, so the grants go through MCMS.
+// grantMintAndBurnRoles lets the pool mint and burn the token. The token admin is the CLL timelock,
+// so the grants go through MCMS.
 func grantMintAndBurnRoles(t *testing.T, env *deployment.Environment, sel uint64, token, pool common.Address) {
 	t.Helper()
 
