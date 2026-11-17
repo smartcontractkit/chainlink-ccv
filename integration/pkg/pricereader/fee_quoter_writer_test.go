@@ -21,6 +21,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/pricereader/pricereadertest"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	commontypes "github.com/smartcontractkit/chainlink-common/pkg/types"
 	"github.com/smartcontractkit/chainlink-evm/pkg/txmgr"
 )
 
@@ -30,7 +31,7 @@ func TestEVMFeeQuoterWriterLogsTheUpdates(t *testing.T) {
 	fq := common.HexToAddress("0xfee")
 	writer := NewEVMFeeQuoterWriter(lggr, env.Client, fq)
 
-	err := writer.UpdatePrices(context.Background(),
+	_, err := writer.UpdatePrices(context.Background(),
 		[]protocol.FeeTokenPriceUpdate{{
 			Address: env.USDC.Bytes(),
 			Price:   (*protocol.USDPerWholeToken)(big.NewInt(1e18)),
@@ -67,7 +68,9 @@ func TestEVMFeeQuoterWriterLogsTheUpdates(t *testing.T) {
 
 func TestEVMFeeQuoterWriterAcceptsAnEmptyUpdate(t *testing.T) {
 	writer := NewEVMFeeQuoterWriter(logger.Test(t), nil, common.Address{})
-	require.NoError(t, writer.UpdatePrices(context.Background(), nil, nil))
+	txID, err := writer.UpdatePrices(context.Background(), nil, nil)
+	require.NoError(t, err)
+	require.Empty(t, txID)
 }
 
 // countingClient counts the RPC batches sent to the wrapped client.
@@ -403,6 +406,16 @@ type fakeTxm struct {
 	txmgr.TxManager
 	requests []txmgr.TxRequest
 	err      error
+
+	status    commontypes.TransactionStatus
+	statusErr error
+	// statusFor records the transaction IDs GetTransactionStatus was asked about.
+	statusFor []string
+}
+
+func (f *fakeTxm) GetTransactionStatus(_ context.Context, id string) (commontypes.TransactionStatus, error) {
+	f.statusFor = append(f.statusFor, id)
+	return f.status, f.statusErr
 }
 
 func (f *fakeTxm) CreateTransaction(_ context.Context, r txmgr.TxRequest) (txmgr.Tx, error) {
@@ -430,7 +443,7 @@ func TestEVMFeeQuoterWriterSendsUpdatePricesThroughTheTxm(t *testing.T) {
 	from, fq := common.HexToAddress("0x01"), common.HexToAddress("0xfee")
 	writer := newTxmWriter(t, env.Client, txm, fakeKeys{}, from, fq)
 
-	err := writer.UpdatePrices(t.Context(),
+	txID, err := writer.UpdatePrices(t.Context(),
 		[]protocol.FeeTokenPriceUpdate{
 			{Address: env.USDC.Bytes(), Price: (*protocol.USDPerWholeToken)(big.NewInt(15))},
 			{Address: env.Link.Bytes(), Price: (*protocol.USDPerWholeToken)(big.NewInt(1e18))},
@@ -447,6 +460,9 @@ func TestEVMFeeQuoterWriterSendsUpdatePricesThroughTheTxm(t *testing.T) {
 
 	require.Len(t, txm.requests, 1)
 	req := txm.requests[0]
+	require.NotEmpty(t, txID)
+	require.NotNil(t, req.IdempotencyKey)
+	require.Equal(t, txID, *req.IdempotencyKey, "the returned ID must be the key the tx can be looked up by")
 	require.Equal(t, from, req.FromAddress)
 	require.Equal(t, fq, req.ToAddress)
 	require.EqualValues(t, updatePricesBaseGas+3*updatePricesGasPerUpdate, req.FeeLimit)
@@ -469,14 +485,15 @@ func TestEVMFeeQuoterWriterSendsUpdatePricesThroughTheTxm(t *testing.T) {
 func TestEVMFeeQuoterWriterSendsNothingForAnEmptyUpdate(t *testing.T) {
 	txm := &fakeTxm{}
 	writer := newTxmWriter(t, nil, txm, fakeKeys{}, common.HexToAddress("0x01"), common.HexToAddress("0xfee"))
-	require.NoError(t, writer.UpdatePrices(t.Context(), nil, nil))
+	_, err := writer.UpdatePrices(t.Context(), nil, nil)
+	require.NoError(t, err)
 	require.Empty(t, txm.requests)
 }
 
 func TestEVMFeeQuoterWriterSendsAGasOnlyUpdateWithoutAClient(t *testing.T) {
 	txm := &fakeTxm{}
 	writer := newTxmWriter(t, nil, txm, fakeKeys{}, common.HexToAddress("0x01"), common.HexToAddress("0xfee"))
-	err := writer.UpdatePrices(t.Context(), nil, []protocol.GasTokenPriceUpdate{{
+	_, err := writer.UpdatePrices(t.Context(), nil, []protocol.GasTokenPriceUpdate{{
 		ChainSelector: 1,
 		USDGasPrice:   protocol.USDGasPrice{ExecutionFee: (*protocol.USDPerGasUnit)(big.NewInt(3))},
 	}})
@@ -493,11 +510,11 @@ func TestEVMFeeQuoterWriterReturnsTxmAndKeyErrors(t *testing.T) {
 	from, fq := common.HexToAddress("0x01"), common.HexToAddress("0xfee")
 
 	txm := &fakeTxm{err: errors.New("txm down")}
-	err := newTxmWriter(t, nil, txm, fakeKeys{}, from, fq).UpdatePrices(t.Context(), nil, gas)
+	_, err := newTxmWriter(t, nil, txm, fakeKeys{}, from, fq).UpdatePrices(t.Context(), nil, gas)
 	require.ErrorContains(t, err, "txm down")
 
 	txm = &fakeTxm{}
-	err = newTxmWriter(t, nil, txm, fakeKeys{err: errors.New("no key")}, from, fq).UpdatePrices(t.Context(), nil, gas)
+	_, err = newTxmWriter(t, nil, txm, fakeKeys{err: errors.New("no key")}, from, fq).UpdatePrices(t.Context(), nil, gas)
 	require.ErrorContains(t, err, "no key")
 	require.Empty(t, txm.requests)
 }
@@ -510,7 +527,7 @@ func TestEVMFeeQuoterWriterSkipsTokensWithoutDecimals(t *testing.T) {
 	writer := NewEVMFeeQuoterWriter(lggr, env.Client, common.HexToAddress("0xfee"),
 		WithTxm(txm, fakeKeys{}, []common.Address{common.HexToAddress("0x01")}))
 
-	err := writer.UpdatePrices(t.Context(),
+	_, err := writer.UpdatePrices(t.Context(),
 		[]protocol.FeeTokenPriceUpdate{
 			{Address: notToken.Bytes(), Price: (*protocol.USDPerWholeToken)(big.NewInt(1))},
 			{Address: env.USDC.Bytes(), Price: (*protocol.USDPerWholeToken)(big.NewInt(15))},
@@ -537,7 +554,7 @@ func TestEVMFeeQuoterWriterSendsNothingWhenNoUpdateHasDecimals(t *testing.T) {
 	env := pricereadertest.New(t)
 	txm := &fakeTxm{}
 	writer := newTxmWriter(t, env.Client, txm, fakeKeys{}, common.HexToAddress("0x01"), common.HexToAddress("0xfee"))
-	err := writer.UpdatePrices(t.Context(),
+	_, err := writer.UpdatePrices(t.Context(),
 		[]protocol.FeeTokenPriceUpdate{{Address: common.HexToAddress("0xdead").Bytes(), Price: (*protocol.USDPerWholeToken)(big.NewInt(1))}}, nil)
 	require.NoError(t, err)
 	require.Empty(t, txm.requests)
@@ -546,7 +563,7 @@ func TestEVMFeeQuoterWriterSendsNothingWhenNoUpdateHasDecimals(t *testing.T) {
 func TestEVMFeeQuoterWriterFailsWithoutAClientToReadDecimals(t *testing.T) {
 	txm := &fakeTxm{}
 	writer := newTxmWriter(t, nil, txm, fakeKeys{}, common.HexToAddress("0x01"), common.HexToAddress("0xfee"))
-	err := writer.UpdatePrices(t.Context(),
+	_, err := writer.UpdatePrices(t.Context(),
 		[]protocol.FeeTokenPriceUpdate{{Address: common.HexToAddress("0x1").Bytes(), Price: (*protocol.USDPerWholeToken)(big.NewInt(1))}}, nil)
 	require.Error(t, err)
 	require.Empty(t, txm.requests)
@@ -557,4 +574,78 @@ func TestPackFeeComponentsTreatsANilFeeAsZero(t *testing.T) {
 	require.Zero(t, packFeeComponents(protocol.USDGasPrice{}).Sign())
 	onlyDA := packFeeComponents(protocol.USDGasPrice{DAFee: (*protocol.USDPerGasUnit)(big.NewInt(2))})
 	requireSameInt(t, new(big.Int).Lsh(big.NewInt(2), 112), onlyDA)
+}
+
+func gasOnlyUpdate() []protocol.GasTokenPriceUpdate {
+	return []protocol.GasTokenPriceUpdate{{
+		ChainSelector: 1,
+		USDGasPrice:   protocol.USDGasPrice{ExecutionFee: (*protocol.USDPerGasUnit)(big.NewInt(3))},
+	}}
+}
+
+func TestEVMFeeQuoterWriterReturnsAnEmptyIDWhenNothingIsSent(t *testing.T) {
+	txm := &fakeTxm{}
+	writer := newTxmWriter(t, nil, txm, fakeKeys{}, common.HexToAddress("0x01"), common.HexToAddress("0xfee"))
+	txID, err := writer.UpdatePrices(t.Context(), nil, nil)
+	require.NoError(t, err)
+	require.Empty(t, txID)
+	require.Empty(t, txm.requests)
+
+	logOnly := NewEVMFeeQuoterWriter(logger.Test(t), nil, common.HexToAddress("0xfee"))
+	txID, err = logOnly.UpdatePrices(t.Context(), nil, gasOnlyUpdate())
+	require.NoError(t, err)
+	require.Empty(t, txID, "a writer without a TXM sends no transaction, so it has no ID")
+}
+
+func TestEVMFeeQuoterWriterReturnsNoIDWhenTheTxmFails(t *testing.T) {
+	txm := &fakeTxm{err: errors.New("txm down")}
+	writer := newTxmWriter(t, nil, txm, fakeKeys{}, common.HexToAddress("0x01"), common.HexToAddress("0xfee"))
+	txID, err := writer.UpdatePrices(t.Context(), nil, gasOnlyUpdate())
+	require.Error(t, err)
+	require.Empty(t, txID)
+}
+
+func TestEVMFeeQuoterWriterUsesAFreshIDPerTransaction(t *testing.T) {
+	txm := &fakeTxm{}
+	writer := newTxmWriter(t, nil, txm, fakeKeys{}, common.HexToAddress("0x01"), common.HexToAddress("0xfee"))
+
+	first, err := writer.UpdatePrices(t.Context(), nil, gasOnlyUpdate())
+	require.NoError(t, err)
+	second, err := writer.UpdatePrices(t.Context(), nil, gasOnlyUpdate())
+	require.NoError(t, err)
+
+	require.NotEmpty(t, first)
+	require.NotEqual(t, first, second, "a reused key would make the TXM drop the second update as a duplicate")
+	require.Len(t, txm.requests, 2)
+	require.Equal(t, first, *txm.requests[0].IdempotencyKey)
+	require.Equal(t, second, *txm.requests[1].IdempotencyKey)
+}
+
+func TestEVMFeeQuoterWriterGetTransactionStatusAsksTheTxmByID(t *testing.T) {
+	txm := &fakeTxm{status: commontypes.Finalized}
+	writer := newTxmWriter(t, nil, txm, fakeKeys{}, common.HexToAddress("0x01"), common.HexToAddress("0xfee"))
+
+	txID, err := writer.UpdatePrices(t.Context(), nil, gasOnlyUpdate())
+	require.NoError(t, err)
+
+	status, err := writer.GetTransactionStatus(t.Context(), txID)
+	require.NoError(t, err)
+	require.Equal(t, commontypes.Finalized, status)
+	require.Equal(t, []string{txID}, txm.statusFor)
+}
+
+func TestEVMFeeQuoterWriterGetTransactionStatusReturnsTxmErrors(t *testing.T) {
+	txm := &fakeTxm{status: commontypes.Failed, statusErr: errors.New("lookup failed")}
+	writer := newTxmWriter(t, nil, txm, fakeKeys{}, common.HexToAddress("0x01"), common.HexToAddress("0xfee"))
+
+	_, err := writer.GetTransactionStatus(t.Context(), "id")
+	require.ErrorContains(t, err, "lookup failed")
+}
+
+func TestEVMFeeQuoterWriterGetTransactionStatusWithoutATxmFails(t *testing.T) {
+	writer := NewEVMFeeQuoterWriter(logger.Test(t), nil, common.HexToAddress("0xfee"))
+
+	status, err := writer.GetTransactionStatus(t.Context(), "id")
+	require.Error(t, err)
+	require.Equal(t, commontypes.Unknown, status)
 }

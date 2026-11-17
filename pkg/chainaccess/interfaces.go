@@ -7,6 +7,8 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+
+	commontypes "github.com/smartcontractkit/chainlink-common/pkg/types"
 )
 
 // HeadTracker provides access to the latest blockchain head information.
@@ -156,7 +158,9 @@ type FeeQuoterReader interface {
 type FeeQuoterWriter interface {
 	// UpdatePrices generates and broadcasts a transaction for the given fee token
 	// and gas token price updates to the chain.
-	UpdatePrices(ctx context.Context, tokenPrices []protocol.FeeTokenPriceUpdate, gasPrices []protocol.GasTokenPriceUpdate) error
+	UpdatePrices(ctx context.Context, tokenPrices []protocol.FeeTokenPriceUpdate, gasPrices []protocol.GasTokenPriceUpdate) (string, error)
+	// GetTransactionStatus returns the TXM's status of a transaction, by the idempotency key
+	GetTransactionStatus(ctx context.Context, txID string) (commontypes.TransactionStatus, error)
 }
 
 // GasPriceReader reads a chain's current native gas price from the RPC.
