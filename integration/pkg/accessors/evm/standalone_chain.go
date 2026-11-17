@@ -100,6 +100,7 @@ type chainRuntime interface {
 		keyName string,
 		feeQuoterAddress common.Address,
 		tokens *pricereader.TokenMetadataCache,
+		nativeDecimals uint8,
 	) (chainaccess.FeeQuoterWriter, error)
 	Close() error
 }
@@ -448,6 +449,7 @@ func (c *standaloneChain) NewFeeQuoterWriter(
 	keyName string,
 	feeQuoterAddress common.Address,
 	tokens *pricereader.TokenMetadataCache,
+	nativeDecimals uint8,
 ) (chainaccess.FeeQuoterWriter, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -461,14 +463,19 @@ func (c *standaloneChain) NewFeeQuoterWriter(
 	if err := c.ensureTXMLocked(ctx, ks, keyName); err != nil {
 		return nil, err
 	}
-	return pricereader.NewEVMFeeQuoterWriter(
+	writer, err := pricereader.NewEVMFeeQuoterWriter(
 		logger.With(c.lggr, "component", "FeeQuoterWriter"),
 		c.chainClient,
 		feeQuoterAddress,
+		nativeDecimals,
 		pricereader.WithTxm(c.txm, c.chainKeystore, c.fromAddresses),
 		pricereader.WithFeeEstimator(c.feeEstimator),
 		pricereader.WithTokenCache(tokens),
-	), nil
+	)
+	if err != nil {
+		return nil, err
+	}
+	return writer, nil
 }
 
 var _ logPollerRuntime = (*standaloneChain)(nil)

@@ -226,7 +226,6 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 	var feeQuoterWriter chainaccess.FeeQuoterWriter
 	var gasPriceReader chainaccess.GasPriceReader
 	if hasPricerConfig {
-		feeQuoterWriter = pricereader.NewEVMFeeQuoterWriter(chainLggr, chainClient, common.HexToAddress(feeQuoterAddress), pricereader.WithTokenCache(tokenCache))
 		daOracle := func(ctx context.Context) (pricereader.DAGasPriceOracle, error) {
 			oracle, err := runtime.DAGasPriceOracle(ctx)
 			// A nil L1Oracle must become a plain nil, so that the reader sees no oracle.
@@ -236,6 +235,10 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 			return oracle, nil
 		}
 		var err error
+		if feeQuoterWriter, err = pricereader.NewEVMFeeQuoterWriter(chainLggr, chainClient, common.HexToAddress(feeQuoterAddress), nativeDecimals, pricereader.WithTokenCache(tokenCache)); err != nil {
+			closeErr := runtime.Close()
+			return nil, errors.Join(fmt.Errorf("failed to create EVM fee quoter writer for chain %d: %w", chainSelector, err), closeErr)
+		}
 		if gasPriceReader, err = pricereader.NewEVMGasPriceReader(chainClient, daOracle, nativeDecimals); err != nil {
 			closeErr := runtime.Close()
 			return nil, errors.Join(fmt.Errorf("failed to create EVM gas price reader for chain %d: %w", chainSelector, err), closeErr)
@@ -452,7 +455,7 @@ func (a *accessor) startFeeQuoterWriter(ctx context.Context, ks keystore.Keystor
 	if a.feeQuoterWriter == nil || a.runtime == nil {
 		return
 	}
-	writer, err := a.runtime.NewFeeQuoterWriter(ctx, ks, a.keyName, a.feeQuoterAddr, a.tokenCache)
+	writer, err := a.runtime.NewFeeQuoterWriter(ctx, ks, a.keyName, a.feeQuoterAddr, a.tokenCache, a.nativeDecimals)
 	if err == nil && writer == nil {
 		err = errors.New("writer is nil")
 	}
