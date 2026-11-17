@@ -41,12 +41,12 @@ func TestE2ESmoke_MTTPTransfers(t *testing.T) {
 
 	mttpA := evm.DeployMTTP(t, env, selA)
 	mttpB := evm.DeployMTTP(t, env, selB)
-	for i := 0; i < tokenCount; i++ {
+	for i := range tokenCount {
 		mttpA.AddToken(t, env, tokensA[i], evm.TokenDecimals, selB, tokensB[i], mttpB.Pool, false, false)
 		mttpB.AddToken(t, env, tokensB[i], evm.TokenDecimals, selA, tokensA[i], mttpA.Pool, false, false)
 	}
 
-	for i := 0; i < tokenCount; i++ {
+	for i := range tokenCount {
 		poolA := mttpA.AsTokenPool(tokensA[i], evm.TokenDecimals)
 		poolB := mttpB.AsTokenPool(tokensB[i], evm.TokenDecimals)
 		tokenpool.RunBidirectionalTokenTransfer(t, lib, poolA, poolB, 1, protocol.Finality(0), fmt.Sprintf("t%d", i+1))
@@ -71,7 +71,7 @@ func TestE2ESmoke_MTTPMigration(t *testing.T) {
 	poolsA := make([]tokenpool.TokenPool, tokenCount)
 	poolsB := make([]tokenpool.TokenPool, tokenCount)
 	conns := make([]tokenpool.Connection, tokenCount)
-	for i := 0; i < tokenCount; i++ {
+	for i := range tokenCount {
 		poolsA[i] = evm.DeployBurnMintTokenPoolV161(t, env, selA, fmt.Sprintf("mig-a-%d", i))
 		poolsB[i] = evm.DeployBurnMintTokenPoolV161(t, env, selB, fmt.Sprintf("mig-b-%d", i))
 		conns[i] = tokenpool.Connection{
@@ -84,7 +84,7 @@ func TestE2ESmoke_MTTPMigration(t *testing.T) {
 		}
 	}
 	tokenpool.ConnectAll(t, env, cciputils.Version_1_6_1, conns)
-	for i := 0; i < tokenCount; i++ {
+	for i := range tokenCount {
 		tokenpool.RunBidirectionalTokenTransfer(t, lib, poolsA[i], poolsB[i], 1, fCfg, fmt.Sprintf("initial t%d", i+1))
 	}
 
@@ -149,7 +149,7 @@ func deployMTTPTokens(t *testing.T, env *deployment.Environment, sel uint64, qua
 	t.Helper()
 
 	out := make([]common.Address, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		pool := evm.DeployBurnMintTokenPoolV161(t, env, sel, fmt.Sprintf("%s-%d", qual, i))
 		out[i] = common.HexToAddress(pool.Token())
 	}
