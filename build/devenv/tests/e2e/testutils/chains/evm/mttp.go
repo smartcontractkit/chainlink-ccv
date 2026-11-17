@@ -204,14 +204,6 @@ func (m *MTTP) AddToken(
 		}})
 	})
 
-	confirm(t, chain, "set inline connection", func() (*types.Transaction, error) {
-		return pcm.ApplyInlineConnectionConfigUpdates(chain.DeployerKey, nil, []pool_config_manager.ConnectionPolicyStoreInlineConnectionConfigArgs{{
-			LocalToken:          token,
-			RemoteChainSelector: remoteChain,
-			RemoteToken:         evmAddressBytes(remoteToken),
-		}})
-	})
-
 	confirm(t, chain, "set inline remote pool", func() (*types.Transaction, error) {
 		return pcm.ApplyInlineRemotePoolConfigUpdates(chain.DeployerKey, nil, []pool_config_manager.ConnectionPolicyStoreInlineRemotePoolConfigArgs{{
 			LocalToken:             token,
@@ -246,6 +238,16 @@ func (m *MTTP) AddToken(
 	} {
 		confirm(t, chain, p.label, p.apply)
 	}
+
+	// The connection setter runs checkLaneRecords, which needs the remote pool record and the fee
+	// and security records to already exist, so it comes after both.
+	confirm(t, chain, "set inline connection", func() (*types.Transaction, error) {
+		return pcm.ApplyInlineConnectionConfigUpdates(chain.DeployerKey, nil, []pool_config_manager.ConnectionPolicyStoreInlineConnectionConfigArgs{{
+			LocalToken:          token,
+			RemoteChainSelector: remoteChain,
+			RemoteToken:         evmAddressBytes(remoteToken),
+		}})
+	})
 
 	// The token must have its profile before the registry accepts the pool, because setPool checks
 	// isSupportedToken, which reads the pool config manager.
