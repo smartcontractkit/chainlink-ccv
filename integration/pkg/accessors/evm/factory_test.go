@@ -690,6 +690,10 @@ func (markerFeeQuoterWriter) UpdatePrices(context.Context, []protocol.FeeTokenPr
 	return "", nil
 }
 
+func (markerFeeQuoterWriter) EstimatePricesCost(context.Context, []protocol.FeeTokenPriceUpdate, []protocol.GasTokenPriceUpdate) (*big.Int, error) {
+	return new(big.Int), nil
+}
+
 func (markerFeeQuoterWriter) GetTransactionStatus(context.Context, string) (commontypes.TransactionStatus, error) {
 	return commontypes.Unknown, nil
 }

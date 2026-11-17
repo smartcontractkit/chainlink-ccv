@@ -127,6 +127,7 @@ type standaloneChain struct {
 
 	mu                  sync.Mutex
 	txm                 txmgr.TxManager
+	feeEstimator        gas.EvmFeeEstimator
 	txmKeyName          string
 	chainKeystore       evmkeys.ChainStore
 	fromAddresses       []common.Address
@@ -431,6 +432,7 @@ func (c *standaloneChain) ensureTXMLocked(ctx context.Context, ks keystore.Keyst
 		txm.OnNewLongestChain(ctx, currentHead)
 	}
 	c.txm = txm
+	c.feeEstimator = estimator
 	c.txmKeyName = keyName
 	c.chainKeystore = chainKeystore
 	c.fromAddresses = fromAddresses
@@ -464,6 +466,7 @@ func (c *standaloneChain) NewFeeQuoterWriter(
 		c.chainClient,
 		feeQuoterAddress,
 		pricereader.WithTxm(c.txm, c.chainKeystore, c.fromAddresses),
+		pricereader.WithFeeEstimator(c.feeEstimator),
 		pricereader.WithTokenCache(tokens),
 	), nil
 }

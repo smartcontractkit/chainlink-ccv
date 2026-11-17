@@ -22,7 +22,9 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	commontypes "github.com/smartcontractkit/chainlink-common/pkg/types"
+	"github.com/smartcontractkit/chainlink-evm/pkg/assets"
 	"github.com/smartcontractkit/chainlink-evm/pkg/txmgr"
+	"github.com/smartcontractkit/chainlink-framework/chains/fees"
 )
 
 func TestEVMFeeQuoterWriterLogsTheUpdates(t *testing.T) {
@@ -66,10 +68,10 @@ func TestEVMFeeQuoterWriterLogsTheUpdates(t *testing.T) {
 	require.Equal(t, packed, gas.UsdPerUnitGas)
 }
 
-func TestEVMFeeQuoterWriterAcceptsAnEmptyUpdate(t *testing.T) {
+func TestEVMFeeQuoterWriterErrorsOnEmptyUpdate(t *testing.T) {
 	writer := NewEVMFeeQuoterWriter(logger.Test(t), nil, common.Address{})
 	txID, err := writer.UpdatePrices(context.Background(), nil, nil)
-	require.NoError(t, err)
+	require.ErrorContains(t, err, "no token and gas price updates to be made")
 	require.Empty(t, txID)
 }
 
@@ -482,11 +484,11 @@ func TestEVMFeeQuoterWriterSendsUpdatePricesThroughTheTxm(t *testing.T) {
 	require.EqualValues(t, 2, unpacked.DAFee.ToInt().Int64())
 }
 
-func TestEVMFeeQuoterWriterSendsNothingForAnEmptyUpdate(t *testing.T) {
+func TestEVMFeeQuoterWriterErrorsForAnEmptyUpdate(t *testing.T) {
 	txm := &fakeTxm{}
 	writer := newTxmWriter(t, nil, txm, fakeKeys{}, common.HexToAddress("0x01"), common.HexToAddress("0xfee"))
 	_, err := writer.UpdatePrices(t.Context(), nil, nil)
-	require.NoError(t, err)
+	require.ErrorContains(t, err, "no token and gas price updates to be made")
 	require.Empty(t, txm.requests)
 }
 
@@ -556,7 +558,7 @@ func TestEVMFeeQuoterWriterSendsNothingWhenNoUpdateHasDecimals(t *testing.T) {
 	writer := newTxmWriter(t, env.Client, txm, fakeKeys{}, common.HexToAddress("0x01"), common.HexToAddress("0xfee"))
 	_, err := writer.UpdatePrices(t.Context(),
 		[]protocol.FeeTokenPriceUpdate{{Address: common.HexToAddress("0xdead").Bytes(), Price: (*protocol.USDPerWholeToken)(big.NewInt(1))}}, nil)
-	require.NoError(t, err)
+	require.ErrorContains(t, err, "no gas price updates, and unable to get all token decimals")
 	require.Empty(t, txm.requests)
 }
 
@@ -583,11 +585,11 @@ func gasOnlyUpdate() []protocol.GasTokenPriceUpdate {
 	}}
 }
 
-func TestEVMFeeQuoterWriterReturnsAnEmptyIDWhenNothingIsSent(t *testing.T) {
+func TestEVMFeeQuoterWriterReturnsErrorWhenNoValuesToUpdate(t *testing.T) {
 	txm := &fakeTxm{}
 	writer := newTxmWriter(t, nil, txm, fakeKeys{}, common.HexToAddress("0x01"), common.HexToAddress("0xfee"))
 	txID, err := writer.UpdatePrices(t.Context(), nil, nil)
-	require.NoError(t, err)
+	require.ErrorContains(t, err, "no token and gas price updates to be made")
 	require.Empty(t, txID)
 	require.Empty(t, txm.requests)
 
@@ -648,4 +650,105 @@ func TestEVMFeeQuoterWriterGetTransactionStatusWithoutATxmFails(t *testing.T) {
 	status, err := writer.GetTransactionStatus(t.Context(), "id")
 	require.Error(t, err)
 	require.Equal(t, commontypes.Unknown, status)
+}
+
+type fakeEstimator struct {
+	cost     *big.Int
+	err      error
+	calls    int
+	feeLimit uint64
+	from     common.Address
+	to       common.Address
+	calldata []byte
+}
+
+func (f *fakeEstimator) GetMaxCost(_ context.Context, _ assets.Eth, calldata []byte, feeLimit uint64, _ *assets.Wei, from, to *common.Address, _ ...fees.Opt) (*big.Int, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	f.calls++
+	cost := new(big.Int).Mul(f.cost, big.NewInt(int64(feeLimit)))
+	f.calldata, f.feeLimit, f.from, f.to = calldata, feeLimit, *from, *to
+	return cost, f.err
+}
+
+func TestEVMFeeQuoterWriterEstimatesThePriceUpdateCostWithoutSending(t *testing.T) {
+	txm := &fakeTxm{}
+	gasPrice := big.NewInt(10)
+	est := &fakeEstimator{cost: gasPrice}
+	from, fq := common.HexToAddress("0x01"), common.HexToAddress("0xfee")
+	writer := NewEVMFeeQuoterWriter(logger.Test(t), nil, fq, WithTxm(txm, fakeKeys{}, []common.Address{from}), WithFeeEstimator(est))
+	gasLimit := uint64(updatePricesBaseGas + updatePricesGasPerUpdate)
+
+	cost, err := writer.EstimatePricesCost(t.Context(), nil, gasOnlyUpdate())
+
+	require.NoError(t, err)
+	requireSameInt(t, new(big.Int).Mul(gasPrice, big.NewInt(int64(gasLimit))), cost)
+	require.Empty(t, txm.requests, "an estimate must not send a transaction")
+	require.Equal(t, gasLimit, est.feeLimit)
+	require.Equal(t, from, est.from)
+	require.Equal(t, fq, est.to)
+	require.NotEmpty(t, est.calldata)
+}
+
+func TestEVMFeeQuoterWriterEstimatesTheSameCalldataItSends(t *testing.T) {
+	txm := &fakeTxm{}
+	est := &fakeEstimator{cost: big.NewInt(1)}
+	from, fq := common.HexToAddress("0x01"), common.HexToAddress("0xfee")
+	writer := NewEVMFeeQuoterWriter(logger.Test(t), nil, fq, WithTxm(txm, fakeKeys{}, []common.Address{from}), WithFeeEstimator(est))
+
+	_, err := writer.EstimatePricesCost(t.Context(), nil, gasOnlyUpdate())
+	require.NoError(t, err)
+	estimated := est.calldata
+	_, err = writer.UpdatePrices(t.Context(), nil, gasOnlyUpdate())
+	require.NoError(t, err)
+
+	require.Len(t, txm.requests, 1)
+	require.Equal(t, txm.requests[0].EncodedPayload, estimated)
+	require.Equal(t, txm.requests[0].FeeLimit, est.feeLimit)
+}
+
+func TestEVMFeeQuoterWriterEstimateErrorsForAnEmptyUpdate(t *testing.T) {
+	est := &fakeEstimator{cost: big.NewInt(1)}
+	writer := NewEVMFeeQuoterWriter(logger.Test(t), nil, common.HexToAddress("0xfee"),
+		WithTxm(&fakeTxm{}, fakeKeys{}, []common.Address{common.HexToAddress("0x01")}), WithFeeEstimator(est))
+
+	_, err := writer.EstimatePricesCost(t.Context(), nil, nil)
+
+	require.ErrorContains(t, err, "no token and gas price updates to be made")
+}
+
+func TestEVMFeeQuoterWriterEstimateReturnsTheEstimatorError(t *testing.T) {
+	est := &fakeEstimator{err: errors.New("rpc down")}
+	writer := NewEVMFeeQuoterWriter(logger.Test(t), nil, common.HexToAddress("0xfee"),
+		WithTxm(&fakeTxm{}, fakeKeys{}, []common.Address{common.HexToAddress("0x01")}), WithFeeEstimator(est))
+
+	cost, err := writer.EstimatePricesCost(t.Context(), nil, gasOnlyUpdate())
+
+	require.ErrorContains(t, err, "rpc down")
+	require.Nil(t, cost)
+}
+
+func TestEVMFeeQuoterWriterEstimateFailsWithoutAnEstimatorOrASender(t *testing.T) {
+	fq := common.HexToAddress("0xfee")
+	noEstimator := NewEVMFeeQuoterWriter(logger.Test(t), nil, fq, WithTxm(&fakeTxm{}, fakeKeys{}, []common.Address{common.HexToAddress("0x01")}))
+	_, err := noEstimator.EstimatePricesCost(t.Context(), nil, gasOnlyUpdate())
+	require.ErrorContains(t, err, "no fee estimator")
+
+	noSender := NewEVMFeeQuoterWriter(logger.Test(t), nil, fq, WithFeeEstimator(&fakeEstimator{cost: big.NewInt(1)}))
+	_, err = noSender.EstimatePricesCost(t.Context(), nil, gasOnlyUpdate())
+	require.ErrorContains(t, err, "no sender address")
+}
+
+func TestEVMFeeQuoterWriterSendStillSucceedsWhenTheEstimateFails(t *testing.T) {
+	txm := &fakeTxm{}
+	est := &fakeEstimator{err: errors.New("rpc down")}
+	writer := NewEVMFeeQuoterWriter(logger.Test(t), nil, common.HexToAddress("0xfee"),
+		WithTxm(txm, fakeKeys{}, []common.Address{common.HexToAddress("0x01")}), WithFeeEstimator(est))
+
+	txID, err := writer.UpdatePrices(t.Context(), nil, gasOnlyUpdate())
+
+	require.NoError(t, err)
+	require.NotEmpty(t, txID)
+	require.Len(t, txm.requests, 1)
 }
