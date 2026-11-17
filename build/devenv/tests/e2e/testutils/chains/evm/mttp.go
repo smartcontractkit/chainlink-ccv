@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	evmadapters "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/adapters"
-	tarops "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/token_admin_registry"
+	tarseq "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/sequences"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/burn_mint_multi_token_pool"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/connection_policy_store"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/fee_policy_store"
@@ -19,11 +19,9 @@ import (
 	tp_v200 "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v2_0_0/token_pool"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/testhelpers"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
-	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/operations/contract"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	cldf_ops "github.com/smartcontractkit/chainlink-deployments-framework/operations"
 	bnm_drip "github.com/smartcontractkit/chainlink-evm/gethwrappers/shared/generated/initial/burn_mint_erc20_with_drip"
-	mcms_types "github.com/smartcontractkit/mcms/types"
 
 	devenvmcms "github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/testutils/mcms"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/testutils/tokenpool"
@@ -255,22 +253,23 @@ func (m *MTTP) AddToken(
 		}})
 	})
 
-	// The token's TAR admin is the CLL timelock, so the pool change goes through MCMS.
+	// The token is not registered yet and its TAR admin is the CLL timelock, so register the MTTP
+	// pool through the same sequence the token expansion uses: propose, accept, setPool. The writes
+	// the deployer is not allowed to make are executed by the timelock.
 	tarAddr, err := (&evmadapters.EVMTokenBase{}).GetTokenAdminRegistryAddress(env.DataStore, m.Selector)
 	require.NoError(t, err, "token admin registry on chain %d", m.Selector)
 	env.OperationsBundle = cldf_ops.NewBundle(env.OperationsBundle.GetContext, env.OperationsBundle.Logger, cldf_ops.NewMemoryReporter())
-	setPoolReport, err := cldf_ops.ExecuteOperation(env.OperationsBundle, tarops.SetPool, chain, contract.FunctionInput[tarops.SetPoolArgs]{
-		ChainSelector: m.Selector,
-		Address:       tarAddr,
-		Args:          tarops.SetPoolArgs{TokenAddress: token, TokenPoolAddress: m.Pool},
+	registerReport, err := cldf_ops.ExecuteSequence(env.OperationsBundle, tarseq.RegisterToken, chain, tarseq.RegisterTokenInput{
+		ChainSelector:             m.Selector,
+		TokenAddress:              token,
+		TokenPoolAddress:          m.Pool,
+		TokenAdminRegistryAddress: tarAddr,
 	})
-	require.NoError(t, err, "build setPool for token %s on chain %d", token.Hex(), m.Selector)
-	batchOp, err := contract.NewBatchOperationFromWrites([]contract.WriteOutput{setPoolReport.Output})
-	require.NoError(t, err, "build setPool batch op for token %s", token.Hex())
+	require.NoError(t, err, "build register token for %s on chain %d", token.Hex(), m.Selector)
 	out, err := changesets.NewOutputBuilder(*env, changesets.GetRegistry()).
-		WithBatchOps([]mcms_types.BatchOperation{batchOp}).
-		Build(devenvmcms.DefaultInput("Set MTTP pool in TAR " + token.Hex()))
-	require.NoError(t, err, "build setPool timelock proposal for token %s", token.Hex())
+		WithBatchOps(registerReport.Output.BatchOps).
+		Build(devenvmcms.DefaultInput("Register MTTP pool " + token.Hex()))
+	require.NoError(t, err, "build register token proposal for %s", token.Hex())
 	testhelpers.ProcessTimelockProposals(t, *env, out.MCMSTimelockProposals, true)
 
 	grantMintAndBurnRoles(t, env, m.Selector, token, m.Pool)
