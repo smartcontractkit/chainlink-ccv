@@ -174,6 +174,10 @@ jobs:
             repository: chainlink-ccv-aggregator
             dockerfile: aggregator/Dockerfile
             build_args: ''
+          - module: executor
+            repository: chainlink-ccv-executor
+            dockerfile: executor/Dockerfile
+            build_args: ''
     permissions:
       contents: read
       id-token: write
