@@ -13,14 +13,15 @@ import (
 	evmadapters "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/adapters"
 	bnm_drip_v1_0 "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/burn_mint_erc20_with_drip"
 	tarseq "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/sequences"
+	tokenpoolops "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/token_pool"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/burn_mint_multi_token_pool"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/connection_policy_store"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/fee_policy_store"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/pool_config_manager"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/security_policy_store"
-	tp_v200 "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v2_0_0/token_pool"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/testhelpers"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
+	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/operations/contract"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	cldf_ops "github.com/smartcontractkit/chainlink-deployments-framework/operations"
 
@@ -133,10 +134,9 @@ func DeployMTTP(t *testing.T, env *deployment.Environment, sel uint64) *MTTP {
 		return pcm.ApplyFeePolicyConfigUpdates(chain.DeployerKey, nil, nil, []pool_config_manager.FeePolicyStoreFeePolicyConfigArgs{{
 			PolicyName:          policyKey(policyFee),
 			RemoteChainSelector: 0,
-			FeeConfig: pool_config_manager.FeePolicyStoreFeeConfig{
-				FinalityTransferFeeBps:     100,
-				FastFinalityTransferFeeBps: 200,
-			},
+			// No token fee, so the shared transfer helper's exact balance checks hold. Fee behavior is
+			// covered by the Foundry tests.
+			FeeConfig: pool_config_manager.FeePolicyStoreFeeConfig{},
 		}})
 	})
 	confirm(t, chain, "set rate limit policy default", func() (*types.Transaction, error) {
@@ -292,18 +292,25 @@ func tokenPolicies(token common.Address, name string) []pool_config_manager.Poli
 }
 
 // AddLegacyPoolRemotePool adds a remote pool to an existing single-token pool, so a legacy pool
-// trusts a migrated MTTP on the other side during the canary phase.
+// trusts a migrated MTTP on the other side during the canary phase. The pool is owned by the CLL
+// timelock, so the write goes through MCMS.
 func AddLegacyPoolRemotePool(t *testing.T, env *deployment.Environment, sel uint64, poolAddr string, remoteChain uint64, remotePool common.Address) {
 	t.Helper()
 
 	chain, ok := env.BlockChains.EVMChains()[sel]
 	require.True(t, ok, "evm chain not found for selector %d", sel)
 
-	pool, err := tp_v200.NewTokenPool(common.HexToAddress(poolAddr), chain.Client)
-	require.NoError(t, err, "bind legacy pool on chain %d", sel)
-	confirm(t, chain, "legacy pool add remote pool", func() (*types.Transaction, error) {
-		return pool.AddRemotePool(chain.DeployerKey, remoteChain, evmAddressBytes(remotePool))
+	env.OperationsBundle = cldf_ops.NewBundle(env.OperationsBundle.GetContext, env.OperationsBundle.Logger, cldf_ops.NewMemoryReporter())
+	addReport, err := cldf_ops.ExecuteOperation(env.OperationsBundle, tokenpoolops.AddRemotePool, chain, contract.FunctionInput[tokenpoolops.AddRemotePoolArgs]{
+		ChainSelector: sel,
+		Address:       common.HexToAddress(poolAddr),
+		Args: tokenpoolops.AddRemotePoolArgs{
+			RemoteChainSelector: remoteChain,
+			RemotePoolAddress:   evmAddressBytes(remotePool),
+		},
 	})
+	require.NoError(t, err, "build addRemotePool for legacy pool on chain %d", sel)
+	devenvmcms.ExecuteWrites(t, env, "Add remote pool to legacy pool", []contract.WriteOutput{addReport.Output})
 }
 
 // grantMintAndBurnRoles gives the pool the token's mint and burn roles. The token's admin is the
