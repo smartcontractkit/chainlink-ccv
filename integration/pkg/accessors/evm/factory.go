@@ -558,7 +558,8 @@ func (a *accessor) FeeQuoterReader() (chainaccess.FeeQuoterReader, error) {
 	return a.feeQuoterReader, nil
 }
 
-// FeeQuoterWriter returns a writer that only logs the updates. It does not send transactions yet.
+// FeeQuoterWriter returns the chain's writer: the TXM-backed one once SetKeystore has started it,
+// otherwise the log-only one that only logs the updates.
 func (a *accessor) FeeQuoterWriter() (chainaccess.FeeQuoterWriter, error) {
 	if a == nil || a.feeQuoterWriter == nil {
 		return nil, errors.New("fee quoter writer not available")
