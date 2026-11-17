@@ -9,7 +9,9 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/stretchr/testify/require"
 
+	tokenimpl "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/tokens/tokenimpl"
 	evmadapters "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/adapters"
+	bnm_drip_v1_0 "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/burn_mint_erc20_with_drip"
 	tarseq "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/sequences"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/burn_mint_multi_token_pool"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/connection_policy_store"
@@ -21,7 +23,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	cldf_ops "github.com/smartcontractkit/chainlink-deployments-framework/operations"
-	bnm_drip "github.com/smartcontractkit/chainlink-evm/gethwrappers/shared/generated/initial/burn_mint_erc20_with_drip"
 
 	devenvmcms "github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/testutils/mcms"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/testutils/tokenpool"
@@ -305,17 +306,18 @@ func AddLegacyPoolRemotePool(t *testing.T, env *deployment.Environment, sel uint
 	})
 }
 
-// grantMintAndBurnRoles gives the pool the token's mint and burn roles. The deployer holds the
-// token's burn-mint admin role, which the call needs.
+// grantMintAndBurnRoles gives the pool the token's mint and burn roles. The token's admin is the
+// CLL timelock, so the grants go through MCMS.
 func grantMintAndBurnRoles(t *testing.T, env *deployment.Environment, sel uint64, token, pool common.Address) {
 	t.Helper()
 
 	chain, ok := env.BlockChains.EVMChains()[sel]
 	require.True(t, ok, "evm chain not found for selector %d", sel)
 
-	tok, err := bnm_drip.NewBurnMintERC20(token, chain.Client)
-	require.NoError(t, err, "bind token on chain %d", sel)
-	confirm(t, chain, "grant mint/burn roles to pool", func() (*types.Transaction, error) {
-		return tok.GrantMintAndBurnRoles(chain.DeployerKey, pool)
-	})
+	impl, ok := tokenimpl.Get(bnm_drip_v1_0.ContractType)
+	require.True(t, ok, "no token implementation registered for %s", bnm_drip_v1_0.ContractType)
+	env.OperationsBundle = cldf_ops.NewBundle(env.OperationsBundle.GetContext, env.OperationsBundle.Logger, cldf_ops.NewMemoryReporter())
+	grants, err := impl.GrantPoolRoles(env.OperationsBundle, chain, token, pool, common.Address{})
+	require.NoError(t, err, "build mint/burn role grants for pool on chain %d", sel)
+	devenvmcms.ExecuteWrites(t, env, "Grant mint/burn roles to MTTP pool", grants)
 }
