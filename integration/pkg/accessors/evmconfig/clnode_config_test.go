@@ -401,7 +401,7 @@ HTTPURL = 'https://sepolia.example.com'
 	require.NoError(t, err)
 	require.Equal(t, []string{
 		"chain " + sepoliaChainID + ": standalone sets these itself, overriding the node config: " +
-			"BalanceMonitor.Enabled = false, HeadTracker.PersistenceEnabled = false, LogBroadcasterEnabled = false, " +
+			"HeadTracker.PersistenceEnabled = false, LogBroadcasterEnabled = false, " +
 			"Transactions.TransactionManagerV2.DualBroadcast = false",
 	}, got.Warnings)
 }

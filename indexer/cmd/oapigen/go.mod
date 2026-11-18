@@ -57,7 +57,7 @@ require (
 	github.com/scylladb/go-reflectx v1.0.1 // indirect
 	github.com/sethvargo/go-retry v0.3.0 // indirect
 	github.com/smartcontractkit/chain-selectors v1.0.112 // indirect
-	github.com/smartcontractkit/chainlink-common v0.11.2-0.20260915214759-02f2214d5823 // indirect
+	github.com/smartcontractkit/chainlink-common v0.11.2-0.20260917115705-1d3a14a9b049 // indirect
 	github.com/smartcontractkit/chainlink-common/pkg/chipingress v0.0.11-0.20260915184316-2730f1867c92 // indirect
 	github.com/smartcontractkit/libocr v0.0.0-20260810200708-618b5bf7f342 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect

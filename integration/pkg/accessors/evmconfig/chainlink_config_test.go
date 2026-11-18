@@ -1,6 +1,7 @@
 package evmconfig
 
 import (
+	"strconv"
 	"testing"
 	"time"
 
@@ -96,6 +97,25 @@ HTTPURL = 'https://sepolia.example.com'
 		value := *setting.field(&built.Chain)
 		require.NotNil(t, value, setting.path)
 		assert.Equal(t, setting.value, *value, setting.path)
+	}
+}
+
+func TestBuildChainlinkEVMTOMLPreservesBalanceMonitorSetting(t *testing.T) {
+	t.Parallel()
+
+	for _, enabled := range []bool{true, false} {
+		built, conversion := buildConverted(t, `
+[[EVM]]
+ChainID = '`+sepoliaChainID+`'
+[EVM.BalanceMonitor]
+Enabled = `+strconv.FormatBool(enabled)+`
+[[EVM.Nodes]]
+Name = 'primary'
+HTTPURL = 'https://sepolia.example.com'
+`)
+		require.NotNil(t, built.BalanceMonitor.Enabled)
+		assert.Equal(t, enabled, *built.BalanceMonitor.Enabled)
+		assert.Empty(t, conversion.Warnings)
 	}
 }
 

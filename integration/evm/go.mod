@@ -259,12 +259,12 @@ require (
 	github.com/smartcontractkit/chainlink-canton v0.0.0-20260615233851-4e78e7c23a58 // indirect
 	github.com/smartcontractkit/chainlink-ccip/chains/solana v0.0.0-20260129103204-4c8453dd8139 // indirect
 	github.com/smartcontractkit/chainlink-ccip/chains/solana/gobindings v0.0.0-20260129103204-4c8453dd8139 // indirect
-	github.com/smartcontractkit/chainlink-common v0.11.2-0.20260915214759-02f2214d5823 // indirect
+	github.com/smartcontractkit/chainlink-common v0.11.2-0.20260917115705-1d3a14a9b049 // indirect
 	github.com/smartcontractkit/chainlink-common/keystore v1.3.1-0.20260903141829-ef07b52a737d // indirect
 	github.com/smartcontractkit/chainlink-common/pkg/chipingress v0.0.11-0.20260915184316-2730f1867c92 // indirect
 	github.com/smartcontractkit/chainlink-common/x/config v0.0.0-20260928140953-a9b0d3a04daa // indirect
-	github.com/smartcontractkit/chainlink-evm v0.3.4-0.20260915165527-3701875605f4 // indirect
-	github.com/smartcontractkit/chainlink-evm/gethwrappers v0.0.0-20260915165527-3701875605f4 // indirect
+	github.com/smartcontractkit/chainlink-evm v0.3.4-0.20261002202636-d1ee27b0b587 // indirect
+	github.com/smartcontractkit/chainlink-evm/gethwrappers v0.0.0-20261002202636-d1ee27b0b587 // indirect
 	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier v0.0.0-20261002171637-04901d39ed79 // indirect
 	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier v0.0.0-20251211142334-5c3421fe2c8d // indirect
 	github.com/smartcontractkit/chainlink-protos/cre/go v0.0.0-20260916140808-f5d22b3cb3ee // indirect

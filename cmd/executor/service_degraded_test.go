@@ -94,6 +94,76 @@ execution_interval   = "1s"
 	assert.NotContains(t, skips.Error, health.ChainComponent(goodSelector))
 }
 
+type degradedTestAccessor struct {
+	chainaccess.Accessor
+	err error
+}
+
+func (a degradedTestAccessor) Degraded() error { return a.err }
+
+func TestAccessorsHealthReporterSortsAndPrefixesDegradedErrors(t *testing.T) {
+	reporter := accessorsHealthReporter{reporters: map[protocol.ChainSelector]health.DegradedReporter{
+		2: degradedTestAccessor{err: errors.New("second")},
+		1: degradedTestAccessor{err: errors.New("first")},
+	}}
+	require.EqualError(t, reporter.Degraded(), "Chain[1]: first\nChain[2]: second")
+}
+
+func TestFactory_Start_DegradedWhenAccessorBalanceMonitorFails(t *testing.T) {
+	const selector protocol.ChainSelector = 5009297550715157269
+	monitorErr := errors.New("EVM balance monitor for chain failed to start")
+
+	base := mocks.NewMockAccessor(t)
+	base.EXPECT().ContractTransmitter().Return(mocks.NewMockContractTransmitter(t), nil)
+	reader := mocks.NewMockDestinationReader(t)
+	reader.EXPECT().IsReady(mock.Anything).Return(true).Maybe()
+	base.EXPECT().DestinationReader().Return(reader, nil)
+	accessor := degradedTestAccessor{Accessor: base, err: monitorErr}
+	fac := mocks.NewMockAccessorFactory(t)
+	fac.EXPECT().GetAccessor(mock.Anything, selector).Return(accessor, nil)
+	evmFactory = fac
+	t.Cleanup(func() { evmFactory = nil })
+
+	port := freeTCPPort(t)
+	appConfig := fmt.Sprintf(`
+executor_id = "test-executor"
+indexer_address = ["http://localhost:9090"]
+http_listen_port = %d
+
+[chain_configuration."%d"]
+off_ramp_address = "0x0000000000000000000000000000000000000001"
+rmn_address = "0x0000000000000000000000000000000000000002"
+default_executor_address = "0x0000000000000000000000000000000000000003"
+executor_pool = ["test-executor"]
+execution_interval = "1s"
+`, port, selector)
+	lggr := logger.Nop()
+	reg, err := chainaccess.NewRegistry(lggr, "")
+	require.NoError(t, err)
+
+	f := NewFactory()
+	require.NoError(t, f.Start(context.Background(), bootstrap.JobSpec{AppConfig: appConfig}, bootstrap.ServiceDeps{Logger: lggr, Registry: reg}))
+	t.Cleanup(func() { assert.NoError(t, f.Stop(context.Background())) })
+
+	client := &http.Client{Timeout: 3 * time.Second}
+	healthURL := fmt.Sprintf("http://127.0.0.1:%d/health", port)
+	var body health.ReadinessResponse
+	require.Eventually(t, func() bool {
+		resp, err := client.Get(healthURL)
+		if err != nil {
+			return false
+		}
+		defer func() { _ = resp.Body.Close() }()
+		return resp.StatusCode == http.StatusOK && json.NewDecoder(resp.Body).Decode(&body) == nil
+	}, 10*time.Second, 100*time.Millisecond)
+
+	assert.Equal(t, health.Degraded, body.Status)
+	accessors := findHealthService(t, body, "executor.Accessors")
+	assert.Equal(t, health.Degraded, accessors.Status)
+	assert.Contains(t, accessors.Error, health.ChainComponent(selector)+": "+monitorErr.Error())
+	assert.Equal(t, health.Ready, findHealthService(t, body, "executor.Coordinator").Status)
+}
+
 func findHealthService(t *testing.T, body health.ReadinessResponse, name string) health.ServicesHealth {
 	t.Helper()
 	for _, svc := range body.Services {
