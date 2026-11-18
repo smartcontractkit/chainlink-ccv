@@ -62,7 +62,7 @@ type EVMFeeQuoterWriter struct {
 
 	tokens *TokenMetadataCache
 
-	// estimator prices an updatePrices transaction for EstimatePricesCost. Nil makes the estimate fail.
+	// estimator prices an updatePrices transaction for EstimateUpdateCost. Nil makes the estimate fail.
 	estimator feeQuoterUpdateEstimator
 	// priceMaxKey is the fee cap of a sender key. The estimator compares prices against it, so it must not be nil.
 	priceMaxKey func(common.Address) *assets.Wei
@@ -82,7 +82,7 @@ func WithTxm(txm txmgr.TxManager, keys keys.RoundRobin, fromAddresses []common.A
 	}
 }
 
-// WithFeeEstimator gives the writer the fee estimator that EstimatePricesCost uses to price a transaction, and the
+// WithFeeEstimator gives the writer the fee estimator that EstimateUpdateCost uses to price a transaction, and the
 // fee cap of each sender key (the TXM's PriceMaxKey), which the estimator needs as its maximum fee price.
 func WithFeeEstimator(estimator feeQuoterUpdateEstimator, priceMaxKey func(common.Address) *assets.Wei) WriterOption {
 	return func(w *EVMFeeQuoterWriter) {
@@ -101,7 +101,7 @@ func WithTokenCache(cache *TokenMetadataCache) WriterOption {
 }
 
 // NewEVMFeeQuoterWriter creates a writer. It does not call the chain.
-// The nativeDecimals argument is the decimals of the unit of the fee estimator's cost, which EstimatePricesCost scales
+// The nativeDecimals argument is the decimals of the unit of the fee estimator's cost, which EstimateUpdateCost scales
 // to 1e36.
 func NewEVMFeeQuoterWriter(lggr logger.Logger, client batchClient, address common.Address, nativeDecimals uint8, opts ...WriterOption) (*EVMFeeQuoterWriter, error) {
 	if nativeDecimals > MaxNativeTokenDecimals {
@@ -132,9 +132,9 @@ func (w *EVMFeeQuoterWriter) UpdatePrices(ctx context.Context, tokenPrices []pro
 	return w.send(ctx, priceUpdates)
 }
 
-// EstimatePricesCost returns the cost of the updatePrices transaction for the given updates, in whole
+// EstimateUpdateCost returns the cost of the updatePrices transaction for the given updates, in whole
 // native tokens with 1e36 precision. The TXM's fee estimator prices it and nothing is sent.
-func (w *EVMFeeQuoterWriter) EstimatePricesCost(ctx context.Context, tokenPrices []protocol.FeeTokenPriceUpdate, gasPrices []protocol.GasTokenPriceUpdate) (*big.Int, error) {
+func (w *EVMFeeQuoterWriter) EstimateUpdateCost(ctx context.Context, tokenPrices []protocol.FeeTokenPriceUpdate, gasPrices []protocol.GasTokenPriceUpdate) (*big.Int, error) {
 	if w.estimator == nil {
 		return nil, errors.New("fee quoter writer has no fee estimator")
 	}

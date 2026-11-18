@@ -701,7 +701,7 @@ func TestEVMFeeQuoterWriterEstimatesThePriceUpdateCostWithoutSending(t *testing.
 	writer := newTestWriter(t, logger.Test(t), nil, fq, WithTxm(txm, fakeKeys{}, []common.Address{from}), WithFeeEstimator(est, testPriceMax))
 	gasLimit := uint64(updatePricesBaseGas + updatePricesGasPerUpdate)
 
-	cost, err := writer.EstimatePricesCost(t.Context(), nil, gasOnlyUpdate())
+	cost, err := writer.EstimateUpdateCost(t.Context(), nil, gasOnlyUpdate())
 
 	require.NoError(t, err)
 	// 18 native decimals by default, so the wei cost is multiplied by 1e18 to reach 1e36 precision.
@@ -722,7 +722,7 @@ func TestEVMFeeQuoterWriterEstimatesTheSameCalldataItSends(t *testing.T) {
 	from, fq := common.HexToAddress("0x01"), common.HexToAddress("0xfee")
 	writer := newTestWriter(t, logger.Test(t), nil, fq, WithTxm(txm, fakeKeys{}, []common.Address{from}), WithFeeEstimator(est, testPriceMax))
 
-	_, err := writer.EstimatePricesCost(t.Context(), nil, gasOnlyUpdate())
+	_, err := writer.EstimateUpdateCost(t.Context(), nil, gasOnlyUpdate())
 	require.NoError(t, err)
 	estimated := est.calldata
 	_, err = writer.UpdatePrices(t.Context(), nil, gasOnlyUpdate())
@@ -738,7 +738,7 @@ func TestEVMFeeQuoterWriterEstimateErrorsForAnEmptyUpdate(t *testing.T) {
 	writer := newTestWriter(t, logger.Test(t), nil, common.HexToAddress("0xfee"),
 		WithTxm(&fakeTxm{}, fakeKeys{}, []common.Address{common.HexToAddress("0x01")}), WithFeeEstimator(est, testPriceMax))
 
-	_, err := writer.EstimatePricesCost(t.Context(), nil, nil)
+	_, err := writer.EstimateUpdateCost(t.Context(), nil, nil)
 
 	require.ErrorContains(t, err, "no token and gas price updates to be made")
 }
@@ -748,7 +748,7 @@ func TestEVMFeeQuoterWriterEstimateReturnsTheEstimatorError(t *testing.T) {
 	writer := newTestWriter(t, logger.Test(t), nil, common.HexToAddress("0xfee"),
 		WithTxm(&fakeTxm{}, fakeKeys{}, []common.Address{common.HexToAddress("0x01")}), WithFeeEstimator(est, testPriceMax))
 
-	cost, err := writer.EstimatePricesCost(t.Context(), nil, gasOnlyUpdate())
+	cost, err := writer.EstimateUpdateCost(t.Context(), nil, gasOnlyUpdate())
 
 	require.ErrorContains(t, err, "rpc down")
 	require.Nil(t, cost)
@@ -757,11 +757,11 @@ func TestEVMFeeQuoterWriterEstimateReturnsTheEstimatorError(t *testing.T) {
 func TestEVMFeeQuoterWriterEstimateFailsWithoutAnEstimatorOrASender(t *testing.T) {
 	fq := common.HexToAddress("0xfee")
 	noEstimator := newTestWriter(t, logger.Test(t), nil, fq, WithTxm(&fakeTxm{}, fakeKeys{}, []common.Address{common.HexToAddress("0x01")}))
-	_, err := noEstimator.EstimatePricesCost(t.Context(), nil, gasOnlyUpdate())
+	_, err := noEstimator.EstimateUpdateCost(t.Context(), nil, gasOnlyUpdate())
 	require.ErrorContains(t, err, "no fee estimator")
 
 	noSender := newTestWriter(t, logger.Test(t), nil, fq, WithFeeEstimator(&fakeEstimator{cost: big.NewInt(1)}, testPriceMax))
-	_, err = noSender.EstimatePricesCost(t.Context(), nil, gasOnlyUpdate())
+	_, err = noSender.EstimateUpdateCost(t.Context(), nil, gasOnlyUpdate())
 	require.ErrorContains(t, err, "no sender address")
 }
 
@@ -787,7 +787,7 @@ func TestEVMFeeQuoterWriterEstimateScalesTheCostByTheNativeDecimals(t *testing.T
 			WithTxm(&fakeTxm{}, fakeKeys{}, []common.Address{from}), WithFeeEstimator(est, testPriceMax))
 		require.NoError(t, err, "decimals %d", decimals)
 
-		cost, err := writer.EstimatePricesCost(t.Context(), nil, gasOnlyUpdate())
+		cost, err := writer.EstimateUpdateCost(t.Context(), nil, gasOnlyUpdate())
 
 		require.NoError(t, err, "decimals %d", decimals)
 		smallest := new(big.Int).Mul(big.NewInt(7), gasLimit)
@@ -812,7 +812,7 @@ func TestEVMFeeQuoterWriterEstimatePassesTheSendersFeeCap(t *testing.T) {
 	writer := newTestWriter(t, logger.Test(t), nil, fq,
 		WithTxm(&fakeTxm{}, fakeKeys{}, []common.Address{from}), WithFeeEstimator(est, testPriceMax))
 
-	_, err := writer.EstimatePricesCost(t.Context(), nil, gasOnlyUpdate())
+	_, err := writer.EstimateUpdateCost(t.Context(), nil, gasOnlyUpdate())
 
 	require.NoError(t, err)
 	require.Equal(t, from, est.from)
@@ -825,7 +825,7 @@ func TestEVMFeeQuoterWriterEstimateFailsWithoutAFeeCapAndNeverPassesNil(t *testi
 	writer := newTestWriter(t, logger.Test(t), nil, fq,
 		WithTxm(&fakeTxm{}, fakeKeys{}, []common.Address{from}), WithFeeEstimator(noCapFunc, nil))
 
-	cost, err := writer.EstimatePricesCost(t.Context(), nil, gasOnlyUpdate())
+	cost, err := writer.EstimateUpdateCost(t.Context(), nil, gasOnlyUpdate())
 
 	require.ErrorContains(t, err, "no max fee price")
 	require.Nil(t, cost)
@@ -836,7 +836,7 @@ func TestEVMFeeQuoterWriterEstimateFailsWithoutAFeeCapAndNeverPassesNil(t *testi
 		WithTxm(&fakeTxm{}, fakeKeys{}, []common.Address{from}),
 		WithFeeEstimator(nilCap, func(common.Address) *assets.Wei { return nil }))
 
-	cost, err = writer.EstimatePricesCost(t.Context(), nil, gasOnlyUpdate())
+	cost, err = writer.EstimateUpdateCost(t.Context(), nil, gasOnlyUpdate())
 
 	require.ErrorContains(t, err, "no max fee price")
 	require.Nil(t, cost)
