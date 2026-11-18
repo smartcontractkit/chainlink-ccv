@@ -797,10 +797,11 @@ func TestFactoryBuildsFeeQuoterWritersWithAndWithoutGasOverrides(t *testing.T) {
 
 			writer, err := got.FeeQuoterWriter()
 			require.NoError(t, err)
-			require.NoError(t, writer.UpdatePrices(t.Context(), nil, []protocol.GasTokenPriceUpdate{{
+			_, err = writer.UpdatePrices(t.Context(), nil, []protocol.GasTokenPriceUpdate{{
 				ChainSelector: 1,
 				USDGasPrice:   protocol.USDGasPrice{ExecutionFee: (*protocol.USDPerGasUnit)(big.NewInt(3))},
-			}}))
+			}})
+			require.NoError(t, err)
 
 			require.Len(t, txm.requests, 1)
 			require.EqualValues(t, tt.wantLimit, txm.requests[0].FeeLimit)
@@ -860,7 +861,8 @@ func TestFactoryAppliesGasOverridesPerChain(t *testing.T) {
 		require.NoError(t, got.(*accessor).SetKeystore(t.Context(), nil), "chain %d", sel)
 		writer, err := got.FeeQuoterWriter()
 		require.NoError(t, err, "chain %d", sel)
-		require.NoError(t, writer.UpdatePrices(t.Context(), nil, gasUpdate), "chain %d", sel)
+		_, err = writer.UpdatePrices(t.Context(), nil, gasUpdate)
+		require.NoError(t, err, "chain %d", sel)
 	}
 
 	for sel, want := range wantLimit {

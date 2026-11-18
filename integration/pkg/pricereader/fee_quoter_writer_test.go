@@ -521,7 +521,8 @@ func TestEVMFeeQuoterWriterUsesTheConfiguredUpdatePricesGas(t *testing.T) {
 			txm := &fakeTxm{}
 			writer := newTxmWriter(t, nil, txm, fakeKeys{}, common.HexToAddress("0x01"), common.HexToAddress("0xfee"))
 			WithUpdatePricesGas(tt.base, tt.perUpdate)(writer)
-			require.NoError(t, writer.UpdatePrices(t.Context(), nil, gasUpdate))
+			_, err := writer.UpdatePrices(t.Context(), nil, gasUpdate)
+			require.NoError(t, err)
 			require.Len(t, txm.requests, 1)
 			require.EqualValues(t, tt.want, txm.requests[0].FeeLimit)
 		})
