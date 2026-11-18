@@ -375,7 +375,7 @@ func TestGenericConfig_FeeQuoterGasOverridesAreOptional(t *testing.T) {
 
 	t.Run("table decodes per chain with partial fields", func(t *testing.T) {
 		var cfg chainaccess.GenericConfig
-		_, err := toml.Decode("[fee_quoter_gas_overrides.1]\nbase_gas = 150000\n[fee_quoter_gas_overrides.2]\ngas_per_update = 60000\n", &cfg)
+		_, err := toml.Decode("[fee_quoter_gas_override.1]\nbase_gas = 150000\n[fee_quoter_gas_override.2]\ngas_per_update = 60000\n", &cfg)
 		require.NoError(t, err)
 		require.Equal(t, chainaccess.FeeQuoterGasOverride{BaseGas: 150000}, cfg.FeeQuoterGasOverride["1"])
 		require.Equal(t, chainaccess.FeeQuoterGasOverride{GasPerUpdate: 60000}, cfg.FeeQuoterGasOverride["2"])

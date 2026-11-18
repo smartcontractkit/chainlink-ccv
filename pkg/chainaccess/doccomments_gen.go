@@ -15,6 +15,6 @@ func (DestinationChainConfig) DocComments() map[string]commentparsing.FieldDoc {
 	return map[string]commentparsing.FieldDoc{
 		"OffRampAddress":     {Comment: "OffRampAddress is the address of the OffRamp contract on the destination chain."},
 		"RmnAddress":         {Comment: "RmnAddress is the address of the RMN Remote contract on the destination chain.\nDEPRECATED: the RMN Remote address is derived from the OffRamp's on-chain static config,\nwhich is authoritative. This field is retained so that job specs written before the\nderivation cutover still decode; when set and it disagrees with the derived address, a\nwarning is logged and the derived address is used. Remove once deployed specs no longer\ncarry it."},
-		"TransmitterKeyName": {Comment: "TransmitterKeyName is the family-specific keystore key name used to sign and submit\ntransactions to the OffRamp on this chain. If empty, accessors fall back to their\nfamily's default transmitter key (defined by each family's transmitter package)."},
+		"TransmitterKeyName": {Comment: "TransmitterKeyName is the family-specific keystore key name used to sign and submit\ntransactions to the OffRamp and FeeQuoter on this chain. If empty, accessors fall back\nto their family's default transmitter key (defined by each family's transmitter package)."},
 	}
 }

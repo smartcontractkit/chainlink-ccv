@@ -27,7 +27,7 @@
 `PricerConfig` gains an optional map keyed by chain selector, next to `fee_quoter_addresses` and `native_token_decimals`:
 
 ```toml
-[fee_quoter_gas_overrides.5009297550715157269]
+[fee_quoter_gas_override.5009297550715157269]
 base_gas       = 150000
 gas_per_update = 60000
 ```
