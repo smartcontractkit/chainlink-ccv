@@ -6,6 +6,8 @@ import (
 	"math/big"
 	"testing"
 
+	commontypes "github.com/smartcontractkit/chainlink-common/pkg/types"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 
@@ -518,7 +520,8 @@ func TestFactoryResolvesFeeQuoterAndGasPriceReaderFromValidConfig(t *testing.T) 
 
 	writer, err := got.FeeQuoterWriter()
 	require.NoError(t, err)
-	require.NoError(t, writer.UpdatePrices(ctx, nil, nil))
+	_, err = writer.UpdatePrices(ctx, nil, nil)
+	require.NoError(t, err)
 
 	// A pricer-only accessor has no source or destination services.
 	_, err = got.SourceReader()
@@ -690,8 +693,12 @@ func TestFactoryIgnoresNativeTokenDecimalsWithoutFeeQuoterAddress(t *testing.T) 
 
 type markerFeeQuoterWriter struct{}
 
-func (markerFeeQuoterWriter) UpdatePrices(context.Context, []protocol.FeeTokenPriceUpdate, []protocol.GasTokenPriceUpdate) error {
-	return nil
+func (markerFeeQuoterWriter) UpdatePrices(context.Context, []protocol.FeeTokenPriceUpdate, []protocol.GasTokenPriceUpdate) (string, error) {
+	return "", nil
+}
+
+func (markerFeeQuoterWriter) GetTransactionStatus(context.Context, string) (commontypes.TransactionStatus, error) {
+	return commontypes.Unknown, nil
 }
 
 func TestSetKeystoreReplacesTheFeeQuoterWriterWithTheRuntimeOne(t *testing.T) {

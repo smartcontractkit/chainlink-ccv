@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.21.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.20.0...v0.21.0) (2026-11-17)
+
+
+### Features
+
+* **pricer:** add ability to trace transaction status ([#1602](https://github.com/smartcontractkit/chainlink-ccv/issues/1602)) ([2824a3d](https://github.com/smartcontractkit/chainlink-ccv/commit/2824a3d5e8655a07af81b868075feeac0ad7a229))
+
+## [0.20.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.19.0...v0.20.0) (2026-11-16)
+
+
+### Features
+
+* add job and transmitter visibility to admin console ([#1595](https://github.com/smartcontractkit/chainlink-ccv/issues/1595)) ([00c4ddd](https://github.com/smartcontractkit/chainlink-ccv/commit/00c4ddd0a959b063ab143f060d0dcee801092760))
+
 ## [0.19.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.18.0...v0.19.0) (2026-11-13)
 
 
