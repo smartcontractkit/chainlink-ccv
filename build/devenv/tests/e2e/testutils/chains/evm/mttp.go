@@ -51,7 +51,9 @@ const (
 
 // Destination overhead of the default policy, applied to every token.
 const (
-	defaultDestGasOverhead   = uint32(90_000)
+	// The pinned MTTP spec estimates 102k-195k gas for a first receive, and the v2 OffRamp prices with this value, so
+	// a low default would underquote. Use the top of that range plus margin.
+	defaultDestGasOverhead   = uint32(250_000)
 	defaultDestBytesOverhead = uint32(192)
 )
 

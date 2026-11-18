@@ -30,8 +30,9 @@ import (
 // counterpart on the other chain, so all traffic is MTTP to MTTP.
 //
 // Scenario: each token transfers A->B and B->A, and the shared helper asserts balances and
-// delivery. This proves the per-token policies, connection and TAR registration are isolated
-// per token on a shared pool, and that verification and execution work end to end.
+// delivery. This proves one pool can route several tokens through the registry and the full
+// pipeline. All three tokens share the same policy set here, so per-token policy isolation is
+// covered by the Foundry tests, not this one.
 func TestE2ESmoke_MTTPTransfers(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping e2e test in short mode; requires a running devenv environment")
