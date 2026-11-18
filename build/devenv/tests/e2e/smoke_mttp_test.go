@@ -208,7 +208,7 @@ func pauseMTTPExecutors(t *testing.T) func() {
 	containers, err := chaos.ExecutorContainers(cfg, devenvcommon.DefaultExecutorQualifier)
 	require.NoError(t, err)
 
-	var resumes []func()
+	resumes := make([]func(), 0, len(containers))
 	for _, container := range containers {
 		paused := false
 		resume := func() {
