@@ -536,9 +536,13 @@ func (a *accessor) Degraded() error {
 	if a == nil {
 		return nil
 	}
+	var runtimeErr error
+	if reporter, ok := a.runtime.(interface{ Degraded() error }); ok {
+		runtimeErr = reporter.Degraded()
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return errors.Join(a.serviceAddressesErr, a.feeQuoterWriterErr, a.chainDefaultsErr)
+	return errors.Join(a.serviceAddressesErr, a.feeQuoterWriterErr, a.chainDefaultsErr, runtimeErr)
 }
 
 func chainDefaultsError(problems []string) error {

@@ -675,9 +675,10 @@ before running the CLD input.
 Balance alerts are out of scope for staging. The CL nodes have none today that this plan could
 carry over: `[EVM.BalanceMonitor] Enabled = true` in
 `deploy/config/staging/chainlink-ccv/chains.yaml` only exports the balance metric, and nothing in
-chainlink-ccv-deploy defines an alert on it. The standalone executor does not run the balance
-monitor at all, so an unfunded transmitter surfaces as failed broadcasts. The soak in step 12
-therefore includes a manual balance check on the five testnets. Alerts are a prod item.
+chainlink-ccv-deploy defines an alert on it. Standalone EVM executors now run the same balance
+monitor by default, but metric collection likewise supplies no alert. Without an alert, an
+unfunded transmitter surfaces as failed broadcasts. The soak in step 12 therefore includes a
+manual balance check on the five testnets. Alerts are a prod item.
 
 ## The cutover, by wave
 

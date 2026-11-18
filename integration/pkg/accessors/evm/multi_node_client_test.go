@@ -99,6 +99,7 @@ func TestNewChainlinkEVMConfigUsesProductionDefaultsAndEveryRPCNode(t *testing.T
 	require.Equal(t, uint32(64), cfg.EVM().FinalityDepth())
 	require.False(t, cfg.EVM().FinalityTagEnabled(), "an explicit depth must select depth-based finality")
 	require.False(t, cfg.EVM().HeadTracker().PersistenceEnabled())
+	require.True(t, cfg.EVM().BalanceMonitor().Enabled())
 	require.True(t, cfg.EVM().Transactions().Enabled())
 	require.False(t, cfg.EVM().Transactions().ForwardersEnabled())
 	require.True(t, cfg.EVM().Transactions().TransactionManagerV2().Enabled())

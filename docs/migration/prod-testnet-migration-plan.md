@@ -82,9 +82,10 @@ staging," execute the staging plan's step with the substitutions in "Conventions
    "generic_fallback"` (`2s`) in the diff gets an explicit `BlockTime` value in the EVM TOML (if
    its block time exceeds `2s`) or a recorded acceptance. This is the scale test for the config
    tooling.
-3. **Balance monitoring is a separate handoff.** It is not a cutover gate. Executor funding and
+3. **Balance alerting is a separate handoff.** It is not a cutover gate. Executor funding and
    transaction receipts were validated during each wave; P9 compiles all standalone transmitter
-   addresses for monitoring. Alert ownership and thresholds are decided outside this migration effort.
+   addresses for monitoring. With Beholder enabled, the executor exports `node_balance{account, chainID}`,
+   but alert ownership and thresholds are decided outside this migration effort.
 4. **Small waves are proven; keep deriving the budget.** Node 0 was the canary, followed by
    nodes 1–5, 6–10, and 11–15 only after each prior wave passed. The last wave contains active
    nodes 16, 17, 18, and 20. Committee membership is not uniform across the 61 EVM chains, so
@@ -263,14 +264,15 @@ config changes.
 Chain-level settings carry over from the node TOML, over the same chain defaults the `ccip` image
 resolves, so most chains produce no warning. Compared setting by setting against the current DON
 config (`chains.yaml` + `rpcs.yaml`, 63 chains), and leaving aside what standalone fixes on every
-chain (heads in memory, TXM v2, no log broadcaster or balance monitor), one chain runs differently,
-and the conversion warns on four:
+chain (heads in memory, TXM v2, no log broadcaster), one chain runs differently, and the conversion
+warns on two:
 
 - Scroll Sepolia (534351): AutoPurge turned off. Its chain defaults use Scroll's detection API
   with no `Threshold`, which TXM v2 cannot run; with it on, the executor could not transmit there.
-- Polygon Amoy (80002) and chain 157: `BalanceMonitor.Enabled = false`. Executor funding uses the
-  separate external balance-monitoring handoff instead.
 - Chain 9746: `LogBroadcasterEnabled = false`; nothing standalone runs reads it.
+
+Polygon Amoy (80002) and chain 157 set `BalanceMonitor.Enabled = true`, which now carries over
+without a warning. No chain in the DON config turns the balance monitor off.
 
 Any other warning on a later run is new and needs a decision.
 
@@ -326,9 +328,13 @@ retry empty or unsupported faucets blindly. **Do not use faucet or bridge work t
 pre-existing zero/dust gaps already accepted in #21167 and #21168.** Record remaining gaps
 explicitly rather than hiding them behind an aggregate success count.
 
-Balance monitoring is separate from migration. Do not block job delivery on alert setup. Hand off
-the following standalone transmitter set to the balance-monitoring owners. Each address needs
-per-chain balance and transmit-failure coverage; alert ownership and thresholds remain open.
+Balance alerting is separate from migration. Do not block job delivery on alert setup. Hand off
+the following standalone transmitter set to the alert owners, pointing them at
+`node_balance{account, chainID}` with Beholder enabled. Each address needs per-chain balance and
+transmit-failure coverage; alert ownership and thresholds remain open. Cover a missing or stale
+balance series too: key and RPC read failures are logged without clearing the previous sample.
+On Tempo Testnet Moderato (chain ID `42431`), the series is whole pathUSD tokens, not native gas-token
+units, so the threshold is denominated in dollars.
 
 ### Standalone transmitter monitoring handoff
 

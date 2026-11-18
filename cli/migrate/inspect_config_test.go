@@ -60,9 +60,8 @@ SendOnly = true
 		require.Len(t, chain.Nodes, 1, "the send-only node is dropped")
 
 		assert.Equal(t, []string{
-			"chain 11155111: standalone sets these itself, overriding the node config: BalanceMonitor.Enabled = false",
 			"chain 11155111 node send-only: dropped, SendOnly nodes have no standalone equivalent",
-		}, report.Warnings, "GasEstimator.Mode carries over, so it is not a deviation")
+		}, report.Warnings, "GasEstimator.Mode and BalanceMonitor.Enabled carry over, so they are not deviations")
 		assert.Equal(t, evmconfig.ChainDefaultsSource(), report.ChainDefaults)
 		assert.Empty(t, report.ChainDefaultsProblems)
 	})
