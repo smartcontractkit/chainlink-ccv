@@ -120,7 +120,7 @@ func newAccessorFactory(
 	destChainConfigs := chainaccess.Infos[chainaccess.DestinationChainConfig](generic.ChainConfiguration).GetAllInfos()
 	feeQuoterInfos := chainaccess.Infos[string](generic.FeeQuoterAddresses).GetAllInfos()
 	nativeDecimalsInfos := chainaccess.Infos[uint8](generic.NativeTokenDecimals).GetAllInfos()
-	feeQuoterGasOverrideInfos := chainaccess.Infos[chainaccess.FeeQuoterGasOverride](generic.FeeQuoterGasOverrides).GetAllInfos()
+	feeQuoterGasOverrideInfos := chainaccess.Infos[chainaccess.FeeQuoterGasOverride](generic.FeeQuoterGasOverride).GetAllInfos()
 
 	return newFactory(
 		lggr,

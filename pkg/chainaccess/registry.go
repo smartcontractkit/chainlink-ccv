@@ -79,8 +79,8 @@ type PricerConfig struct {
 	// NativeTokenDecimals overrides the decimals of the native token for each chain selector.
 	NativeTokenDecimals map[string]uint8 `json:"native_token_decimals" toml:"native_token_decimals"`
 
-	// FeeQuoterGasOverrides overrides the gas limit of the FeeQuoter updatePrices transaction for each chain selector.
-	FeeQuoterGasOverrides map[string]FeeQuoterGasOverride `json:"fee_quoter_gas_overrides" toml:"fee_quoter_gas_overrides"`
+	// FeeQuoterGasOverride overrides the gas limit of the FeeQuoter updatePrices transaction for each chain selector.
+	FeeQuoterGasOverride map[string]FeeQuoterGasOverride `json:"fee_quoter_gas_override" toml:"fee_quoter_gas_override"`
 }
 
 // FeeQuoterGasOverride sets the gas limit of an updatePrices transaction: BaseGas + GasPerUpdate * updates.
@@ -119,8 +119,8 @@ type DestinationChainConfig struct {
 	// carry it.
 	RmnAddress string `toml:"rmn_address"`
 	// TransmitterKeyName is the family-specific keystore key name used to sign and submit
-	// transactions to the OffRamp on this chain. If empty, accessors fall back to their
-	// family's default transmitter key (defined by each family's transmitter package).
+	// transactions to the OffRamp and FeeQuoter on this chain. If empty, accessors fall back
+	// to their family's default transmitter key (defined by each family's transmitter package).
 	TransmitterKeyName string `toml:"transmitter_key_name"`
 }
 

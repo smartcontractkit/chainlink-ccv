@@ -144,8 +144,8 @@ func TestCreateAccessorFactoryWorksWithoutFeeQuoterGasOverrides(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			generic := chainaccess.GenericConfig{PricerConfig: chainaccess.PricerConfig{
-				FeeQuoterAddresses:    map[string]string{selector: validTestFeeQuoterAddress},
-				FeeQuoterGasOverrides: tt.overrides,
+				FeeQuoterAddresses:   map[string]string{selector: validTestFeeQuoterAddress},
+				FeeQuoterGasOverride: tt.overrides,
 			}}
 			factory, err := CreateAccessorFactory(logger.Test(t), generic, chainaccess.Infos[Info]{})
 			require.NoError(t, err)
