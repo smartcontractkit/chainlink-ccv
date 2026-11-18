@@ -89,10 +89,8 @@ var standaloneSettings = []standaloneSetting{
 	// The standalone database has no evm.heads schema: heads stay in memory, and a restart
 	// re-syncs from RPC where the node resumed from persisted heads (catch-up time, not correctness).
 	{"HeadTracker.PersistenceEnabled", false, func(c *evmtoml.Chain) **bool { return &c.HeadTracker.PersistenceEnabled }},
-	// Nothing standalone runs consumes these. The executor key is new, so funding is a runbook
-	// step with an external balance alert instead of the balance monitor.
+	// Nothing standalone runs consumes the log broadcaster; balance monitoring follows the node setting.
 	{"LogBroadcasterEnabled", false, func(c *evmtoml.Chain) **bool { return &c.LogBroadcasterEnabled }},
-	{"BalanceMonitor.Enabled", false, func(c *evmtoml.Chain) **bool { return &c.BalanceMonitor.Enabled }},
 	// Transactions go through TXM v2 alone, without forwarders or dual broadcast (see newTxmV2). The
 	// TXM starts only in NewContractTransmitter, so a source-only verifier never runs one.
 	{"Transactions.Enabled", true, func(c *evmtoml.Chain) **bool { return &c.Transactions.Enabled }},

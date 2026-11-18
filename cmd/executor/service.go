@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -128,6 +130,31 @@ func attachExecutorMonitoring(dr chainaccess.DestinationReader, ct chainaccess.C
 	}
 }
 
+type accessorsHealthReporter struct {
+	reporters map[protocol.ChainSelector]health.DegradedReporter
+}
+
+func (r accessorsHealthReporter) Name() string { return "executor.Accessors" }
+func (r accessorsHealthReporter) Ready() error { return nil }
+
+func (r accessorsHealthReporter) HealthReport() map[string]error {
+	report := make(map[string]error, len(r.reporters))
+	for selector, reporter := range r.reporters {
+		report[health.ChainComponent(selector)] = reporter.Degraded()
+	}
+	return report
+}
+
+func (r accessorsHealthReporter) Degraded() error {
+	errs := make([]error, 0, len(r.reporters))
+	for _, selector := range slices.Sorted(maps.Keys(r.reporters)) {
+		if err := r.reporters[selector].Degraded(); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", health.ChainComponent(selector), err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
 func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootstrap.ServiceDeps) error {
 	executorConfig, err := validateJobSpec(spec)
 	if err != nil {
@@ -158,6 +185,7 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	rmnReaders := make(map[protocol.ChainSelector]chainaccess.RMNCurseReader)
 	balanceReaders := make(map[protocol.ChainSelector]chainaccess.TransmitterBalanceReader)
 	chainInspectors := make(map[protocol.ChainSelector]chainaccess.ChainInspector)
+	degradedAccessors := make(map[protocol.ChainSelector]health.DegradedReporter)
 	enabledDestChains := make([]protocol.ChainSelector, 0)
 	// Skipped chains are reported on /health as degraded. The factory fails below when none is usable.
 	startupSkips := health.NewStartupSkips("executor.StartupSkips")
@@ -211,6 +239,9 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 			}
 			if inspector, ok := accessor.(chainaccess.ChainInspector); ok {
 				chainInspectors[selector] = inspector
+			}
+			if reporter, ok := accessor.(health.DegradedReporter); ok {
+				degradedAccessors[selector] = reporter
 			}
 			enabledDestChains = append(enabledDestChains, selector)
 		})
@@ -320,6 +351,9 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	healthManager := health.NewManager(f.lggr)
 	healthManager.Register(f.coordinator)
 	healthManager.Register(startupSkips)
+	if len(degradedAccessors) > 0 {
+		healthManager.Register(accessorsHealthReporter{reporters: degradedAccessors})
+	}
 	for _, reporter := range deps.HealthReporters {
 		healthManager.Register(reporter)
 	}

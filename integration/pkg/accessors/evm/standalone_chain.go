@@ -32,6 +32,7 @@ import (
 	evmkeys "github.com/smartcontractkit/chainlink-evm/pkg/keys"
 	evmkeysv2 "github.com/smartcontractkit/chainlink-evm/pkg/keys/v2"
 	"github.com/smartcontractkit/chainlink-evm/pkg/logpoller"
+	evmmonitor "github.com/smartcontractkit/chainlink-evm/pkg/monitor"
 	"github.com/smartcontractkit/chainlink-evm/pkg/txmgr"
 )
 
@@ -74,6 +75,12 @@ func rawNodeURLs(nodes []Node) []map[string]string {
 		rawNodes = append(rawNodes, nodeURLs)
 	}
 	return rawNodes
+}
+
+type balanceMonitorBuilder func(client.Client, evmkeys.AddressLister, logger.Logger, *common.Address) (evmmonitor.BalanceMonitor, error)
+
+func buildBalanceMonitor(cl client.Client, addresses evmkeys.AddressLister, lggr logger.Logger, tokenAddress *common.Address) (evmmonitor.BalanceMonitor, error) {
+	return evmmonitor.NewBalanceMonitor(cl, addresses, lggr, tokenAddress)
 }
 
 // chainRuntime is the lifecycle boundary owned by one EVM accessor. Keeping it
@@ -134,6 +141,14 @@ type standaloneChain struct {
 	unsubscribeTXM      func()
 	contractTransmitter chainaccess.ContractTransmitter
 	closed              bool
+
+	balanceMonitor            evmmonitor.BalanceMonitor
+	newBalanceMonitor         balanceMonitorBuilder
+	unsubscribeBalanceMonitor func()
+	cancelBalanceMonitorStart context.CancelFunc
+	balanceMonitorStartWG     sync.WaitGroup
+	balanceMonitorStarted     bool
+	balanceMonitorErr         error
 
 	// logPoller is built by the first LogPoller call, through newLogPoller.
 	newLogPoller logPollerBuilder
@@ -213,6 +228,7 @@ func newStandaloneChain(ctx context.Context, selector protocol.ChainSelector, in
 		txmBlockTimeSource:               txmBlockTimeSource,
 		sourceReaderHeaderFetchBatchSize: sourceReaderHeaderFetchBatchSize(info.SourceReaderHeaderFetchBatchSize),
 		inspection:                       inspection,
+		newBalanceMonitor:                buildBalanceMonitor,
 		newLogPoller:                     buildLogPoller,
 		recoveryStop:                     make(services.StopChan),
 	}
@@ -331,6 +347,7 @@ func (c *standaloneChain) NewContractTransmitter(
 	if err := c.ensureTXMLocked(ctx, ks, keyName); err != nil {
 		return nil, err
 	}
+	c.startBalanceMonitorLocked(ctx, c.chainKeystore)
 	transmitter := contracttransmitter.NewEVMContractTransmitterFromTxm(
 		logger.With(c.lggr, "component", "ContractTransmitter"),
 		chainSelector,
@@ -342,6 +359,88 @@ func (c *standaloneChain) NewContractTransmitter(
 	)
 	c.contractTransmitter = transmitter
 	return transmitter, nil
+}
+
+// startBalanceMonitorLocked starts monitoring for the executor transmitter store. The caller holds c.mu.
+// Upstream Start queries balances immediately, so perform startup in a tracked goroutine and subscribe only after success.
+func (c *standaloneChain) startBalanceMonitorLocked(ctx context.Context, addresses evmkeys.AddressLister) {
+	balanceConfig := c.chainConfig.EVM().BalanceMonitor()
+	if !balanceConfig.Enabled() {
+		return
+	}
+	var tokenAddress *common.Address
+	if configuredToken := balanceConfig.ERC20TokenAddress(); configuredToken != nil {
+		address := configuredToken.Address()
+		tokenAddress = &address
+	}
+	builder := c.newBalanceMonitor
+	if builder == nil {
+		builder = buildBalanceMonitor
+	}
+
+	startCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	c.cancelBalanceMonitorStart = cancel
+	c.balanceMonitorStartWG.Go(func() {
+		defer cancel()
+		chainClient := c.chainClient
+		if tokenAddress != nil {
+			var err error
+			chainClient, err = newERC20DecimalsClient(startCtx, chainClient, *tokenAddress)
+			if err != nil {
+				c.reportBalanceMonitorError("failed to initialize ERC-20 token decimals", err)
+				return
+			}
+		}
+		balanceMonitor, err := builder(chainClient, addresses, c.lggr, tokenAddress)
+		if err != nil {
+			c.reportBalanceMonitorError("could not be constructed", err)
+			return
+		}
+		c.mu.Lock()
+		c.balanceMonitor = balanceMonitor
+		c.mu.Unlock()
+
+		startErr := balanceMonitor.Start(startCtx)
+		c.mu.Lock()
+		// Track a successful Start even after Close begins, so Close can stop the worker after waiting.
+		c.balanceMonitorStarted = startErr == nil
+		if c.closed {
+			c.mu.Unlock()
+			return
+		}
+		if startErr != nil {
+			c.mu.Unlock()
+			c.reportBalanceMonitorError("failed to start", startErr)
+			return
+		}
+		currentHead, unsubscribe := c.headBroadcaster.Subscribe(balanceMonitor)
+		c.unsubscribeBalanceMonitor = unsubscribe
+		if currentHead != nil {
+			balanceMonitor.OnNewLongestChain(startCtx, currentHead)
+		}
+		c.mu.Unlock()
+	})
+}
+
+func (c *standaloneChain) reportBalanceMonitorError(action string, err error) {
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return
+	}
+	c.balanceMonitorErr = fmt.Errorf("EVM balance monitor for chain selector %d %s: %w", c.selector, action, err)
+	c.mu.Unlock()
+	c.lggr.Errorw("Failed to initialize EVM balance monitor", "chainSelector", c.selector, "error", err)
+}
+
+// Degraded reports optional chain services that failed without disabling the transmitter.
+func (c *standaloneChain) Degraded() error {
+	if c == nil {
+		return nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.balanceMonitorErr
 }
 
 // ensureTXMLocked starts the TXM on first use and shares it between the transmitter and the fee
@@ -625,6 +724,7 @@ func (c *standaloneChain) Close() error {
 	headTracker := c.headTracker
 	headBroadcaster := c.headBroadcaster
 	mailMonitor := c.mailMonitor
+	cancelBalanceMonitorStart := c.cancelBalanceMonitorStart
 	txm := c.txm
 	unsubscribeTXM := c.unsubscribeTXM
 	chainClient := c.chainClient
@@ -664,6 +764,25 @@ func (c *standaloneChain) Close() error {
 
 	if headTracker != nil {
 		err = errors.Join(err, headTracker.Close())
+	}
+	// Cancel startup before waiting, then read the subscription it may have published under c.mu.
+	if cancelBalanceMonitorStart != nil {
+		cancelBalanceMonitorStart()
+	}
+	c.balanceMonitorStartWG.Wait()
+	c.mu.Lock()
+	balanceMonitor := c.balanceMonitor
+	unsubscribeBalanceMonitor := c.unsubscribeBalanceMonitor
+	balanceMonitorStarted := c.balanceMonitorStarted
+	c.mu.Unlock()
+	if unsubscribeBalanceMonitor != nil {
+		unsubscribeBalanceMonitor()
+	}
+	if balanceMonitor != nil && balanceMonitorStarted {
+		closeErr := balanceMonitor.Close()
+		if closeErr != nil && !errors.Is(closeErr, services.ErrAlreadyStopped) && !errors.Is(closeErr, services.ErrCannotStopUnstarted) {
+			err = errors.Join(err, closeErr)
+		}
 	}
 	if unsubscribeTXM != nil {
 		unsubscribeTXM()
