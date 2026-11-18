@@ -4,6 +4,7 @@
   "enabledManagers": ["dockerfile"],
   "dependencyDashboard": { "enabled": false },
   "minimumReleaseAge": "3 days",
+  "statusCheckWhen": { "minimumReleaseAge": "never" },
   "pinDigests": true,
   "vulnerabilityAlerts": {
     "enabled": true,
