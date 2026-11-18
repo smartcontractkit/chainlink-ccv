@@ -66,7 +66,7 @@ func (f *fake) EstimatePricesCost(context.Context, []protocol.FeeTokenPriceUpdat
 }
 ```
 
-3. When wiring `EVMFeeQuoterWriter` by hand, pass `pricereader.WithFeeEstimator(estimator)` so `EstimatePricesCost` works. `estimator` is the `gas.EvmFeeEstimator` the TXM uses. Writers built through `standaloneChain.NewFeeQuoterWriter` already have it.
+3. When wiring `EVMFeeQuoterWriter` by hand, pass `pricereader.WithFeeEstimator(estimator, priceMaxKey)` so `EstimatePricesCost` works. `estimator` is the `gas.EvmFeeEstimator` the TXM uses, and `priceMaxKey` is the TXM's per-sender fee-cap callback (`txmgr.NewEvmTxmFeeConfig(gasConfig).PriceMaxKey`, where `gasConfig` is the chain's gas estimator configuration). Writers built through `standaloneChain.NewFeeQuoterWriter` already have both.
 4. Add the `nativeDecimals uint8` parameter to any custom `NewFeeQuoterWriter` on a `chainRuntime`.
 5. Regenerate mocks if the repo mocks this interface: `just generate`.
 
@@ -74,7 +74,7 @@ func (f *fake) EstimatePricesCost(context.Context, []protocol.FeeTokenPriceUpdat
 
 ### WithFeeEstimator option
 
-`pricereader.WithFeeEstimator(estimator)` gives the writer a fee estimator. It accepts any value with `GetMaxCost`, which `gas.EvmFeeEstimator` from `chainlink-evm` satisfies. Without it `EstimatePricesCost` returns an error and the writer behaves as before.
+`pricereader.WithFeeEstimator(estimator, priceMaxKey)` gives the writer a fee estimator and the TXM's sender fee-cap callback (`func(common.Address) *assets.Wei`). The estimator must implement `GetMaxCost`, which `gas.EvmFeeEstimator` from `chainlink-evm` satisfies, and the callback must return a non-nil cap for each sender. Without these dependencies `EstimatePricesCost` returns an error; `UpdatePrices` does not use them.
 
 - `standaloneChain` keeps the estimator it builds for the TXM in a new `feeEstimator` field (`integration/pkg/accessors/evm/standalone_chain.go`) and passes it in `NewFeeQuoterWriter`. The writer and the TXM therefore use the same estimator.
 - The accessor factory builds the log-only writer next to the gas price reader and passes both the same `nativeDecimals`. A failure to build it fails accessor construction, as the gas price reader's does.
