@@ -64,6 +64,8 @@ type EVMFeeQuoterWriter struct {
 
 	// estimator prices an updatePrices transaction for EstimatePricesCost. Nil makes the estimate fail.
 	estimator feeQuoterUpdateEstimator
+	// priceMaxKey is the fee cap of a sender key. The estimator compares prices against it, so it must not be nil.
+	priceMaxKey func(common.Address) *assets.Wei
 	// nativeDecimals is the decimals of the unit of the estimator's cost, used to scale it to 1e36.
 	nativeDecimals uint8
 }
@@ -80,10 +82,12 @@ func WithTxm(txm txmgr.TxManager, keys keys.RoundRobin, fromAddresses []common.A
 	}
 }
 
-// WithFeeEstimator gives the writer the fee estimator that EstimatePricesCost uses to price a transaction.
-func WithFeeEstimator(estimator feeQuoterUpdateEstimator) WriterOption {
+// WithFeeEstimator gives the writer the fee estimator that EstimatePricesCost uses to price a transaction, and the
+// fee cap of each sender key (the TXM's PriceMaxKey), which the estimator needs as its maximum fee price.
+func WithFeeEstimator(estimator feeQuoterUpdateEstimator, priceMaxKey func(common.Address) *assets.Wei) WriterOption {
 	return func(w *EVMFeeQuoterWriter) {
 		w.estimator = estimator
+		w.priceMaxKey = priceMaxKey
 	}
 }
 
@@ -128,7 +132,7 @@ func (w *EVMFeeQuoterWriter) UpdatePrices(ctx context.Context, tokenPrices []pro
 	return w.send(ctx, priceUpdates)
 }
 
-// EstimatePricesCost returns the worst-case cost of the updatePrices transaction for the given updates, in whole
+// EstimatePricesCost returns the cost of the updatePrices transaction for the given updates, in whole
 // native tokens with 1e36 precision. The TXM's fee estimator prices it and nothing is sent.
 func (w *EVMFeeQuoterWriter) EstimatePricesCost(ctx context.Context, tokenPrices []protocol.FeeTokenPriceUpdate, gasPrices []protocol.GasTokenPriceUpdate) (*big.Int, error) {
 	if w.estimator == nil {
@@ -147,7 +151,15 @@ func (w *EVMFeeQuoterWriter) EstimatePricesCost(ctx context.Context, tokenPrices
 	}
 	// The first key stands in for the sender, so an estimate does not advance the round-robin.
 	from := w.fromAddresses[0]
-	costEstimate, err := w.estimator.GetMaxCost(ctx, assets.NewEthValue(0), payload, updatePricesFeeLimit(priceUpdates), nil, &from, &w.address)
+	// The estimator compares prices against this cap and panics on nil, so use the same one the TXM does.
+	var maxFeePrice *assets.Wei
+	if w.priceMaxKey != nil {
+		maxFeePrice = w.priceMaxKey(from)
+	}
+	if maxFeePrice == nil {
+		return nil, fmt.Errorf("fee quoter writer has no max fee price for sender %s", from)
+	}
+	costEstimate, err := w.estimator.GetMaxCost(ctx, assets.NewEthValue(0), payload, updatePricesFeeLimit(priceUpdates), maxFeePrice, &from, &w.address)
 	if err != nil {
 		return nil, fmt.Errorf("failed to estimate the updatePrices cost: %w", err)
 	}

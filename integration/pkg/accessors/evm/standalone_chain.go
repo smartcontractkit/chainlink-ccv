@@ -469,7 +469,7 @@ func (c *standaloneChain) NewFeeQuoterWriter(
 		feeQuoterAddress,
 		nativeDecimals,
 		pricereader.WithTxm(c.txm, c.chainKeystore, c.fromAddresses),
-		pricereader.WithFeeEstimator(c.feeEstimator),
+		pricereader.WithFeeEstimator(c.feeEstimator, txmgr.NewEvmTxmFeeConfig(c.chainConfig.EVM().GasEstimator()).PriceMaxKey),
 		pricereader.WithTokenCache(tokens),
 	)
 	if err != nil {
