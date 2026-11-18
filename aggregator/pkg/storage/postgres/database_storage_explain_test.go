@@ -9,15 +9,17 @@ import (
 	"testing"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 )
 
 const (
-	explainMessages         = 20000
-	explainSignersPerKey    = 16
-	explainTargetMessageID  = "0xexplain-target"
-	explainTargetKeyCount   = 100
-	explainSeedVerification = `
+	explainMessages          = 20000
+	explainSignersPerKey     = 16
+	explainTargetMessageID   = "0xexplain-target"
+	explainTargetKeyCount    = 100
+	explainCountSignersBatch = 64
+	explainSeedVerification  = `
 		INSERT INTO commit_verification_records
 			(message_id, signer_identifier, aggregation_key, message_data, ccv_version, signature,
 			 message_ccv_addresses, message_executor_address)
@@ -76,5 +78,19 @@ func TestExplainQueryPlans(t *testing.T) {
 		require.NotContains(t, plan, "Sort", "the index must give the order, so the scan can stop at the limit")
 		require.Contains(t, plan, "Index Scan using unique_verification")
 		require.Contains(t, plan, fmt.Sprintf("rows=%d loops=1", maxVerificationRecordsPerMessage+1), "the scan must stop at the limit")
+	})
+
+	t.Run("CountSigners", func(t *testing.T) {
+		messageIDs := make([]string, explainCountSignersBatch)
+		keys := make([]string, explainCountSignersBatch)
+		for i := range explainCountSignersBatch {
+			messageIDs[i] = fmt.Sprintf("msg-%d", i*97+1)
+			keys[i] = fmt.Sprintf("key-%d", i*97+1)
+		}
+		plan := runExplainAnalyze(t, db, "CountSigners", countSignersQuery, pq.Array(messageIDs), pq.Array(keys))
+		writeExplainOutput(t, "count_signers", plan)
+
+		require.NotContains(t, plan, "Seq Scan on public.commit_verification_records", "the query must not scan the full table")
+		require.Contains(t, plan, "Index Scan using idx_verification_aggregation_key", "each (message_id, aggregation_key) pair must be an index lookup")
 	})
 }

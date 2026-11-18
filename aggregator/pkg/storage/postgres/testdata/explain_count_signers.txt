@@ -1,0 +1,28 @@
+=== EXPLAIN ANALYZE: CountSigners ===
+GroupAggregate  (cost=542.59..542.66 rows=3 width=58) (actual time=1.349..1.838 rows=64 loops=1)
+  Output: commit_verification_records.aggregation_key, count(DISTINCT commit_verification_records.signer_identifier), min((commit_verification_records.message_data ->> 'source_chain_selector'::text)), commit_verification_records.message_id
+  Group Key: commit_verification_records.message_id, commit_verification_records.aggregation_key
+  Buffers: shared hit=1216
+  ->  Sort  (cost=542.59..542.60 rows=3 width=32) (actual time=1.330..1.359 rows=1024 loops=1)
+        Output: commit_verification_records.aggregation_key, commit_verification_records.message_id, commit_verification_records.signer_identifier, commit_verification_records.message_data
+        Sort Key: commit_verification_records.message_id, commit_verification_records.aggregation_key
+        Sort Method: quicksort  Memory: 123kB
+        Buffers: shared hit=1216
+        ->  Nested Loop  (cost=1.39..542.57 rows=3 width=32) (actual time=0.037..1.065 rows=1024 loops=1)
+              Output: commit_verification_records.aggregation_key, commit_verification_records.message_id, commit_verification_records.signer_identifier, commit_verification_records.message_data
+              Buffers: shared hit=1216
+              ->  HashAggregate  (cost=0.97..1.60 rows=64 width=64) (actual time=0.023..0.030 rows=64 loops=1)
+                    Output: unnest.unnest, unnest.unnest_1
+                    Group Key: unnest.unnest, unnest.unnest_1
+                    Batches: 1  Memory Usage: 24kB
+                    ->  Function Scan on unnest  (cost=0.01..0.65 rows=64 width=64) (actual time=0.010..0.014 rows=64 loops=1)
+                          Output: unnest.unnest, unnest.unnest_1
+                          Function Call: unnest('{msg-1,msg-98,msg-195,msg-292,msg-389,msg-486,msg-583,msg-680,msg-777,msg-874,msg-971,msg-1068,msg-1165,msg-1262,msg-1359,msg-1456,msg-1553,msg-1650,msg-1747,msg-1844,msg-1941,msg-2038,msg-2135,msg-2232,msg-2329,msg-2426,msg-2523,msg-2620,msg-2717,msg-2814,msg-2911,msg-3008,msg-3105,msg-3202,msg-3299,msg-3396,msg-3493,msg-3590,msg-3687,msg-3784,msg-3881,msg-3978,msg-4075,msg-4172,msg-4269,msg-4366,msg-4463,msg-4560,msg-4657,msg-4754,msg-4851,msg-4948,msg-5045,msg-5142,msg-5239,msg-5336,msg-5433,msg-5530,msg-5627,msg-5724,msg-5821,msg-5918,msg-6015,msg-6112}'::text[]), unnest('{key-1,key-98,key-195,key-292,key-389,key-486,key-583,key-680,key-777,key-874,key-971,key-1068,key-1165,key-1262,key-1359,key-1456,key-1553,key-1650,key-1747,key-1844,key-1941,key-2038,key-2135,key-2232,key-2329,key-2426,key-2523,key-2620,key-2717,key-2814,key-2911,key-3008,key-3105,key-3202,key-3299,key-3396,key-3493,key-3590,key-3687,key-3784,key-3881,key-3978,key-4075,key-4172,key-4269,key-4366,key-4463,key-4560,key-4657,key-4754,key-4851,key-4948,key-5045,key-5142,key-5239,key-5336,key-5433,key-5530,key-5627,key-5724,key-5821,key-5918,key-6015,key-6112}'::text[])
+              ->  Index Scan using idx_verification_aggregation_key on public.commit_verification_records  (cost=0.42..8.44 rows=1 width=32) (actual time=0.004..0.015 rows=16 loops=64)
+                    Output: commit_verification_records.id, commit_verification_records.seq_num, commit_verification_records.message_id, commit_verification_records.signer_identifier, commit_verification_records.aggregation_key, commit_verification_records.message_data, commit_verification_records.ccv_version, commit_verification_records.signature, commit_verification_records.message_ccv_addresses, commit_verification_records.message_executor_address, commit_verification_records.created_at
+                    Index Cond: ((commit_verification_records.message_id = unnest.unnest) AND (commit_verification_records.aggregation_key = unnest.unnest_1))
+                    Buffers: shared hit=1216
+Planning:
+  Buffers: shared hit=15 read=1
+Planning Time: 0.184 ms
+Execution Time: 1.891 ms

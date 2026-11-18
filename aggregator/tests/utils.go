@@ -154,6 +154,11 @@ func CreateServerOnly(t *testing.T, options ...ConfigOption) (*bufconn.Listener,
 }
 
 func CreateServerOnlyWithMessageRulesControl(t *testing.T, options ...ConfigOption) (*bufconn.Listener, *MessageRulesControl, func(), error) {
+	buf, _, control, cleanup, err := createServer(t, options...)
+	return buf, control, cleanup, err
+}
+
+func createServer(t *testing.T, options ...ConfigOption) (*bufconn.Listener, *agg.Server, *MessageRulesControl, func(), error) {
 	buf := bufconn.Listen(bufSize)
 	lggr, err := logger.NewWith(logging.DevelopmentConfig(zapcore.DebugLevel))
 	require.NoError(t, err)
@@ -222,25 +227,25 @@ func CreateServerOnlyWithMessageRulesControl(t *testing.T, options ...ConfigOpti
 	// Setup PostgreSQL storage
 	storageConfig, cleanupStorage, err := setupPostgresStorage(t, config.Storage)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	config.Storage = storageConfig
 
 	rawRuleStore, err := storage.NewStorageFactory(sugaredLggr).CreateStorage(t.Context(), config.Storage, monitoring.NewNoopAggregatorMonitoring())
 	if err != nil {
 		cleanupStorage()
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	messageRulesStore, ok := rawRuleStore.(messagerules.Store)
 	if !ok {
 		cleanupStorage()
-		return nil, nil, nil, fmt.Errorf("test storage does not implement message rules store")
+		return nil, nil, nil, nil, fmt.Errorf("test storage does not implement message rules store")
 	}
 
 	s, err := agg.NewServer(t.Context(), sugaredLggr, config, monitoring.NewNoopAggregatorMonitoring())
 	if err != nil {
 		cleanupStorage()
-		return nil, nil, nil, fmt.Errorf("failed to create server: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("failed to create server: %w", err)
 	}
 	err = s.Start(buf)
 	if err != nil {
@@ -258,7 +263,7 @@ func CreateServerOnlyWithMessageRulesControl(t *testing.T, options ...ConfigOpti
 		cleanupStorage()
 	}
 
-	return buf, control, cleanup, nil
+	return buf, s, control, cleanup, nil
 }
 
 // CreateAuthenticatedClient creates a gRPC client with optional HMAC authentication.

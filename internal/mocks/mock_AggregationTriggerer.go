@@ -22,17 +22,24 @@ func (_m *MockAggregationTriggerer) EXPECT() *MockAggregationTriggerer_Expecter 
 	return &MockAggregationTriggerer_Expecter{mock: &_m.Mock}
 }
 
-// CheckAggregation provides a mock function with given fields: ctx, messageID, aggregationKey, channelKey
-func (_m *MockAggregationTriggerer) CheckAggregation(ctx context.Context, messageID []byte, aggregationKey string, channelKey model.ChannelKey) error {
-	ret := _m.Called(ctx, messageID, aggregationKey, channelKey)
+// CheckAggregation provides a mock function with given fields: ctx, triggers
+func (_m *MockAggregationTriggerer) CheckAggregation(ctx context.Context, triggers ...model.AggregationTrigger) error {
+	_va := make([]interface{}, len(triggers))
+	for _i := range triggers {
+		_va[_i] = triggers[_i]
+	}
+	var _ca []interface{}
+	_ca = append(_ca, ctx)
+	_ca = append(_ca, _va...)
+	ret := _m.Called(_ca...)
 
 	if len(ret) == 0 {
 		panic("no return value specified for CheckAggregation")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, []byte, string, model.ChannelKey) error); ok {
-		r0 = rf(ctx, messageID, aggregationKey, channelKey)
+	if rf, ok := ret.Get(0).(func(context.Context, ...model.AggregationTrigger) error); ok {
+		r0 = rf(ctx, triggers...)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -47,16 +54,21 @@ type MockAggregationTriggerer_CheckAggregation_Call struct {
 
 // CheckAggregation is a helper method to define mock.On call
 //   - ctx context.Context
-//   - messageID []byte
-//   - aggregationKey string
-//   - channelKey model.ChannelKey
-func (_e *MockAggregationTriggerer_Expecter) CheckAggregation(ctx interface{}, messageID interface{}, aggregationKey interface{}, channelKey interface{}) *MockAggregationTriggerer_CheckAggregation_Call {
-	return &MockAggregationTriggerer_CheckAggregation_Call{Call: _e.mock.On("CheckAggregation", ctx, messageID, aggregationKey, channelKey)}
+//   - triggers ...model.AggregationTrigger
+func (_e *MockAggregationTriggerer_Expecter) CheckAggregation(ctx interface{}, triggers ...interface{}) *MockAggregationTriggerer_CheckAggregation_Call {
+	return &MockAggregationTriggerer_CheckAggregation_Call{Call: _e.mock.On("CheckAggregation",
+		append([]interface{}{ctx}, triggers...)...)}
 }
 
-func (_c *MockAggregationTriggerer_CheckAggregation_Call) Run(run func(ctx context.Context, messageID []byte, aggregationKey string, channelKey model.ChannelKey)) *MockAggregationTriggerer_CheckAggregation_Call {
+func (_c *MockAggregationTriggerer_CheckAggregation_Call) Run(run func(ctx context.Context, triggers ...model.AggregationTrigger)) *MockAggregationTriggerer_CheckAggregation_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].([]byte), args[2].(string), args[3].(model.ChannelKey))
+		variadicArgs := make([]model.AggregationTrigger, len(args)-1)
+		for i, a := range args[1:] {
+			if a != nil {
+				variadicArgs[i] = a.(model.AggregationTrigger)
+			}
+		}
+		run(args[0].(context.Context), variadicArgs...)
 	})
 	return _c
 }
@@ -66,7 +78,7 @@ func (_c *MockAggregationTriggerer_CheckAggregation_Call) Return(_a0 error) *Moc
 	return _c
 }
 
-func (_c *MockAggregationTriggerer_CheckAggregation_Call) RunAndReturn(run func(context.Context, []byte, string, model.ChannelKey) error) *MockAggregationTriggerer_CheckAggregation_Call {
+func (_c *MockAggregationTriggerer_CheckAggregation_Call) RunAndReturn(run func(context.Context, ...model.AggregationTrigger) error) *MockAggregationTriggerer_CheckAggregation_Call {
 	_c.Call.Return(run)
 	return _c
 }
