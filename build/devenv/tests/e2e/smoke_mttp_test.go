@@ -1,9 +1,11 @@
 package e2e
 
 import (
+	"context"
 	"fmt"
 	"math/big"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
@@ -15,6 +17,8 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
+	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/tcapi/chaos"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/testutils/chains/evm"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/testutils/mcms"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/testutils/tokenpool"
@@ -127,10 +131,9 @@ func TestE2ESmoke_MTTPMigration(t *testing.T) {
 	tokenpool.RunBidirectionalTokenTransfer(t, lib, poolMttpA1, poolsB[0], 1, fCfg, "T1 canary A")
 	assertLaneRateLimit(t, mttpA.RateLimiterState(t, env, t1a, selB), capacity, rate)
 
-	// Step 2: B's MTTP takes over T1. B is configured to send the native format but keeps accepting
-	// A's legacy-format sends until A flips. A keeps trusting B's legacy pool for messages already in
-	// flight and adds B's MTTP. A B->A transfer is sent by the legacy pool, then B switches while it is
-	// in flight, so the message settles against A's MTTP with the legacy pool still trusted.
+	// Step 2: B sends native data but accepts A's legacy data until A flips. Pause execution so both
+	// a legacy B->A send and an A->B legacy-format send stay pending across B's registry switch.
+	// Both must settle on their destination MTTP before removing legacy trust.
 	mttpB := evm.DeployMTTP(t, env, selB)
 	mttpB.SetRateLimitPolicy(t, env, capacity, rate)
 	mttpB.ConfigureToken(t, env, t1b, evm.TokenDecimals, selA, t1a, mttpA.Pool, false, true)
@@ -144,8 +147,14 @@ func TestE2ESmoke_MTTPMigration(t *testing.T) {
 		evm.RemotePool{Address: mttpB.Pool, AllowLegacy: false},
 	)
 	poolMttpB1 := mttpB.AsTokenPool(t1b, evm.TokenDecimals)
-	tokenpool.RunTokenTransfer(t, lib, poolsB[0], poolMttpA1, 1, fCfg, "T1 B->A across switch", func() {
-		mttpB.SwitchPool(t, env, t1b)
+	t.Run("T1 across switch", func(t *testing.T) {
+		resumeExecutors := pauseMTTPExecutors(t)
+		tokenpool.RunTokenTransfer(t, lib, poolsB[0], poolMttpA1, 1, fCfg, "T1 B->A across switch", func() {
+			tokenpool.RunTokenTransfer(t, lib, poolMttpA1, poolMttpB1, 1, fCfg, "T1 legacy A->B across switch", func() {
+				mttpB.SwitchPool(t, env, t1b)
+				resumeExecutors()
+			})
+		})
 	})
 	assertLaneRateLimit(t, mttpB.RateLimiterState(t, env, t1b, selA), capacity, rate)
 
@@ -173,8 +182,14 @@ func TestE2ESmoke_MTTPMigration(t *testing.T) {
 		evm.RemotePool{Address: mttpB.Pool, AllowLegacy: false},
 	)
 	poolMttpB2 := mttpB.AsTokenPool(t2b, evm.TokenDecimals)
-	tokenpool.RunTokenTransfer(t, lib, poolsB[1], poolMttpA2, 1, fCfg, "T2 B->A across switch", func() {
-		mttpB.SwitchPool(t, env, t2b)
+	t.Run("T2 across switch", func(t *testing.T) {
+		resumeExecutors := pauseMTTPExecutors(t)
+		tokenpool.RunTokenTransfer(t, lib, poolsB[1], poolMttpA2, 1, fCfg, "T2 B->A across switch", func() {
+			tokenpool.RunTokenTransfer(t, lib, poolMttpA2, poolMttpB2, 1, fCfg, "T2 legacy A->B across switch", func() {
+				mttpB.SwitchPool(t, env, t2b)
+				resumeExecutors()
+			})
+		})
 	})
 	mttpA.SetRemotePools(t, env, t2a, selB, false, evm.RemotePool{Address: mttpB.Pool, AllowLegacy: false})
 	mttpB.SetRemotePools(t, env, t2b, selA, false, evm.RemotePool{Address: mttpA.Pool, AllowLegacy: false})
@@ -182,6 +197,41 @@ func TestE2ESmoke_MTTPMigration(t *testing.T) {
 
 	// Step 4: T3 was never migrated, so this checks the MTTP deployment did not disturb legacy pools.
 	tokenpool.RunBidirectionalTokenTransfer(t, lib, poolsA[2], poolsB[2], 1, fCfg, "T3 control")
+}
+
+// pauseMTTPExecutors holds transfers pending until the caller resumes execution after a pool switch.
+func pauseMTTPExecutors(t *testing.T) func() {
+	t.Helper()
+
+	cfg, err := ccv.LoadOutput[ccv.Cfg](GetSmokeTestConfig())
+	require.NoError(t, err)
+	containers, err := chaos.ExecutorContainers(cfg, devenvcommon.DefaultExecutorQualifier)
+	require.NoError(t, err)
+
+	var resumes []func()
+	for _, container := range containers {
+		paused := false
+		resume := func() {
+			t.Helper()
+			if !paused {
+				return
+			}
+			out, err := chaos.RunDocker(context.WithoutCancel(t.Context()), 30*time.Second, "unpause", container)
+			require.NoError(t, err, "resume executor %s: %s", container, out)
+			paused = false
+		}
+		t.Cleanup(resume)
+		out, err := chaos.RunDocker(t.Context(), 30*time.Second, "pause", container)
+		require.NoError(t, err, "pause executor %s: %s", container, out)
+		paused = true
+		resumes = append(resumes, resume)
+	}
+
+	return func() {
+		for _, resume := range resumes {
+			resume()
+		}
+	}
 }
 
 // mttpEnvironment loads the running devenv and returns the lib, the CLDF environment and the EVM
