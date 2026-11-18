@@ -51,8 +51,6 @@ const (
 
 // Destination overhead of the default policy, applied to every token.
 const (
-	// The pinned MTTP spec estimates 102k-195k gas for a first receive, and the v2 OffRamp prices with this value, so
-	// a low default would underquote. Use the top of that range plus margin.
 	defaultDestGasOverhead   = uint32(250_000)
 	defaultDestBytesOverhead = uint32(192)
 )
@@ -181,11 +179,31 @@ func DeployMTTP(t *testing.T, env *deployment.Environment, sel uint64) *MTTP {
 	}
 }
 
-// AddToken onboards a token onto this pool and connects it to one remote chain: token profile,
-// remote pool, default policies, connection, TAR registration, then mint/burn roles for the pool.
-// useLegacyOnSend and allowLegacyOnReceive select the legacy pool data format and must be true
-// while the remote is still a legacy pool; use false once the remote is an MTTP.
+// AddToken configures a token on this pool and switches the token admin registry to the pool. Use
+// ConfigureToken and SwitchPool separately when something else, like a legacy pool's trust, must be
+// in place before the registry switch.
 func (m *MTTP) AddToken(
+	t *testing.T,
+	env *deployment.Environment,
+	token common.Address,
+	decimals uint8,
+	remoteChain uint64,
+	remoteToken common.Address,
+	remotePool common.Address,
+	useLegacyOnSend bool,
+	allowLegacyOnReceive bool,
+) {
+	t.Helper()
+
+	m.ConfigureToken(t, env, token, decimals, remoteChain, remoteToken, remotePool, useLegacyOnSend, allowLegacyOnReceive)
+	m.SwitchPool(t, env, token)
+}
+
+// ConfigureToken onboards a token onto this pool and connects it to one remote chain: token profile,
+// remote pool, default policies, connection, then mint/burn roles for the pool. It does not touch the
+// token admin registry. useLegacyOnSend and allowLegacyOnReceive select the legacy pool data format
+// and must be true while the remote is still a legacy pool; use false once the remote is an MTTP.
+func (m *MTTP) ConfigureToken(
 	t *testing.T,
 	env *deployment.Environment,
 	token common.Address,
@@ -257,9 +275,21 @@ func (m *MTTP) AddToken(
 		}})
 	})
 
-	// The TAR admin is the CLL timelock, so register the pool with the token expansion's sequence
-	// (propose admin, accept, setPool) and execute those writes through MCMS.
-	// When the token already has a legacy pool, this replaces it in the TAR.
+	grantMintAndBurnRoles(t, env, m.Selector, token, m.Pool)
+}
+
+// SwitchPool points the token admin registry at the MTTP. The TAR admin is the CLL timelock, so
+// register with the token expansion's sequence (propose admin, accept, setPool) and execute those
+// writes through MCMS. When the token already has a legacy pool, this replaces it in the TAR.
+func (m *MTTP) SwitchPool(
+	t *testing.T,
+	env *deployment.Environment,
+	token common.Address,
+) {
+	t.Helper()
+
+	chain, ok := env.BlockChains.EVMChains()[m.Selector]
+	require.True(t, ok, "evm chain not found for selector %d", m.Selector)
 	tarAddr, err := (&evmadapters.EVMTokenBase{}).GetTokenAdminRegistryAddress(env.DataStore, m.Selector)
 	require.NoError(t, err, "token admin registry on chain %d", m.Selector)
 	env.OperationsBundle = cldf_ops.NewBundle(env.OperationsBundle.GetContext, env.OperationsBundle.Logger, cldf_ops.NewMemoryReporter())
@@ -275,8 +305,6 @@ func (m *MTTP) AddToken(
 		Build(devenvmcms.DefaultInput("Register MTTP pool " + token.Hex()))
 	require.NoError(t, err, "build register token proposal for %s", token.Hex())
 	testhelpers.ProcessTimelockProposals(t, *env, out.MCMSTimelockProposals, true)
-
-	grantMintAndBurnRoles(t, env, m.Selector, token, m.Pool)
 }
 
 // AsTokenPool returns a per-token view of the shared pool, since the transfer helpers expect one
@@ -294,6 +322,96 @@ func (m *MTTP) AsTokenPool(token common.Address, decimals uint8) tokenpool.Token
 // tokenPolicies builds the args that assign the named policy to a token.
 func tokenPolicies(token common.Address, name string) []pool_config_manager.PolicyConfigTokenPolicyArgs {
 	return []pool_config_manager.PolicyConfigTokenPolicyArgs{{LocalToken: token, PolicyName: policyKey(name)}}
+}
+
+// RemotePool is one entry in a token's inline remote-pool list. AllowLegacy marks whether that pool
+// sends legacy 32-byte pool data, so it can be set per pool while a migration is in progress.
+type RemotePool struct {
+	Address     common.Address
+	AllowLegacy bool
+}
+
+// SetRemotePools replaces the inline remote-pool record for a token and chain with the given pools.
+// Use it to keep an old pool trusted while adding the migrated MTTP, without replaying onboarding.
+func (m *MTTP) SetRemotePools(
+	t *testing.T,
+	env *deployment.Environment,
+	token common.Address,
+	remoteChain uint64,
+	useLegacyOnSend bool,
+	remotePools ...RemotePool,
+) {
+	t.Helper()
+
+	chain, ok := env.BlockChains.EVMChains()[m.Selector]
+	require.True(t, ok, "evm chain not found for selector %d", m.Selector)
+	pcm, err := pool_config_manager.NewPoolConfigManager(m.PCM, chain.Client)
+	require.NoError(t, err, "bind PoolConfigManager on chain %d", m.Selector)
+
+	pools := make([]pool_config_manager.IPoolConfigManagerRemotePool, len(remotePools))
+	for i, p := range remotePools {
+		pools[i] = pool_config_manager.IPoolConfigManagerRemotePool{
+			RemotePoolAddress:            evmAddressBytes(p.Address),
+			AllowLegacyPoolDataOnReceive: p.AllowLegacy,
+		}
+	}
+	confirm(t, chain, "set inline remote pools", func() (*types.Transaction, error) {
+		return pcm.ApplyInlineRemotePoolConfigUpdates(chain.DeployerKey, nil, []pool_config_manager.ConnectionPolicyStoreInlineRemotePoolConfigArgs{{
+			LocalToken:             token,
+			RemoteChainSelector:    remoteChain,
+			TrustPolicyRemotePools: false,
+			RemotePoolConfig: pool_config_manager.ConnectionPolicyStoreRemotePoolConfig{
+				UseLegacyPoolDataOnSend: useLegacyOnSend,
+				RemotePools:             pools,
+			},
+		}})
+	})
+}
+
+// SetRateLimitPolicy sets the default rate-limit policy for the tokens on this pool. Call as OWNER.
+func (m *MTTP) SetRateLimitPolicy(
+	t *testing.T,
+	env *deployment.Environment,
+	capacity *big.Int,
+	rate *big.Int,
+) {
+	t.Helper()
+
+	chain, ok := env.BlockChains.EVMChains()[m.Selector]
+	require.True(t, ok, "evm chain not found for selector %d", m.Selector)
+	pcm, err := pool_config_manager.NewPoolConfigManager(m.PCM, chain.Client)
+	require.NoError(t, err, "bind PoolConfigManager on chain %d", m.Selector)
+	config := pool_config_manager.RateLimiterConfig{IsEnabled: true, Capacity: capacity, Rate: rate}
+	confirm(t, chain, "set rate limit policy default", func() (*types.Transaction, error) {
+		return pcm.ApplyRateLimitPolicyConfigUpdates(chain.DeployerKey, nil, nil, []pool_config_manager.SecurityPolicyStoreRateLimitPolicyConfigArgs{{
+			PolicyName:          policyKey(policyRateLimit),
+			RemoteChainSelector: 0,
+			LocalDecimals:       TokenDecimals,
+			RateLimitConfig: pool_config_manager.SecurityPolicyStoreRateLimitConfig{
+				Outbound: config, Inbound: config, FastFinalityOutbound: config, FastFinalityInbound: config,
+			},
+		}})
+	})
+}
+
+// RateLimiterState reads the current rate limit buckets for a token and chain.
+func (m *MTTP) RateLimiterState(
+	t *testing.T,
+	env *deployment.Environment,
+	token common.Address,
+	remoteChain uint64,
+) pool_config_manager.IPoolConfigManagerLaneRateLimiterState {
+	t.Helper()
+
+	chain, ok := env.BlockChains.EVMChains()[m.Selector]
+	require.True(t, ok, "evm chain not found for selector %d", m.Selector)
+	pcm, err := pool_config_manager.NewPoolConfigManager(m.PCM, chain.Client)
+	require.NoError(t, err, "bind PoolConfigManager on chain %d", m.Selector)
+	states, err := pcm.GetCurrentRateLimiterStateBatch(&bind.CallOpts{Context: t.Context()}, []pool_config_manager.IPoolConfigManagerLaneKey{{
+		LocalToken: token, RemoteChainSelector: remoteChain,
+	}})
+	require.NoError(t, err, "read rate limiter state on chain %d", m.Selector)
+	return states[0]
 }
 
 // AddLegacyPoolRemotePool makes a legacy pool accept an MTTP as a remote pool, so it can receive

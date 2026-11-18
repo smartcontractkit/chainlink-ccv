@@ -30,19 +30,24 @@ const (
 func RunBidirectionalTokenTransfer(t *testing.T, lib ccv.Lib, poolA, poolB TokenPool, amount int64, finality protocol.Finality, phase string) {
 	t.Helper()
 
-	chainA, err := chainsel.GetChainDetails(poolA.Selector())
-	require.NoError(t, err, "get chain details for pool A selector %d", poolA.Selector())
-	chainB, err := chainsel.GetChainDetails(poolB.Selector())
-	require.NoError(t, err, "get chain details for pool B selector %d", poolB.Selector())
+	RunTokenTransfer(t, lib, poolA, poolB, amount, finality, phase, nil)
+	RunTokenTransfer(t, lib, poolB, poolA, amount, finality, phase, nil)
+}
 
-	titleA2B := fmt.Sprintf("%s transfer %s→%s", phase, chainA.ChainName, chainB.ChainName)
-	t.Run(titleA2B, func(t *testing.T) {
-		transferTokens(t, lib, poolA, poolB, amount, finality)
-	})
+// RunTokenTransfer sends a one-way transfer and asserts delivery. hook, when non-nil, runs after the
+// message is confirmed on the source and before execution is awaited, so the test can change config
+// while a message is in flight.
+func RunTokenTransfer(t *testing.T, lib ccv.Lib, srcPool, dstPool TokenPool, amount int64, finality protocol.Finality, phase string, hook func()) {
+	t.Helper()
 
-	titleB2A := fmt.Sprintf("%s transfer %s→%s", phase, chainB.ChainName, chainA.ChainName)
-	t.Run(titleB2A, func(t *testing.T) {
-		transferTokens(t, lib, poolB, poolA, amount, finality)
+	chainA, err := chainsel.GetChainDetails(srcPool.Selector())
+	require.NoError(t, err, "get chain details for source selector %d", srcPool.Selector())
+	chainB, err := chainsel.GetChainDetails(dstPool.Selector())
+	require.NoError(t, err, "get chain details for destination selector %d", dstPool.Selector())
+
+	title := fmt.Sprintf("%s transfer %s→%s", phase, chainA.ChainName, chainB.ChainName)
+	t.Run(title, func(t *testing.T) {
+		transferTokens(t, lib, srcPool, dstPool, amount, finality, hook)
 	})
 }
 
@@ -52,6 +57,7 @@ func transferTokens(
 	srcPool, dstPool TokenPool,
 	amount int64,
 	finality protocol.Finality,
+	hook func(),
 ) {
 	t.Helper()
 
@@ -141,6 +147,12 @@ func transferTokens(
 
 	_, err = v3Src.ConfirmSendOnSource(t.Context(), dstSel, messageKey, tcapi.DefaultSentTimeout)
 	require.NoError(t, err, "wait for sent event")
+
+	// The message is now on the source chain but not yet executed. Let the caller change config
+	// while it is in flight.
+	if hook != nil {
+		hook()
+	}
 
 	aggregatorClient, indexerMonitor, err := tcapi.SetupOffchainClients(lib, "")
 	require.NoError(t, err, "setup offchain clients")

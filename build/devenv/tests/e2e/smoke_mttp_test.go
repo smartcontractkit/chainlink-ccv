@@ -2,12 +2,15 @@ package e2e
 
 import (
 	"fmt"
+	"math/big"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/pool_config_manager"
+	"github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
 	cciputils "github.com/smartcontractkit/chainlink-ccip/deployment/utils"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 
@@ -65,7 +68,7 @@ func TestE2ESmoke_MTTPTransfers(t *testing.T) {
 // MTTP one chain at a time without breaking transfers, including while the two sides differ.
 //
 // Setup: two EVM chains (A, B) with three tokens (T1-T3), each with a legacy pool on both chains,
-// connected and proven with an initial round trip.
+// connected with rate limits and proven with an initial round trip.
 //
 // Scenario:
 //  1. T1 on A moves to the MTTP while B keeps its legacy pool. The MTTP uses the legacy pool data
@@ -83,6 +86,7 @@ func TestE2ESmoke_MTTPMigration(t *testing.T) {
 	selA := chains[0].ChainSelector()
 	selB := chains[1].ChainSelector()
 	fCfg := protocol.Finality(0)
+	capacity, rate := scaledLegacyRateLimit()
 
 	const tokenCount = 3
 	poolsA := make([]tokenpool.TokenPool, tokenCount)
@@ -105,36 +109,75 @@ func TestE2ESmoke_MTTPMigration(t *testing.T) {
 		tokenpool.RunBidirectionalTokenTransfer(t, lib, poolsA[i], poolsB[i], 1, fCfg, fmt.Sprintf("initial t%d", i+1))
 	}
 
-	// Step 1: A's MTTP takes over T1 and talks to B's legacy pool. The two true flags make the MTTP
-	// send and accept the legacy 32-byte pool data that B's pool understands.
-	// The legacy pool on B must also be told to trust the MTTP as a remote pool.
 	t1a := common.HexToAddress(poolsA[0].Token())
 	t1b := common.HexToAddress(poolsB[0].Token())
-	mttpA := evm.DeployMTTP(t, env, selA)
-	mttpA.AddToken(t, env, t1a, evm.TokenDecimals, selB, t1b, common.HexToAddress(poolsB[0].Address()), true, true)
-	evm.AddLegacyPoolRemotePool(t, env, selB, poolsB[0].Address(), selA, mttpA.Pool)
-	poolMttpA1 := mttpA.AsTokenPool(t1a, evm.TokenDecimals)
-	tokenpool.RunBidirectionalTokenTransfer(t, lib, poolMttpA1, poolsB[0], 1, fCfg, "T1 canary A")
-
-	// Step 2: B's MTTP takes over T1, then A's MTTP is repointed from B's legacy pool to B's MTTP
-	// with the native format (false flags). Both directions now run MTTP to MTTP.
-	mttpB := evm.DeployMTTP(t, env, selB)
-	mttpB.AddToken(t, env, t1b, evm.TokenDecimals, selA, t1a, mttpA.Pool, false, false)
-	mttpA.AddToken(t, env, t1a, evm.TokenDecimals, selB, t1b, mttpB.Pool, false, false)
-	poolMttpB1 := mttpB.AsTokenPool(t1b, evm.TokenDecimals)
-	tokenpool.RunBidirectionalTokenTransfer(t, lib, poolMttpA1, poolMttpB1, 1, fCfg, "T1 canary complete")
-
-	// Step 3: T2 repeats steps 1 and 2 on the already deployed MTTPs, showing a second token can be
-	// added to a pool that is already serving a migrated token.
 	t2a := common.HexToAddress(poolsA[1].Token())
 	t2b := common.HexToAddress(poolsB[1].Token())
-	mttpA.AddToken(t, env, t2a, evm.TokenDecimals, selB, t2b, common.HexToAddress(poolsB[1].Address()), true, true)
+
+	// Step 1: A's MTTP takes over T1 and talks to B's legacy pool. The two true flags make the MTTP
+	// send and accept the legacy 32-byte pool data that B's pool understands, and the MTTP carries the
+	// legacy lane's rate limits. Configure everything, let B's legacy pool trust the MTTP, then switch
+	// A's registry last so no transfer can land in a half-configured state.
+	mttpA := evm.DeployMTTP(t, env, selA)
+	mttpA.SetRateLimitPolicy(t, env, capacity, rate)
+	mttpA.ConfigureToken(t, env, t1a, evm.TokenDecimals, selB, t1b, common.HexToAddress(poolsB[0].Address()), true, true)
+	evm.AddLegacyPoolRemotePool(t, env, selB, poolsB[0].Address(), selA, mttpA.Pool)
+	mttpA.SwitchPool(t, env, t1a)
+	poolMttpA1 := mttpA.AsTokenPool(t1a, evm.TokenDecimals)
+	tokenpool.RunBidirectionalTokenTransfer(t, lib, poolMttpA1, poolsB[0], 1, fCfg, "T1 canary A")
+	assertLaneRateLimit(t, mttpA.RateLimiterState(t, env, t1a, selB), capacity, rate)
+
+	// Step 2: B's MTTP takes over T1. B is configured to send the native format but keeps accepting
+	// A's legacy-format sends until A flips. A keeps trusting B's legacy pool for messages already in
+	// flight and adds B's MTTP. A B->A transfer is sent by the legacy pool, then B switches while it is
+	// in flight, so the message settles against A's MTTP with the legacy pool still trusted.
+	mttpB := evm.DeployMTTP(t, env, selB)
+	mttpB.SetRateLimitPolicy(t, env, capacity, rate)
+	mttpB.ConfigureToken(t, env, t1b, evm.TokenDecimals, selA, t1a, mttpA.Pool, false, true)
+	mttpA.SetRemotePools(
+		t,
+		env,
+		t1a,
+		selB,
+		true,
+		evm.RemotePool{Address: common.HexToAddress(poolsB[0].Address()), AllowLegacy: true},
+		evm.RemotePool{Address: mttpB.Pool, AllowLegacy: false},
+	)
+	poolMttpB1 := mttpB.AsTokenPool(t1b, evm.TokenDecimals)
+	tokenpool.RunTokenTransfer(t, lib, poolsB[0], poolMttpA1, 1, fCfg, "T1 B->A across switch", func() {
+		mttpB.SwitchPool(t, env, t1b)
+	})
+	assertLaneRateLimit(t, mttpB.RateLimiterState(t, env, t1b, selA), capacity, rate)
+
+	// Both sides are now MTTP, so drop the legacy pool and the legacy receive flags and run the native
+	// format end to end.
+	mttpA.SetRemotePools(t, env, t1a, selB, false, evm.RemotePool{Address: mttpB.Pool, AllowLegacy: false})
+	mttpB.SetRemotePools(t, env, t1b, selA, false, evm.RemotePool{Address: mttpA.Pool, AllowLegacy: false})
+	tokenpool.RunBidirectionalTokenTransfer(t, lib, poolMttpA1, poolMttpB1, 1, fCfg, "T1 canary complete")
+
+	// Step 3: T2 repeats the migration on the MTTPs that are already serving T1.
+	mttpA.ConfigureToken(t, env, t2a, evm.TokenDecimals, selB, t2b, common.HexToAddress(poolsB[1].Address()), true, true)
 	evm.AddLegacyPoolRemotePool(t, env, selB, poolsB[1].Address(), selA, mttpA.Pool)
+	mttpA.SwitchPool(t, env, t2a)
 	poolMttpA2 := mttpA.AsTokenPool(t2a, evm.TokenDecimals)
 	tokenpool.RunBidirectionalTokenTransfer(t, lib, poolMttpA2, poolsB[1], 1, fCfg, "T2 canary A")
-	mttpB.AddToken(t, env, t2b, evm.TokenDecimals, selA, t2a, mttpA.Pool, false, false)
-	mttpA.AddToken(t, env, t2a, evm.TokenDecimals, selB, t2b, mttpB.Pool, false, false)
+
+	mttpB.ConfigureToken(t, env, t2b, evm.TokenDecimals, selA, t2a, mttpA.Pool, false, true)
+	mttpA.SetRemotePools(
+		t,
+		env,
+		t2a,
+		selB,
+		true,
+		evm.RemotePool{Address: common.HexToAddress(poolsB[1].Address()), AllowLegacy: true},
+		evm.RemotePool{Address: mttpB.Pool, AllowLegacy: false},
+	)
 	poolMttpB2 := mttpB.AsTokenPool(t2b, evm.TokenDecimals)
+	tokenpool.RunTokenTransfer(t, lib, poolsB[1], poolMttpA2, 1, fCfg, "T2 B->A across switch", func() {
+		mttpB.SwitchPool(t, env, t2b)
+	})
+	mttpA.SetRemotePools(t, env, t2a, selB, false, evm.RemotePool{Address: mttpB.Pool, AllowLegacy: false})
+	mttpB.SetRemotePools(t, env, t2b, selA, false, evm.RemotePool{Address: mttpA.Pool, AllowLegacy: false})
 	tokenpool.RunBidirectionalTokenTransfer(t, lib, poolMttpA2, poolMttpB2, 1, fCfg, "T2 migrated")
 
 	// Step 4: T3 was never migrated, so this checks the MTTP deployment did not disturb legacy pools.
@@ -163,15 +206,38 @@ func mttpEnvironment(t *testing.T) (ccv.Lib, *deployment.Environment, []ccv.Chai
 	return lib, env, chains
 }
 
-// deployMTTPTokens deploys n burn-mint tokens on one chain and returns their addresses. Token
-// deployment also creates a legacy pool per token; MTTP registration later replaces it in the TAR.
+// deployMTTPTokens deploys n burn-mint tokens on one chain and returns their addresses. The tokens
+// have no legacy pool: they go straight onto the MTTP.
 func deployMTTPTokens(t *testing.T, env *deployment.Environment, sel uint64, qual string, n int) []common.Address {
 	t.Helper()
 
 	out := make([]common.Address, n)
 	for i := range n {
-		pool := evm.DeployBurnMintTokenPoolV161(t, env, sel, fmt.Sprintf("%s-%d", qual, i))
-		out[i] = common.HexToAddress(pool.Token())
+		out[i] = evm.DeployMTTPToken(t, env, sel, fmt.Sprintf("%s-%d", qual, i))
 	}
 	return out
+}
+
+// scaledLegacyRateLimit returns the legacy pools' default outbound rate limit scaled to the token
+// decimals, the values an MTTP lane should carry after migration.
+func scaledLegacyRateLimit() (capacity, rate *big.Int) {
+	rl := tokenpool.DefaultOutboundRateLimit()
+	return tokens.ScaleTokenAmount(big.NewInt(int64(rl.Capacity)), evm.TokenDecimals),
+		tokens.ScaleTokenAmount(big.NewInt(int64(rl.Rate)), evm.TokenDecimals)
+}
+
+// assertLaneRateLimit checks that a lane's outbound and inbound buckets carry the migrated limits.
+func assertLaneRateLimit(
+	t *testing.T,
+	state pool_config_manager.IPoolConfigManagerLaneRateLimiterState,
+	capacity, rate *big.Int,
+) {
+	t.Helper()
+
+	require.True(t, state.Outbound.IsEnabled, "outbound rate limit enabled")
+	require.Zero(t, capacity.Cmp(state.Outbound.Capacity), "outbound capacity")
+	require.Zero(t, rate.Cmp(state.Outbound.Rate), "outbound rate")
+	require.True(t, state.Inbound.IsEnabled, "inbound rate limit enabled")
+	require.Zero(t, capacity.Cmp(state.Inbound.Capacity), "inbound capacity")
+	require.Zero(t, rate.Cmp(state.Inbound.Rate), "inbound rate")
 }
