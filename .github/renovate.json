@@ -1,0 +1,19 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", "preview:dockerVersions"],
+  "enabledManagers": ["dockerfile"],
+  "dependencyDashboard": { "enabled": false },
+  "minimumReleaseAge": "3 days",
+  "pinDigests": true,
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "prConcurrentLimit": 3
+  },
+  "packageRules": [
+    {
+      "description": "One PR for all base-image minor/patch/digest bumps, as dependabot used to group them",
+      "matchUpdateTypes": ["minor", "patch", "digest"],
+      "groupName": "base images"
+    }
+  ]
+}

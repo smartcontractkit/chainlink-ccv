@@ -1,0 +1,35 @@
+name: Renovate
+
+# Opens base-image bump PRs as an app, so CI runs on them. Dependabot PRs cannot
+# authenticate in this repo (see #1493); config lives in .github/renovate.json.
+on:
+  schedule:
+    - cron: "30 4 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: renovate
+  cancel-in-progress: false
+
+jobs:
+  renovate:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Issue GitHub token
+        id: gati
+        uses: smartcontractkit/.github/actions/setup-github-token@setup-github-token/v1
+        with:
+          profile: renovate
+
+      - name: Run Renovate
+        uses: renovatebot/github-action@acdd6bda8b035c99ce59d5675816af2aa65a1774 # v46.3.14
+        with:
+          token: ${{ steps.gati.outputs.access-token }}
+        env:
+          RENOVATE_REPOSITORIES: ${{ github.repository }}
+          LOG_LEVEL: info
