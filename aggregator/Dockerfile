@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 # Builder base is digest-pinned so image builds are reproducible and the base
 # is supply-chain verifiable; dependabot bumps the digest in its grouped weekly PR.
-FROM golang:1.26.10-alpine@sha256:9ce231b28998b32e116927c61aa5c406183061d4f3f2d61b292c88e7f6bdf7ca AS builder
+FROM golang:1.26.10-alpine@sha256:87c65a688975c0b1d4585d204874c45ca78354670e3a5f11368c5a492303d696 AS builder
 WORKDIR /app
 
 # Copy module files first to maximize cache reuse across apps
