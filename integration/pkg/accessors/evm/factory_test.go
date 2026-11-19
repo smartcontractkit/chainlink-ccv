@@ -97,7 +97,7 @@ func (s *stubChainRuntime) NewContractTransmitter(
 	return s.transmitter, s.transmitErr
 }
 
-func (s *stubChainRuntime) NewFeeQuoterWriter(_ context.Context, _ keystore.Keystore, keyName string, address common.Address, _ *pricereader.TokenMetadataCache) (chainaccess.FeeQuoterWriter, error) {
+func (s *stubChainRuntime) NewFeeQuoterWriter(_ context.Context, _ keystore.Keystore, keyName string, address common.Address, _ *pricereader.TokenMetadataCache, _ uint8) (chainaccess.FeeQuoterWriter, error) {
 	s.gotWriterKey = keyName
 	s.gotWriterAddress = address
 	if s.writer == nil && s.writerErr == nil {
@@ -690,6 +690,10 @@ func (markerFeeQuoterWriter) UpdatePrices(context.Context, []protocol.FeeTokenPr
 	return "", nil
 }
 
+func (markerFeeQuoterWriter) EstimateUpdateCost(context.Context, []protocol.FeeTokenPriceUpdate, []protocol.GasTokenPriceUpdate) (*big.Int, error) {
+	return new(big.Int), nil
+}
+
 func (markerFeeQuoterWriter) GetTransactionStatus(context.Context, string) (commontypes.TransactionStatus, error) {
 	return commontypes.Unknown, nil
 }
@@ -698,7 +702,8 @@ func TestSetKeystoreReplacesTheFeeQuoterWriterWithTheRuntimeOne(t *testing.T) {
 	t.Parallel()
 	runtime := &stubChainRuntime{writer: markerFeeQuoterWriter{}}
 	fq := common.HexToAddress(validTestFeeQuoterAddress)
-	logOnly := pricereader.NewEVMFeeQuoterWriter(logger.Test(t), nil, fq)
+	logOnly, err := pricereader.NewEVMFeeQuoterWriter(logger.Test(t), nil, fq, defaultNativeDecimals)
+	require.NoError(t, err)
 	acc := newAccessor(logger.Test(t), pricerTestSelector, runtime, common.Address{}, "evm-key", nil, nil, nil, nil, logOnly, nil, withFeeQuoterAddress(fq))
 
 	require.NoError(t, acc.(*accessor).SetKeystore(t.Context(), nil))
@@ -714,7 +719,8 @@ func TestSetKeystoreReplacesTheFeeQuoterWriterWithTheRuntimeOne(t *testing.T) {
 func TestSetKeystoreKeepsTheLogOnlyFeeQuoterWriterAndReportsDegradedOnFailure(t *testing.T) {
 	t.Parallel()
 	runtime := &stubChainRuntime{writerErr: errors.New("no key")}
-	logOnly := pricereader.NewEVMFeeQuoterWriter(logger.Test(t), nil, common.Address{})
+	logOnly, err := pricereader.NewEVMFeeQuoterWriter(logger.Test(t), nil, common.Address{}, defaultNativeDecimals)
+	require.NoError(t, err)
 	acc := newAccessor(logger.Test(t), pricerTestSelector, runtime, common.Address{}, "evm-key", nil, nil, nil, nil, logOnly, nil)
 
 	require.NoError(t, acc.(*accessor).SetKeystore(t.Context(), nil))
