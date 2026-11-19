@@ -135,4 +135,7 @@ type QueueConfig struct {
 	LockDuration time.Duration
 	// KeyColumns selects the unique key of the table. The zero value is DedupKeyColumn.
 	KeyColumns KeyColumns
+	// SerializePerKey runs at most one job per dedup key at a time and coalesces publishes behind it.
+	// Requires DedupKeyColumn and the CreateTablesSQLSerializePerKey schema.
+	SerializePerKey bool
 }

@@ -137,6 +137,14 @@ maxAgeHoursTYPO = 24
 		assert.Contains(t, err.Error(), "orphanRecovery.maxAgeHoursTYPO")
 	})
 
+	t.Run("deprecated aggregation.channelBufferSize still loads", func(t *testing.T) {
+		main := writeFile(t, t.TempDir(), "aggregator.toml", validMainConfig+`
+[aggregation]
+channelBufferSize = 200
+`)
+		require.NoError(t, ValidateConfigFile(main))
+	})
+
 	t.Run("bare-int duration is a type-mismatch decode error", func(t *testing.T) {
 		// Reproduces the original deploy failure: common.Duration rejects bare ints.
 		main := writeFile(t, t.TempDir(), "aggregator.toml", `
