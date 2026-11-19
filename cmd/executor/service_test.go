@@ -228,6 +228,32 @@ executor_pool        = ["test-executor"]
 	assert.Contains(t, err.Error(), "failed to validate chainlink executor")
 }
 
+func TestFactory_Start_NoAssignedChains(t *testing.T) {
+	const selector protocol.ChainSelector = 5009297550715157269
+	fac := mocks.NewMockAccessorFactory(t)
+	fac.EXPECT().GetAccessor(mock.Anything, selector).Return(nil, errors.New("unassigned chain initialized")).Maybe()
+	evmFactory = fac
+	t.Cleanup(func() { evmFactory = nil })
+
+	appConfig := fmt.Sprintf(`
+executor_id = "test-executor"
+indexer_address = ["http://localhost:9090"]
+
+[chain_configuration."%d"]
+off_ramp_address = "0x0000000000000000000000000000000000000001"
+rmn_address = "0x0000000000000000000000000000000000000002"
+default_executor_address = "0x0000000000000000000000000000000000000003"
+executor_pool = ["other-executor"]
+`, selector)
+	lggr := logger.Nop()
+	reg, err := chainaccess.NewRegistry(lggr, "")
+	require.NoError(t, err)
+
+	f := NewFactory()
+	err = f.Start(context.Background(), bootstrap.JobSpec{AppConfig: appConfig}, bootstrap.ServiceDeps{Logger: lggr, Registry: reg})
+	require.ErrorContains(t, err, "failed to create leader elector")
+}
+
 // TestFactory_Start_InvalidChainSelector puts a non-numeric key in
 // chain_configuration, which causes strconv.ParseUint to fail in both
 // chain-config loops. The chain is skipped, validation fails.
