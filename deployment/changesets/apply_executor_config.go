@@ -49,6 +49,11 @@ type ApplyExecutorConfigInput struct {
 // The input is imperative and no onchain state or MCMS coordination is involved.
 func ApplyExecutorConfig() deployment.ChangeSetV2[ApplyExecutorConfigInput] {
 	validate := func(e deployment.Environment, cfg ApplyExecutorConfigInput) error {
+		e, err := withPersistedJDNodeIDs(e)
+		if err != nil {
+			return err
+		}
+
 		if cfg.ExecutorQualifier == "" {
 			return fmt.Errorf("executor qualifier is required")
 		}
@@ -104,6 +109,11 @@ func ApplyExecutorConfig() deployment.ChangeSetV2[ApplyExecutorConfigInput] {
 	}
 
 	apply := func(e deployment.Environment, cfg ApplyExecutorConfigInput) (deployment.ChangesetOutput, error) {
+		e, err := withPersistedJDNodeIDs(e)
+		if err != nil {
+			return deployment.ChangesetOutput{}, err
+		}
+
 		selectors := adapters.AllDeployedExecutorChains(e.DataStore, cfg.ExecutorQualifier)
 
 		if len(selectors) == 0 {
@@ -328,6 +338,7 @@ func fetchNodeChainSupport(e deployment.Environment, nopAliases []string, nodeID
 			NOPAliases:       nopAliases,
 			NodeIDByNOPAlias: nodeIDByAlias,
 		},
+		operations.WithForceExecute[fetch_node_chain_support.FetchNodeChainSupportInput, fetch_node_chain_support.FetchNodeChainSupportDeps](),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch node chain support from JD: %w", err)

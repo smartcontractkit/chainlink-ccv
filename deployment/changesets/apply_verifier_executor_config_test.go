@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/offchain"
 
@@ -217,6 +218,30 @@ func TestApplyVerifierExecutorConfigPreservesBothJobOutputs(t *testing.T) {
 	nodes, err := ccvdeployment.GetJDNodes(out.DataStore.Seal())
 	require.NoError(t, err)
 	require.Len(t, nodes, 1)
+}
+
+func TestApplyVerifierExecutorConfigUsesPersistedJDNodeInventory(t *testing.T) {
+	sel := chainsel.TEST_90000001.Selector
+	registerEVMChainTypeForIdentities()
+	registerFullEVMAdapters(&stubFullAdapter{
+		states:        map[uint64][]*adapters.CommitteeState{sel: nil},
+		verifierAddrs: map[uint64]string{sel: "0xcommittee"},
+	})
+	env := newTestEnvForApply(t, "nop1", []uint64{sel})
+	env.GetContext = t.Context
+	env.NodeIDs = nil
+	ds := datastore.NewMemoryDataStore()
+	require.NoError(t, ccvdeployment.SaveJDNodes(ds, map[string]ccvdeployment.JDNode{
+		"node-nop1": {Name: "nop1"},
+	}))
+	env.DataStore = ds.Seal()
+	addCCVTestEVMChainSupport(t, env, sel)
+
+	out, err := ApplyVerifierExecutorConfig().Apply(env, validCombinedVerifierExecutorInput(sel))
+	require.NoError(t, err)
+	jobs, err := ccvdeployment.GetAllJobs(out.DataStore.Seal())
+	require.NoError(t, err)
+	require.Len(t, jobs["nop1"], 2)
 }
 
 func TestDeriveExecutorInput_MatchesHandBuiltStandaloneInput(t *testing.T) {

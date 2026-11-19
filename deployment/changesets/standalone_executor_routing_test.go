@@ -173,10 +173,11 @@ func (c *standaloneRoutingJDClient) setStatus(proposalID string, status jobv1.Pr
 
 // standaloneApplier runs ApplyExecutorConfig repeatedly, carrying the datastore between runs.
 type standaloneApplier struct {
-	t      *testing.T
-	sel    uint64
-	client *standaloneRoutingJDClient
-	ds     datastore.DataStore
+	t       *testing.T
+	sel     uint64
+	client  *standaloneRoutingJDClient
+	ds      datastore.DataStore
+	nodeIDs []string
 }
 
 func newStandaloneApplier(t *testing.T, adapter *standaloneExecutorTestAdapter) *standaloneApplier {
@@ -184,7 +185,13 @@ func newStandaloneApplier(t *testing.T, adapter *standaloneExecutorTestAdapter) 
 	sel := chainsel.TEST_90000001.Selector
 	adapter.selectors = []uint64{sel}
 	adapters.GetExecutorRegistry().Register(chainsel.FamilyEVM, adapter)
-	return &standaloneApplier{t: t, sel: sel, client: newStandaloneRoutingJDClient(), ds: datastore.NewMemoryDataStore().Seal()}
+	return &standaloneApplier{
+		t:       t,
+		sel:     sel,
+		client:  newStandaloneRoutingJDClient(),
+		ds:      datastore.NewMemoryDataStore().Seal(),
+		nodeIDs: []string{standaloneTestVerifierNodeID, standaloneTestExecutorNodeID},
+	}
 }
 
 func (a *standaloneApplier) seedJobs(jobs ...shared.JobInfo) {
@@ -192,6 +199,14 @@ func (a *standaloneApplier) seedJobs(jobs ...shared.JobInfo) {
 	ds := datastore.NewMemoryDataStore()
 	require.NoError(a.t, ds.Merge(a.ds))
 	require.NoError(a.t, ccvdeployment.SaveJobs(ds, jobs))
+	a.ds = ds.Seal()
+}
+
+func (a *standaloneApplier) seedJDNodes(nodes map[string]ccvdeployment.JDNode) {
+	a.t.Helper()
+	ds := datastore.NewMemoryDataStore()
+	require.NoError(a.t, ds.Merge(a.ds))
+	require.NoError(a.t, ccvdeployment.SaveJDNodes(ds, nodes))
 	a.ds = ds.Seal()
 }
 
@@ -203,7 +218,7 @@ func (a *standaloneApplier) apply(withJD bool, mutate func(*NOPInput)) error {
 	if withJD {
 		env.Offchain = a.client
 	}
-	env.NodeIDs = []string{standaloneTestVerifierNodeID, standaloneTestExecutorNodeID}
+	env.NodeIDs = a.nodeIDs
 	env.DataStore = a.ds
 	cfg := standaloneExecutorTestInput(a.sel)
 	if mutate != nil {
@@ -276,6 +291,43 @@ func TestApplyExecutorConfigStandaloneNodeRouting(t *testing.T) {
 			require.Equal(t, standaloneTestExecutorNodeName, nodes[standaloneTestExecutorNodeID].Labels["target"])
 		})
 	}
+}
+
+func TestApplyExecutorConfigUsesPersistedJDNodeInventory(t *testing.T) {
+	a := newStandaloneApplier(t, &standaloneExecutorTestAdapter{})
+	a.nodeIDs = nil
+	a.seedJDNodes(map[string]ccvdeployment.JDNode{
+		standaloneTestVerifierNodeID: {Name: string(standaloneTestAlias)},
+		standaloneTestExecutorNodeID: {Name: standaloneTestExecutorNodeName},
+	})
+
+	require.NoError(t, a.apply(true, byName))
+	require.Len(t, a.client.proposals, 1)
+	require.Equal(t, standaloneTestExecutorNodeID, a.client.proposals[0].GetNodeId())
+}
+
+func TestApplyExecutorConfigAddsPersistedNodeIDsToCurrentAllowlist(t *testing.T) {
+	a := newStandaloneApplier(t, &standaloneExecutorTestAdapter{})
+	a.nodeIDs = []string{standaloneTestVerifierNodeID}
+	a.seedJDNodes(map[string]ccvdeployment.JDNode{
+		standaloneTestVerifierNodeID: {Name: string(standaloneTestAlias)},
+		standaloneTestExecutorNodeID: {Name: standaloneTestExecutorNodeName},
+	})
+
+	require.NoError(t, a.apply(true, byName))
+	require.Len(t, a.client.proposals, 1)
+	require.Equal(t, standaloneTestExecutorNodeID, a.client.proposals[0].GetNodeId())
+}
+
+func TestApplyExecutorConfigPreservesCurrentNodeIDsWhenInventoryIsStale(t *testing.T) {
+	a := newStandaloneApplier(t, &standaloneExecutorTestAdapter{})
+	a.seedJDNodes(map[string]ccvdeployment.JDNode{
+		standaloneTestVerifierNodeID: {Name: string(standaloneTestAlias)},
+	})
+
+	require.NoError(t, a.apply(true, byName))
+	require.Len(t, a.client.proposals, 1)
+	require.Equal(t, standaloneTestExecutorNodeID, a.client.proposals[0].GetNodeId())
 }
 
 func TestApplyExecutorConfigDoesNotProposeWhenNodeInventorySyncFails(t *testing.T) {
