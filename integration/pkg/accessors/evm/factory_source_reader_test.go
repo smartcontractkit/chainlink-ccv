@@ -55,6 +55,7 @@ func newSourceFactory(t *testing.T, runtime chainRuntime) chainaccess.AccessorFa
 		nil,
 		nil,
 		nil,
+		nil,
 		0,
 		0,
 		func(context.Context, protocol.ChainSelector, logger.Logger) (chainRuntime, error) {

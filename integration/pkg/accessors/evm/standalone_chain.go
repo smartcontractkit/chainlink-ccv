@@ -108,6 +108,7 @@ type chainRuntime interface {
 		feeQuoterAddress common.Address,
 		tokens *pricereader.TokenMetadataCache,
 		nativeDecimals uint8,
+		opts ...pricereader.WriterOption,
 	) (chainaccess.FeeQuoterWriter, error)
 	Close() error
 }
@@ -549,6 +550,7 @@ func (c *standaloneChain) NewFeeQuoterWriter(
 	feeQuoterAddress common.Address,
 	tokens *pricereader.TokenMetadataCache,
 	nativeDecimals uint8,
+	opts ...pricereader.WriterOption,
 ) (chainaccess.FeeQuoterWriter, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -567,9 +569,11 @@ func (c *standaloneChain) NewFeeQuoterWriter(
 		c.chainClient,
 		feeQuoterAddress,
 		nativeDecimals,
-		pricereader.WithTxm(c.txm, c.chainKeystore, c.fromAddresses),
-		pricereader.WithFeeEstimator(c.feeEstimator, txmgr.NewEvmTxmFeeConfig(c.chainConfig.EVM().GasEstimator()).PriceMaxKey),
-		pricereader.WithTokenCache(tokens),
+		append([]pricereader.WriterOption{
+			pricereader.WithTxm(c.txm, c.chainKeystore, c.fromAddresses),
+			pricereader.WithFeeEstimator(c.feeEstimator, txmgr.NewEvmTxmFeeConfig(c.chainConfig.EVM().GasEstimator()).PriceMaxKey),
+			pricereader.WithTokenCache(tokens),
+		}, opts...)...,
 	)
 	if err != nil {
 		return nil, err

@@ -29,9 +29,10 @@ import (
 )
 
 const (
-	// updatePricesBaseGas and updatePricesGasPerUpdate bound the gas limit of an updatePrices call.
-	updatePricesBaseGas      = 100_000
-	updatePricesGasPerUpdate = 50_000
+	// defaultUpdatePricesBaseGas and defaultUpdatePricesGasPerUpdate bound the gas limit of an
+	// updatePrices call: base + perUpdate*updates. WithUpdatePricesGas overrides them.
+	defaultUpdatePricesBaseGas      = 100_000
+	defaultUpdatePricesGasPerUpdate = 50_000
 )
 
 var feeQuoterABI = evmtypes.MustGetABI(fee_quoter.FeeQuoterABI)
@@ -62,6 +63,8 @@ type EVMFeeQuoterWriter struct {
 
 	tokens *TokenMetadataCache
 
+	updatePricesBaseGas      uint64
+	updatePricesGasPerUpdate uint64
 	// estimator prices an updatePrices transaction for EstimateUpdateCost. Nil makes the estimate fail.
 	estimator feeQuoterUpdateEstimator
 	// priceMaxKey is the fee cap of a sender key. The estimator compares prices against it, so it must not be nil.
@@ -79,6 +82,19 @@ func WithTxm(txm txmgr.TxManager, keys keys.RoundRobin, fromAddresses []common.A
 		w.txm = txm
 		w.keys = keys
 		w.fromAddresses = fromAddresses
+	}
+}
+
+// WithUpdatePricesGas overrides the gas limit of the updatePrices call, which is
+// baseGas + gasPerUpdate * (number of token and gas price updates). A zero value keeps its default.
+func WithUpdatePricesGas(baseGas, gasPerUpdate uint64) WriterOption {
+	return func(w *EVMFeeQuoterWriter) {
+		if baseGas > 0 {
+			w.updatePricesBaseGas = baseGas
+		}
+		if gasPerUpdate > 0 {
+			w.updatePricesGasPerUpdate = gasPerUpdate
+		}
 	}
 }
 
@@ -101,13 +117,16 @@ func WithTokenCache(cache *TokenMetadataCache) WriterOption {
 }
 
 // NewEVMFeeQuoterWriter creates a writer. It does not call the chain.
-// The nativeDecimals argument is the decimals of the unit of the fee estimator's cost, which EstimateUpdateCost scales
+// The native Decimals argument is the decimals of the unit of the fee estimator's cost, which EstimateUpdateCost scales
 // to 1e36.
 func NewEVMFeeQuoterWriter(lggr logger.Logger, client batchClient, address common.Address, nativeDecimals uint8, opts ...WriterOption) (*EVMFeeQuoterWriter, error) {
 	if nativeDecimals > MaxNativeTokenDecimals {
 		return nil, fmt.Errorf("native token decimals %d is more than %d", nativeDecimals, MaxNativeTokenDecimals)
 	}
-	w := &EVMFeeQuoterWriter{lggr: lggr, client: client, address: address, tokens: NewTokenMetadataCache(), nativeDecimals: nativeDecimals}
+	w := &EVMFeeQuoterWriter{
+		lggr: lggr, client: client, address: address, tokens: NewTokenMetadataCache(), nativeDecimals: nativeDecimals,
+		updatePricesBaseGas: defaultUpdatePricesBaseGas, updatePricesGasPerUpdate: defaultUpdatePricesGasPerUpdate,
+	}
 	for _, opt := range opts {
 		opt(w)
 	}
@@ -159,7 +178,7 @@ func (w *EVMFeeQuoterWriter) EstimateUpdateCost(ctx context.Context, tokenPrices
 	if maxFeePrice == nil {
 		return nil, fmt.Errorf("fee quoter writer has no max fee price for sender %s", from)
 	}
-	costEstimate, err := w.estimator.GetMaxCost(ctx, assets.NewEthValue(0), payload, updatePricesFeeLimit(priceUpdates), maxFeePrice, &from, &w.address)
+	costEstimate, err := w.estimator.GetMaxCost(ctx, assets.NewEthValue(0), payload, w.updatePricesFeeLimit(priceUpdates), maxFeePrice, &from, &w.address)
 	if err != nil {
 		return nil, fmt.Errorf("failed to estimate the updatePrices cost: %w", err)
 	}
@@ -167,9 +186,9 @@ func (w *EVMFeeQuoterWriter) EstimateUpdateCost(ctx context.Context, tokenPrices
 }
 
 // updatePricesFeeLimit is the gas limit of an updatePrices call with the given updates.
-func updatePricesFeeLimit(priceUpdates fee_quoter.InternalPriceUpdates) uint64 {
+func (w *EVMFeeQuoterWriter) updatePricesFeeLimit(priceUpdates fee_quoter.InternalPriceUpdates) uint64 {
 	updates := uint64(len(priceUpdates.TokenPriceUpdates) + len(priceUpdates.GasPriceUpdates))
-	return updatePricesBaseGas + updatePricesGasPerUpdate*updates
+	return w.updatePricesBaseGas + w.updatePricesGasPerUpdate*updates
 }
 
 // buildPriceUpdates scales the updates to the on-chain format. It returns false when none are left to send.
@@ -228,7 +247,7 @@ func (w *EVMFeeQuoterWriter) send(ctx context.Context, priceUpdates fee_quoter.I
 	if err != nil {
 		return "", fmt.Errorf("failed to pick a sender address: %w", err)
 	}
-	feeLimit := updatePricesFeeLimit(priceUpdates)
+	feeLimit := w.updatePricesFeeLimit(priceUpdates)
 
 	txID := uuid.NewString()
 	_, err = w.txm.CreateTransaction(ctx, txmgr.TxRequest{

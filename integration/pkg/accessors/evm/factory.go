@@ -50,6 +50,8 @@ type factory struct {
 	feeQuoterAddresses map[protocol.ChainSelector]string
 	// nativeDecimals overrides the native token decimals of a chain. The default is 18.
 	nativeDecimals map[protocol.ChainSelector]uint8
+	// feeQuoterGasOverride overrides the default gas limits for updating Fee Quoter prices.
+	feeQuoterGasOverride map[protocol.ChainSelector]chainaccess.FeeQuoterGasOverride
 
 	executionVisibilityWindow time.Duration
 	// readerStalenessThreshold overrides the destination reader's staleness default
@@ -72,6 +74,7 @@ func newFactory(
 	destChainConfigs map[protocol.ChainSelector]chainaccess.DestinationChainConfig,
 	feeQuoterAddresses map[protocol.ChainSelector]string,
 	nativeDecimals map[protocol.ChainSelector]uint8,
+	feeQuoterGasOverride map[protocol.ChainSelector]chainaccess.FeeQuoterGasOverride,
 	executionVisibilityWindow time.Duration,
 	readerStalenessThreshold time.Duration,
 	newRuntime runtimeBuilder,
@@ -86,6 +89,7 @@ func newFactory(
 		destChainConfigs:          destChainConfigs,
 		feeQuoterAddresses:        feeQuoterAddresses,
 		nativeDecimals:            nativeDecimals,
+		feeQuoterGasOverride:      feeQuoterGasOverride,
 		executionVisibilityWindow: executionVisibilityWindow,
 		readerStalenessThreshold:  readerStalenessThreshold,
 		newRuntime:                newRuntime,
@@ -269,6 +273,7 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 		withFeeQuoterAddress(common.HexToAddress(feeQuoterAddress)),
 		withTokenCache(tokenCache),
 		withNativeDecimals(nativeDecimals),
+		withFeeQuoterGasOverride(f.feeQuoterGasOverride[chainSelector]),
 	)
 	acc.chainDefaultsErr = chainDefaultsError(evmconfig.ChainDefaultsProblems())
 	acc.sourceParams = sourceParams
@@ -317,6 +322,8 @@ type accessor struct {
 	keyName       string
 	feeQuoterAddr common.Address
 	tokenCache    *pricereader.TokenMetadataCache
+	// feeQuoterGasOverride overrides the default gas limits for updating Fee Quoter prices.
+	feeQuoterGasOverride chainaccess.FeeQuoterGasOverride
 }
 
 type accessorOption func(*accessor)
@@ -327,6 +334,10 @@ func withTokenCache(cache *pricereader.TokenMetadataCache) accessorOption {
 
 func withFeeQuoterAddress(address common.Address) accessorOption {
 	return func(a *accessor) { a.feeQuoterAddr = address }
+}
+
+func withFeeQuoterGasOverride(override chainaccess.FeeQuoterGasOverride) accessorOption {
+	return func(a *accessor) { a.feeQuoterGasOverride = override }
 }
 
 func withNativeDecimals(decimals uint8) accessorOption {
@@ -455,7 +466,8 @@ func (a *accessor) startFeeQuoterWriter(ctx context.Context, ks keystore.Keystor
 	if a.feeQuoterWriter == nil || a.runtime == nil {
 		return
 	}
-	writer, err := a.runtime.NewFeeQuoterWriter(ctx, ks, a.keyName, a.feeQuoterAddr, a.tokenCache, a.nativeDecimals)
+	writer, err := a.runtime.NewFeeQuoterWriter(ctx, ks, a.keyName, a.feeQuoterAddr, a.tokenCache, a.nativeDecimals,
+		pricereader.WithUpdatePricesGas(a.feeQuoterGasOverride.BaseGas, a.feeQuoterGasOverride.GasPerUpdate))
 	if err == nil && writer == nil {
 		err = errors.New("writer is nil")
 	}

@@ -477,7 +477,7 @@ func TestEVMFeeQuoterWriterSendsUpdatePricesThroughTheTxm(t *testing.T) {
 	require.Equal(t, txID, *req.IdempotencyKey, "the returned ID must be the key the tx can be looked up by")
 	require.Equal(t, from, req.FromAddress)
 	require.Equal(t, fq, req.ToAddress)
-	require.EqualValues(t, updatePricesBaseGas+3*updatePricesGasPerUpdate, req.FeeLimit)
+	require.EqualValues(t, defaultUpdatePricesBaseGas+3*defaultUpdatePricesGasPerUpdate, req.FeeLimit)
 
 	args, err := feeQuoterABI.Methods["updatePrices"].Inputs.Unpack(req.EncodedPayload[4:])
 	require.NoError(t, err)
@@ -511,7 +511,41 @@ func TestEVMFeeQuoterWriterSendsAGasOnlyUpdateWithoutAClient(t *testing.T) {
 	}})
 	require.NoError(t, err)
 	require.Len(t, txm.requests, 1)
-	require.EqualValues(t, updatePricesBaseGas+updatePricesGasPerUpdate, txm.requests[0].FeeLimit)
+	require.EqualValues(t, defaultUpdatePricesBaseGas+defaultUpdatePricesGasPerUpdate, txm.requests[0].FeeLimit)
+}
+
+func TestEVMFeeQuoterWriterUsesTheConfiguredUpdatePricesGas(t *testing.T) {
+	gasUpdate := []protocol.GasTokenPriceUpdate{{
+		ChainSelector: 1,
+		USDGasPrice:   protocol.USDGasPrice{ExecutionFee: (*protocol.USDPerGasUnit)(big.NewInt(3))},
+	}}
+	tests := []struct {
+		name            string
+		base, perUpdate uint64
+		want            uint64
+	}{
+		{"both overridden", 200_000, 70_000, 270_000},
+		{"zero keeps defaults", 0, 0, defaultUpdatePricesBaseGas + defaultUpdatePricesGasPerUpdate},
+		{"only base overridden", 300_000, 0, 300_000 + defaultUpdatePricesGasPerUpdate},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gasPrice := big.NewInt(10)
+			est := &fakeEstimator{cost: gasPrice}
+			txm := &fakeTxm{}
+			writer := newTestWriter(t, logger.Test(t), nil, common.HexToAddress("0xfee"), WithTxm(txm, fakeKeys{}, []common.Address{common.HexToAddress("0x01")}), WithFeeEstimator(est, testPriceMax))
+			WithUpdatePricesGas(tt.base, tt.perUpdate)(writer)
+			_, err := writer.UpdatePrices(t.Context(), nil, gasUpdate)
+			require.NoError(t, err)
+			require.Len(t, txm.requests, 1)
+			require.EqualValues(t, tt.want, txm.requests[0].FeeLimit)
+			estimates, err := writer.EstimateUpdateCost(t.Context(), nil, gasUpdate)
+			require.NoError(t, err)
+			unscaledEstimate := new(big.Int).Mul(big.NewInt(int64(tt.want)), est.cost)
+			scaledEstimate := new(big.Int).Mul(unscaledEstimate, pow10(MaxNativeTokenDecimals-uint(testNativeDecimals)))
+			require.EqualValues(t, estimates, scaledEstimate)
+		})
+	}
 }
 
 func TestEVMFeeQuoterWriterReturnsTxmAndKeyErrors(t *testing.T) {
@@ -559,7 +593,7 @@ func TestEVMFeeQuoterWriterSkipsTokensWithoutDecimals(t *testing.T) {
 	require.Len(t, got.TokenPriceUpdates, 1)
 	require.Equal(t, env.USDC, got.TokenPriceUpdates[0].SourceToken)
 	require.Len(t, got.GasPriceUpdates, 1)
-	require.EqualValues(t, updatePricesBaseGas+2*updatePricesGasPerUpdate, txm.requests[0].FeeLimit)
+	require.EqualValues(t, defaultUpdatePricesBaseGas+2*defaultUpdatePricesGasPerUpdate, txm.requests[0].FeeLimit)
 }
 
 func TestEVMFeeQuoterWriterSendsNothingWhenNoUpdateHasDecimals(t *testing.T) {
@@ -699,7 +733,7 @@ func TestEVMFeeQuoterWriterEstimatesThePriceUpdateCostWithoutSending(t *testing.
 	est := &fakeEstimator{cost: gasPrice}
 	from, fq := common.HexToAddress("0x01"), common.HexToAddress("0xfee")
 	writer := newTestWriter(t, logger.Test(t), nil, fq, WithTxm(txm, fakeKeys{}, []common.Address{from}), WithFeeEstimator(est, testPriceMax))
-	gasLimit := uint64(updatePricesBaseGas + updatePricesGasPerUpdate)
+	gasLimit := uint64(defaultUpdatePricesBaseGas + defaultUpdatePricesGasPerUpdate)
 
 	cost, err := writer.EstimateUpdateCost(t.Context(), nil, gasOnlyUpdate())
 
@@ -780,7 +814,7 @@ func TestEVMFeeQuoterWriterSendStillSucceedsWhenTheEstimateFails(t *testing.T) {
 
 func TestEVMFeeQuoterWriterEstimateScalesTheCostByTheNativeDecimals(t *testing.T) {
 	from, fq := common.HexToAddress("0x01"), common.HexToAddress("0xfee")
-	gasLimit := big.NewInt(updatePricesBaseGas + updatePricesGasPerUpdate)
+	gasLimit := big.NewInt(defaultUpdatePricesBaseGas + defaultUpdatePricesGasPerUpdate)
 	for _, decimals := range []uint8{0, 8, 18, 36} {
 		est := &fakeEstimator{cost: big.NewInt(7)}
 		writer, err := NewEVMFeeQuoterWriter(logger.Test(t), nil, fq, decimals,
