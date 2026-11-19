@@ -28,8 +28,8 @@ updates:
     commit-message:
       prefix: "chore(ci)"
 
-  # Keeps the digest-pinned base images in the production Dockerfiles current;
-  # dependabot proposes the new tag/digest as a PR.
+  # Alerts only: Renovate opens the fix PRs (see .github/workflows/renovate.yaml),
+  # because PRs Dependabot authors never get CI in this repo.
   - package-ecosystem: docker
     directories:
       - /aggregator
@@ -40,15 +40,6 @@ updates:
       - /build/devenv/fakes
     schedule:
       interval: weekly
-    # One weekly PR for all base-image digest bumps instead of six.
-    groups:
-      docker-base-images:
-        applies-to: version-updates
-        patterns:
-          - "*"
-      docker-security:
-        applies-to: security-updates
-        patterns:
-          - "*"
+    open-pull-requests-limit: 0
     commit-message:
       prefix: "chore(deps)"
