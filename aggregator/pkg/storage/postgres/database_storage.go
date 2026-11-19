@@ -306,10 +306,6 @@ func (d *DatabaseStorage) CountSigners(ctx context.Context, triggers []model.Agg
 	return counts, nil
 }
 
-// maxVerificationRecordsPerMessage limits the rows that ListCommitVerificationByMessageID reads.
-const maxVerificationRecordsPerMessage = 256
-
-// unique_verification gives one row per (signer, key) and its index gives this order, so the scan stops at the limit.
 const countSignersQuery = `
 		SELECT aggregation_key,
 		       count(DISTINCT signer_identifier) AS signers,
@@ -318,6 +314,10 @@ const countSignersQuery = `
 		WHERE (message_id, aggregation_key) IN (SELECT * FROM unnest($1::text[], $2::text[]))
 		GROUP BY message_id, aggregation_key`
 
+// maxVerificationRecordsPerMessage limits the rows that ListCommitVerificationByMessageID reads.
+const maxVerificationRecordsPerMessage = 256
+
+// unique_verification gives one row per (signer, key) and its index gives this order, so the scan stops at the limit.
 var listCommitVerificationByMessageIDQuery = fmt.Sprintf(`SELECT %s
 		FROM commit_verification_records
 		WHERE message_id = $1

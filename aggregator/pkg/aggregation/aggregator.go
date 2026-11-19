@@ -371,10 +371,11 @@ func (c *CommitReportAggregator) consumeBatch(
 	// Set before reading inFlight, so a worker that finishes in between still re-arms w.
 	w.starved.Store(true)
 	free := c.backgroundWorkerCount - int(c.inFlight.Load())
-	if free <= 0 {
+	if free <= 0 || ctx.Err() != nil {
 		return
 	}
-	consumeCtx, cancel := context.WithTimeout(ctx, queueOperationTimeout)
+	// A claim canceled after commit would leave jobs locked with no worker, so finish it and hand jobs to workers.
+	consumeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), queueOperationTimeout)
 	jobs, err := consume(consumeCtx, free)
 	cancel()
 	if err != nil {
