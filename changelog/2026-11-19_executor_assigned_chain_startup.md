@@ -18,6 +18,6 @@
 
 ## Standalone startup filtering
 
-After decoding, validating, and normalizing a standalone job spec, `Factory.Start` removes chain entries that do not include its `executor_id` in `executor_pool`. It then builds accessors, leader-election state, indexer streaming, balance readers, and chain inspection only from the assigned entries.
+After decoding, validating, and normalizing a standalone job spec, `Factory.Start` selects chain entries that include its `executor_id` in `executor_pool`. It builds accessors, leader-election state, indexer streaming, balance readers, and chain inspection only from those assigned entries.
 
-Unassigned entries are intentionally ignored rather than recorded as startup skips. A job with no assigned chains still fails startup because its leader-elector chain map is empty. Existing pool-wide job specs require no regeneration, and CL-mode executor construction is unchanged.
+Unassigned entries do not create accessors or startup skips. Their default executor addresses remain available because verifier-result filtering looks up those addresses by source chain, which need not be an assigned destination. A job with no assigned chains still fails startup because its leader-elector chain map is empty. Existing pool-wide job specs require no regeneration, and CL-mode executor construction is unchanged.
