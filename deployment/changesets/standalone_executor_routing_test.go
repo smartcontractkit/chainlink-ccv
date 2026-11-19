@@ -306,6 +306,19 @@ func TestApplyExecutorConfigUsesPersistedJDNodeInventory(t *testing.T) {
 	require.Equal(t, standaloneTestExecutorNodeID, a.client.proposals[0].GetNodeId())
 }
 
+func TestApplyExecutorConfigAddsPersistedNodeIDsToCurrentAllowlist(t *testing.T) {
+	a := newStandaloneApplier(t, &standaloneExecutorTestAdapter{})
+	a.nodeIDs = []string{standaloneTestVerifierNodeID}
+	a.seedJDNodes(map[string]ccvdeployment.JDNode{
+		standaloneTestVerifierNodeID: {Name: string(standaloneTestAlias)},
+		standaloneTestExecutorNodeID: {Name: standaloneTestExecutorNodeName},
+	})
+
+	require.NoError(t, a.apply(true, byName))
+	require.Len(t, a.client.proposals, 1)
+	require.Equal(t, standaloneTestExecutorNodeID, a.client.proposals[0].GetNodeId())
+}
+
 func TestApplyExecutorConfigPreservesCurrentNodeIDsWhenInventoryIsStale(t *testing.T) {
 	a := newStandaloneApplier(t, &standaloneExecutorTestAdapter{})
 	a.seedJDNodes(map[string]ccvdeployment.JDNode{

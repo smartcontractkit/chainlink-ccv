@@ -4,7 +4,7 @@
 
 - Verifier and executor chain-support validation now queries current JD state instead of reusing an earlier operation report.
 - Verifier and executor activation use the durable `offchainConfigs.jdNodes` inventory for their node-ID allowlist, including standalone executor node-name resolution.
-- Registration's datastore output is therefore sufficient for activation in a later durable-pipeline job; an existing CLD-provided node-ID list is preserved.
+- Registration's datastore output is therefore sufficient for activation in a later durable-pipeline job; durable IDs are merged with the existing CLD-provided list so either source may be stale.
 - The implementation is chain-family agnostic; regression coverage includes a Solana JD chain-config response.
 
 ## AI Adapter Index
@@ -30,16 +30,16 @@ This deliberately does not add framework-wide retries. The JD read can succeed w
 
 ### Durable node-inventory handoff
 
-When `Environment.NodeIDs` is empty, `withPersistedJDNodeIDs` reads `deployment.GetJDNodes` and fills it with the sorted inventory keys. Both executor preconditions and apply, and verifier apply, resolve this environment before any JD lookup or proposal management. An existing node-ID list is preserved so nodes registered after the last inventory snapshot remain visible.
+`withPersistedJDNodeIDs` reads `deployment.GetJDNodes` and appends missing inventory IDs to `Environment.NodeIDs` in sorted order. Both executor preconditions and apply, and verifier apply, resolve this environment before any JD lookup or proposal management. Existing IDs retain their order, so nodes registered after the last inventory snapshot remain visible while nodes missing from a stale `nodes.json` are restored.
 
-This covers alias lookup, standalone executor routing, chain-support validation, job proposal, and orphan cleanup without introducing chain-specific behavior. Later pipeline jobs without a CLD-provided list use the persisted inventory; environments that already have one retain it.
+This covers alias lookup, standalone executor routing, chain-support validation, job proposal, and orphan cleanup without introducing chain-specific behavior. Later pipeline jobs can use the persisted inventory even when their CLD-provided list is non-empty but stale.
 
 A downstream CLD deployment should bump its `chainlink-ccv/deployment` pin to a version containing this change and `2026-11-13_jd_node_inventory.md`. The registration job's normal datastore artifact then supplies the node inventory to later verifier or executor jobs; no separate `nodes.json` artifact commit is required for these changesets.
 
 ## Compatibility & Requirements
 
 - No configuration or dependency changes are required.
-- `nodes.json` is still written by registration. Its CLD-provided node-ID list takes precedence when present; the durable snapshot fills an empty list.
+- `nodes.json` is still written by registration and loaded by CLD. Activation uses the union of its node IDs and the durable snapshot, preserving existing IDs and appending missing ones.
 - Chain-support validation requires a live JD read on every apply, so it no longer benefits from operation-report reuse.
 
 ## References

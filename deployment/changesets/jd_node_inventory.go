@@ -9,9 +9,9 @@ import (
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 )
 
-// withPersistedJDNodeIDs supplies a missing legacy allowlist from registration's durable inventory.
+// withPersistedJDNodeIDs merges registration's durable inventory into the legacy nodes.json allowlist.
 func withPersistedJDNodeIDs(e deployment.Environment) (deployment.Environment, error) {
-	if e.Offchain == nil || e.DataStore == nil || len(e.NodeIDs) > 0 {
+	if e.Offchain == nil || e.DataStore == nil {
 		return e, nil
 	}
 	nodes, err := ccvdeployment.GetJDNodes(e.DataStore)
@@ -22,10 +22,17 @@ func withPersistedJDNodeIDs(e deployment.Environment) (deployment.Environment, e
 		return e, nil
 	}
 
-	e.NodeIDs = make([]string, 0, len(nodes))
-	for nodeID := range nodes {
-		e.NodeIDs = append(e.NodeIDs, nodeID)
+	seen := make(map[string]struct{}, len(e.NodeIDs)+len(nodes))
+	for _, nodeID := range e.NodeIDs {
+		seen[nodeID] = struct{}{}
 	}
-	slices.Sort(e.NodeIDs)
+	missing := make([]string, 0, len(nodes))
+	for nodeID := range nodes {
+		if _, ok := seen[nodeID]; !ok {
+			missing = append(missing, nodeID)
+		}
+	}
+	slices.Sort(missing)
+	e.NodeIDs = append(e.NodeIDs, missing...)
 	return e, nil
 }
