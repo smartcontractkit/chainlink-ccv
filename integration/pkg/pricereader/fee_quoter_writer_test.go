@@ -530,13 +530,20 @@ func TestEVMFeeQuoterWriterUsesTheConfiguredUpdatePricesGas(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			gasPrice := big.NewInt(10)
+			est := &fakeEstimator{cost: gasPrice}
 			txm := &fakeTxm{}
-			writer := newTxmWriter(t, nil, txm, fakeKeys{}, common.HexToAddress("0x01"), common.HexToAddress("0xfee"))
+			writer := newTestWriter(t, logger.Test(t), nil, common.HexToAddress("0xfee"), WithTxm(txm, fakeKeys{}, []common.Address{common.HexToAddress("0x01")}), WithFeeEstimator(est, testPriceMax))
 			WithUpdatePricesGas(tt.base, tt.perUpdate)(writer)
 			_, err := writer.UpdatePrices(t.Context(), nil, gasUpdate)
 			require.NoError(t, err)
 			require.Len(t, txm.requests, 1)
 			require.EqualValues(t, tt.want, txm.requests[0].FeeLimit)
+			estimates, err := writer.EstimateUpdateCost(t.Context(), nil, gasUpdate)
+			require.NoError(t, err)
+			unscaledEstimate := new(big.Int).Mul(big.NewInt(int64(tt.want)), est.cost)
+			scaledEstimate := new(big.Int).Mul(unscaledEstimate, pow10(MaxNativeTokenDecimals-uint(testNativeDecimals)))
+			require.EqualValues(t, estimates, scaledEstimate)
 		})
 	}
 }

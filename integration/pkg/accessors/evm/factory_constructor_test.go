@@ -155,3 +155,55 @@ func TestCreateAccessorFactoryWorksWithoutFeeQuoterGasOverrides(t *testing.T) {
 		})
 	}
 }
+
+func TestCreateAccessorFactoryWorksWithFeeQuoterGasOverrides(t *testing.T) {
+	t.Parallel()
+
+	const (
+		ethereum = "5009297550715157269"
+		arbitrum = "4949039107694359620"
+	)
+	tests := []struct {
+		name      string
+		overrides map[string]chainaccess.FeeQuoterGasOverride
+		want      map[protocol.ChainSelector]chainaccess.FeeQuoterGasOverride
+	}{
+		{
+			name:      "full override",
+			overrides: map[string]chainaccess.FeeQuoterGasOverride{ethereum: {BaseGas: 200_000, GasPerUpdate: 70_000}},
+			want:      map[protocol.ChainSelector]chainaccess.FeeQuoterGasOverride{5009297550715157269: {BaseGas: 200_000, GasPerUpdate: 70_000}},
+		},
+		{
+			name:      "partial override",
+			overrides: map[string]chainaccess.FeeQuoterGasOverride{ethereum: {GasPerUpdate: 70_000}},
+			want:      map[protocol.ChainSelector]chainaccess.FeeQuoterGasOverride{5009297550715157269: {GasPerUpdate: 70_000}},
+		},
+		{
+			name: "several chains",
+			overrides: map[string]chainaccess.FeeQuoterGasOverride{
+				ethereum: {BaseGas: 200_000, GasPerUpdate: 70_000},
+				arbitrum: {BaseGas: 300_000},
+			},
+			want: map[protocol.ChainSelector]chainaccess.FeeQuoterGasOverride{
+				5009297550715157269: {BaseGas: 200_000, GasPerUpdate: 70_000},
+				4949039107694359620: {BaseGas: 300_000},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			generic := chainaccess.GenericConfig{PricerConfig: chainaccess.PricerConfig{
+				FeeQuoterAddresses:   map[string]string{ethereum: validTestFeeQuoterAddress},
+				FeeQuoterGasOverride: tt.overrides,
+			}}
+
+			factory := newAccessorFactory(logger.Test(t), generic, chainaccess.Infos[Info]{})
+			require.Equal(t, tt.want, factory.feeQuoterGasOverride)
+
+			// No chain info exists, so GetAccessor stops at the runtime builder, after the pricer config passed.
+			_, err := factory.GetAccessor(t.Context(), 5009297550715157269)
+			require.ErrorContains(t, err, "failed to get EVM config for chain")
+		})
+	}
+}
