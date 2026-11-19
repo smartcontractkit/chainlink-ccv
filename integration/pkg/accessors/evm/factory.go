@@ -230,7 +230,6 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 	var feeQuoterWriter chainaccess.FeeQuoterWriter
 	var gasPriceReader chainaccess.GasPriceReader
 	if hasPricerConfig {
-		feeQuoterWriter = pricereader.NewEVMFeeQuoterWriter(chainLggr, chainClient, common.HexToAddress(feeQuoterAddress), pricereader.WithTokenCache(tokenCache))
 		daOracle := func(ctx context.Context) (pricereader.DAGasPriceOracle, error) {
 			oracle, err := runtime.DAGasPriceOracle(ctx)
 			// A nil L1Oracle must become a plain nil, so that the reader sees no oracle.
@@ -240,6 +239,10 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 			return oracle, nil
 		}
 		var err error
+		if feeQuoterWriter, err = pricereader.NewEVMFeeQuoterWriter(chainLggr, chainClient, common.HexToAddress(feeQuoterAddress), nativeDecimals, pricereader.WithTokenCache(tokenCache)); err != nil {
+			closeErr := runtime.Close()
+			return nil, errors.Join(fmt.Errorf("failed to create EVM fee quoter writer for chain %d: %w", chainSelector, err), closeErr)
+		}
 		if gasPriceReader, err = pricereader.NewEVMGasPriceReader(chainClient, daOracle, nativeDecimals); err != nil {
 			closeErr := runtime.Close()
 			return nil, errors.Join(fmt.Errorf("failed to create EVM gas price reader for chain %d: %w", chainSelector, err), closeErr)
@@ -463,7 +466,7 @@ func (a *accessor) startFeeQuoterWriter(ctx context.Context, ks keystore.Keystor
 	if a.feeQuoterWriter == nil || a.runtime == nil {
 		return
 	}
-	writer, err := a.runtime.NewFeeQuoterWriter(ctx, ks, a.keyName, a.feeQuoterAddr, a.tokenCache,
+	writer, err := a.runtime.NewFeeQuoterWriter(ctx, ks, a.keyName, a.feeQuoterAddr, a.tokenCache, a.nativeDecimals,
 		pricereader.WithUpdatePricesGas(a.feeQuoterGasOverride.BaseGas, a.feeQuoterGasOverride.GasPerUpdate))
 	if err == nil && writer == nil {
 		err = errors.New("writer is nil")
@@ -548,9 +551,13 @@ func (a *accessor) Degraded() error {
 	if a == nil {
 		return nil
 	}
+	var runtimeErr error
+	if reporter, ok := a.runtime.(interface{ Degraded() error }); ok {
+		runtimeErr = reporter.Degraded()
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return errors.Join(a.serviceAddressesErr, a.feeQuoterWriterErr, a.chainDefaultsErr)
+	return errors.Join(a.serviceAddressesErr, a.feeQuoterWriterErr, a.chainDefaultsErr, runtimeErr)
 }
 
 func chainDefaultsError(problems []string) error {
@@ -567,7 +574,8 @@ func (a *accessor) FeeQuoterReader() (chainaccess.FeeQuoterReader, error) {
 	return a.feeQuoterReader, nil
 }
 
-// FeeQuoterWriter returns a writer that only logs the updates. It does not send transactions yet.
+// FeeQuoterWriter returns the chain's writer: the TXM-backed one once SetKeystore has started it,
+// otherwise the log-only one that only logs the updates.
 func (a *accessor) FeeQuoterWriter() (chainaccess.FeeQuoterWriter, error) {
 	if a == nil || a.feeQuoterWriter == nil {
 		return nil, errors.New("fee quoter writer not available")

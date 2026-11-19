@@ -67,10 +67,18 @@ Per-node `Order` carries over, preserving RPC prioritization. A node with no `Or
 Standalone fixes a few chain-level settings because its runtime has no other mode:
 
 - Heads stay in memory (`HeadTracker.PersistenceEnabled = false`).
-- The log broadcaster and balance monitor are off.
+- The log broadcaster is off.
 - Transactions use TXM v2 without forwarders or dual broadcast.
 - `KeySpecific` entries are dropped because they name the node's old keys and cannot match the executor's new key.
 - `Transactions.AutoPurge` without a `Threshold` is disabled because TXM v2 cannot run detection-API mode.
+
+Destination executors follow `BalanceMonitor.Enabled` (true by default) and read the enabled
+transmitter's configured native or ERC-20 balance at startup and on sampled new longest-chain
+notifications. With Beholder enabled, the monitor exports `node_balance` with `account`, `chainID`,
+and `chainFamily = "EVM"` attributes. `HeadTracker.SamplingInterval` caps head-driven reads at one
+per key per interval (5s in the CCIP fallback; 1s on a few chains). Continuous metric collection
+does not configure low-balance alerts; alert rules and ownership remain external and should also
+cover missing or stale series, since key and RPC read failures are logged in place.
 
 A conflicting setting produces a startup warning. An unrecognized or undecodable setting, or one chainlink-evm rejects, is dropped by name and the chain starts with everything else. An `[[EVM]]` block whose `ChainID` does not decode is skipped while other chains still start.
 

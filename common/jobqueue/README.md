@@ -213,6 +213,7 @@ type QueueConfig struct {
     RetryDuration time.Duration // How long jobs can be retried before permanent failure
     LockDuration  time.Duration // How long before a processing job is considered stale
     KeyColumns    KeyColumns    // Unique key of the table (default: DedupKeyColumn)
+    SerializePerKey bool        // One job per dedup key at a time (see below)
 }
 ```
 
@@ -232,6 +233,20 @@ A publish with a key that is already in the active table is dropped. `KeyColumns
 - The verifier tables keep the `(owner_id, chain_selector, message_id)` constraint, so their payloads
   must use `MessageDedupKey`, which is `<hex message id>:<chain selector>`. Migration `00010_job_queue_dedup_key.sql` adds `dedup_key` with a
   trigger that fills it for inserts from older verifiers, so old and new code can share the tables.
+
+### One job per key (`SerializePerKey`)
+
+For work that must not run concurrently for the same key, and must re-run if new input arrives
+while it runs (the aggregator's per-aggregation-key check):
+
+- The unique key covers pending jobs only, so a publish while a job for that key is processing
+  queues one pending job behind it instead of being dropped.
+- `ConsumePending` skips a pending job while its key has a processing job, so at most one job per
+  key runs at a time across all consumers. Completing or failing a job wakes the consumer.
+- A retry is archived as failed when a pending job for its key already exists, since that job
+  covers the re-run.
+- Requires `DedupKeyColumn` and the `CreateTablesSQLSerializePerKey` schema. A job held past
+  `LockDuration` is reclaimed by `ReclaimStale`, so keep each job's work well under it.
 
 ## Usage Example
 

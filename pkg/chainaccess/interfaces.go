@@ -159,6 +159,9 @@ type FeeQuoterWriter interface {
 	// UpdatePrices generates and broadcasts a transaction for the given fee token
 	// and gas token price updates to the chain.
 	UpdatePrices(ctx context.Context, tokenPrices []protocol.FeeTokenPriceUpdate, gasPrices []protocol.GasTokenPriceUpdate) (string, error)
+	// EstimateUpdateCost returns the cost of the transaction UpdatePrices would send for the same
+	// updates, without sending it, in whole native tokens with 1e36 precision (the scale of GasPriceReader.GetGasPrice).
+	EstimateUpdateCost(ctx context.Context, tokenPrices []protocol.FeeTokenPriceUpdate, gasPrices []protocol.GasTokenPriceUpdate) (*big.Int, error)
 	// GetTransactionStatus returns the TXM's status of a transaction, by the idempotency key
 	GetTransactionStatus(ctx context.Context, txID string) (commontypes.TransactionStatus, error)
 }

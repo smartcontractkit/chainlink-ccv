@@ -1,0 +1,31 @@
+// The `renovate` GATI profile has no issues:write or statuses:write: keep the dashboard
+// disabled and never set minimumReleaseAge/minimumConfidence. Both write commit
+// statuses, and a 403 there aborts the branch with REPOSITORY_CHANGED.
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "enabledManagers": ["dockerfile"],
+  "dependencyDashboard": { "enabled": false },
+  "pinDigests": false,
+  "semanticCommits": "enabled",
+  "semanticCommitType": "chore",
+  "semanticCommitScope": "deps",
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "prConcurrentLimit": 3
+  },
+  "packageRules": [
+    {
+      "description": "Go versions move together with go.mod and VERSION_GO; same-tag digest refreshes still land here",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["golang"],
+      "matchUpdateTypes": ["major", "minor", "patch"],
+      "enabled": false
+    },
+    {
+      "description": "One PR for all base-image digest bumps, as dependabot used to group them",
+      "matchUpdateTypes": ["digest"],
+      "groupName": "base images"
+    }
+  ]
+}

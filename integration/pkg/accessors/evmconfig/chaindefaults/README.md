@@ -12,7 +12,7 @@ A chain gets CCIP's `fallback.toml`, then chainlink-evm's file for its chain ID,
 it. A file or key that does not load is skipped and named in a startup warning; it never stops the
 process. Both directories are copies; do not edit them by hand.
 
-chainlink-evm source: github.com/smartcontractkit/chainlink-evm@v0.3.4-0.20260915165527-3701875605f4
+chainlink-evm source: github.com/smartcontractkit/chainlink-evm@v0.3.4-0.20261002202636-d1ee27b0b587
 CCIP source: smartcontractkit/chainlink@8c20b1c4d94ff915d5133c949da9257e296ec41e (2026-10-30)
 
 Refresh chainlink-evm's layer after bumping it in go.mod, and CCIP's from a chainlink branch, tag, or

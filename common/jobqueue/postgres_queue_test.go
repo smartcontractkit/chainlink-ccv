@@ -788,6 +788,138 @@ func TestRetry(t *testing.T) {
 	assert.Equal(t, 2, consumed2[0].AttemptCount)
 }
 
+// Under SerializePerKey, Retry fails the job instead of re-pending it when a pending sibling holds its key.
+func TestRetry_PendingSiblingAvoidsUniqueViolation(t *testing.T) {
+	db := testutil.NewTestDB(t)
+	ctx := context.Background()
+
+	const table = "jobqueue_retry_partial_index_test"
+	_, err := db.ExecContext(ctx, jobqueue.CreateTablesSQLSerializePerKey(table))
+	require.NoError(t, err)
+
+	q, err := jobqueue.NewPostgresJobQueue[keylessJob](db, jobqueue.QueueConfig{
+		Name:            table,
+		OwnerID:         "owner",
+		RetryDuration:   time.Hour,
+		LockDuration:    time.Minute,
+		SerializePerKey: true,
+	}, logger.Test(t))
+	require.NoError(t, err)
+
+	job := keylessJob{Key: "k1"}
+	require.NoError(t, q.Publish(ctx, job, job))
+	require.Equal(t, 1, countRows(t, db, table, jobqueue.JobStatusPending), "pending jobs dedup on the key")
+
+	consumed, err := q.ConsumePending(ctx, 1)
+	require.NoError(t, err)
+	require.Len(t, consumed, 1)
+	firstJobID := consumed[0].ID
+
+	// The first job is processing, so the partial index admits a new pending sibling.
+	require.NoError(t, q.Publish(ctx, job))
+	require.Equal(t, 1, countRows(t, db, table, jobqueue.JobStatusPending))
+
+	// Retrying the first job must not collide with the sibling; the sibling covers reprocessing.
+	errs := map[string]error{firstJobID: errors.New("transient failure")}
+	require.NoError(t, q.Retry(ctx, 0, errs, firstJobID))
+
+	assert.Equal(t, 1, countRows(t, db, table, jobqueue.JobStatusPending), "only the sibling should remain pending")
+	var firstJobStatus string
+	require.NoError(t, db.QueryRowxContext(ctx, fmt.Sprintf("SELECT status FROM %s WHERE job_id = $1", table+"_archive"), firstJobID).Scan(&firstJobStatus))
+	assert.Equal(t, string(jobqueue.JobStatusFailed), firstJobStatus)
+}
+
+func TestSerializePerKey_OneJobPerKeyAtATime(t *testing.T) {
+	db := testutil.NewTestDB(t)
+	ctx := context.Background()
+
+	const table = "jobqueue_serialize_per_key_test"
+	_, err := db.ExecContext(ctx, jobqueue.CreateTablesSQLSerializePerKey(table))
+	require.NoError(t, err)
+
+	q, err := jobqueue.NewPostgresJobQueue[keylessJob](db, jobqueue.QueueConfig{
+		Name: table, OwnerID: "owner", RetryDuration: time.Hour, LockDuration: time.Minute, SerializePerKey: true,
+	}, logger.Test(t))
+	require.NoError(t, err)
+
+	require.NoError(t, q.Publish(ctx, keylessJob{Key: "k"}))
+	first, err := q.ConsumePending(ctx, 10)
+	require.NoError(t, err)
+	require.Len(t, first, 1)
+
+	// A publish during processing queues behind it, but cannot be claimed until the key is free.
+	require.NoError(t, q.Publish(ctx, keylessJob{Key: "k"}, keylessJob{Key: "other"}))
+	claimed, err := q.ConsumePending(ctx, 10)
+	require.NoError(t, err)
+	require.Len(t, claimed, 1)
+	assert.Equal(t, "other", claimed[0].Payload.Key, "a busy key must not block other keys")
+
+	drainSignals(q.Signals())
+	require.NoError(t, q.Complete(ctx, first[0].ID))
+	select {
+	case <-q.Signals():
+	default:
+		t.Fatal("completing a job must wake the consumer for the queued job of the same key")
+	}
+	next, err := q.ConsumePending(ctx, 10)
+	require.NoError(t, err)
+	require.Len(t, next, 1)
+	assert.Equal(t, "k", next[0].Payload.Key)
+}
+
+func TestSerializePerKey_RetryRacingPublishFailsTheJob(t *testing.T) {
+	db := testutil.NewTestDB(t)
+	ctx := context.Background()
+
+	const table = "jobqueue_retry_race_test"
+	_, err := db.ExecContext(ctx, jobqueue.CreateTablesSQLSerializePerKey(table))
+	require.NoError(t, err)
+	q, err := jobqueue.NewPostgresJobQueue[keylessJob](db, jobqueue.QueueConfig{
+		Name: table, OwnerID: "owner", RetryDuration: time.Hour, LockDuration: time.Minute, SerializePerKey: true,
+	}, logger.Test(t))
+	require.NoError(t, err)
+
+	require.NoError(t, q.Publish(ctx, keylessJob{Key: "k"}))
+	consumed, err := q.ConsumePending(ctx, 1)
+	require.NoError(t, err)
+	require.Len(t, consumed, 1)
+
+	// An uncommitted sibling is invisible to Retry's snapshot but holds the pending index entry.
+	tx, err := db.BeginTxx(ctx, nil)
+	require.NoError(t, err)
+	_, err = tx.ExecContext(ctx, fmt.Sprintf(`INSERT INTO %s (job_id, owner_id, dedup_key, task_data, retry_deadline)
+		VALUES (gen_random_uuid(), 'owner', 'k', '{"key":"k"}', NOW() + INTERVAL '1 hour')`, table))
+	require.NoError(t, err)
+
+	retried := make(chan error, 1)
+	go func() {
+		retried <- q.Retry(ctx, 0, map[string]error{consumed[0].ID: errors.New("transient")}, consumed[0].ID)
+	}()
+	time.Sleep(200 * time.Millisecond)
+	require.NoError(t, tx.Commit())
+
+	require.NoError(t, <-retried)
+	assert.Equal(t, 1, countRows(t, db, table, jobqueue.JobStatusPending), "only the sibling stays pending")
+	assert.Equal(t, 1, countRows(t, db, table+"_archive", jobqueue.JobStatusFailed))
+}
+
+func TestSerializePerKey_RequiresDedupKeyColumn(t *testing.T) {
+	_, err := jobqueue.NewPostgresJobQueue[testJob](testutil.NewTestDB(t), jobqueue.QueueConfig{
+		Name: "unused", OwnerID: "owner", KeyColumns: jobqueue.MessageKeyColumns, SerializePerKey: true,
+	}, logger.Test(t))
+	require.ErrorContains(t, err, "SerializePerKey requires DedupKeyColumn")
+}
+
+func drainSignals(signals <-chan struct{}) {
+	for {
+		select {
+		case <-signals:
+		default:
+			return
+		}
+	}
+}
+
 func TestRetryExceedsDeadline(t *testing.T) {
 	q, db := newTestQueue(t, func(c *jobqueue.QueueConfig) {
 		c.RetryDuration = time.Millisecond // expires almost immediately

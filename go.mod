@@ -30,12 +30,12 @@ require (
 	github.com/redis/go-redis/v9 v9.7.3
 	github.com/scylladb/go-reflectx v1.0.1
 	github.com/smartcontractkit/chain-selectors v1.0.112
-	github.com/smartcontractkit/chainlink-ccip/chains/evm v0.0.0-20261028235024-46426ab19422
-	github.com/smartcontractkit/chainlink-common v0.11.2-0.20260915214759-02f2214d5823
+	github.com/smartcontractkit/chainlink-ccip/chains/evm v0.0.0-20261118202929-c7b9800ee1e6
+	github.com/smartcontractkit/chainlink-common v0.11.2-0.20260917115705-1d3a14a9b049
 	github.com/smartcontractkit/chainlink-common/keystore v1.3.1-0.20260903141829-ef07b52a737d
 	github.com/smartcontractkit/chainlink-common/x/config v0.0.0-20260928140953-a9b0d3a04daa
-	github.com/smartcontractkit/chainlink-evm v0.3.4-0.20260915165527-3701875605f4
-	github.com/smartcontractkit/chainlink-evm/gethwrappers v0.0.0-20260915165527-3701875605f4
+	github.com/smartcontractkit/chainlink-evm v0.3.4-0.20261002202636-d1ee27b0b587
+	github.com/smartcontractkit/chainlink-evm/gethwrappers v0.0.0-20261002202636-d1ee27b0b587
 	github.com/smartcontractkit/chainlink-framework/chains v0.0.0-20260724153515-bb6a2de39bcb
 	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier v0.0.0-20261002171637-04901d39ed79
 	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/heartbeat v0.0.0-20260115142640-f6b99095c12e

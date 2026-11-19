@@ -9,6 +9,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
 	"github.com/smartcontractkit/chainlink-ccv/common/messagerules"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 )
 
 const (
@@ -24,6 +25,7 @@ const (
 	ListOrphanedKeysOp       = "ListOrphanedKeys"
 	orphanedKeyStatsOp       = "OrphanedKeyStats"
 	tryAcquireOrphanLockOp   = "TryAcquireOrphanRecoveryLock"
+	countSignersOp           = "CountSigners"
 
 	createMessageDisablementRuleOp = "CreateMessageDisablementRule"
 	listMessageDisablementRulesOp  = "ListMessageDisablementRules"
@@ -101,6 +103,12 @@ func (s *MetricsAwareStorage) GetCommitVerification(ctx context.Context, id mode
 func (s *MetricsAwareStorage) ListCommitVerificationByAggregationKey(ctx context.Context, messageID model.MessageID, aggregationKey model.AggregationKey) ([]*model.CommitVerificationRecord, error) {
 	return captureMetrics(ctx, s.metrics(ctx), s.logger(ctx), s.slowQueryThreshold, listByMsgIDOp, func() ([]*model.CommitVerificationRecord, error) {
 		return s.inner.ListCommitVerificationByAggregationKey(ctx, messageID, aggregationKey)
+	})
+}
+
+func (s *MetricsAwareStorage) CountSigners(ctx context.Context, triggers []model.AggregationTrigger) (map[model.AggregationKey]model.SignerCount, error) {
+	return captureMetrics(ctx, s.metrics(ctx), s.logger(ctx), s.slowQueryThreshold, countSignersOp, func() (map[model.AggregationKey]model.SignerCount, error) {
+		return s.inner.CountSigners(ctx, triggers)
 	})
 }
 
@@ -235,4 +243,8 @@ func captureMetricsNoReturn(ctx context.Context, metrics common.AggregatorMetric
 		return struct{}{}, fn()
 	})
 	return err
+}
+
+func (s *MetricsAwareStorage) DataSource() sqlutil.DataSource {
+	return s.inner.DataSource()
 }
