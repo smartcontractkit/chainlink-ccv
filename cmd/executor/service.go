@@ -161,6 +161,11 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		return err
 	}
 
+	// Pool-wide standalone specs contain every chain; initialize only this executor's assignments.
+	maps.DeleteFunc(executorConfig.ChainConfiguration, func(_ string, chainConfig executorsvc.ChainConfiguration) bool {
+		return !slices.Contains(chainConfig.ExecutorPool, executorConfig.ExecutorID)
+	})
+
 	executorMonitoring, err := monitoring.InitMonitoring()
 	if err != nil {
 		return fmt.Errorf("failed to initialize monitoring: %w", err)

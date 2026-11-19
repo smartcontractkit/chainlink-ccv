@@ -94,6 +94,71 @@ execution_interval   = "1s"
 	assert.NotContains(t, skips.Error, health.ChainComponent(goodSelector))
 }
 
+func TestFactory_Start_IgnoresUnassignedPoolChains(t *testing.T) {
+	const (
+		assignedSelector   protocol.ChainSelector = 5009297550715157269
+		unassignedSelector protocol.ChainSelector = 3478487238524512106
+	)
+
+	assigned := mocks.NewMockAccessor(t)
+	assigned.EXPECT().ContractTransmitter().Return(mocks.NewMockContractTransmitter(t), nil)
+	assignedReader := mocks.NewMockDestinationReader(t)
+	assignedReader.EXPECT().IsReady(mock.Anything).Return(true).Maybe()
+	assigned.EXPECT().DestinationReader().Return(assignedReader, nil)
+	fac := mocks.NewMockAccessorFactory(t)
+	fac.EXPECT().GetAccessor(mock.Anything, assignedSelector).Return(assigned, nil)
+	fac.EXPECT().GetAccessor(mock.Anything, unassignedSelector).Return(nil, errors.New("unassigned chain initialized")).Maybe()
+	evmFactory = fac
+	t.Cleanup(func() { evmFactory = nil })
+
+	port := freeTCPPort(t)
+	appConfig := fmt.Sprintf(`
+executor_id = "test-executor"
+indexer_address = ["http://localhost:9090"]
+http_listen_port = %d
+
+[chain_configuration."%d"]
+off_ramp_address = "0x0000000000000000000000000000000000000001"
+rmn_address = "0x0000000000000000000000000000000000000002"
+default_executor_address = "0x0000000000000000000000000000000000000003"
+executor_pool = ["other-executor", "test-executor"]
+execution_interval = "1s"
+
+[chain_configuration."%d"]
+off_ramp_address = "0x0000000000000000000000000000000000000001"
+rmn_address = "0x0000000000000000000000000000000000000002"
+default_executor_address = "0x0000000000000000000000000000000000000003"
+executor_pool = ["other-executor"]
+execution_interval = "1s"
+`, port, assignedSelector, unassignedSelector)
+
+	lggr := logger.Nop()
+	reg, err := chainaccess.NewRegistry(lggr, "")
+	require.NoError(t, err)
+
+	f := NewFactory()
+	require.NoError(t, f.Start(context.Background(), bootstrap.JobSpec{AppConfig: appConfig}, bootstrap.ServiceDeps{Logger: lggr, Registry: reg}))
+	t.Cleanup(func() { assert.NoError(t, f.Stop(context.Background())) })
+
+	client := &http.Client{Timeout: 3 * time.Second}
+	healthURL := fmt.Sprintf("http://127.0.0.1:%d/health", port)
+	var body health.ReadinessResponse
+	require.Eventually(t, func() bool {
+		resp, err := client.Get(healthURL)
+		if err != nil {
+			return false
+		}
+		defer func() { _ = resp.Body.Close() }()
+		return resp.StatusCode == http.StatusOK && json.NewDecoder(resp.Body).Decode(&body) == nil
+	}, 10*time.Second, 100*time.Millisecond, "executor /health did not answer 200")
+
+	assert.Equal(t, health.Ready, body.Status)
+	assert.Equal(t, health.Ready, findHealthService(t, body, "executor.Coordinator").Status)
+	skips := findHealthService(t, body, "executor.StartupSkips")
+	assert.Equal(t, health.Ready, skips.Status)
+	assert.Empty(t, skips.Error)
+}
+
 type degradedTestAccessor struct {
 	chainaccess.Accessor
 	err error
