@@ -306,6 +306,17 @@ func TestApplyExecutorConfigUsesPersistedJDNodeInventory(t *testing.T) {
 	require.Equal(t, standaloneTestExecutorNodeID, a.client.proposals[0].GetNodeId())
 }
 
+func TestApplyExecutorConfigPreservesCurrentNodeIDsWhenInventoryIsStale(t *testing.T) {
+	a := newStandaloneApplier(t, &standaloneExecutorTestAdapter{})
+	a.seedJDNodes(map[string]ccvdeployment.JDNode{
+		standaloneTestVerifierNodeID: {Name: string(standaloneTestAlias)},
+	})
+
+	require.NoError(t, a.apply(true, byName))
+	require.Len(t, a.client.proposals, 1)
+	require.Equal(t, standaloneTestExecutorNodeID, a.client.proposals[0].GetNodeId())
+}
+
 func TestApplyExecutorConfigDoesNotProposeWhenNodeInventorySyncFails(t *testing.T) {
 	a := newStandaloneApplier(t, &standaloneExecutorTestAdapter{})
 	a.client.inventoryErr = errors.New("inventory unavailable")

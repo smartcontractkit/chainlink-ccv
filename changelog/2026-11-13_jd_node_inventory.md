@@ -53,8 +53,8 @@ stops every changeset that proposes jobs before any proposal is sent. The query 
 The inventory remains compatible with CLD's normal durable-pipeline flow: changesets return the
 updated datastore, the pipeline saves it as an artifact, and the normal datastore merge persists it
 to `env_metadata.json` or catalog storage. The registration changesets continue writing
-`nodes.json` for compatibility. Verifier and executor activation prefer the durable inventory and
-fall back to the `nodes.json`-derived allowlist only when no snapshot exists.
+`nodes.json` for compatibility. Verifier and executor activation use the durable inventory to
+supply a missing node-ID allowlist while preserving an existing CLD-provided list.
 
 ## Persistence fixes
 

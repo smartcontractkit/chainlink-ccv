@@ -229,7 +229,7 @@ func TestApplyVerifierExecutorConfigUsesPersistedJDNodeInventory(t *testing.T) {
 	})
 	env := newTestEnvForApply(t, "nop1", []uint64{sel})
 	env.GetContext = t.Context
-	env.NodeIDs = []string{"stale-node"}
+	env.NodeIDs = nil
 	ds := datastore.NewMemoryDataStore()
 	require.NoError(t, ccvdeployment.SaveJDNodes(ds, map[string]ccvdeployment.JDNode{
 		"node-nop1": {Name: "nop1"},

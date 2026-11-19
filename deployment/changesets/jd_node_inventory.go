@@ -9,9 +9,9 @@ import (
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 )
 
-// withPersistedJDNodeIDs prefers registration's durable inventory over the legacy nodes.json allowlist.
+// withPersistedJDNodeIDs supplies a missing legacy allowlist from registration's durable inventory.
 func withPersistedJDNodeIDs(e deployment.Environment) (deployment.Environment, error) {
-	if e.Offchain == nil || e.DataStore == nil {
+	if e.Offchain == nil || e.DataStore == nil || len(e.NodeIDs) > 0 {
 		return e, nil
 	}
 	nodes, err := ccvdeployment.GetJDNodes(e.DataStore)
