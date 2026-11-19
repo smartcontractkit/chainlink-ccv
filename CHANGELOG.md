@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.22.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.21.0...v0.22.0) (2026-11-19)
+
+
+### Features
+
+* **aggregator:** replace aggregation channels with a durable job queue ([#1592](https://github.com/smartcontractkit/chainlink-ccv/issues/1592)) ([13afa02](https://github.com/smartcontractkit/chainlink-ccv/commit/13afa020dbd8c3cf117c2f1520c04d065461a87b))
+* **executor:** enable EVM transmitter balance monitoring ([#1609](https://github.com/smartcontractkit/chainlink-ccv/issues/1609)) ([b4708b1](https://github.com/smartcontractkit/chainlink-ccv/commit/b4708b1409334534ae43649dae424015c749ad04))
+* **Pricer:** Add Optional Gas Limit Overrides to Pricer Config ([#1605](https://github.com/smartcontractkit/chainlink-ccv/issues/1605)) ([3722768](https://github.com/smartcontractkit/chainlink-ccv/commit/3722768d2f7eb98ed13ed5661018a4108133bbc8))
+* **pricer:** Add Update Price Estimation ([#1608](https://github.com/smartcontractkit/chainlink-ccv/issues/1608)) ([81c5abd](https://github.com/smartcontractkit/chainlink-ccv/commit/81c5abd3d2d23ca7c0cd6e844cbd781d5b878ff4))
+
+
+### Bug Fixes
+
+* **executor:** initialize only assigned standalone chains ([#1616](https://github.com/smartcontractkit/chainlink-ccv/issues/1616)) ([691d3a9](https://github.com/smartcontractkit/chainlink-ccv/commit/691d3a9b65d74543855fd5d18edd90cebcd4127d))
+
 ## [0.21.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.20.0...v0.21.0) (2026-11-17)
 
 
