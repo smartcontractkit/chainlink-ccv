@@ -20,6 +20,7 @@ type OffchainConfigs struct {
 	Aggregators    map[string]*model.Committee               `json:"aggregators,omitempty"`
 	Indexers       map[string]*indexerconfig.GeneratedConfig `json:"indexers,omitempty"`
 	TokenVerifiers map[string]*token.Config                  `json:"tokenVerifiers,omitempty"`
+	JDNodes        map[string]JDNode                         `json:"jdNodes,omitempty"`
 	NOPJobs        shared.NOPJobs                            `json:"nopJobs,omitempty"`
 	// NOPSigners maps NOP alias -> chain family -> signer address. It is the
 	// persisted signer↔alias index that lets committee membership be reconstructed
@@ -438,11 +439,8 @@ func parseCCVEnvMetadata(metadata any) (*CCVEnvMetadata, error) {
 	return &ccvMeta, nil
 }
 
-// persistCCVEnvMetadata persists CCV metadata using shallow merge at the
-// offchainConfigs level. Known offchainConfigs keys (aggregators, indexers,
-// tokenVerifiers, nopJobs) are replaced fully — removing stale nested entries
-// when chains or jobs are removed. Unknown sibling keys under offchainConfigs
-// and non-CCV top-level keys are preserved.
+// persistCCVEnvMetadata replaces non-nil known offchainConfigs fields in full.
+// Unknown sibling keys under offchainConfigs and non-CCV top-level keys are preserved.
 func persistCCVEnvMetadata(ds datastore.MutableDataStore, ccvMeta *CCVEnvMetadata) error {
 	existingMeta, err := loadExistingEnvMetadata(ds)
 	if err != nil {
@@ -503,6 +501,7 @@ func mergeOffchainConfigs(existingMeta map[string]any, oc *OffchainConfigs) (map
 		{"aggregators", oc.Aggregators, "aggregators"},
 		{"indexers", oc.Indexers, "indexers"},
 		{"tokenVerifiers", oc.TokenVerifiers, "token verifiers"},
+		{"jdNodes", oc.JDNodes, "JD nodes"},
 		{"nopJobs", oc.NOPJobs, "NOP jobs"},
 		{"nopSigners", oc.NOPSigners, "NOP signers"},
 	}

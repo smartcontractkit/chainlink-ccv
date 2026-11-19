@@ -12,6 +12,8 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 	jobv1 "github.com/smartcontractkit/chainlink-protos/job-distributor/v1/job"
+	nodev1 "github.com/smartcontractkit/chainlink-protos/job-distributor/v1/node"
+	"github.com/smartcontractkit/chainlink-protos/job-distributor/v1/shared/ptypes"
 
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/shared"
@@ -21,6 +23,19 @@ type driftJDClient struct {
 	shared.JDClient
 	proposals []*jobv1.Proposal
 	requests  []*jobv1.ListProposalsRequest
+}
+
+func (c *driftJDClient) ListNodes(_ context.Context, _ *nodev1.ListNodesRequest, _ ...grpc.CallOption) (*nodev1.ListNodesResponse, error) {
+	product, environment, target := "ccv", "test", "executor-evm-0"
+	nodes := []*nodev1.Node{{
+		Id: "node-1", Name: "executor-evm-0", PublicKey: "csa-node-1",
+		Labels: []*ptypes.Label{
+			{Key: "product", Value: &product},
+			{Key: "environment", Value: &environment},
+			{Key: "target", Value: &target},
+		},
+	}}
+	return &nodev1.ListNodesResponse{Nodes: nodes, TotalCount: 1}, nil
 }
 
 func (c *driftJDClient) ListProposals(_ context.Context, req *jobv1.ListProposalsRequest, _ ...grpc.CallOption) (*jobv1.ListProposalsResponse, error) {
@@ -54,6 +69,7 @@ func TestSyncJobProposalsDetectsDriftWithoutPersistedProposalSpecs(t *testing.T)
 		operations.NewMemoryReporter(),
 	)
 	env := deployment.Environment{
+		Name:      "test",
 		Logger:    lggr,
 		DataStore: ds.Seal(),
 		NodeIDs:   []string{"node-1"},
@@ -82,4 +98,10 @@ func TestSyncJobProposalsDetectsDriftWithoutPersistedProposalSpecs(t *testing.T)
 	require.Equal(t, "p-old", stored.ActiveProposalID)
 	require.Equal(t, "p-new", stored.LatestProposal().ProposalID)
 	require.Empty(t, stored.LatestProposal().Spec)
+
+	nodes, err := ccvdeployment.GetJDNodes(report.Output.DataStore.Seal())
+	require.NoError(t, err)
+	require.Equal(t, "executor-evm-0", nodes["node-1"].Name)
+	require.Equal(t, "csa-node-1", nodes["node-1"].CSAKey)
+	require.Equal(t, "executor-evm-0", nodes["node-1"].Labels["target"])
 }

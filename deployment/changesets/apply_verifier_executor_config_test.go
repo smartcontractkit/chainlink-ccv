@@ -11,6 +11,8 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/offchain"
 
+	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
+	"github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 )
 
@@ -190,6 +192,31 @@ func TestDeriveVerifierInput_MatchesHandBuiltStandaloneInput(t *testing.T) {
 	}
 
 	assert.Equal(t, want, deriveVerifierInput(cfg))
+}
+
+func TestApplyVerifierExecutorConfigPreservesBothJobOutputs(t *testing.T) {
+	sel := chainsel.TEST_90000001.Selector
+	registerEVMChainTypeForIdentities()
+	registerFullEVMAdapters(&stubFullAdapter{
+		states:        map[uint64][]*adapters.CommitteeState{sel: nil},
+		verifierAddrs: map[uint64]string{sel: "0xcommittee"},
+	})
+	env := newTestEnvForApply(t, "nop1", []uint64{sel})
+	env.GetContext = t.Context
+	addCCVTestEVMChainSupport(t, env, sel)
+
+	out, err := ApplyVerifierExecutorConfig().Apply(env, validCombinedVerifierExecutorInput(sel))
+	require.NoError(t, err)
+	jobs, err := ccvdeployment.GetAllJobs(out.DataStore.Seal())
+	require.NoError(t, err)
+	require.Len(t, jobs["nop1"], 2, "the executor output must retain the verifier job metadata")
+	signers, err := ccvdeployment.GetNOPSigners(out.DataStore.Seal())
+	require.NoError(t, err)
+	require.Equal(t, "0xAAA", signers["nop1"][chainsel.FamilyEVM])
+
+	nodes, err := ccvdeployment.GetJDNodes(out.DataStore.Seal())
+	require.NoError(t, err)
+	require.Len(t, nodes, 1)
 }
 
 func TestDeriveExecutorInput_MatchesHandBuiltStandaloneInput(t *testing.T) {

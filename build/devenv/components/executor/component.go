@@ -287,6 +287,7 @@ func buildExecutorJobSpecs(
 		if err != nil {
 			return nil, fmt.Errorf("executor: generating configs for qualifier %s: %w", qualifier, err)
 		}
+		e.DataStore = output.DataStore.Seal()
 		if err := ds.Merge(output.DataStore.Seal()); err != nil {
 			return nil, fmt.Errorf("executor: merging datastore for qualifier %s: %w", qualifier, err)
 		}

@@ -25,7 +25,7 @@ func (cs CsSaveNodesWithJD) VerifyPreconditions(_ cldf.Environment, cfg CsSaveNo
 	return nil
 }
 
-// Apply regenerates nodes.json from JD; any subsequent Git persistence is caller-owned.
+// Apply regenerates nodes.json and the durable JD inventory; Git persistence is caller-owned.
 func (cs CsSaveNodesWithJD) Apply(e cldf.Environment, input CsSaveNodesWithJDInput) (cldf.ChangesetOutput, error) {
 	d := resolveDomain(cs.Domain, input.Domain)
 	deps := SaveNodesJSONDeps{JDClient: e.Offchain, Domain: d, EnvKey: e.Name}
@@ -41,5 +41,9 @@ func (cs CsSaveNodesWithJD) Apply(e cldf.Environment, input CsSaveNodesWithJDInp
 	}
 
 	e.Logger.Infow("saved nodes.json from JD", "path", report.Output.Path, "node_count", report.Output.NodeCount)
-	return cldf.ChangesetOutput{}, nil
+	ds, err := saveJDNodeInventory(e, report.Output.Nodes)
+	if err != nil {
+		return cldf.ChangesetOutput{}, err
+	}
+	return cldf.ChangesetOutput{DataStore: ds}, nil
 }

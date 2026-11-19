@@ -113,6 +113,7 @@ func (p *component) RunPhase2(
 
 	cldf.Init()
 	cldfCfg := ccldf.CLDFEnvironmentConfig{
+		Name:           jobs.DefaultRegistrationEnvironment,
 		Blockchains:    blockchains,
 		DataStore:      cldf.DataStore,
 		OffchainClient: jdInfra.OffchainClient,

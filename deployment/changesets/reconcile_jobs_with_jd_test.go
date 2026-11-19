@@ -14,6 +14,7 @@ import (
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 	jobv1 "github.com/smartcontractkit/chainlink-protos/job-distributor/v1/job"
+	nodev1 "github.com/smartcontractkit/chainlink-protos/job-distributor/v1/node"
 
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -23,10 +24,15 @@ import (
 
 type reconcileJDClient struct {
 	foffchain.Client
+	nodes             []*nodev1.Node
 	jobs              []*jobv1.Job
 	proposals         []*jobv1.Proposal
 	listJobsRequests  []*jobv1.ListJobsRequest
 	listProposalCalls []*jobv1.ListProposalsRequest
+}
+
+func (f *reconcileJDClient) ListNodes(_ context.Context, _ *nodev1.ListNodesRequest, _ ...grpc.CallOption) (*nodev1.ListNodesResponse, error) {
+	return &nodev1.ListNodesResponse{Nodes: f.nodes, TotalCount: int32(len(f.nodes))}, nil
 }
 
 func (f *reconcileJDClient) ListJobs(_ context.Context, req *jobv1.ListJobsRequest, _ ...grpc.CallOption) (*jobv1.ListJobsResponse, error) {
@@ -96,6 +102,7 @@ func TestReconcileJobsWithJDApply(t *testing.T) {
 	}))
 
 	client := &reconcileJDClient{
+		nodes: []*nodev1.Node{ccvTestNode(executorNodeID, "executor-evm-0", "test", "executor-evm-0")},
 		jobs: []*jobv1.Job{
 			{Id: newJDJobID, Uuid: externalJobID, NodeId: executorNodeID},
 			{Id: oldJDJobID, Uuid: externalJobID, NodeId: verifierNodeID},
@@ -128,6 +135,12 @@ func TestReconcileJobsWithJDApply(t *testing.T) {
 			Status:     shared.JobProposalStatusApproved,
 		},
 	}, got.Proposals)
+
+	nodes, err := ccvdeployment.GetJDNodes(out.DataStore.Seal())
+	require.NoError(t, err)
+	require.Equal(t, "executor-evm-0", nodes[executorNodeID].Name)
+	require.Equal(t, "csa-"+executorNodeID, nodes[executorNodeID].CSAKey)
+	require.Equal(t, "executor-evm-0", nodes[executorNodeID].Labels["target"])
 
 	original, err := ccvdeployment.GetJob(ds.Seal(), alias, jobID)
 	require.NoError(t, err)
@@ -307,6 +320,7 @@ func TestReconcileJobsWithJDVerifyPreconditions(t *testing.T) {
 func reconcileTestEnvironment(t *testing.T, client foffchain.Client, ds *datastore.MemoryDataStore, nodeIDs []string) deployment.Environment {
 	t.Helper()
 	return deployment.Environment{
+		Name:      "test",
 		Logger:    logger.Test(t),
 		DataStore: ds.Seal(),
 		NodeIDs:   nodeIDs,

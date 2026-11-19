@@ -2,6 +2,7 @@ package changesets
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"slices"
@@ -57,6 +58,7 @@ func (a *standaloneExecutorTestAdapter) RequiresNodeChainSupportInJD() bool {
 type standaloneRoutingJDClient struct {
 	foffchain.Client
 	nodes        []*nodev1.Node
+	inventoryErr error
 	chainConfigs []*nodev1.ChainConfig
 	proposals    []*jobv1.ProposeJobRequest
 	jdJobs       map[string]string // node ID -> JD job ID
@@ -68,8 +70,8 @@ var externalJobIDPattern = regexp.MustCompile(`externalJobID = "([^"]+)"`)
 
 func newStandaloneRoutingJDClient() *standaloneRoutingJDClient {
 	return &standaloneRoutingJDClient{nodes: []*nodev1.Node{
-		{Id: standaloneTestVerifierNodeID, Name: string(standaloneTestAlias)},
-		{Id: standaloneTestExecutorNodeID, Name: standaloneTestExecutorNodeName},
+		ccvTestNode(standaloneTestVerifierNodeID, string(standaloneTestAlias), "test", ""),
+		ccvTestNode(standaloneTestExecutorNodeID, standaloneTestExecutorNodeName, "test", standaloneTestExecutorNodeName),
 	}}
 }
 
@@ -101,6 +103,9 @@ func (c *standaloneRoutingJDClient) ListJobs(_ context.Context, req *jobv1.ListJ
 }
 
 func (c *standaloneRoutingJDClient) ListNodes(_ context.Context, req *nodev1.ListNodesRequest, _ ...grpc.CallOption) (*nodev1.ListNodesResponse, error) {
+	if c.inventoryErr != nil && len(req.GetFilter().GetIds()) == 0 {
+		return nil, c.inventoryErr
+	}
 	var nodes []*nodev1.Node
 	for _, node := range c.nodes {
 		if len(req.GetFilter().GetIds()) == 0 || slices.Contains(req.GetFilter().GetIds(), node.GetId()) {
@@ -262,8 +267,23 @@ func TestApplyExecutorConfigStandaloneNodeRouting(t *testing.T) {
 			require.Equal(t, tt.wantRevision, job.LatestProposal().Revision)
 			require.Equal(t, shared.JobProposalStatusPending, job.LatestStatus())
 			require.Empty(t, job.LatestProposal().Spec)
+
+			nodes, err := ccvdeployment.GetJDNodes(a.ds)
+			require.NoError(t, err)
+			require.Len(t, nodes, 2)
+			require.Equal(t, standaloneTestExecutorNodeName, nodes[standaloneTestExecutorNodeID].Name)
+			require.Equal(t, "csa-"+standaloneTestExecutorNodeID, nodes[standaloneTestExecutorNodeID].CSAKey)
+			require.Equal(t, standaloneTestExecutorNodeName, nodes[standaloneTestExecutorNodeID].Labels["target"])
 		})
 	}
+}
+
+func TestApplyExecutorConfigDoesNotProposeWhenNodeInventorySyncFails(t *testing.T) {
+	a := newStandaloneApplier(t, &standaloneExecutorTestAdapter{})
+	a.client.inventoryErr = errors.New("inventory unavailable")
+
+	require.ErrorContains(t, a.apply(true, byName), "failed to sync JD node inventory")
+	require.Empty(t, a.client.proposals)
 }
 
 func TestApplyExecutorConfigMovesCLJobToExecutorNode(t *testing.T) {
