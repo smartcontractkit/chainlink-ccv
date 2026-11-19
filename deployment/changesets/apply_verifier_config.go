@@ -213,6 +213,11 @@ func WithJobSuffix(suffix string) ApplyVerifierConfigApplyOption {
 
 func createApplyVerifierConfigApplyFunc(opts ...ApplyVerifierConfigApplyOption) func(e deployment.Environment, cfg ApplyVerifierConfigInput) (deployment.ChangesetOutput, error) {
 	return func(e deployment.Environment, cfg ApplyVerifierConfigInput) (deployment.ChangesetOutput, error) {
+		e, err := withPersistedJDNodeIDs(e)
+		if err != nil {
+			return deployment.ChangesetOutput{}, err
+		}
+
 		overrides := defaultApplyVerifierConfigApplyOverrides()
 		for _, opt := range opts {
 			opt(overrides)

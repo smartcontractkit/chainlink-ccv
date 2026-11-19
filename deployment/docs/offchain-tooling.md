@@ -56,7 +56,7 @@ Both Apply changesets converge on `ManageJobProposals`, a shared sequence that h
 
 The sequence also handles NOP mode transitions. When a NOP moves from CL mode to standalone, the sequence revokes the JD-managed job and clears JD metadata so the NOP can manage it independently.
 
-The sequence is able to know which NOPs need to receive a specific job by doing a lookup of committee membership or executor pool membership based on the node name. If a node is registered in the CLD env (nodes.json) the changesets are able to correlate the node name with the nodeId to invoke JD api and propose jobs.
+The sequence is able to know which NOPs need to receive a specific job by doing a lookup of committee membership or executor pool membership based on the node name. `ApplyVerifierConfig` and `ApplyExecutorConfig` resolve the environment node-ID allowlist from `offchainConfigs.jdNodes` when available, so a later durable-pipeline job only needs registration's datastore output to correlate node names with JD node IDs. They fall back to CLD's `nodes.json`-derived `Environment.NodeIDs` for environments without persisted inventory.
 
 ### NOP Modes
 

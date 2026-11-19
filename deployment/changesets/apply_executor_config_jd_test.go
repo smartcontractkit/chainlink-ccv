@@ -8,10 +8,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
+	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
+	nodev1 "github.com/smartcontractkit/chainlink-protos/job-distributor/v1/node"
 
 	ccvadapters "github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
+	"github.com/smartcontractkit/chainlink-ccv/deployment/operations/fetch_node_chain_support"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
@@ -81,4 +85,39 @@ func TestValidateExecutorChainSupport_SkipsJDWhenOffchainNil(t *testing.T) {
 
 	err := validateExecutorChainSupport(deployment.Environment{}, pool, []shared.NOPAlias{"nop1"}, nil)
 	require.NoError(t, err)
+}
+
+func TestFetchNodeChainSupportDoesNotReuseStoredReport(t *testing.T) {
+	selector := chainsel.SOLANA_DEVNET.Selector
+	chainID, err := chainsel.GetChainIDFromSelector(selector)
+	require.NoError(t, err)
+	shared.RegisterChainTypeFamily(nodev1.ChainType_CHAIN_TYPE_SOLANA, chainsel.FamilySolana)
+
+	client := &stubOffchainClient{
+		nodes: map[string]string{"node-1": "nop1"},
+		chainConfigs: []*nodev1.ChainConfig{{
+			NodeId: "node-1",
+			Chain:  &nodev1.Chain{Id: chainID, Type: nodev1.ChainType_CHAIN_TYPE_SOLANA},
+		}},
+	}
+	input := fetch_node_chain_support.FetchNodeChainSupportInput{NOPAliases: []string{"nop1"}}
+	staleReport := operations.NewReport(
+		fetch_node_chain_support.FetchNodeChainSupport.Def(),
+		input,
+		fetch_node_chain_support.FetchNodeChainSupportOutput{SupportedChains: make(shared.ChainSupportByNOP)},
+		nil,
+	)
+	lggr := logger.Test(t)
+	env := deployment.Environment{
+		Logger:   lggr,
+		Offchain: client,
+		NodeIDs:  []string{"node-1"},
+		OperationsBundle: operations.NewBundle(t.Context, lggr, operations.NewMemoryReporter(
+			operations.WithReports([]operations.Report[any, any]{staleReport.ToGenericReport()}),
+		)),
+	}
+
+	supportedChains, err := fetchNodeChainSupport(env, input.NOPAliases, nil)
+	require.NoError(t, err)
+	require.Equal(t, []uint64{selector}, supportedChains["nop1"])
 }
