@@ -361,6 +361,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	in.CLDF.Init()
 
 	cldfCfg := ccldf.CLDFEnvironmentConfig{
+		Name:        jobs.DefaultRegistrationEnvironment,
 		Blockchains: in.Blockchains,
 		DataStore:   in.CLDF.DataStore,
 	}
@@ -848,17 +849,6 @@ func NewEnvironment() (in *Cfg, err error) {
 
 	e.DataStore = ds.Seal()
 
-	// Save the env metadata to the output CLDF struct so that it can be used by tests.
-	envMetadata, err := e.DataStore.EnvMetadata().Get()
-	if err != nil && err != datastore.ErrEnvMetadataNotSet {
-		return nil, fmt.Errorf("failed to get env metadata from datastore: %w", err)
-	}
-	envMetadataJSON, err := json.Marshal(envMetadata)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal env metadata: %w", err)
-	}
-	in.CLDF.AddEnvMetadata(string(envMetadataJSON))
-
 	if in.JDInfra != nil {
 		progress.Stage(ctx, stageAcceptJobs)
 		if err := jobs.AcceptPendingJobs(ctx, in.ClientLookup); err != nil {
@@ -868,6 +858,11 @@ func NewEnvironment() (in *Cfg, err error) {
 		if err := jobs.SyncAndVerifyJobProposals(e); err != nil {
 			return nil, fmt.Errorf("failed to sync/verify job proposals: %w", err)
 		}
+	}
+
+	// Snapshot after job sync so the serialized CLDF output includes synced metadata.
+	if err := updateCLDFOutput(&in.CLDF, e.DataStore); err != nil {
+		return nil, err
 	}
 
 	// Consumers have captured their family-specific network configuration. Run
@@ -889,4 +884,22 @@ func NewEnvironment() (in *Cfg, err error) {
 	}
 
 	return in, Store(in)
+}
+
+func updateCLDFOutput(cldf *ccldf.CLDF, ds datastore.DataStore) error {
+	if cldf == nil {
+		return nil
+	}
+	cldf.DataStore = ds
+
+	envMetadata, err := ds.EnvMetadata().Get()
+	if err != nil && err != datastore.ErrEnvMetadataNotSet {
+		return fmt.Errorf("failed to get env metadata from datastore: %w", err)
+	}
+	envMetadataJSON, err := json.Marshal(envMetadata)
+	if err != nil {
+		return fmt.Errorf("failed to marshal env metadata: %w", err)
+	}
+	cldf.AddEnvMetadata(string(envMetadataJSON))
+	return nil
 }

@@ -6,6 +6,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 )
 
 func TestCsRegisterNodesWithJDPreconditions(t *testing.T) {
@@ -58,9 +60,14 @@ func TestCsRegisterNodesWithJDBatchAndSave(t *testing.T) {
 		},
 	}
 	require.NoError(t, cs.VerifyPreconditions(env, input))
-	_, err := cs.Apply(env, input)
+	out, err := cs.Apply(env, input)
 	require.NoError(t, err)
 	require.Len(t, client.snapshotNodes(), 3)
+	jdNodes, err := ccvdeployment.GetJDNodes(out.DataStore.Seal())
+	require.NoError(t, err)
+	require.Len(t, jdNodes, 3)
+	assert.Equal(t, validCSAKey(3), jdNodes["node-existing"].CSAKey)
+	assert.Equal(t, "ccv", jdNodes["node-existing"].Labels["product"])
 	assert.Equal(t, 2, client.registerCalls)
 
 	path := d.EnvDir(env.Name).NodesFilePath()
@@ -93,8 +100,11 @@ func TestCsRegisterNodesWithJDBatchAndSave(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, secondState, reconciledState)
 
-	_, err = (CsSaveNodesWithJD{Domain: &d}).Apply(env, CsSaveNodesWithJDInput{Domain: "ccv"})
+	saveOut, err := (CsSaveNodesWithJD{Domain: &d}).Apply(env, CsSaveNodesWithJDInput{Domain: "ccv"})
 	require.NoError(t, err)
+	jdNodes, err = ccvdeployment.GetJDNodes(saveOut.DataStore.Seal())
+	require.NoError(t, err)
+	assert.Equal(t, "reconciled", jdNodes["node-1"].Labels["role"])
 	standaloneState, err := os.ReadFile(path)
 	require.NoError(t, err)
 	assert.Equal(t, secondState, standaloneState)

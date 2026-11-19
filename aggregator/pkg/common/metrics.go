@@ -37,10 +37,9 @@ type AggregatorMetricLabeler interface {
 	IncrementAPIRequestErrors(ctx context.Context, method string)
 	// RecordMessageSinceNumberOfRecordsReturned records the number of records returned for a GetMessageSince request.
 	RecordMessageSinceNumberOfRecordsReturned(ctx context.Context, count int)
-	// IncrementPendingAggregationsChannelBuffer increments the pending aggregations channel buffer counter.
-	IncrementPendingAggregationsChannelBuffer(ctx context.Context, count int)
-	// DecrementPendingAggregationsChannelBuffer decrements the pending aggregations channel buffer counter.
-	DecrementPendingAggregationsChannelBuffer(ctx context.Context, count int)
+	// SetAggregationQueueSize sets the gauge for aggregation requests waiting in or being
+	// processed from the durable queue.
+	SetAggregationQueueSize(ctx context.Context, size int64)
 	// RecordStorageLatency records storage operation latency in milliseconds.
 	RecordStorageLatency(ctx context.Context, operation string, duration time.Duration, errored bool)
 	// IncrementStorageError increments the storage error counter.

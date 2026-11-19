@@ -74,6 +74,7 @@ func (c *CLDF) PrintAddresses() error {
 }
 
 type CLDFEnvironmentConfig struct {
+	Name           string
 	Blockchains    []*blockchain.Input
 	DataStore      datastore.DataStore
 	OffchainClient offchain.Client
@@ -116,6 +117,7 @@ func NewCLDFOperationsEnvironmentWithOffchain(cfg CLDFEnvironmentConfig) ([]uint
 
 	getCtx := func() context.Context { return context.Background() }
 	e := deployment.Environment{
+		Name:        cfg.Name,
 		GetContext:  getCtx,
 		Logger:      lggr,
 		BlockChains: blockchains,

@@ -69,7 +69,6 @@ func TestSetDefaults(t *testing.T) {
 
 		assert.Equal(t, 100, cfg.MaxMessageIDsPerBatch)
 		assert.Equal(t, 100, cfg.MaxCommitVerifierNodeResultRequestsPerBatch)
-		assert.Equal(t, 200, cfg.Aggregation.ChannelBufferSize)
 		assert.Equal(t, 10, cfg.Aggregation.BackgroundWorkerCount)
 		assert.NotNil(t, cfg.Storage)
 		assert.Equal(t, 100, cfg.Storage.PageSize)
@@ -264,8 +263,8 @@ func TestValidateBatchConfig(t *testing.T) {
 
 func TestValidateAggregationConfig(t *testing.T) {
 	validBase := AggregationConfig{
-		ChannelBufferSize:     10,
 		BackgroundWorkerCount: 10,
+		OperationTimeout:      30 * time.Second,
 		DrainTimeout:          30 * time.Second,
 	}
 
@@ -279,18 +278,6 @@ func TestValidateAggregationConfig(t *testing.T) {
 			name:        "valid config",
 			mutate:      func(_ *AggregationConfig) {},
 			expectError: false,
-		},
-		{
-			name:        "zero channel buffer size fails",
-			mutate:      func(c *AggregationConfig) { c.ChannelBufferSize = 0 },
-			expectError: true,
-			errorMsg:    "channelBufferSize must be greater than 0",
-		},
-		{
-			name:        "channel buffer size exceeds limit fails",
-			mutate:      func(c *AggregationConfig) { c.ChannelBufferSize = 100001 },
-			expectError: true,
-			errorMsg:    "channelBufferSize cannot exceed 100000",
 		},
 		{
 			name:        "zero worker count fails",
@@ -308,7 +295,13 @@ func TestValidateAggregationConfig(t *testing.T) {
 			name:        "negative operation timeout fails",
 			mutate:      func(c *AggregationConfig) { c.OperationTimeout = -1 * time.Second },
 			expectError: true,
-			errorMsg:    "operationTimeout cannot be negative",
+			errorMsg:    "operationTimeout must be greater than 0",
+		},
+		{
+			name:        "operation timeout above the maximum fails",
+			mutate:      func(c *AggregationConfig) { c.OperationTimeout = MaxAggregationOperationTimeout + time.Second },
+			expectError: true,
+			errorMsg:    "at most 1m30s",
 		},
 		{
 			name:        "zero drain timeout fails",
@@ -336,54 +329,6 @@ func TestValidateAggregationConfig(t *testing.T) {
 			tt.mutate(&config)
 			cfg := &AggregatorConfig{Aggregation: config}
 			err := cfg.ValidateAggregationConfig()
-
-			if tt.expectError {
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), tt.errorMsg)
-			} else {
-				require.NoError(t, err)
-			}
-		})
-	}
-}
-
-func TestValidateWithoutSecrets_ChannelBufferSizeVsBatchSize(t *testing.T) {
-	tests := []struct {
-		name        string
-		mutate      func(c *AggregatorConfig)
-		expectError bool
-		errorMsg    string
-	}{
-		{
-			name: "buffer smaller than batch size fails",
-			mutate: func(c *AggregatorConfig) {
-				c.MaxCommitVerifierNodeResultRequestsPerBatch = 100
-				c.Aggregation.ChannelBufferSize = 50
-			},
-			expectError: true,
-			errorMsg:    "aggregation channel buffer size (50) is smaller than the max commit verifier node result requests per batch (100)",
-		},
-		{
-			name: "buffer equal to batch size passes",
-			mutate: func(c *AggregatorConfig) {
-				c.MaxCommitVerifierNodeResultRequestsPerBatch = 100
-				c.Aggregation.ChannelBufferSize = 100
-			},
-			expectError: false,
-		},
-		{
-			name:        "default buffer size accommodates default batch size",
-			mutate:      func(_ *AggregatorConfig) {},
-			expectError: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cfg := createMinimalValidConfig()
-			tt.mutate(cfg)
-
-			err := cfg.ValidateWithoutSecrets()
 
 			if tt.expectError {
 				require.Error(t, err)

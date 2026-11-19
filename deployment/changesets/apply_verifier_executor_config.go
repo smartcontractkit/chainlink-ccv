@@ -127,7 +127,12 @@ func ApplyVerifierExecutorConfig() deployment.ChangeSetV2[ApplyVerifierExecutorC
 			}, fmt.Errorf("verifier flow failed, executor flow not attempted: %w", err)
 		}
 
-		executorOutput, err := executorChangeset.Apply(e, deriveExecutorInput(cfg))
+		// Chain the datastore so the executor clone contains the verifier's updates.
+		executorEnv := e
+		if verifierOutput.DataStore != nil {
+			executorEnv.DataStore = verifierOutput.DataStore.Seal()
+		}
+		executorOutput, err := executorChangeset.Apply(executorEnv, deriveExecutorInput(cfg))
 		reports = append(reports, executorOutput.Reports...)
 
 		executorErr := err

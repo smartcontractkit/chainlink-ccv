@@ -107,6 +107,7 @@ type chainRuntime interface {
 		keyName string,
 		feeQuoterAddress common.Address,
 		tokens *pricereader.TokenMetadataCache,
+		nativeDecimals uint8,
 	) (chainaccess.FeeQuoterWriter, error)
 	Close() error
 }
@@ -134,6 +135,7 @@ type standaloneChain struct {
 
 	mu                  sync.Mutex
 	txm                 txmgr.TxManager
+	feeEstimator        gas.EvmFeeEstimator
 	txmKeyName          string
 	chainKeystore       evmkeys.ChainStore
 	fromAddresses       []common.Address
@@ -530,6 +532,7 @@ func (c *standaloneChain) ensureTXMLocked(ctx context.Context, ks keystore.Keyst
 		txm.OnNewLongestChain(ctx, currentHead)
 	}
 	c.txm = txm
+	c.feeEstimator = estimator
 	c.txmKeyName = keyName
 	c.chainKeystore = chainKeystore
 	c.fromAddresses = fromAddresses
@@ -545,6 +548,7 @@ func (c *standaloneChain) NewFeeQuoterWriter(
 	keyName string,
 	feeQuoterAddress common.Address,
 	tokens *pricereader.TokenMetadataCache,
+	nativeDecimals uint8,
 ) (chainaccess.FeeQuoterWriter, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -558,13 +562,19 @@ func (c *standaloneChain) NewFeeQuoterWriter(
 	if err := c.ensureTXMLocked(ctx, ks, keyName); err != nil {
 		return nil, err
 	}
-	return pricereader.NewEVMFeeQuoterWriter(
+	writer, err := pricereader.NewEVMFeeQuoterWriter(
 		logger.With(c.lggr, "component", "FeeQuoterWriter"),
 		c.chainClient,
 		feeQuoterAddress,
+		nativeDecimals,
 		pricereader.WithTxm(c.txm, c.chainKeystore, c.fromAddresses),
+		pricereader.WithFeeEstimator(c.feeEstimator, txmgr.NewEvmTxmFeeConfig(c.chainConfig.EVM().GasEstimator()).PriceMaxKey),
 		pricereader.WithTokenCache(tokens),
-	), nil
+	)
+	if err != nil {
+		return nil, err
+	}
+	return writer, nil
 }
 
 var _ logPollerRuntime = (*standaloneChain)(nil)

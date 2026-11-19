@@ -20,6 +20,9 @@ type CommitVerificationStore interface {
 	// ListCommitVerificationByAggregationKey returns the latest verification record per signer for a
 	// given (message_id, aggregation_key). Used to collect quorum inputs before aggregation.
 	ListCommitVerificationByAggregationKey(ctx context.Context, messageID model.MessageID, aggregationKey model.AggregationKey) ([]*model.CommitVerificationRecord, error)
+	// CountSigners returns, per aggregation key, how many distinct signers have a verification for
+	// the trigger's message and key. Keys with no verification are absent from the result.
+	CountSigners(ctx context.Context, triggers []model.AggregationTrigger) (map[model.AggregationKey]model.SignerCount, error)
 	// ListCommitVerificationByMessageID returns the latest verification record per signer for a message ID,
 	// grouped by aggregation key. Returns ErrTooManyRecords when the rows are more than the fixed maximum.
 	ListCommitVerificationByMessageID(ctx context.Context, messageID model.MessageID) (map[model.AggregationKey][]*model.CommitVerificationRecord, error)

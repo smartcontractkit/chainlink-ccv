@@ -448,6 +448,7 @@ func SyncAndVerifyJobProposals(e *deployment.Environment) error {
 	if err != nil {
 		return fmt.Errorf("failed to sync job proposals: %w", err)
 	}
+	e.DataStore = output.DataStore.Seal()
 
 	updatedJobs, err := ccvdeployment.GetAllJobs(output.DataStore.Seal())
 	if err != nil {

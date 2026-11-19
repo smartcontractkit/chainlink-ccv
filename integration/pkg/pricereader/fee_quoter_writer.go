@@ -19,10 +19,12 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	commontypes "github.com/smartcontractkit/chainlink-common/pkg/types"
 	"github.com/smartcontractkit/chainlink-evm/gethwrappers/shared/generated/initial/erc20"
+	"github.com/smartcontractkit/chainlink-evm/pkg/assets"
 	"github.com/smartcontractkit/chainlink-evm/pkg/keys"
 	"github.com/smartcontractkit/chainlink-evm/pkg/txmgr"
 
 	evmtypes "github.com/smartcontractkit/chainlink-evm/pkg/types"
+	"github.com/smartcontractkit/chainlink-framework/chains/fees"
 	txmgrcommon "github.com/smartcontractkit/chainlink-framework/chains/txmgr"
 )
 
@@ -33,6 +35,11 @@ const (
 )
 
 var feeQuoterABI = evmtypes.MustGetABI(fee_quoter.FeeQuoterABI)
+
+// feeQuoterUpdateEstimator is the part of the TXM's gas.EvmFeeEstimator the writer uses to price a transaction.
+type feeQuoterUpdateEstimator interface {
+	GetMaxCost(ctx context.Context, amount assets.Eth, calldata []byte, feeLimit uint64, maxFeePrice *assets.Wei, fromAddress, toAddress *common.Address, opts ...fees.Opt) (*big.Int, error)
+}
 
 // weibarPerTinybar is the divisor applied to Hedera gas prices.
 // Hedera gas price RPC call returns 1e18 yet the atomic unit
@@ -54,6 +61,13 @@ type EVMFeeQuoterWriter struct {
 	fromAddresses []common.Address
 
 	tokens *TokenMetadataCache
+
+	// estimator prices an updatePrices transaction for EstimateUpdateCost. Nil makes the estimate fail.
+	estimator feeQuoterUpdateEstimator
+	// priceMaxKey is the fee cap of a sender key. The estimator compares prices against it, so it must not be nil.
+	priceMaxKey func(common.Address) *assets.Wei
+	// nativeDecimals is the decimals of the unit of the estimator's cost, used to scale it to 1e36.
+	nativeDecimals uint8
 }
 
 // WriterOption configures an EVMFeeQuoterWriter.
@@ -68,6 +82,15 @@ func WithTxm(txm txmgr.TxManager, keys keys.RoundRobin, fromAddresses []common.A
 	}
 }
 
+// WithFeeEstimator gives the writer the fee estimator that EstimateUpdateCost uses to price a transaction, and the
+// fee cap of each sender key (the TXM's PriceMaxKey), which the estimator needs as its maximum fee price.
+func WithFeeEstimator(estimator feeQuoterUpdateEstimator, priceMaxKey func(common.Address) *assets.Wei) WriterOption {
+	return func(w *EVMFeeQuoterWriter) {
+		w.estimator = estimator
+		w.priceMaxKey = priceMaxKey
+	}
+}
+
 // WithTokenCache makes the writer use a token metadata cache shared with other components.
 func WithTokenCache(cache *TokenMetadataCache) WriterOption {
 	return func(w *EVMFeeQuoterWriter) {
@@ -78,20 +101,82 @@ func WithTokenCache(cache *TokenMetadataCache) WriterOption {
 }
 
 // NewEVMFeeQuoterWriter creates a writer. It does not call the chain.
-func NewEVMFeeQuoterWriter(lggr logger.Logger, client batchClient, address common.Address, opts ...WriterOption) *EVMFeeQuoterWriter {
-	w := &EVMFeeQuoterWriter{lggr: lggr, client: client, address: address, tokens: NewTokenMetadataCache()}
+// The nativeDecimals argument is the decimals of the unit of the fee estimator's cost, which EstimateUpdateCost scales
+// to 1e36.
+func NewEVMFeeQuoterWriter(lggr logger.Logger, client batchClient, address common.Address, nativeDecimals uint8, opts ...WriterOption) (*EVMFeeQuoterWriter, error) {
+	if nativeDecimals > MaxNativeTokenDecimals {
+		return nil, fmt.Errorf("native token decimals %d is more than %d", nativeDecimals, MaxNativeTokenDecimals)
+	}
+	w := &EVMFeeQuoterWriter{lggr: lggr, client: client, address: address, tokens: NewTokenMetadataCache(), nativeDecimals: nativeDecimals}
 	for _, opt := range opts {
 		opt(w)
 	}
-	return w
+	return w, nil
 }
 
 // UpdatePrices reads the token decimals, scales the token prices to the on-chain format and submits one
 // updatePrices transaction to the TXM, returning once it is accepted. Without a TXM it only logs.
 // Gas prices are in USD per gas unit with 1e18 precision.
 func (w *EVMFeeQuoterWriter) UpdatePrices(ctx context.Context, tokenPrices []protocol.FeeTokenPriceUpdate, gasPrices []protocol.GasTokenPriceUpdate) (string, error) {
-	if len(tokenPrices) == 0 && len(gasPrices) == 0 {
+	priceUpdates, err := w.buildPriceUpdates(ctx, tokenPrices, gasPrices)
+	if err != nil {
+		return "", err
+	}
+	if w.txm == nil {
+		w.lggr.Infow("Fee quoter price update not sent, the writer has no transaction manager",
+			"feeQuoter", w.address.Hex(),
+			"prices", priceUpdates,
+		)
 		return "", nil
+	}
+	return w.send(ctx, priceUpdates)
+}
+
+// EstimateUpdateCost returns the cost of the updatePrices transaction for the given updates, in whole
+// native tokens with 1e36 precision. The TXM's fee estimator prices it and nothing is sent.
+func (w *EVMFeeQuoterWriter) EstimateUpdateCost(ctx context.Context, tokenPrices []protocol.FeeTokenPriceUpdate, gasPrices []protocol.GasTokenPriceUpdate) (*big.Int, error) {
+	if w.estimator == nil {
+		return nil, errors.New("fee quoter writer has no fee estimator")
+	}
+	if len(w.fromAddresses) == 0 {
+		return nil, errors.New("fee quoter writer has no sender address")
+	}
+	priceUpdates, err := w.buildPriceUpdates(ctx, tokenPrices, gasPrices)
+	if err != nil {
+		return nil, err
+	}
+	payload, err := feeQuoterABI.Pack("updatePrices", priceUpdates)
+	if err != nil {
+		return nil, fmt.Errorf("failed to abi encode updatePrices: %w", err)
+	}
+	// The first key stands in for the sender, so an estimate does not advance the round-robin.
+	from := w.fromAddresses[0]
+	// The estimator compares prices against this cap and panics on nil, so use the same one the TXM does.
+	var maxFeePrice *assets.Wei
+	if w.priceMaxKey != nil {
+		maxFeePrice = w.priceMaxKey(from)
+	}
+	if maxFeePrice == nil {
+		return nil, fmt.Errorf("fee quoter writer has no max fee price for sender %s", from)
+	}
+	costEstimate, err := w.estimator.GetMaxCost(ctx, assets.NewEthValue(0), payload, updatePricesFeeLimit(priceUpdates), maxFeePrice, &from, &w.address)
+	if err != nil {
+		return nil, fmt.Errorf("failed to estimate the updatePrices cost: %w", err)
+	}
+	return new(big.Int).Mul(costEstimate, pow10(MaxNativeTokenDecimals-uint(w.nativeDecimals))), nil
+}
+
+// updatePricesFeeLimit is the gas limit of an updatePrices call with the given updates.
+func updatePricesFeeLimit(priceUpdates fee_quoter.InternalPriceUpdates) uint64 {
+	updates := uint64(len(priceUpdates.TokenPriceUpdates) + len(priceUpdates.GasPriceUpdates))
+	return updatePricesBaseGas + updatePricesGasPerUpdate*updates
+}
+
+// buildPriceUpdates scales the updates to the on-chain format. It returns false when none are left to send.
+func (w *EVMFeeQuoterWriter) buildPriceUpdates(ctx context.Context, tokenPrices []protocol.FeeTokenPriceUpdate, gasPrices []protocol.GasTokenPriceUpdate) (fee_quoter.InternalPriceUpdates, error) {
+	var none fee_quoter.InternalPriceUpdates
+	if len(tokenPrices) == 0 && len(gasPrices) == 0 {
+		return none, errors.New("no token and gas price updates to be made")
 	}
 	tokenAddresses := make([]common.Address, len(tokenPrices))
 	for i, update := range tokenPrices {
@@ -99,16 +184,16 @@ func (w *EVMFeeQuoterWriter) UpdatePrices(ctx context.Context, tokenPrices []pro
 	}
 	decimals, err := w.tokenDecimals(ctx, tokenAddresses)
 	if err != nil {
-		return "", err
+		return none, err
 	}
 	tokenPrices = w.withDecimals(tokenPrices, decimals)
+
 	if len(tokenPrices) == 0 && len(gasPrices) == 0 {
-		w.lggr.Warn("No token and gas price updates to be made")
-		return "", nil
+		return none, errors.New("no gas price updates, and unable to get all token decimals")
 	}
 	scaledTokenPrices, err := scaleTokenPrices(tokenPrices, decimals)
 	if err != nil {
-		return "", err
+		return none, err
 	}
 	formattedTokenPrices := make([]fee_quoter.InternalTokenPriceUpdate, 0, len(scaledTokenPrices))
 	for _, token := range scaledTokenPrices {
@@ -127,18 +212,10 @@ func (w *EVMFeeQuoterWriter) UpdatePrices(ctx context.Context, tokenPrices []pro
 		})
 	}
 
-	priceUpdates := fee_quoter.InternalPriceUpdates{
+	return fee_quoter.InternalPriceUpdates{
 		GasPriceUpdates:   packedGasPrices,
 		TokenPriceUpdates: formattedTokenPrices,
-	}
-	if w.txm == nil {
-		w.lggr.Infow("Fee quoter price update not sent, the writer has no transaction manager",
-			"feeQuoter", w.address.Hex(),
-			"prices", priceUpdates,
-		)
-		return "", nil
-	}
-	return w.send(ctx, priceUpdates)
+	}, nil
 }
 
 // send submits updatePrices to the TXM. It does not wait for the transaction to be mined.
@@ -151,7 +228,7 @@ func (w *EVMFeeQuoterWriter) send(ctx context.Context, priceUpdates fee_quoter.I
 	if err != nil {
 		return "", fmt.Errorf("failed to pick a sender address: %w", err)
 	}
-	updates := uint64(len(priceUpdates.TokenPriceUpdates) + len(priceUpdates.GasPriceUpdates))
+	feeLimit := updatePricesFeeLimit(priceUpdates)
 
 	txID := uuid.NewString()
 	_, err = w.txm.CreateTransaction(ctx, txmgr.TxRequest{
@@ -159,7 +236,7 @@ func (w *EVMFeeQuoterWriter) send(ctx context.Context, priceUpdates fee_quoter.I
 		FromAddress:    from,
 		ToAddress:      w.address,
 		EncodedPayload: payload,
-		FeeLimit:       updatePricesBaseGas + updatePricesGasPerUpdate*updates,
+		FeeLimit:       feeLimit,
 		Strategy:       txmgrcommon.NewSendEveryStrategy(),
 	})
 	if err != nil {
@@ -169,6 +246,7 @@ func (w *EVMFeeQuoterWriter) send(ctx context.Context, priceUpdates fee_quoter.I
 		"feeQuoter", w.address.Hex(),
 		"tokenUpdates", len(priceUpdates.TokenPriceUpdates),
 		"gasUpdates", len(priceUpdates.GasPriceUpdates),
+		"feeLimit", feeLimit,
 		"txm key", txID,
 	)
 	return txID, nil

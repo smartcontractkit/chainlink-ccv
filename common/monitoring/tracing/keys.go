@@ -33,7 +33,6 @@ const (
 
 	// Aggregator span attributes.
 	AggregationKeyKey = "aggregation_key"
-	ChannelKeyKey     = "channel_key"
 	QuorumMetKey      = "quorum_met"
 	BatchSizeKey      = "batch_size"
 	CallerIDKey       = "caller_id"

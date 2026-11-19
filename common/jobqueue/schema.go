@@ -5,6 +5,22 @@ import "fmt"
 // CreateTablesSQL returns the DDL for a DedupKeyColumn queue table and its archive.
 // Services copy its output into their own migrations; tests run it directly.
 func CreateTablesSQL(name string) string {
+	return createTablesSQL(name, ",\n    CONSTRAINT "+name+"_unique_job UNIQUE (owner_id, dedup_key)", "")
+}
+
+// CreateTablesSQLSerializePerKey is CreateTablesSQL for a QueueConfig.SerializePerKey queue: the dedup
+// key is unique among pending jobs only, and processing jobs are indexed by key for the consume check.
+func CreateTablesSQLSerializePerKey(name string) string {
+	return createTablesSQL(name, "", fmt.Sprintf(`
+CREATE UNIQUE INDEX %[1]s_unique_job
+    ON %[1]s (owner_id, dedup_key) WHERE status = 'pending';
+
+CREATE INDEX idx_%[1]s_processing_key
+    ON %[1]s (owner_id, dedup_key) WHERE status = 'processing';
+`, name))
+}
+
+func createTablesSQL(name, uniqueConstraint, uniqueIndex string) string {
 	return fmt.Sprintf(`
 CREATE TABLE %[1]s
 (
@@ -20,10 +36,9 @@ CREATE TABLE %[1]s
     attempt_count  INT         NOT NULL DEFAULT 0,
     retry_deadline TIMESTAMPTZ NOT NULL,
     last_error     TEXT,
-    CONSTRAINT %[1]s_status_check CHECK (status IN ('pending', 'processing', 'completed', 'failed')),
-    CONSTRAINT %[1]s_unique_job UNIQUE (owner_id, dedup_key)
+    CONSTRAINT %[1]s_status_check CHECK (status IN ('pending', 'processing', 'completed', 'failed'))%[2]s
 );
-
+%[3]s
 CREATE INDEX idx_%[1]s_consume
     ON %[1]s (owner_id, available_at ASC, id ASC) WHERE status = 'pending';
 
@@ -55,5 +70,5 @@ CREATE INDEX idx_%[1]s_archive_completed
 
 CREATE INDEX idx_%[1]s_archive_dedup_key
     ON %[1]s_archive (dedup_key);
-`, name)
+`, name, uniqueConstraint, uniqueIndex)
 }

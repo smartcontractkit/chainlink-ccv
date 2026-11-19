@@ -161,6 +161,12 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		return err
 	}
 
+	// Initialize accessors and leader election only for this executor's assigned destination chains.
+	assignedChainConfigs := maps.Clone(executorConfig.ChainConfiguration)
+	maps.DeleteFunc(assignedChainConfigs, func(_ string, chainConfig executorsvc.ChainConfiguration) bool {
+		return !slices.Contains(chainConfig.ExecutorPool, executorConfig.ExecutorID)
+	})
+
 	executorMonitoring, err := monitoring.InitMonitoring()
 	if err != nil {
 		return fmt.Errorf("failed to initialize monitoring: %w", err)
@@ -195,7 +201,7 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	// serialize away the shared startup budget.
 	var chainsMu sync.Mutex
 	var wg sync.WaitGroup
-	for strSel := range executorConfig.ChainConfiguration {
+	for strSel := range assignedChainConfigs {
 		selectorUint, err := strconv.ParseUint(strSel, 10, 64)
 		if err != nil {
 			f.lggr.Errorw("Invalid chain selector in configuration", "error", err, "chainSelector", strSel)
@@ -271,6 +277,7 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	defaultExecutorAddresses := make(map[protocol.ChainSelector]protocol.UnknownAddress)
 	balanceSelectors := make([]protocol.ChainSelector, 0, len(executorConfig.ChainConfiguration))
 
+	// Verifier results look up default executor addresses by source chain, so retain all pool entries.
 	for strSel, chainConfig := range executorConfig.ChainConfiguration {
 		selectorUint, err := strconv.ParseUint(strSel, 10, 64)
 		if err != nil {
@@ -278,9 +285,11 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 			continue
 		}
 		sel := protocol.ChainSelector(selectorUint)
-		balanceSelectors = append(balanceSelectors, sel)
-		execPool[sel] = chainConfig.ExecutorPool
-		execIntervals[sel] = chainConfig.ExecutionInterval
+		if _, ok := assignedChainConfigs[strSel]; ok {
+			balanceSelectors = append(balanceSelectors, sel)
+			execPool[sel] = chainConfig.ExecutorPool
+			execIntervals[sel] = chainConfig.ExecutionInterval
+		}
 		defaultExecutorAddresses[sel], err = protocol.NewUnknownAddressFromHex(chainConfig.DefaultExecutorAddress)
 		if err != nil {
 			f.lggr.Errorw("Invalid default executor address in configuration", "error", err, "chainSelector", strSel)
