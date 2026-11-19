@@ -254,7 +254,8 @@ flowchart LR
 	click chainlink-automation href "https://github.com/smartcontractkit/chainlink-automation"
 	chainlink-canton --> chainlink-ccv/build/devenv
 	click chainlink-canton href "https://github.com/smartcontractkit/chainlink-canton"
-	chainlink-ccip
+	chainlink-ccip --> chainlink-common
+	chainlink-ccip --> chainlink-protos/rmn/v1.6/go
 	click chainlink-ccip href "https://github.com/smartcontractkit/chainlink-ccip"
 	chainlink-ccip/ccv/chains/evm
 	click chainlink-ccip/ccv/chains/evm href "https://github.com/smartcontractkit/chainlink-ccip"
@@ -425,7 +426,6 @@ flowchart LR
 	chainlink/v2 --> chainlink-evm
 	chainlink/v2 --> chainlink-feeds
 	chainlink/v2 --> chainlink-protos/orchestrator
-	chainlink/v2 --> chainlink-protos/rmn/v1.6/go
 	chainlink/v2 --> chainlink-solana
 	chainlink/v2 --> chainlink-sui
 	chainlink/v2 --> chainlink-ton
