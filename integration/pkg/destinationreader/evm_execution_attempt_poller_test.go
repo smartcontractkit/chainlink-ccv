@@ -24,6 +24,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/executionchecker"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 )
 
@@ -222,7 +223,7 @@ func TestGetStartBlock_MatureChain(t *testing.T) {
 	// Verify the found block is close to expected (within reasonable range)
 	// The found block should be at or before the target time (we go back one block at the end)
 	// Allow variance of a few block intervals due to binary search precision
-	foundBlockTime := calc.getBlockTime(poller.startBlock)
+	foundBlockTime := time.Unix(int64(calc.createHead(poller.startBlock).Time), 0)
 	timeDiff := targetTime.Sub(foundBlockTime)
 
 	// Found block should be before or very close to target (within a few block intervals)
@@ -1285,7 +1286,7 @@ func TestReady_ReturnsNilAfterBackfillCompletes(t *testing.T) {
 	// Wait for backfill to complete.
 	require.Eventually(t, func() bool {
 		return poller.Ready() == nil
-	}, 5*time.Second, 10*time.Millisecond)
+	}, tests.WaitTimeout(t), 10*time.Millisecond)
 
 	assert.NoError(t, poller.Healthy())
 	assert.True(t, poller.backfillComplete.Load())
@@ -1332,19 +1333,19 @@ func TestReady_ReportsStaleWhenPollsStopSucceeding(t *testing.T) {
 
 	require.Eventually(t, func() bool {
 		return poller.Ready() == nil
-	}, 5*time.Second, 10*time.Millisecond)
+	}, tests.WaitTimeout(t), 10*time.Millisecond)
 	assert.True(t, poller.pollingMode.Load(), "test env has no WS, poller should be in HTTP mode")
 
 	failRPC.Store(true)
 	require.Eventually(t, func() bool {
 		err := poller.Ready()
 		return err != nil && strings.Contains(err.Error(), "no successful execution-attempt poll")
-	}, 5*time.Second, 20*time.Millisecond, "poller should report staleness once polls stop succeeding")
+	}, tests.WaitTimeout(t), 20*time.Millisecond, "poller should report staleness once polls stop succeeding")
 
 	failRPC.Store(false)
 	require.Eventually(t, func() bool {
 		return poller.Ready() == nil
-	}, 5*time.Second, 20*time.Millisecond, "poller should recover once the RPC answers again")
+	}, tests.WaitTimeout(t), 20*time.Millisecond, "poller should recover once the RPC answers again")
 }
 
 func TestStart_ContextCancelDuringStartup_Stops(t *testing.T) {
@@ -1426,7 +1427,7 @@ func TestStart_RetriesGetStartBlockUntilRPCRecovers(t *testing.T) {
 	releaseRecovery()
 	require.Eventually(t, func() bool {
 		return poller.Ready() == nil
-	}, 5*time.Second, 10*time.Millisecond)
+	}, tests.WaitTimeout(t), 10*time.Millisecond)
 	assert.NoError(t, poller.Healthy())
 	assert.True(t, poller.backfillComplete.Load())
 	assert.GreaterOrEqual(t, rpcCalls.Load(), int32(3))
@@ -1775,7 +1776,7 @@ func TestWSFallbackToHTTP_ReplaysPartialWebSocketBlockAndDeduplicates(t *testing
 	require.Eventually(t, func() bool {
 		attempts, err := poller.GetExecutionAttempts(ctx, msg1)
 		return err == nil && len(attempts) == 1
-	}, 2*time.Second, 10*time.Millisecond, "first log must be processed via WebSocket")
+	}, tests.WaitTimeout(t), 10*time.Millisecond, "first log must be processed via WebSocket")
 	assert.Equal(t, blockB, poller.getLastPolledBlock())
 	assert.True(t, poller.wsBlockPartial.Load(), "cursor from WS event must mark block as partially consumed")
 
@@ -1785,7 +1786,7 @@ func TestWSFallbackToHTTP_ReplaysPartialWebSocketBlockAndDeduplicates(t *testing
 	require.Eventually(t, func() bool {
 		attempts, err := poller.GetExecutionAttempts(ctx, msg2)
 		return err == nil && len(attempts) == 1
-	}, 2*time.Second, 10*time.Millisecond, "second log in block B must be recovered by HTTP fallback")
+	}, tests.WaitTimeout(t), 10*time.Millisecond, "second log in block B must be recovered by HTTP fallback")
 
 	attempts1, err := poller.GetExecutionAttempts(ctx, msg1)
 	require.NoError(t, err)
@@ -1864,13 +1865,13 @@ func TestWSReconnectLifecycle_SingleConsumerAndProcessesEventsAcrossReconnects(t
 		require.Eventually(t, func() bool {
 			attempts, err := poller.GetExecutionAttempts(ctx, msgs[i])
 			return err == nil && len(attempts) == 1
-		}, 2*time.Second, 10*time.Millisecond, "event %d must be processed", i)
+		}, tests.WaitTimeout(t), 10*time.Millisecond, "event %d must be processed", i)
 
 		if i < len(subs)-1 {
 			subs[i].fail(errors.New("transient ws disconnect"))
 			require.Eventually(t, func() bool {
 				return subs[i].unsubscribed.Load()
-			}, 2*time.Second, 10*time.Millisecond, "replaced subscription %d must be unsubscribed", i)
+			}, tests.WaitTimeout(t), 10*time.Millisecond, "replaced subscription %d must be unsubscribed", i)
 		}
 	}
 
@@ -1927,7 +1928,7 @@ func TestWSReconnect_CloseDuringReconnectionLeavesNoActiveSubscription(t *testin
 	// Wait until Close() has canceled the context before letting SubscribeFilterLogs return lateSub.
 	require.Eventually(t, func() bool {
 		return ctx.Err() != nil
-	}, 2*time.Second, 5*time.Millisecond)
+	}, tests.WaitTimeout(t), 5*time.Millisecond)
 	close(allowReconnectReturn)
 
 	require.NoError(t, <-closeDone)

@@ -16,6 +16,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 )
 
 func TestCurseDetectorService_LaneSpecificCurse(t *testing.T) {
@@ -74,7 +75,7 @@ func TestCurseDetectorService_LaneSpecificCurse(t *testing.T) {
 		bc, errBC := svc.IsRemoteChainCursed(ctx, chainB, chainC)
 		return errAB == nil && errAC == nil && errBA == nil && errBC == nil &&
 			ab && !ac && !ba && !bc
-	}, 2*time.Second, 5*time.Millisecond, "first poll should curse chainA->chainB only")
+	}, tests.WaitTimeout(t), 5*time.Millisecond, "first poll should curse chainA->chainB only")
 
 	// lift the curse
 	mockReaderA.EXPECT().GetRMNCursedSubjects(mock.Anything).Unset()
@@ -89,7 +90,7 @@ func TestCurseDetectorService_LaneSpecificCurse(t *testing.T) {
 		bc, errBC := svc.IsRemoteChainCursed(ctx, chainB, chainC)
 		return errAB == nil && errAC == nil && errBA == nil && errBC == nil &&
 			!ab && !ac && !ba && !bc
-	}, 2*time.Second, 5*time.Millisecond, "lifted curse should clear all lanes")
+	}, tests.WaitTimeout(t), 5*time.Millisecond, "lifted curse should clear all lanes")
 }
 
 func TestCurseDetectorService_GlobalCurse(t *testing.T) {
@@ -143,7 +144,7 @@ func TestCurseDetectorService_GlobalCurse(t *testing.T) {
 		bc, errBC := svc.IsRemoteChainCursed(ctx, chainB, chainC)
 		return errAB == nil && errAC == nil && errBA == nil && errBC == nil &&
 			ab && ac && !ba && !bc
-	}, 2*time.Second, 5*time.Millisecond, "chainA's global curse should curse all its lanes")
+	}, tests.WaitTimeout(t), 5*time.Millisecond, "chainA's global curse should curse all its lanes")
 
 	// lift the curse
 	mockReaderA.EXPECT().GetRMNCursedSubjects(mock.Anything).Unset()
@@ -158,7 +159,7 @@ func TestCurseDetectorService_GlobalCurse(t *testing.T) {
 		bc, errBC := svc.IsRemoteChainCursed(ctx, chainB, chainC)
 		return errAB == nil && errAC == nil && errBA == nil && errBC == nil &&
 			!ab && !ac && !ba && !bc
-	}, 2*time.Second, 5*time.Millisecond, "lifted global curse should clear all lanes")
+	}, tests.WaitTimeout(t), 5*time.Millisecond, "lifted global curse should clear all lanes")
 }
 
 func TestNewCurseDetectorService_Validation(t *testing.T) {
@@ -268,7 +269,7 @@ func TestCurseDetectorService_ReaderErrorHandling(t *testing.T) {
 	require.Eventually(t, func() bool {
 		cursed, err := svc.IsRemoteChainCursed(ctx, chainB, chainA)
 		return err == nil && cursed
-	}, 2*time.Second, 5*time.Millisecond, "chainB should report chainA as cursed")
+	}, tests.WaitTimeout(t), 5*time.Millisecond, "chainB should report chainA as cursed")
 }
 
 // TestCurseDetectorService_StaleStateUnknown tests that a chain's cached curse
@@ -315,13 +316,13 @@ func TestCurseDetectorService_StaleStateUnknown(t *testing.T) {
 	require.Eventually(t, func() bool {
 		cursed, err := svc.IsRemoteChainCursed(ctx, chainA, chainB)
 		return err == nil && cursed
-	}, 2*time.Second, 5*time.Millisecond, "fresh state should report chainB as cursed")
+	}, tests.WaitTimeout(t), 5*time.Millisecond, "fresh state should report chainB as cursed")
 
 	// With the reader failing, the cached state ages out.
 	require.Eventually(t, func() bool {
 		cursed, err := svc.IsRemoteChainCursed(ctx, chainA, chainB)
 		return cursed && errors.Is(err, common.ErrCurseStateUnknown)
-	}, 5*time.Second, 10*time.Millisecond, "stale state should be reported as unknown")
+	}, tests.WaitTimeout(t), 10*time.Millisecond, "stale state should be reported as unknown")
 }
 
 func TestCurseDetectorService_NilCursedSubjects(t *testing.T) {
@@ -358,7 +359,7 @@ func TestCurseDetectorService_NilCursedSubjects(t *testing.T) {
 	require.Eventually(t, func() bool {
 		cursed, err := svc.IsRemoteChainCursed(ctx, chainA, chainB)
 		return err == nil && !cursed
-	}, 2*time.Second, 5*time.Millisecond, "nil cursed subjects should mean no curses")
+	}, tests.WaitTimeout(t), 5*time.Millisecond, "nil cursed subjects should mean no curses")
 }
 
 // TestCurseDetectorService_RPCTimeout tests that hanging RPC calls timeout and don't block other chains.
@@ -487,12 +488,12 @@ func TestCurseDetectorService_AllChainsTimeout(t *testing.T) {
 		mu.Lock()
 		defer mu.Unlock()
 		return callCount >= 3
-	}, 2*time.Second, 20*time.Millisecond, "polling should continue despite timeouts")
+	}, tests.WaitTimeout(t), 20*time.Millisecond, "polling should continue despite timeouts")
 
 	require.Eventually(t, func() bool {
 		cursed, err := svc.IsRemoteChainCursed(ctx, chainA, chainB)
 		return err == nil && cursed
-	}, 2*time.Second, 20*time.Millisecond, "chainA should eventually report chainB as cursed")
+	}, tests.WaitTimeout(t), 20*time.Millisecond, "chainA should eventually report chainB as cursed")
 }
 
 // TestCurseDetectorService_ContextCancellation tests that RPC timeout respects parent context cancellation.

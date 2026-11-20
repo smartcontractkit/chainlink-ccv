@@ -214,7 +214,7 @@ func TestLifecycle(t *testing.T) {
 	require.NoError(t, ec.Start(t.Context()))
 	require.NoError(t, ec.Ready())
 	require.NoError(t, ec.Close())
-	require.Eventuallyf(t, func() bool { return ec.Ready() != nil }, 2*time.Second, 100*time.Millisecond, "executor coordinator did not stop in time")
+	require.Eventuallyf(t, func() bool { return ec.Ready() != nil }, tests.WaitTimeout(t), 100*time.Millisecond, "executor coordinator did not stop in time")
 }
 
 // degradedExecutor adds a Degraded method to the mock so the coordinator's
@@ -336,7 +336,7 @@ func TestSubscribeMessagesError(t *testing.T) {
 		}
 		return false
 	}
-	require.Eventuallyf(t, found, 2*time.Second, 100*time.Millisecond, "executor coordinator did not stop in time")
+	require.Eventuallyf(t, found, tests.WaitTimeout(t), 100*time.Millisecond, "executor coordinator did not stop in time")
 }
 
 func TestStopNotRunning(t *testing.T) {
@@ -531,14 +531,14 @@ func TestMessageExpiration(t *testing.T) {
 						return found("found messages ready for processing")
 					}
 					return found("processing message with ID")
-				}, 3*time.Second, 100*time.Millisecond, "timed out waiting for coordinator activity")
+				}, tests.WaitTimeout(t), 100*time.Millisecond, "timed out waiting for coordinator activity")
 			}
 
 			// Only assert on retry and expire, not on execute.
 			if tc.shouldExpire {
 				require.Eventuallyf(t, func() bool {
 					return found("message has expired")
-				}, 3*time.Second, 1*time.Second, "expected to find 'message has expired' log entry")
+				}, tests.WaitTimeout(t), 1*time.Second, "expected to find 'message has expired' log entry")
 			} else {
 				require.False(t, found("message has expired"), "should not have expire log")
 			}
@@ -546,7 +546,7 @@ func TestMessageExpiration(t *testing.T) {
 			if tc.shouldRetry {
 				require.Eventuallyf(t, func() bool {
 					return found("message should be retried")
-				}, 3*time.Second, 1*time.Second, "expected to find 'message should be retried' log entry")
+				}, tests.WaitTimeout(t), 1*time.Second, "expected to find 'message should be retried' log entry")
 			} else {
 				require.False(t, found("message should be retried"), "should not have retry log")
 			}
@@ -628,12 +628,12 @@ func TestDuplicateMessageIDFromStreamWhileInFlight_IsSkippedAndHandleMessageCall
 		default:
 			return false
 		}
-	}, 3*time.Second, 50*time.Millisecond, "timed out waiting for HandleMessage to start")
+	}, tests.WaitTimeout(t), 50*time.Millisecond, "timed out waiting for HandleMessage to start")
 
 	results <- testMessage
 	require.Eventuallyf(t, func() bool {
 		return found("message already in flight, skipping")
-	}, 3*time.Second, 50*time.Millisecond, "expected skip log for duplicate in-flight message")
+	}, tests.WaitTimeout(t), 50*time.Millisecond, "expected skip log for duplicate in-flight message")
 
 	close(unblockHandle)
 
@@ -679,7 +679,7 @@ func TestClose_StopsReportingTickerOnContextDone(t *testing.T) {
 
 	require.Eventuallyf(t, func() bool {
 		return ec.Ready() != nil
-	}, 2*time.Second, 50*time.Millisecond, "coordinator did not stop in time")
+	}, tests.WaitTimeout(t), 50*time.Millisecond, "coordinator did not stop in time")
 }
 
 func TestDuplicateMessageIDFromStreamWhenAlreadyInHeap_IsSkippedByHeapAndHandleMessageCalledOnce(t *testing.T) {
@@ -749,7 +749,7 @@ func TestDuplicateMessageIDFromStreamWhenAlreadyInHeap_IsSkippedByHeapAndHandleM
 		default:
 			return false
 		}
-	}, 3*time.Second, 50*time.Millisecond, "timed out waiting for HandleMessage")
+	}, tests.WaitTimeout(t), 50*time.Millisecond, "timed out waiting for HandleMessage")
 
 	require.NoError(t, ec.Close())
 	require.True(t, mock.AssertExpectationsForObjects(t, mockExecutor))
@@ -812,7 +812,7 @@ func TestCoordinator_MessageSkippedWhenNotExecutorForChain_DoesNotCallGetReadyTi
 		default:
 			return false
 		}
-	}, 3*time.Second, 50*time.Millisecond, "timed out waiting for message stream processing")
+	}, tests.WaitTimeout(t), 50*time.Millisecond, "timed out waiting for message stream processing")
 	require.NoError(t, ec.Close())
 
 	leaderElector.AssertNotCalled(t, "GetReadyTimestamp")
@@ -998,7 +998,7 @@ func TestRetry_DataNotReadyReattemptsBeforeStaggerInterval(t *testing.T) {
 		default:
 			return false
 		}
-	}, 3*time.Second, 50*time.Millisecond, "timed out waiting for first HandleMessage call")
+	}, tests.WaitTimeout(t), 50*time.Millisecond, "timed out waiting for first HandleMessage call")
 
 	// First HandleMessage already advanced mock time by 2s; retry is scheduled 1s later.
 	// Advance past that ready time so the next processing tick can re-attempt.
@@ -1011,7 +1011,7 @@ func TestRetry_DataNotReadyReattemptsBeforeStaggerInterval(t *testing.T) {
 		default:
 			return false
 		}
-	}, 3*time.Second, 50*time.Millisecond, "timed out waiting for data-not-ready retry before stagger interval")
+	}, tests.WaitTimeout(t), 50*time.Millisecond, "timed out waiting for data-not-ready retry before stagger interval")
 
 	require.NoError(t, ec.Close())
 }
@@ -1082,7 +1082,7 @@ func TestComponentErrorsChannelClosed_LogsOnceAndKeepsProcessing(t *testing.T) {
 		default:
 			return false
 		}
-	}, 3*time.Second, 50*time.Millisecond, "timed out waiting for message processing after errors channel closed")
+	}, tests.WaitTimeout(t), 50*time.Millisecond, "timed out waiting for message processing after errors channel closed")
 
 	countClosedLogs := func() int {
 		count := 0
@@ -1095,7 +1095,7 @@ func TestComponentErrorsChannelClosed_LogsOnceAndKeepsProcessing(t *testing.T) {
 	}
 	require.Eventuallyf(t, func() bool {
 		return countClosedLogs() == 1
-	}, 3*time.Second, 50*time.Millisecond, "closed errors channel log never seen")
+	}, tests.WaitTimeout(t), 50*time.Millisecond, "closed errors channel log never seen")
 	// The log must not repeat: the closed channel is disabled after the first read.
 	time.Sleep(300 * time.Millisecond)
 	require.Equal(t, 1, countClosedLogs(), "closed errors channel was logged more than once")
@@ -1174,7 +1174,7 @@ func TestDestinationReaderUnhealthy_MessageScheduledNotDropped(t *testing.T) {
 		default:
 			return false
 		}
-	}, 3*time.Second, 50*time.Millisecond, "timed out waiting for HandleMessage")
+	}, tests.WaitTimeout(t), 50*time.Millisecond, "timed out waiting for HandleMessage")
 	require.True(t, found("destination reader unhealthy, scheduling message for retry"), "expected reader-unhealthy log")
 	require.False(t, found("invalid message, skipping"), "message must not be dropped as invalid")
 }
@@ -1280,7 +1280,7 @@ func TestDuplicateMessageIDFromStreamWhileWaitingInPoppedBatch_IsSkippedAndHandl
 	}
 	require.Eventuallyf(t, func() bool {
 		return countScheduledLogs() == 3
-	}, 3*time.Second, 20*time.Millisecond, "all 3 messages must be in the heap before advancing time")
+	}, tests.WaitTimeout(t), 20*time.Millisecond, "all 3 messages must be in the heap before advancing time")
 
 	// Advance time so PopAllReady pops all 3 messages in one batch.
 	// Worker 1 blocks on msg1; runProcessingLoop blocks sending msg2 to workerPoolTasks; msg3 waits at index 2.
@@ -1292,7 +1292,7 @@ func TestDuplicateMessageIDFromStreamWhileWaitingInPoppedBatch_IsSkippedAndHandl
 		default:
 			return false
 		}
-	}, 3*time.Second, 20*time.Millisecond, "timed out waiting for worker to block on first message")
+	}, tests.WaitTimeout(t), 20*time.Millisecond, "timed out waiting for worker to block on first message")
 
 	// Replay the third message while dispatch is still blocked on the second message.
 	results <- msg3
@@ -1303,7 +1303,7 @@ func TestDuplicateMessageIDFromStreamWhileWaitingInPoppedBatch_IsSkippedAndHandl
 			}
 		}
 		return false
-	}, 3*time.Second, 20*time.Millisecond, "replayed third message must be skipped as in-flight")
+	}, tests.WaitTimeout(t), 20*time.Millisecond, "replayed third message must be skipped as in-flight")
 
 	// Unblock the worker and verify each original message is handled exactly once.
 	close(unblockFirst)
@@ -1311,5 +1311,5 @@ func TestDuplicateMessageIDFromStreamWhileWaitingInPoppedBatch_IsSkippedAndHandl
 		handledMu.Lock()
 		defer handledMu.Unlock()
 		return handledCounts[1] == 1 && handledCounts[2] == 1 && handledCounts[3] == 1
-	}, 3*time.Second, 20*time.Millisecond, "expected all three messages to be handled once")
+	}, tests.WaitTimeout(t), 20*time.Millisecond, "expected all three messages to be handled once")
 }

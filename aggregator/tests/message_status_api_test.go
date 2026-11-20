@@ -17,6 +17,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/testutil"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 
 	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
 	msgdiscoverypb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/message-discovery/v1"
@@ -110,7 +111,7 @@ func requireMessageStatus(t *testing.T, client committeepb.CommitteeVerifierClie
 		require.Equal(collect, count, resp.GetVerificationCount(), "verification count")
 		require.Equal(collect, threshold, resp.GetThreshold(), "threshold")
 		require.Equal(collect, aggregated, resp.GetAggregated(), "aggregated")
-	}, 5*time.Second, 100*time.Millisecond)
+	}, tests.WaitTimeout(t), 100*time.Millisecond)
 }
 
 // createAnonymousStatusClient dials the status service without HMAC credentials.

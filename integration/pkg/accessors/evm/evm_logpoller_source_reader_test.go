@@ -20,6 +20,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
 	commontypes "github.com/smartcontractkit/chainlink-common/pkg/types"
+	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client/clienttest"
 	"github.com/smartcontractkit/chainlink-evm/pkg/heads"
 	"github.com/smartcontractkit/chainlink-evm/pkg/logpoller"
@@ -302,7 +303,7 @@ func TestLogPollerStartup(t *testing.T) {
 		lp.EXPECT().LatestBlock(mock.Anything).Return(logpoller.Block{BlockNumber: 400}, nil).Maybe()
 	}
 	waitReady := func(t *testing.T, r *LogPollerSourceReader) {
-		require.Eventually(t, r.ready.Load, 5*time.Second, 10*time.Millisecond)
+		require.Eventually(t, r.ready.Load, tests.WaitTimeout(t), 10*time.Millisecond)
 	}
 
 	t.Run("takes the lease and starts the log poller before registering", func(t *testing.T) {
@@ -332,7 +333,7 @@ func TestLogPollerStartup(t *testing.T) {
 			err := r.Loaded()
 			return errors.Is(err, ErrLogPollerNotReady) &&
 				strings.Contains(err.Error(), "lease held by another process")
-		}, 5*time.Second, 10*time.Millisecond)
+		}, tests.WaitTimeout(t), 10*time.Millisecond)
 		require.NoError(t, r.Close(), "Close ends the wait")
 	})
 
@@ -501,7 +502,7 @@ func TestLogPollerStartup(t *testing.T) {
 			r.LoadFrom(501)
 
 			var checkpointErr CheckpointAboveFinalizedError
-			require.Eventually(t, func() bool { return errors.As(r.Loaded(), &checkpointErr) }, 5*time.Second, 5*time.Millisecond)
+			require.Eventually(t, func() bool { return errors.As(r.Loaded(), &checkpointErr) }, tests.WaitTimeout(t), 5*time.Millisecond)
 			require.Equal(t, CheckpointAboveFinalizedError{Checkpoint: 500, Finalized: 400}, checkpointErr)
 			err := r.Loaded()
 			require.ErrorIs(t, err, chainaccess.ErrSourceNotReady)
@@ -590,7 +591,7 @@ func TestLogPollerStartup(t *testing.T) {
 			default:
 				return false
 			}
-		}, 5*time.Second, 10*time.Millisecond)
+		}, tests.WaitTimeout(t), 10*time.Millisecond)
 		// Only a reset-reader prepare clears the block, so the finished load left it set.
 		require.True(t, r.finalityBlocked.Load())
 	})
@@ -641,7 +642,7 @@ func TestLogPollerStartup(t *testing.T) {
 		r := start(t, lp)
 		r.LoadFrom(501)
 
-		require.Eventually(t, func() bool { return replays.Load() >= 3 }, 5*time.Second, 5*time.Millisecond)
+		require.Eventually(t, func() bool { return replays.Load() >= 3 }, tests.WaitTimeout(t), 5*time.Millisecond)
 		require.ErrorIs(t, r.Loaded(), chainaccess.ErrSourceNotReady)
 		require.False(t, r.ready.Load())
 	})

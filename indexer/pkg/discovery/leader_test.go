@@ -16,6 +16,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/indexer/testutil"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil/pg"
+	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 )
 
 // fakeLocker gives the lock when free is true, and fails acquire when failAcquire is true.
@@ -93,11 +94,11 @@ func TestLeaderElector_UnhealthyAfterRepeatedAcquireErrors(t *testing.T) {
 	e.Start(t.Context())
 	defer e.Close()
 
-	require.Eventually(t, func() bool { return e.Ready() != nil }, time.Second, 5*time.Millisecond)
+	require.Eventually(t, func() bool { return e.Ready() != nil }, tests.WaitTimeout(t), 5*time.Millisecond)
 	require.ErrorContains(t, e.Ready(), "database down")
 
 	locker.failAcquire.Store(false)
-	require.Eventually(t, func() bool { return e.Ready() == nil }, time.Second, 5*time.Millisecond, "one success makes it healthy again")
+	require.Eventually(t, func() bool { return e.Ready() == nil }, tests.WaitTimeout(t), 5*time.Millisecond, "one success makes it healthy again")
 }
 
 func TestLeaderElector_DemotedOnHeartbeatErrorThenElectedAgain(t *testing.T) {
@@ -113,18 +114,18 @@ func TestLeaderElector_DemotedOnHeartbeatErrorThenElectedAgain(t *testing.T) {
 	e.Start(t.Context())
 	defer e.Close()
 
-	require.Eventually(t, e.IsLeader, time.Second, 5*time.Millisecond)
+	require.Eventually(t, e.IsLeader, tests.WaitTimeout(t), 5*time.Millisecond)
 	leaderCtx, _, ok := e.LeaderContext()
 	require.True(t, ok)
 	firstCallbackCtx := <-callbackCtxs
 
 	locker.failHeartbeat.Store(true)
-	require.Eventually(t, func() bool { return leaderCtx.Err() != nil }, time.Second, 5*time.Millisecond, "leader context must be cancelled on heartbeat failure")
+	require.Eventually(t, func() bool { return leaderCtx.Err() != nil }, tests.WaitTimeout(t), 5*time.Millisecond, "leader context must be cancelled on heartbeat failure")
 	require.Error(t, firstCallbackCtx.Err(), "callback context must be cancelled on demotion")
-	require.Eventually(t, func() bool { return locker.releases.Load() >= 1 }, time.Second, 5*time.Millisecond)
+	require.Eventually(t, func() bool { return locker.releases.Load() >= 1 }, tests.WaitTimeout(t), 5*time.Millisecond)
 
 	locker.failHeartbeat.Store(false)
-	require.Eventually(t, func() bool { return elections.Load() >= 2 && e.IsLeader() }, time.Second, 5*time.Millisecond)
+	require.Eventually(t, func() bool { return elections.Load() >= 2 && e.IsLeader() }, tests.WaitTimeout(t), 5*time.Millisecond)
 }
 
 func TestLeaderElector_CloseReleasesLock(t *testing.T) {
@@ -132,7 +133,7 @@ func TestLeaderElector_CloseReleasesLock(t *testing.T) {
 	locker.free.Store(true)
 	e := newTestElector(t, locker, time.Second, 20*time.Millisecond, 20*time.Millisecond)
 	e.Start(t.Context())
-	require.Eventually(t, e.IsLeader, time.Second, 5*time.Millisecond)
+	require.Eventually(t, e.IsLeader, tests.WaitTimeout(t), 5*time.Millisecond)
 
 	e.Close()
 	require.False(t, e.IsLeader())
@@ -155,7 +156,7 @@ func TestLeaderElector_TwoReplicasOnOneDatabase(t *testing.T) {
 	t.Cleanup(a.Close)
 	t.Cleanup(b.Close)
 
-	require.Eventually(t, func() bool { return a.IsLeader() || b.IsLeader() }, 3*time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool { return a.IsLeader() || b.IsLeader() }, tests.WaitTimeout(t), 10*time.Millisecond)
 	for range 10 {
 		require.False(t, a.IsLeader() && b.IsLeader(), "only one replica may be leader")
 		time.Sleep(50 * time.Millisecond)
@@ -166,5 +167,5 @@ func TestLeaderElector_TwoReplicasOnOneDatabase(t *testing.T) {
 		leader, follower = b, a
 	}
 	leader.Close()
-	require.Eventually(t, follower.IsLeader, 3*time.Second, 10*time.Millisecond, "follower must take over after the leader stops")
+	require.Eventually(t, follower.IsLeader, tests.WaitTimeout(t), 10*time.Millisecond, "follower must take over after the leader stops")
 }

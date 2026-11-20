@@ -18,6 +18,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	verifiermonitoring "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
+	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 )
 
 // fakeHealthReporter is a source health signal the test flips while the service runs.
@@ -153,14 +154,25 @@ func TestChainHealth_FailedQueryDropsTheGaugeUntilTheNextSuccess(t *testing.T) {
 	isHealthy := func(want bool) func() bool {
 		return func() bool { got, ok := lastRecorded(health); return ok && got == want }
 	}
-	require.Eventually(t, isHealthy(true), 2*time.Second, 5*time.Millisecond)
+	require.Eventually(t, isHealthy(true), tests.WaitTimeout(t), 5*time.Millisecond)
 
 	failQueries.Store(true)
-	require.Eventually(t, isHealthy(false), 2*time.Second, 5*time.Millisecond)
+	require.Eventually(t, isHealthy(false), tests.WaitTimeout(t), 5*time.Millisecond)
 	require.NoError(t, srs.Ready(), "/health uses the staleness window, not a single failed query")
 
 	failQueries.Store(false)
-	require.Eventually(t, isHealthy(true), 2*time.Second, 5*time.Millisecond)
+	require.Eventually(t, isHealthy(true), tests.WaitTimeout(t), 5*time.Millisecond)
+}
+
+func TestStaleForUsesUnixNanoTimestamps(t *testing.T) {
+	now := time.Now()
+	since, stale := staleFor(now.Add(-100*time.Millisecond).UnixNano(), time.Second)
+	require.False(t, stale)
+	require.GreaterOrEqual(t, since, time.Duration(0))
+	require.Less(t, since, time.Second)
+
+	_, stale = staleFor(now.Add(-2*time.Second).UnixNano(), time.Second)
+	require.True(t, stale)
 }
 
 // A successful query never marks the gauge healthy while the source reports itself unhealthy.
@@ -170,7 +182,7 @@ func TestChainHealth_SuccessfulQueryDoesNotOverrideAnUnhealthySource(t *testing.
 	var failQueries atomic.Bool
 	_, health := newLoopHealthSRS(t, &failQueries, reporter)
 
-	require.Eventually(t, func() bool { return health.writes() > 5 }, 2*time.Second, 5*time.Millisecond,
+	require.Eventually(t, func() bool { return health.writes() > 5 }, tests.WaitTimeout(t), 5*time.Millisecond,
 		"the loop keeps querying and recording")
 	require.NotContains(t, health.recorded(), true)
 }

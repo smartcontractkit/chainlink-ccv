@@ -15,6 +15,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/testutil"
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 )
 
 // blockingStatsStore uses the real Postgres lock, but OrphanedKeyStats blocks until unblock
@@ -79,7 +80,7 @@ func TestOrphanRecoverer_Lock_ReleasedWhenScanTimeoutExpiresAndScanIsStuck(t *te
 		}
 		release()
 		return true
-	}, 2*time.Second, 50*time.Millisecond, "lock must be released when the scan timeout expires")
+	}, tests.WaitTimeout(t), 50*time.Millisecond, "lock must be released when the scan timeout expires")
 }
 
 func TestOrphanRecoverer_Lock_OnlyOneReplicaScansAtATime(t *testing.T) {

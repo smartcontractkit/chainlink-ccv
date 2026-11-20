@@ -148,6 +148,13 @@ func TestExecutorPoolInputFromState_ErrorsOnJobDrift(t *testing.T) {
 	assert.Contains(t, err.Error(), "diverges")
 }
 
+func TestExecutorConfigDrift_SourceExecutorAddresses(t *testing.T) {
+	a := executor.Configuration{SourceExecutorAddresses: map[string]string{"1": "0x1"}}
+	b := executor.Configuration{SourceExecutorAddresses: map[string]string{"1": "0x2"}}
+
+	assert.Contains(t, executorConfigDrift(a, b), "sourceExecutorAddresses")
+}
+
 func TestExecutorPoolInputFromState_BootstrapEmpty(t *testing.T) {
 	pool, extras, err := ExecutorPoolInputFromState(datastore.NewMemoryDataStore().Seal(), testExecutorQualifier)
 	require.NoError(t, err)

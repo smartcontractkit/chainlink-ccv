@@ -3,6 +3,7 @@ package changesets
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"strconv"
@@ -158,6 +159,8 @@ func executorConfigDrift(a, b executor.Configuration) string {
 		return fmt.Sprintf("pyroscopeURL %q != %q", a.PyroscopeURL, b.PyroscopeURL)
 	case strings.Join(a.IndexerAddress, ",") != strings.Join(b.IndexerAddress, ","):
 		return fmt.Sprintf("indexerAddress [%s] != [%s]", strings.Join(a.IndexerAddress, ","), strings.Join(b.IndexerAddress, ","))
+	case !maps.Equal(a.SourceExecutorAddresses, b.SourceExecutorAddresses):
+		return fmt.Sprintf("sourceExecutorAddresses %v != %v", a.SourceExecutorAddresses, b.SourceExecutorAddresses)
 	}
 	return chainConfigurationDrift(a.ChainConfiguration, b.ChainConfiguration)
 }
