@@ -2,6 +2,7 @@ package executor
 
 import (
 	"fmt"
+	"maps"
 	"net/url"
 	"time"
 
@@ -197,9 +198,7 @@ func (c *Configuration) ExecutorAddressesBySourceChain() map[string]string {
 	for chainSel, chainConfig := range c.ChainConfiguration {
 		addresses[chainSel] = chainConfig.DefaultExecutorAddress
 	}
-	for chainSel, address := range c.SourceExecutorAddresses {
-		addresses[chainSel] = address
-	}
+	maps.Copy(addresses, c.SourceExecutorAddresses)
 	return addresses
 }
 
