@@ -850,8 +850,15 @@ func TestStartBackground_ClaimsOnlyFreeWorkerSlots(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
 	a.StartBackground(ctx)
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-a.Done():
+		case <-time.After(tests.WaitTimeout(t)):
+			t.Error("aggregator did not shut down")
+		}
+	})
 
 	require.Eventually(t, func() bool { return started.Load() == workers }, tests.WaitTimeout(t), 10*time.Millisecond)
 	size, err := queue.Size(t.Context())

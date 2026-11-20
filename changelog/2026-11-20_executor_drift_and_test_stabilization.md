@@ -35,7 +35,7 @@ The Prometheus last-successful-poll timestamp remains expressed in Unix seconds.
 
 `just lint` now runs `lint-eventuallytimeout`, which checks `assert` and `require` calls to `Eventually`, `Eventuallyf`, `EventuallyWithT`, and `EventuallyWithTf`. Compile-time-constant timeouts below ten seconds are rejected; dynamic timeouts such as `tests.WaitTimeout(t)` remain supported.
 
-All existing waits of five seconds or less now use `tests.WaitTimeout(t)`. Two panic-recovery tests replace fixed sleeps with condition-based polling, and the mature-chain start-block test compares the actual second-precision EVM header time used by production code.
+All existing waits of five seconds or less now use `tests.WaitTimeout(t)`. Two panic-recovery tests replace fixed sleeps with condition-based polling, and the mature-chain start-block test compares the actual second-precision EVM header time used by production code. The worker-slot test drains its background aggregator during test cleanup, preventing shutdown logs from racing with `testing.T` teardown.
 
 ## Compatibility & Requirements
 
