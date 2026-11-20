@@ -93,6 +93,8 @@ type chainRuntime interface {
 	DAGasPriceOracle(ctx context.Context) (rollups.L1Oracle, error)
 	TransmitterAddresses(ctx context.Context, ks keystore.Keystore, keyName string) ([]common.Address, error)
 	SourceReaderHeaderFetchBatchSize() int
+	// SourceReaderMaxLogBlockRange is the chain's LogBackfillBatchSize: the widest eth_getLogs its RPCs take.
+	SourceReaderMaxLogBlockRange() uint64
 	NewContractTransmitter(
 		ctx context.Context,
 		chainSelector protocol.ChainSelector,
@@ -133,6 +135,7 @@ type standaloneChain struct {
 
 	sourceReaderHeaderFetchBatchSize int
 	inspection                       chainaccess.ChainInspection
+	sourceReaderMaxLogBlockRange     uint64
 
 	mu                  sync.Mutex
 	txm                 txmgr.TxManager
@@ -230,6 +233,7 @@ func newStandaloneChain(ctx context.Context, selector protocol.ChainSelector, in
 		txmBlockTime:                     txmBlockTime,
 		txmBlockTimeSource:               txmBlockTimeSource,
 		sourceReaderHeaderFetchBatchSize: sourceReaderHeaderFetchBatchSize(info.SourceReaderHeaderFetchBatchSize),
+		sourceReaderMaxLogBlockRange:     uint64(chainConfig.EVM().LogBackfillBatchSize()),
 		inspection:                       inspection,
 		newBalanceMonitor:                buildBalanceMonitor,
 		newLogPoller:                     buildLogPoller,
@@ -243,6 +247,11 @@ func newStandaloneChain(ctx context.Context, selector protocol.ChainSelector, in
 // batch size, defaulted to DefaultSourceReaderHeaderFetchBatchSize.
 func (c *standaloneChain) SourceReaderHeaderFetchBatchSize() int {
 	return c.sourceReaderHeaderFetchBatchSize
+}
+
+// SourceReaderMaxLogBlockRange implements chainRuntime.
+func (c *standaloneChain) SourceReaderMaxLogBlockRange() uint64 {
+	return c.sourceReaderMaxLogBlockRange
 }
 
 // sourceReaderHeaderFetchBatchSize returns batchSize or

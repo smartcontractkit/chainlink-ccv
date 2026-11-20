@@ -55,7 +55,7 @@ type SourceConfig struct {
 	StalenessThreshold     time.Duration           `json:"staleness_threshold"` // How long a chain may go without a successful query before the reader reports not-ready (default: 50 × poll_interval)
 	BatchSize              int                     `json:"batch_size"`          // Maximum number of verification tasks to batch before sending to verifier (default: 20)
 	BatchTimeout           time.Duration           `json:"batch_timeout"`       // Maximum duration to wait before flushing incomplete verifier batch (default: 100ms)
-	MaxBlockRange          uint64                  `json:"max_block_range"`     // Max blocks per RPC query (default: 5000)
+	MaxBlockRange          uint64                  `json:"max_block_range"`     // Max blocks per log query, both ends counted (default: 100)
 	DisableFinalityChecker bool                    `json:"disable_finality_checker"`
 }
 

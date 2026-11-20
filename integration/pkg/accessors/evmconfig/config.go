@@ -51,7 +51,7 @@ type ChainConfig struct {
 	TXMBlockTime time.Duration `toml:"txm_block_time,omitempty"`
 	// SourceReaderHeaderFetchBatchSize caps how many eth_getBlockByNumber requests
 	// are sent in a single JSON-RPC batch when the source reader fetches block
-	// headers. Zero uses [DefaultSourceReaderHeaderFetchBatchSize], which is 25.
+	// headers. Zero uses [DefaultSourceReaderHeaderFetchBatchSize], which is 20.
 	SourceReaderHeaderFetchBatchSize int `toml:"source_reader_header_fetch_batch_size,omitempty"`
 	// LogPollerSourceReaderEnabled makes the committee verifier read this source chain through a LogPoller
 	// instead of RPC. It requires [db] in the EVM secrets file. Defaults to false.
@@ -76,7 +76,7 @@ func (c Config) LogPollerSourceReaderChains() []string {
 
 // DefaultSourceReaderHeaderFetchBatchSize is the batch size used when the
 // operator config does not set SourceReaderHeaderFetchBatchSize.
-const DefaultSourceReaderHeaderFetchBatchSize = 25
+const DefaultSourceReaderHeaderFetchBatchSize = 20
 
 // NewConfigFromInfos builds operator config from the enumeration-oriented
 // Infos[Info] produced by devenv, dropping metadata derived from the selector.
