@@ -3,6 +3,7 @@ package ccv
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -158,6 +159,14 @@ func diffExecutorPool(topo, state ccvchangesets.ExecutorPoolInput) []string {
 		if _, ok := topo.ChainConfigs[sel]; !ok {
 			diffs = append(diffs, fmt.Sprintf("chain %d: present in job specs, absent in topology", sel))
 		}
+	}
+
+	topoSourceOnly := slices.Clone(topo.SourceOnlyChains)
+	stateSourceOnly := slices.Clone(state.SourceOnlyChains)
+	slices.Sort(topoSourceOnly)
+	slices.Sort(stateSourceOnly)
+	if !slices.Equal(topoSourceOnly, stateSourceOnly) {
+		diffs = append(diffs, fmt.Sprintf("sourceOnlyChains: topology=%v state=%v", topoSourceOnly, stateSourceOnly))
 	}
 
 	// Pool-wide tuning.

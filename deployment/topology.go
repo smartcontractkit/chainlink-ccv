@@ -150,7 +150,7 @@ type AggregatorConfig struct {
 // ExecutorPoolConfig defines executor pool membership and configuration.
 type ExecutorPoolConfig struct {
 	ChainConfigs      map[string]ChainExecutorPoolConfig `toml:"chain_configs"`
-	SourceOnlyChains  []uint64                           `toml:"source_only_chains"`
+	SourceOnlyChains  []string                           `toml:"source_only_chains"`
 	IndexerQueryLimit uint64                             `toml:"indexer_query_limit"`
 	BackoffDuration   time.Duration                      `toml:"backoff_duration"`
 	LookbackWindow    time.Duration                      `toml:"lookback_window"`
@@ -316,10 +316,13 @@ func (p *ExecutorPoolConfig) Validate(poolName string, topology *NOPTopology) er
 	if len(p.ChainConfigs) == 0 {
 		return fmt.Errorf("executor pool %q requires non-empty chain_configs", poolName)
 	}
+	destinationSelectors := make(map[uint64]struct{}, len(p.ChainConfigs))
 	for chainSelector, chainCfg := range p.ChainConfigs {
-		if _, err := strconv.ParseUint(chainSelector, 10, 64); err != nil {
+		selector, err := strconv.ParseUint(chainSelector, 10, 64)
+		if err != nil {
 			return fmt.Errorf("executor pool %q has invalid chain selector key %q: %w", poolName, chainSelector, err)
 		}
+		destinationSelectors[selector] = struct{}{}
 		if len(chainCfg.NOPAliases) == 0 {
 			return fmt.Errorf("executor pool %q chain %q requires at least one NOP", poolName, chainSelector)
 		}
@@ -328,6 +331,23 @@ func (p *ExecutorPoolConfig) Validate(poolName string, topology *NOPTopology) er
 				return fmt.Errorf("executor pool %q chain %q references unknown NOP alias %q", poolName, chainSelector, alias)
 			}
 		}
+	}
+	sourceOnlyChains := make(map[uint64]struct{}, len(p.SourceOnlyChains))
+	for _, chainSelector := range p.SourceOnlyChains {
+		selector, err := strconv.ParseUint(chainSelector, 10, 64)
+		if err != nil {
+			return fmt.Errorf("executor pool %q has invalid source_only_chains selector %q: %w", poolName, chainSelector, err)
+		}
+		if strconv.FormatUint(selector, 10) != chainSelector {
+			return fmt.Errorf("executor pool %q source_only_chains selector %q must use canonical decimal form", poolName, chainSelector)
+		}
+		if _, exists := sourceOnlyChains[selector]; exists {
+			return fmt.Errorf("executor pool %q has duplicate source-only chain %d", poolName, selector)
+		}
+		if _, exists := destinationSelectors[selector]; exists {
+			return fmt.Errorf("executor pool %q source-only chain %d also appears in chain_configs", poolName, selector)
+		}
+		sourceOnlyChains[selector] = struct{}{}
 	}
 	return nil
 }

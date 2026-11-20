@@ -59,10 +59,10 @@ Validation rejects non-numeric and non-canonical selectors, malformed or empty h
 
 ```toml
 [executor_pools.default]
-source_only_chains = [1234]
+source_only_chains = ["9268731218649498074"]
 ```
 
-`ApplyExecutorConfig` rejects duplicate selectors, selectors that also have a destination chain config, and selectors with no deployed executor config. `ExecutorPoolInputFromState` recovers the selector set from existing jobs, including a union across jobs during a targeted rollout.
+`ApplyExecutorConfig` rejects duplicate selectors, selectors that also have a destination chain config, and selectors with no deployed executor config. `ExecutorPoolInputFromState` recovers the selector set from source-address entries in persisted jobs.
 
 The implementation uses chain selectors and existing executor adapters only; it contains no chain-family-specific branches.
 
