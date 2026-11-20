@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"regexp"
 	"sort"
@@ -180,9 +181,7 @@ func generateRules(inventory inventoryFile, thresholds thresholdFile) (ruleFile,
 
 func cloneLabels(labels map[string]string) map[string]string {
 	cloned := make(map[string]string, len(labels)+3)
-	for key, value := range labels {
-		cloned[key] = value
-	}
+	maps.Copy(cloned, labels)
 	return cloned
 }
 
@@ -204,7 +203,7 @@ func run(inventoryPath, thresholdsPath, outputPath string) error {
 		return err
 	}
 	data = append(data, '\n')
-	if err := os.WriteFile(outputPath, data, 0o644); err != nil {
+	if err := os.WriteFile(outputPath, data, 0o600); err != nil {
 		return fmt.Errorf("write %s: %w", outputPath, err)
 	}
 	return nil
