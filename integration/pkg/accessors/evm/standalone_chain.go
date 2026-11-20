@@ -93,8 +93,9 @@ type chainRuntime interface {
 	DAGasPriceOracle(ctx context.Context) (rollups.L1Oracle, error)
 	TransmitterAddresses(ctx context.Context, ks keystore.Keystore, keyName string) ([]common.Address, error)
 	SourceReaderHeaderFetchBatchSize() int
-	// SourceReaderMaxLogBlockRange is the chain's LogBackfillBatchSize: the widest eth_getLogs its RPCs take.
+	// SourceReaderMaxLogBlockRange is the effective log span the reader reports to the verifier.
 	SourceReaderMaxLogBlockRange() uint64
+	SourceReaderLogBlockRangeExplicit() bool
 	NewContractTransmitter(
 		ctx context.Context,
 		chainSelector protocol.ChainSelector,
@@ -133,9 +134,10 @@ type standaloneChain struct {
 	txmBlockTime       time.Duration
 	txmBlockTimeSource evmconfig.TXMBlockTimeSource
 
-	sourceReaderHeaderFetchBatchSize int
-	inspection                       chainaccess.ChainInspection
-	sourceReaderMaxLogBlockRange     uint64
+	sourceReaderHeaderFetchBatchSize  int
+	inspection                        chainaccess.ChainInspection
+	sourceReaderMaxLogBlockRange      uint64
+	sourceReaderLogBlockRangeExplicit bool
 
 	mu                  sync.Mutex
 	txm                 txmgr.TxManager
@@ -221,23 +223,29 @@ func newStandaloneChain(ctx context.Context, selector protocol.ChainSelector, in
 		"nodeCount", len(chainConfig.Nodes()),
 	)
 	txmBlockTime, txmBlockTimeSource := evmconfig.ResolveTXMBlockTime(info)
+	maxLogBlockRange := uint64(chainConfig.EVM().LogBackfillBatchSize())
+	logBlockRangeExplicit := info.SourceReaderMaxLogBlockRange > 0
+	if logBlockRangeExplicit {
+		maxLogBlockRange = info.SourceReaderMaxLogBlockRange
+	}
 	chain := &standaloneChain{
-		lggr:                             lggr,
-		selector:                         selector,
-		chainClient:                      chainClient,
-		chainConfig:                      chainConfig,
-		headBroadcaster:                  headBroadcaster,
-		headTracker:                      headTracker,
-		mailMonitor:                      mailMonitor,
-		configEmitter:                    configEmitter,
-		txmBlockTime:                     txmBlockTime,
-		txmBlockTimeSource:               txmBlockTimeSource,
-		sourceReaderHeaderFetchBatchSize: standaloneHeaderFetchBatchSize(info.SourceReaderHeaderFetchBatchSize, chainConfig.EVM().RPCDefaultBatchSize()),
-		sourceReaderMaxLogBlockRange:     uint64(chainConfig.EVM().LogBackfillBatchSize()),
-		inspection:                       inspection,
-		newBalanceMonitor:                buildBalanceMonitor,
-		newLogPoller:                     buildLogPoller,
-		recoveryStop:                     make(services.StopChan),
+		lggr:                              lggr,
+		selector:                          selector,
+		chainClient:                       chainClient,
+		chainConfig:                       chainConfig,
+		headBroadcaster:                   headBroadcaster,
+		headTracker:                       headTracker,
+		mailMonitor:                       mailMonitor,
+		configEmitter:                     configEmitter,
+		txmBlockTime:                      txmBlockTime,
+		txmBlockTimeSource:                txmBlockTimeSource,
+		sourceReaderHeaderFetchBatchSize:  standaloneHeaderFetchBatchSize(info.SourceReaderHeaderFetchBatchSize, chainConfig.EVM().RPCDefaultBatchSize()),
+		sourceReaderMaxLogBlockRange:      maxLogBlockRange,
+		sourceReaderLogBlockRangeExplicit: logBlockRangeExplicit,
+		inspection:                        inspection,
+		newBalanceMonitor:                 buildBalanceMonitor,
+		newLogPoller:                      buildLogPoller,
+		recoveryStop:                      make(services.StopChan),
 	}
 	chain.daOracle = lazy.New(chain.buildDAGasPriceOracle)
 	return chain, nil
@@ -252,6 +260,11 @@ func (c *standaloneChain) SourceReaderHeaderFetchBatchSize() int {
 // SourceReaderMaxLogBlockRange implements chainRuntime.
 func (c *standaloneChain) SourceReaderMaxLogBlockRange() uint64 {
 	return c.sourceReaderMaxLogBlockRange
+}
+
+// SourceReaderLogBlockRangeExplicit implements chainRuntime.
+func (c *standaloneChain) SourceReaderLogBlockRangeExplicit() bool {
+	return c.sourceReaderLogBlockRangeExplicit
 }
 
 // sourceReaderHeaderFetchBatchSize returns batchSize or

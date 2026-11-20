@@ -17,8 +17,9 @@ func TestLoadConfig(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "evm.toml")
 	want := Config{Chains: map[string]ChainConfig{
 		"5009297550715157269": {
-			FinalityDepth: 42,
-			TXMBlockTime:  12 * time.Second,
+			FinalityDepth:                42,
+			TXMBlockTime:                 12 * time.Second,
+			SourceReaderMaxLogBlockRange: 5_000,
 			Nodes: []Node{{
 				Name:    "chainstack",
 				HTTPUrl: "http://evm-node:8545",
@@ -142,8 +143,9 @@ func TestConfigToInfosDerivesChainMetadataFromSelector(t *testing.T) {
 	// 5009297550715157269 is Ethereum mainnet (chain ID 1) in chain-selectors.
 	cfg := Config{Chains: map[string]ChainConfig{
 		"5009297550715157269": {
-			FinalityDepth: 20,
-			TXMBlockTime:  4 * time.Second,
+			FinalityDepth:                20,
+			TXMBlockTime:                 4 * time.Second,
+			SourceReaderMaxLogBlockRange: 5_000,
 			Nodes: []Node{{
 				Name:    "simplyvc",
 				HTTPUrl: "http://evm-node:8545",
@@ -160,6 +162,7 @@ func TestConfigToInfosDerivesChainMetadataFromSelector(t *testing.T) {
 	require.Empty(t, info.Type)
 	require.Equal(t, uint32(20), info.FinalityDepth)
 	require.Equal(t, 4*time.Second, info.TXMBlockTime)
+	require.Equal(t, uint64(5_000), info.SourceReaderMaxLogBlockRange)
 	require.Equal(t, "simplyvc", info.Nodes[0].Name)
 	require.Equal(t, "http://evm-node:8545", info.Nodes[0].HTTPUrl)
 }

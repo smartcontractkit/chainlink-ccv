@@ -130,6 +130,7 @@ func (c Config) ToInfos() (chainaccess.Infos[Info], error) {
 			FinalityDepth:                    chain.FinalityDepth,
 			TXMBlockTime:                     chain.TXMBlockTime,
 			SourceReaderHeaderFetchBatchSize: chain.SourceReaderHeaderFetchBatchSize,
+			SourceReaderMaxLogBlockRange:     chain.SourceReaderMaxLogBlockRange,
 			chainlinkEVM:                     chain.chainlinkEVM,
 		}
 	}

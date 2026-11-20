@@ -188,9 +188,9 @@ func NewService(
 	if maxBlockRange <= 0 {
 		maxBlockRange = DefaultMaxBlockRange
 	}
-	// A reader whose RPCs cap log queries (an EVM node's LogBackfillBatchSize) narrows every scan to fit.
+	// Provider limits narrow scans; an explicit operator range may also widen the default.
 	if limiter, ok := sourceReader.(chainaccess.LogBlockRangeLimiter); ok {
-		if limit := limiter.MaxLogBlockRange(); limit > 0 && limit < maxBlockRange {
+		if limit := limiter.MaxLogBlockRange(); limit > 0 && (limit < maxBlockRange || limiter.LogBlockRangeExplicit()) {
 			maxBlockRange = limit
 		}
 	}

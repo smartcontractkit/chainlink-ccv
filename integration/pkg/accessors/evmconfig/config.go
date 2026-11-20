@@ -53,6 +53,9 @@ type ChainConfig struct {
 	// are sent in a single JSON-RPC batch when the source reader fetches block
 	// headers. Zero uses [DefaultSourceReaderHeaderFetchBatchSize], which is 25.
 	SourceReaderHeaderFetchBatchSize int `toml:"source_reader_header_fetch_batch_size,omitempty"`
+	// SourceReaderMaxLogBlockRange explicitly sets the blocks one source-reader log query spans.
+	// Zero uses the service default, narrowed to any smaller converted LogBackfillBatchSize.
+	SourceReaderMaxLogBlockRange uint64 `toml:"source_reader_max_log_block_range,omitempty"`
 	// LogPollerSourceReaderEnabled makes the committee verifier read this source chain through a LogPoller
 	// instead of RPC. It requires [db] in the EVM secrets file. Defaults to false.
 	LogPollerSourceReaderEnabled bool `toml:"log_poller_source_reader_enabled,omitempty"`
@@ -88,6 +91,7 @@ func NewConfigFromInfos(infos chainaccess.Infos[Info]) Config {
 			FinalityDepth:                    info.FinalityDepth,
 			TXMBlockTime:                     info.TXMBlockTime,
 			SourceReaderHeaderFetchBatchSize: info.SourceReaderHeaderFetchBatchSize,
+			SourceReaderMaxLogBlockRange:     info.SourceReaderMaxLogBlockRange,
 			chainlinkEVM:                     info.chainlinkEVM,
 		}
 	}
@@ -133,6 +137,7 @@ type Info struct {
 	FinalityDepth                    uint32        `json:"finality_depth"                        toml:"finality_depth"`
 	TXMBlockTime                     time.Duration `json:"txm_block_time"                        toml:"txm_block_time"`
 	SourceReaderHeaderFetchBatchSize int           `json:"source_reader_header_fetch_batch_size" toml:"source_reader_header_fetch_batch_size"`
+	SourceReaderMaxLogBlockRange     uint64        `json:"source_reader_max_log_block_range"     toml:"source_reader_max_log_block_range"`
 
 	// chainlinkEVM is ChainConfig.chainlinkEVM, carried to BuildChainlinkEVMTOML.
 	chainlinkEVM *evmtoml.Chain
@@ -141,7 +146,7 @@ type Info struct {
 func (bi Info) Empty() bool {
 	return bi.ChainID == "" && bi.Type == "" && bi.Family == "" && bi.UniqueChainName == "" &&
 		len(bi.Nodes) == 0 && bi.FinalityDepth == 0 && bi.TXMBlockTime == 0 &&
-		bi.SourceReaderHeaderFetchBatchSize == 0
+		bi.SourceReaderHeaderFetchBatchSize == 0 && bi.SourceReaderMaxLogBlockRange == 0
 }
 
 func nodesWithDefaultNames(info Info) []Node {

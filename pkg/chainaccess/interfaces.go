@@ -79,6 +79,8 @@ type FinalityViolationReporter interface {
 type LogBlockRangeLimiter interface {
 	// MaxLogBlockRange is the most blocks one log query may span, counting both ends. Zero means no limit.
 	MaxLogBlockRange() uint64
+	// LogBlockRangeExplicit reports whether the operator selected the range and may widen the service default.
+	LogBlockRangeExplicit() bool
 }
 
 // SourceHealthReporter is an optional SourceReader capability for a chain's own health signal, such as the

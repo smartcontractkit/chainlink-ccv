@@ -310,23 +310,28 @@ func TestObservedSourceReader_Close(t *testing.T) {
 
 type logRangeLimitedReader struct {
 	*mocks.MockSourceReader
-	limit uint64
+	limit    uint64
+	explicit bool
 }
 
-func (r logRangeLimitedReader) MaxLogBlockRange() uint64 { return r.limit }
+func (r logRangeLimitedReader) MaxLogBlockRange() uint64    { return r.limit }
+func (r logRangeLimitedReader) LogBlockRangeExplicit() bool { return r.explicit }
 
-// The verifier reads the cap through this wrapper; hiding it would put back the oversized scans.
+// The verifier reads the cap and explicit marker through this wrapper.
 func TestObservedSourceReader_ForwardsLogBlockRangeCap(t *testing.T) {
 	monitor := monitoring.NewFakeVerifierMonitoring()
 
-	limited, err := NewObservedSourceReader(logRangeLimitedReader{MockSourceReader: mocks.NewMockSourceReader(t), limit: 99},
-		"v1", protocol.ChainSelector(1), monitor)
+	limited, err := NewObservedSourceReader(logRangeLimitedReader{
+		MockSourceReader: mocks.NewMockSourceReader(t), limit: 5_000, explicit: true,
+	}, "v1", protocol.ChainSelector(1), monitor)
 	require.NoError(t, err)
 	limiter, ok := limited.(chainaccess.LogBlockRangeLimiter)
 	require.True(t, ok)
-	require.Equal(t, uint64(99), limiter.MaxLogBlockRange())
+	require.Equal(t, uint64(5_000), limiter.MaxLogBlockRange())
+	require.True(t, limiter.LogBlockRangeExplicit())
 
 	plain, err := NewObservedSourceReader(mocks.NewMockSourceReader(t), "v1", protocol.ChainSelector(1), monitor)
 	require.NoError(t, err)
 	require.Zero(t, plain.(chainaccess.LogBlockRangeLimiter).MaxLogBlockRange(), "a delegate without a cap reports none")
+	require.False(t, plain.(chainaccess.LogBlockRangeLimiter).LogBlockRangeExplicit())
 }
