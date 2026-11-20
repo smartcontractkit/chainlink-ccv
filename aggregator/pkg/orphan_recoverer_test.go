@@ -15,6 +15,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 )
 
 var errScanFailed = errors.New("scan failed")
@@ -211,7 +212,7 @@ func TestOrphanRecoverer_HealthCheck_ReturnsErrorAfterConsecutiveScanFailures(t 
 	require.Eventually(t, func() bool {
 		err := recoverer.Ready()
 		return err != nil
-	}, 5*time.Second, 20*time.Millisecond, "Ready() should return error after 4 consecutive scan failures")
+	}, tests.WaitTimeout(t), 20*time.Millisecond, "Ready() should return error after 4 consecutive scan failures")
 
 	err := recoverer.Ready()
 	require.Error(t, err)
@@ -220,7 +221,7 @@ func TestOrphanRecoverer_HealthCheck_ReturnsErrorAfterConsecutiveScanFailures(t 
 
 	require.Eventually(t, func() bool {
 		return recoverer.Ready() == nil
-	}, 5*time.Second, 20*time.Millisecond, "Ready() should return nil again after a successful scan")
+	}, tests.WaitTimeout(t), 20*time.Millisecond, "Ready() should return nil again after a successful scan")
 
 	cancel()
 	select {
@@ -441,7 +442,7 @@ func TestOrphanRecoverer_SkippedScansKeepServiceHealthy(t *testing.T) {
 		close(done)
 	}()
 
-	require.Eventually(t, func() bool { return attempts.Load() >= 5 }, 2*time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool { return attempts.Load() >= 5 }, tests.WaitTimeout(t), 10*time.Millisecond)
 	require.NoError(t, recoverer.Ready())
 
 	cancel()
@@ -486,7 +487,7 @@ func TestOrphanRecoverer_LockErrorCountsAsScanFailure(t *testing.T) {
 	require.Eventually(t, func() bool {
 		err := recoverer.Ready()
 		return err != nil && errors.Is(err, lockErr)
-	}, 2*time.Second, 10*time.Millisecond)
+	}, tests.WaitTimeout(t), 10*time.Millisecond)
 
 	cancel()
 	<-done

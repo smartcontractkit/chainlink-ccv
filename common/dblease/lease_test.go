@@ -14,6 +14,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 
 	_ "github.com/lib/pq"
 
@@ -90,7 +91,7 @@ func TestLeaseWaitsWhileHeldThenTakesOver(t *testing.T) {
 		})
 	}()
 
-	require.Eventually(t, func() bool { return held.Load() == 1 }, 5*time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool { return held.Load() == 1 }, tests.WaitTimeout(t), 10*time.Millisecond)
 	require.Never(t, func() bool { return len(done) > 0 }, 1500*time.Millisecond, 20*time.Millisecond,
 		"the second lease must wait while the first renews past its 1s lease")
 

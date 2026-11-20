@@ -16,6 +16,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 )
 
 func TestCoordinator_dataNotReadyBackoff(t *testing.T) {
@@ -116,13 +117,13 @@ func TestCoordinator_InFlightEmptyAfterTerminalDispatch(t *testing.T) {
 	}
 	require.Eventuallyf(t, func() bool {
 		return found("message has expired")
-	}, 3*time.Second, 50*time.Millisecond, "timed out waiting for the message to expire")
+	}, tests.WaitTimeout(t), 50*time.Millisecond, "timed out waiting for the message to expire")
 
 	require.Eventuallyf(t, func() bool {
 		ec.inFlightMu.RLock()
 		defer ec.inFlightMu.RUnlock()
 		return len(ec.inFlight) == 0
-	}, 3*time.Second, 10*time.Millisecond, "in-flight map not empty after terminal dispatch")
+	}, tests.WaitTimeout(t), 10*time.Millisecond, "in-flight map not empty after terminal dispatch")
 }
 
 // When Close lands while the processing loop is mid-dispatch, the undispatched
@@ -196,7 +197,7 @@ func TestCoordinator_ShutdownMidDispatchRequeuesToHeap(t *testing.T) {
 		default:
 			return false
 		}
-	}, 5*time.Second, 50*time.Millisecond, "timed out waiting for mid-dispatch state")
+	}, tests.WaitTimeout(t), 50*time.Millisecond, "timed out waiting for mid-dispatch state")
 
 	require.NoError(t, ec.Close())
 

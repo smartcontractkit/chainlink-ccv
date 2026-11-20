@@ -14,6 +14,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 )
 
 func Test_MessageLatency(t *testing.T) {
@@ -155,7 +156,7 @@ func Test_UnderlyingCacheTTL(t *testing.T) {
 	require.Eventually(t, func() bool {
 		_, ok := tracker.messageTimestamps.Get(msgID)
 		return !ok
-	}, 1*time.Second, 10*time.Millisecond)
+	}, tests.WaitTimeout(t), 10*time.Millisecond)
 
 	tracker.TrackMessageLatencies(t.Context(), []protocol.VerifierNodeResult{
 		messageToCCVNodeData(message, msgID),

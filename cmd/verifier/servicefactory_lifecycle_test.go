@@ -9,6 +9,7 @@ import (
 	"go.uber.org/goleak"
 
 	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
+	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 )
 
 const twoChainSpec = `
@@ -49,7 +50,7 @@ func TestFactoryRestart_LeavesNothingBehind(t *testing.T) {
 	}
 
 	require.Eventually(t, func() bool { return serverConnections(t, dbURL) <= baseline },
-		5*time.Second, 50*time.Millisecond, "restarts must release every database connection")
+		tests.WaitTimeout(t), 50*time.Millisecond, "restarts must release every database connection")
 	// The message-latency cache stops its janitor goroutine from a finalizer, so collect while waiting.
 	require.Eventually(t, func() bool {
 		runtime.GC()

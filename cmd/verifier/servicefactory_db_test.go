@@ -18,6 +18,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-common/keystore"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
@@ -271,7 +272,7 @@ func TestFactoryDatabaseOwnership(t *testing.T) {
 	settled := func(t *testing.T, baseline int, msg string) {
 		t.Helper()
 		require.Eventually(t, func() bool { return serverConnections(t, dbURL) <= baseline },
-			5*time.Second, 50*time.Millisecond, msg)
+			tests.WaitTimeout(t), 50*time.Millisecond, msg)
 	}
 
 	t.Run("Stop closes the database", func(t *testing.T) {
@@ -280,7 +281,7 @@ func TestFactoryDatabaseOwnership(t *testing.T) {
 		f, reg, port := &factory{}, &idleRegistry{}, freePort(t)
 		require.NoError(t, f.Stop(t.Context()), "no database open is a no-op")
 		require.NoError(t, startServing(t, f, reg, port))
-		require.Eventually(t, func() bool { return serving(port) }, 5*time.Second, 20*time.Millisecond, "HTTP server must be listening")
+		require.Eventually(t, func() bool { return serving(port) }, tests.WaitTimeout(t), 20*time.Millisecond, "HTTP server must be listening")
 		require.Greater(t, serverConnections(t, dbURL), baseline)
 		f.dbMu.Lock()
 		db := f.db
@@ -304,7 +305,7 @@ func TestFactoryDatabaseOwnership(t *testing.T) {
 		f, reg, port := &factory{}, &idleRegistry{}, freePort(t)
 
 		require.ErrorContains(t, startServing(t, f, reg, port), "failed to start admin console")
-		require.Eventually(t, func() bool { return serving(port) }, 5*time.Second, 20*time.Millisecond, "services were running when Start failed")
+		require.Eventually(t, func() bool { return serving(port) }, tests.WaitTimeout(t), 20*time.Millisecond, "services were running when Start failed")
 
 		release(t, f, reg)
 		require.False(t, serving(port), "HTTP server must be stopped")
