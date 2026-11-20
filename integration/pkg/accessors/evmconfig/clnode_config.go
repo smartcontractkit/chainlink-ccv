@@ -291,11 +291,10 @@ func convertChainlinkNodeConfig(nodeTOML []byte) (Conversion, error) {
 		}
 
 		chain := ChainConfig{
-			Nodes:                        nodes,
-			FinalityDepth:                finalityDepth,
-			TXMBlockTime:                 txmBlockTimeOverride(cfg),
-			SourceReaderMaxLogBlockRange: explicitLogBackfillBatchSize(cfg, rawChain),
-			chainlinkEVM:                 carriedChainSettings(cfg),
+			Nodes:         nodes,
+			FinalityDepth: finalityDepth,
+			TXMBlockTime:  txmBlockTimeOverride(cfg),
+			chainlinkEVM:  carriedChainSettings(cfg),
 		}
 		carried, txmBlockTime, rejected, rejectErr := buildableChainSettings(Info{
 			ChainID:       chainID,
@@ -377,20 +376,6 @@ func mergeByChainID(configs evmtoml.EVMConfigs) ([]*evmtoml.EVMConfig, error) {
 		out = append(out, byID[id])
 	}
 	return out, nil
-}
-
-// explicitLogBackfillBatchSize distinguishes an operator's value from the inherited default.
-// Only an explicit value may widen the source reader's 100-block default.
-func explicitLogBackfillBatchSize(cfg *evmtoml.EVMConfig, rawChain *rawChainConfig) uint64 {
-	if cfg == nil || cfg.LogBackfillBatchSize == nil || rawChain == nil {
-		return 0
-	}
-	for _, block := range rawChain.blocks {
-		if _, written := block["LogBackfillBatchSize"]; written {
-			return uint64(*cfg.LogBackfillBatchSize)
-		}
-	}
-	return 0
 }
 
 // carriedChainSettings is the node's chain-level config for BuildChainlinkEVMTOML, minus KeySpecific:

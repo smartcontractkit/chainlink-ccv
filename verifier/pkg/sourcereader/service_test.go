@@ -2452,33 +2452,29 @@ func TestGetBlockRangesNearMaxHeight(t *testing.T) {
 // logRangeLimitedReader adds a log range cap to a mock reader, as the EVM RPC reader reports one.
 type logRangeLimitedReader struct {
 	*mocks.MockSourceReader
-	limit    uint64
-	explicit bool
+	limit uint64
 }
 
-func (r logRangeLimitedReader) MaxLogBlockRange() uint64    { return r.limit }
-func (r logRangeLimitedReader) LogBlockRangeExplicit() bool { return r.explicit }
+func (r logRangeLimitedReader) MaxLogBlockRange() uint64 { return r.limit }
 
-// Provider caps narrow scans; only an explicit operator range may widen the default.
-func TestNewServiceAppliesReaderLogRange(t *testing.T) {
+// A reader's log range cap only ever narrows the configured span; it never widens it.
+func TestNewServiceNarrowsScansToTheReadersLogRangeCap(t *testing.T) {
 	t.Parallel()
 
 	for _, tt := range []struct {
 		name       string
 		configured uint64
 		limit      uint64
-		explicit   bool
 		want       uint64
 	}{
 		{name: "a lower cap narrows the default", limit: 99, want: 99},
-		{name: "an inherited higher cap leaves the default", limit: 1_000, want: DefaultMaxBlockRange},
+		{name: "a higher cap leaves the default", limit: 1_000, want: DefaultMaxBlockRange},
 		{name: "no cap leaves the default", limit: 0, want: DefaultMaxBlockRange},
 		{name: "a lower cap narrows a configured span", configured: 500, limit: 250, want: 250},
-		{name: "an explicit Abstract range widens the default", limit: 5_000, explicit: true, want: 5_000},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			reader := logRangeLimitedReader{MockSourceReader: mocks.NewMockSourceReader(t), limit: tt.limit, explicit: tt.explicit}
+			reader := logRangeLimitedReader{MockSourceReader: mocks.NewMockSourceReader(t), limit: tt.limit}
 			srs, err := NewService("test-verifier", reader, 1337, mocks.NewMockChainStatusManager(t), logger.Test(t),
 				verifier.SourceConfig{PollInterval: time.Second, MaxBlockRange: tt.configured},
 				mocks.NewMockCurseCheckerService(t), &noopFilter{}, verifiermonitoring.NewFakeVerifierMonitoring(),

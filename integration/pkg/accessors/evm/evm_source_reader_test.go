@@ -276,8 +276,8 @@ func TestGetBlocksHeaders_BatchesAndChunks(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, headers, 250)
 
-	// Chunked into defaultMaxBatchSize (25) -> 25,25,25,25,25,25,25,25,25,25.
-	require.Equal(t, []int{25, 25, 25, 25, 25, 25, 25, 25, 25, 25}, c.batchSizes)
+	// The default batch is 20: twelve full batches and a 10-header tail.
+	require.Equal(t, []int{20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 10}, c.batchSizes)
 
 	// Every requested block number maps to a header with the right hash/fields.
 	for i := range 250 {
@@ -322,7 +322,7 @@ func TestGetBlocksHeaders_SkipsFailedBatchElements(t *testing.T) {
 	require.Len(t, headers, 109) // block 50 errored and should be absent
 	_, present := headers[50]
 	require.False(t, present)
-	require.Equal(t, []int{25, 25, 25, 25, 10}, c.batchSizes)
+	require.Equal(t, []int{20, 20, 20, 20, 20, 10}, c.batchSizes)
 }
 
 // TestNewEVMSourceReader_NoEagerRPCAtConstruction guards the regression where the constructor

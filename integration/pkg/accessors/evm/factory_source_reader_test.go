@@ -267,32 +267,15 @@ func TestRPCSourceReaderCarriesTheChainsLogBlockRange(t *testing.T) {
 	limiter, ok := reader.(chainaccess.LogBlockRangeLimiter)
 	require.True(t, ok, "the RPC reader must report its log range cap")
 	require.Equal(t, uint64(99), limiter.MaxLogBlockRange())
-	require.False(t, limiter.LogBlockRangeExplicit())
 	require.Equal(t, 20, reader.(*SourceReader).sourceReaderHeaderFetchBatchSize)
 
 	_, ok = any(&LogPollerSourceReader{}).(chainaccess.LogBlockRangeLimiter)
 	require.False(t, ok, "LogPoller reads come from its database and need no cap")
 }
 
-func TestRPCSourceReaderCarriesAnExplicitLargerLogBlockRange(t *testing.T) {
-	t.Parallel()
-
-	runtime := newStubRuntime(t)
-	runtime.sourceReaderMaxLogBlockRange = 5_000
-	runtime.sourceReaderLogBlockRangeExplicit = true
-	reader, err := newSourceAccessor(t, runtime).SourceReader()
-	require.NoError(t, err)
-
-	limiter := reader.(chainaccess.LogBlockRangeLimiter)
-	require.Equal(t, uint64(5_000), limiter.MaxLogBlockRange())
-	require.True(t, limiter.LogBlockRangeExplicit())
-}
-
 func TestStandaloneHeaderFetchBatchSize(t *testing.T) {
 	t.Parallel()
 
-	require.Equal(t, 25, standaloneHeaderFetchBatchSize(0, 250), "the default stands when the chain allows more")
-	require.Equal(t, 20, standaloneHeaderFetchBatchSize(0, 20), "a node's lower RPCDefaultBatchSize lowers the default")
-	require.Equal(t, 40, standaloneHeaderFetchBatchSize(40, 20), "an operator's explicit value is kept")
-	require.Equal(t, 25, standaloneHeaderFetchBatchSize(0, 0), "an unset chain batch size leaves the default")
+	require.Equal(t, 20, sourceReaderHeaderFetchBatchSize(0), "Hyperliquid's batch limit is the default")
+	require.Equal(t, 40, sourceReaderHeaderFetchBatchSize(40), "an operator's explicit value is kept")
 }

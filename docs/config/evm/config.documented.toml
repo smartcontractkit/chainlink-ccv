@@ -15,11 +15,8 @@
     txm_block_time = "2s"
     # source_reader_header_fetch_batch_size caps how many eth_getBlockByNumber requests
     # are sent in a single JSON-RPC batch when the source reader fetches block
-    # headers. Zero uses [DefaultSourceReaderHeaderFetchBatchSize], which is 25.
+    # headers. Zero uses [DefaultSourceReaderHeaderFetchBatchSize], which is 20.
     source_reader_header_fetch_batch_size = 0
-    # source_reader_max_log_block_range explicitly sets the blocks one source-reader log query spans.
-    # Zero uses the service default, narrowed to any smaller converted LogBackfillBatchSize.
-    source_reader_max_log_block_range = 0
     # log_poller_source_reader_enabled makes the committee verifier read this source chain through a LogPoller
     # instead of RPC. It requires [db] in the EVM secrets file. Defaults to false.
     log_poller_source_reader_enabled = true

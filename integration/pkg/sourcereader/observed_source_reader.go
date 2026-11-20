@@ -109,14 +109,6 @@ func (o observedSourceReader) MaxLogBlockRange() uint64 {
 	return 0
 }
 
-// LogBlockRangeExplicit forwards whether the delegate's range was operator-selected.
-func (o observedSourceReader) LogBlockRangeExplicit() bool {
-	if limiter, ok := o.SourceReader.(chainaccess.LogBlockRangeLimiter); ok {
-		return limiter.LogBlockRangeExplicit()
-	}
-	return false
-}
-
 // Close forwards to a loading delegate so the wrapper does not hide its cleanup; a no-op otherwise.
 func (o observedSourceReader) Close() error {
 	if loader, ok := o.SourceReader.(chainaccess.SourceLoader); ok {

@@ -197,7 +197,6 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 			Logger:                     chainLggr,
 			HeaderFetchBatchSize:       runtime.SourceReaderHeaderFetchBatchSize(),
 			MaxLogBlockRange:           runtime.SourceReaderMaxLogBlockRange(),
-			LogBlockRangeExplicit:      runtime.SourceReaderLogBlockRangeExplicit(),
 		}
 	}
 

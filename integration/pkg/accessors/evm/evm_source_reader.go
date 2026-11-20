@@ -50,9 +50,8 @@ type SourceReaderParams struct {
 	Logger                     logger.Logger
 	HeaderFetchBatchSize       int
 	// MaxLogBlockRange caps the blocks one eth_getLogs spans, counting both ends; zero means no cap.
-	MaxLogBlockRange      uint64
-	LogBlockRangeExplicit bool
-	OnCriticalInvariant   func(context.Context)
+	MaxLogBlockRange    uint64
+	OnCriticalInvariant func(context.Context)
 }
 
 // sourceReaderCore is what both source readers share: block headers, head tracker reads, RMN curse
@@ -80,8 +79,7 @@ type sourceReaderCore struct {
 // SourceReader reads CCIPMessageSent logs over RPC with eth_getLogs.
 type SourceReader struct {
 	sourceReaderCore
-	maxLogBlockRange      uint64
-	logBlockRangeExplicit bool
+	maxLogBlockRange uint64
 }
 
 func NewEVMSourceReader(ctx context.Context, p SourceReaderParams) (chainaccess.SourceReader, error) {
@@ -89,21 +87,12 @@ func NewEVMSourceReader(ctx context.Context, p SourceReaderParams) (chainaccess.
 	if err != nil {
 		return nil, err
 	}
-	return &SourceReader{
-		sourceReaderCore:      core,
-		maxLogBlockRange:      p.MaxLogBlockRange,
-		logBlockRangeExplicit: p.LogBlockRangeExplicit,
-	}, nil
+	return &SourceReader{sourceReaderCore: core, maxLogBlockRange: p.MaxLogBlockRange}, nil
 }
 
 // MaxLogBlockRange implements chainaccess.LogBlockRangeLimiter.
 func (r *SourceReader) MaxLogBlockRange() uint64 {
 	return r.maxLogBlockRange
-}
-
-// LogBlockRangeExplicit implements chainaccess.LogBlockRangeLimiter.
-func (r *SourceReader) LogBlockRangeExplicit() bool {
-	return r.logBlockRangeExplicit
 }
 
 func newSourceReaderCore(p SourceReaderParams) (sourceReaderCore, error) {

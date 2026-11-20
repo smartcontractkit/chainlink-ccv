@@ -116,44 +116,6 @@ HTTPURL = 'https://sepolia.example.com'
 		assert.Equal(t, sepoliaDefaultFinalityDepth(t), chain.FinalityDepth)
 	})
 
-	t.Run("carries an explicit Abstract log range without widening an inherited default", func(t *testing.T) {
-		t.Parallel()
-		convert := func(setting string) (Conversion, error) {
-			return convertChainlinkNodeConfig([]byte(`
-[[EVM]]
-ChainID = '2741'
-` + setting + `
-[[EVM.Nodes]]
-Name = 'abstract'
-HTTPURL = 'https://abstract.example.com'
-`))
-		}
-
-		explicit, err := convert("LogBackfillBatchSize = 5000\n")
-		require.NoError(t, err)
-		require.Equal(t, uint64(5_000), explicit.Config.Chains["3577778157919314504"].SourceReaderMaxLogBlockRange)
-
-		inherited, err := convert("")
-		require.NoError(t, err)
-		require.Zero(t, inherited.Config.Chains["3577778157919314504"].SourceReaderMaxLogBlockRange)
-	})
-
-	t.Run("carries Hyperliquid's legacy RPC batch limit", func(t *testing.T) {
-		t.Parallel()
-		got, err := convertChainlinkNodeConfig([]byte(`
-[[EVM]]
-ChainID = '999'
-RPCDefaultBatchSize = 20
-[[EVM.Nodes]]
-Name = 'hyperliquid'
-HTTPURL = 'https://hyperliquid.example.com'
-`))
-		require.NoError(t, err)
-		chain := got.Config.Chains["2442541497099098535"]
-		require.NotNil(t, chain.chainlinkEVM)
-		require.Equal(t, uint32(20), *chain.chainlinkEVM.RPCDefaultBatchSize)
-	})
-
 	t.Run("carries an explicit TXM block time and leaves an unset one to the standalone default", func(t *testing.T) {
 		t.Parallel()
 		withOverride, err := convertChainlinkNodeConfig([]byte(`
