@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.22.1](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.22.0...v0.22.1) (2026-11-20)
+
+
+### Bug Fixes
+
+* **executor:** decouple source addresses from destination config ([#1619](https://github.com/smartcontractkit/chainlink-ccv/issues/1619)) ([4c6d6b9](https://github.com/smartcontractkit/chainlink-ccv/commit/4c6d6b93b954fb1a1e35e01ca694212440ff9148))
+* **executor:** harden TXM v2 recovery and retries ([#1587](https://github.com/smartcontractkit/chainlink-ccv/issues/1587)) ([ca1fccb](https://github.com/smartcontractkit/chainlink-ccv/commit/ca1fccbf3067736d94f9c92bf28e84c57e6a8e76))
+* **verifier:** honor RPC limits and detect stalled reads ([#1586](https://github.com/smartcontractkit/chainlink-ccv/issues/1586)) ([b4e10dc](https://github.com/smartcontractkit/chainlink-ccv/commit/b4e10dc4e738db0de65dac1746232eb085cc2e04))
+
 ## [0.22.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.21.0...v0.22.0) (2026-11-19)
 
 
