@@ -79,9 +79,16 @@ func NewExecutorCoordinator(
 		}
 		execPool[sel] = chainConfig.ExecutorPool
 		execIntervals[sel] = chainConfig.ExecutionInterval
-		defaultExecutorAddresses[sel], err = protocol.NewUnknownAddressFromHex(chainConfig.DefaultExecutorAddress)
+	}
+
+	for selStr, address := range cfg.ExecutorAddressesBySourceChain() {
+		intSel, err := strconv.ParseUint(selStr, 10, 64)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse default executor address '%s': %w", chainConfig.DefaultExecutorAddress, err)
+			return nil, fmt.Errorf("failed to parse source selector '%s': %w", selStr, err)
+		}
+		defaultExecutorAddresses[protocol.ChainSelector(intSel)], err = protocol.NewUnknownAddressFromHex(address)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse source executor address '%s': %w", address, err)
 		}
 	}
 

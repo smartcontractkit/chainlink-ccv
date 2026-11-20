@@ -277,22 +277,32 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	defaultExecutorAddresses := make(map[protocol.ChainSelector]protocol.UnknownAddress)
 	balanceSelectors := make([]protocol.ChainSelector, 0, len(executorConfig.ChainConfiguration))
 
-	// Verifier results look up default executor addresses by source chain, so retain all pool entries.
 	for strSel, chainConfig := range executorConfig.ChainConfiguration {
 		selectorUint, err := strconv.ParseUint(strSel, 10, 64)
 		if err != nil {
 			f.lggr.Errorw("Invalid chain selector in configuration", "error", err, "chainSelector", strSel)
 			continue
 		}
-		sel := protocol.ChainSelector(selectorUint)
 		if _, ok := assignedChainConfigs[strSel]; ok {
+			sel := protocol.ChainSelector(selectorUint)
 			balanceSelectors = append(balanceSelectors, sel)
 			execPool[sel] = chainConfig.ExecutorPool
 			execIntervals[sel] = chainConfig.ExecutionInterval
 		}
-		defaultExecutorAddresses[sel], err = protocol.NewUnknownAddressFromHex(chainConfig.DefaultExecutorAddress)
+	}
+
+	// Verifier results use source executor addresses independently of destination assignments.
+	for strSel, address := range executorConfig.ExecutorAddressesBySourceChain() {
+		selectorUint, err := strconv.ParseUint(strSel, 10, 64)
 		if err != nil {
-			f.lggr.Errorw("Invalid default executor address in configuration", "error", err, "chainSelector", strSel)
+			f.lggr.Errorw("Invalid source chain selector in configuration", "error", err, "chainSelector", strSel)
+			startupSkips.SkipChain(strSel, err)
+			continue
+		}
+		sel := protocol.ChainSelector(selectorUint)
+		defaultExecutorAddresses[sel], err = protocol.NewUnknownAddressFromHex(address)
+		if err != nil {
+			f.lggr.Errorw("Invalid source executor address in configuration", "error", err, "chainSelector", strSel)
 			startupSkips.Skip(fmt.Sprintf("DefaultExecutorAddress[%s]", strSel), err)
 			executorMonitoring.RecordChainHealthy(ctx, sel, false)
 			continue

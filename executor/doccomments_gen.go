@@ -29,6 +29,7 @@ func (Configuration) DocComments() map[string]commentparsing.FieldDoc {
 		"PyroscopeURL":              {Comment: "PyroscopeURL is the URL of the Pyroscope server to send metrics to."},
 		"ReaderCacheExpiry":         {Comment: "ReaderCacheExpiry is the duration for the curse checker cache (RMN cursed state per chain).\nDefaults to 5 minutes."},
 		"ReaderStalenessThreshold":  {Comment: "ReaderStalenessThreshold is how long a destination chain's execution-attempt poller may go\nwithout a successful RPC poll before that chain's reader reports not-ready (one such chain\ndegrades /health; when no chain is usable the executor reports not_ready).\nDefaults to 50 poll intervals (250s at the 5s default poll interval)."},
+		"SourceExecutorAddresses":   {Comment: "SourceExecutorAddresses maps source chain selectors to on-chain default executor addresses.\nEntries override legacy ChainConfiguration defaults and do not assign destination chains."},
 		"WorkerCount":               {Comment: "WorkerCount is the number of concurrent workers processing messages.\nDefaults to 100."},
 	}
 }

@@ -196,6 +196,45 @@ func TestBuildExecutorJobSpecs_StandaloneUsesAppConfig(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestBuildExecutorJobSpecs_SourceAddressesDoNotRequireDestinationConfig(t *testing.T) {
+	destinationSelector := chainsel.TEST_90000001.Selector
+	sourceOnlySelector := chainsel.TEST_90000002.Selector
+	destinationSelectorStr := strconv.FormatUint(destinationSelector, 10)
+	sourceOnlySelectorStr := strconv.FormatUint(sourceOnlySelector, 10)
+	destinationAddress := "0x0000000000000000000000000000000000000001"
+	sourceOnlyAddress := "0x0000000000000000000000000000000000000000000000000000000000000002"
+	adapterCfgs := map[string]executor.ChainConfiguration{
+		destinationSelectorStr: {
+			DestinationChainConfig: chainaccess.DestinationChainConfig{OffRampAddress: "0xofframp"},
+			DefaultExecutorAddress: destinationAddress,
+		},
+		sourceOnlySelectorStr: {DefaultExecutorAddress: sourceOnlyAddress},
+	}
+
+	specs, _, err := buildExecutorJobSpecs(
+		adapterCfgs,
+		"default-executor",
+		[]shared.NOPAlias{"nop1"},
+		sampleExecutorPool(destinationSelector, "nop1"),
+		[]string{"http://indexer:1"},
+		"",
+		map[shared.NOPAlias]shared.NOPMode{"nop1": shared.NOPModeStandalone},
+	)
+	require.NoError(t, err)
+	require.Len(t, specs["nop1"], 1)
+	for _, jobSpec := range specs["nop1"] {
+		cfg, err := parseExecutorConfigFromSpec(jobSpec)
+		require.NoError(t, err)
+		require.NoError(t, cfg.Validate())
+		assert.Equal(t, map[string]string{
+			destinationSelectorStr: destinationAddress,
+			sourceOnlySelectorStr:  sourceOnlyAddress,
+		}, cfg.SourceExecutorAddresses)
+		assert.Contains(t, cfg.ChainConfiguration, destinationSelectorStr)
+		assert.NotContains(t, cfg.ChainConfiguration, sourceOnlySelectorStr)
+	}
+}
+
 func TestBuildExecutorJobSpecs_CLUsesExecutorConfig(t *testing.T) {
 	sel := chainsel.TEST_90000001.Selector
 	adapterCfgs := map[string]executor.ChainConfiguration{

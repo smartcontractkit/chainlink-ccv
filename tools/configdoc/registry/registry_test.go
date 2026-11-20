@@ -56,6 +56,7 @@ func TestExecutorDoc(t *testing.T) {
 	// values from the documented instance
 	require.Contains(t, out, `indexer_address = ["http://indexer-1:8080", "http://indexer-2:8080"]`)
 	require.Contains(t, out, `ntp_server = "time.google.com"`)
+	require.Contains(t, out, "[source_executor_addresses]")
 	require.Contains(t, out, "[chain_configuration.1]")
 
 	// monitoring is inlined, with its deprecation note and its own fields'

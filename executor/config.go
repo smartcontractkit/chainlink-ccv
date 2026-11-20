@@ -78,6 +78,9 @@ type Configuration struct {
 	// Defaults to time.google.com
 	// NTP retries are independent of source_backoff_duration.
 	NtpServer string `toml:"ntp_server"`
+	// SourceExecutorAddresses maps source chain selectors to on-chain default executor addresses.
+	// Entries override legacy ChainConfiguration defaults and do not assign destination chains.
+	SourceExecutorAddresses map[string]string `toml:"source_executor_addresses,omitempty"`
 	// ChainConfiguration is a map of chain selector to chain configuration.
 	// This is used to configure the chain-specific configuration for each chain such as addresses, executor pool, and execution interval.
 	ChainConfiguration map[string]ChainConfiguration `toml:"chain_configuration"`
@@ -178,8 +181,26 @@ func (c *Configuration) Validate() error {
 			return fmt.Errorf("executor_pool must be configured for chain %s", chainSel)
 		}
 	}
+	for chainSel, address := range c.SourceExecutorAddresses {
+		if address == "" {
+			return fmt.Errorf("source executor address must be configured for source chain %s", chainSel)
+		}
+	}
 
 	return nil
+}
+
+// ExecutorAddressesBySourceChain combines legacy chain defaults with explicit source addresses.
+// Explicit source addresses take precedence.
+func (c *Configuration) ExecutorAddressesBySourceChain() map[string]string {
+	addresses := make(map[string]string, len(c.ChainConfiguration)+len(c.SourceExecutorAddresses))
+	for chainSel, chainConfig := range c.ChainConfiguration {
+		addresses[chainSel] = chainConfig.DefaultExecutorAddress
+	}
+	for chainSel, address := range c.SourceExecutorAddresses {
+		addresses[chainSel] = address
+	}
+	return addresses
 }
 
 // GetNormalizedConfig validates the configuration and applies defaults.

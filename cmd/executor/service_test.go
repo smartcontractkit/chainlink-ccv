@@ -255,8 +255,8 @@ executor_pool = ["other-executor"]
 }
 
 // TestFactory_Start_InvalidChainSelector puts a non-numeric key in
-// chain_configuration, which causes strconv.ParseUint to fail in both
-// chain-config loops. The chain is skipped, validation fails.
+// chain_configuration, which causes strconv.ParseUint to fail in the
+// destination and source-address loops. The chain is skipped, validation fails.
 func TestFactory_Start_InvalidChainSelector(t *testing.T) {
 	const appConfig = `
 executor_id = "test-executor"
@@ -280,8 +280,8 @@ executor_pool        = ["test-executor"]
 }
 
 // TestFactory_Start_InvalidExecutorAddress uses a valid chain selector but a
-// non-hex default_executor_address. The second chain-config loop logs an error
-// and skips the chain; validation still fails because contractTransmitters is
+// non-hex default_executor_address. The source-address loop logs an error and
+// skips the address; validation still fails because contractTransmitters is
 // empty (the accessor lookup also fails in fail mode).
 func TestFactory_Start_InvalidExecutorAddress(t *testing.T) {
 	const appConfig = `
