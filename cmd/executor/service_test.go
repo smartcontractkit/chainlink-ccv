@@ -134,6 +134,26 @@ func TestFactory_Stop_WithCoordinator(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestParseSourceExecutorAddresses_SourceOnly(t *testing.T) {
+	const selector protocol.ChainSelector = 42
+	const rawAddress = "0x0000000000000000000000000000000000000000000000000000000000000002"
+	addresses, errs := parseSourceExecutorAddresses(&executorsvc.Configuration{
+		SourceExecutorAddresses: map[string]string{"42": rawAddress},
+	})
+	require.Empty(t, errs)
+	expected, err := protocol.NewUnknownAddressFromHex(rawAddress)
+	require.NoError(t, err)
+	require.True(t, expected.Equal(addresses[selector]))
+}
+
+func TestParseSourceExecutorAddresses_InvalidSourceOnlyAddress(t *testing.T) {
+	addresses, errs := parseSourceExecutorAddresses(&executorsvc.Configuration{
+		SourceExecutorAddresses: map[string]string{"42": "not-valid-hex"},
+	})
+	assert.Empty(t, addresses)
+	require.Error(t, errs["42"])
+}
+
 // TestFactory_Validate exercises the ServiceFactoryValidator implementation: the same
 // decode+normalize checks Start performs, but with no services constructed.
 func TestFactory_Validate(t *testing.T) {
@@ -255,8 +275,8 @@ executor_pool = ["other-executor"]
 }
 
 // TestFactory_Start_InvalidChainSelector puts a non-numeric key in
-// chain_configuration, which causes strconv.ParseUint to fail in both
-// chain-config loops. The chain is skipped, validation fails.
+// chain_configuration, which causes strconv.ParseUint to fail in the
+// destination and source-address loops. The chain is skipped, validation fails.
 func TestFactory_Start_InvalidChainSelector(t *testing.T) {
 	const appConfig = `
 executor_id = "test-executor"
@@ -280,8 +300,8 @@ executor_pool        = ["test-executor"]
 }
 
 // TestFactory_Start_InvalidExecutorAddress uses a valid chain selector but a
-// non-hex default_executor_address. The second chain-config loop logs an error
-// and skips the chain; validation still fails because contractTransmitters is
+// non-hex default_executor_address. The source-address loop logs an error and
+// skips the address; validation still fails because contractTransmitters is
 // empty (the accessor lookup also fails in fail mode).
 func TestFactory_Start_InvalidExecutorAddress(t *testing.T) {
 	const appConfig = `

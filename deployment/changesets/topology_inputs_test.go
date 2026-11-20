@@ -92,3 +92,92 @@ func TestCommitteeInputFromTopologyPerFamily_filtersChainConfigs(t *testing.T) {
 	_, ok = evm.ChainConfigs[chainsel.ETHEREUM_MAINNET.Selector]
 	require.True(t, ok)
 }
+
+func TestExecutorPoolInputFromTopology_SourceOnlyChains(t *testing.T) {
+	got := ExecutorPoolInputFromTopology(ccvdeployment.ExecutorPoolConfig{
+		SourceOnlyChains: []string{"9268731218649498074", strconv.FormatUint(chainsel.TEST_90000001.Selector, 10)},
+	})
+	require.Equal(t, []uint64{9268731218649498074, chainsel.TEST_90000001.Selector}, got.SourceOnlyChains)
+}
+
+func TestEnvironmentTopology_SourceOnlyChainAboveInt64RoundTrip(t *testing.T) {
+	const sourceOnlySelector = "9268731218649498074"
+	inputPath := filepath.Join(t.TempDir(), "topology.toml")
+	require.NoError(t, os.WriteFile(inputPath, []byte(`
+indexer_address = ["http://indexer:8100"]
+
+[[nop_topology.nops]]
+alias = "nop1"
+name = "nop1"
+
+[executor_pools.default]
+source_only_chains = ["9268731218649498074"]
+
+[executor_pools.default.chain_configs."1"]
+nop_aliases = ["nop1"]
+`), 0o600))
+
+	cfg, err := ccvdeployment.LoadEnvironmentTopology(inputPath)
+	require.NoError(t, err)
+	require.Equal(t, []string{sourceOnlySelector}, cfg.ExecutorPools["default"].SourceOnlyChains)
+	require.Equal(t, []uint64{9268731218649498074}, ExecutorPoolInputFromTopology(cfg.ExecutorPools["default"]).SourceOnlyChains)
+
+	outputPath := filepath.Join(t.TempDir(), "written-topology.toml")
+	require.NoError(t, ccvdeployment.WriteEnvironmentTopology(outputPath, *cfg))
+	reloaded, err := ccvdeployment.LoadEnvironmentTopology(outputPath)
+	require.NoError(t, err)
+	require.Equal(t, []string{sourceOnlySelector}, reloaded.ExecutorPools["default"].SourceOnlyChains)
+}
+
+func TestExecutorPoolConfig_ValidateSourceOnlyChains(t *testing.T) {
+	topology := &ccvdeployment.NOPTopology{NOPs: []ccvdeployment.NOPConfig{{Alias: "nop1", Name: "nop1"}}}
+	validPool := func() ccvdeployment.ExecutorPoolConfig {
+		return ccvdeployment.ExecutorPoolConfig{
+			ChainConfigs: map[string]ccvdeployment.ChainExecutorPoolConfig{
+				"1": {NOPAliases: []string{"nop1"}},
+			},
+			SourceOnlyChains: []string{"9268731218649498074"},
+		}
+	}
+	tests := []struct {
+		name            string
+		mutate          func(*ccvdeployment.ExecutorPoolConfig)
+		wantErrContains string
+	}{
+		{
+			name: "invalid selector",
+			mutate: func(pool *ccvdeployment.ExecutorPoolConfig) {
+				pool.SourceOnlyChains = []string{"not-a-selector"}
+			},
+			wantErrContains: "invalid source_only_chains selector",
+		},
+		{
+			name: "non-canonical selector",
+			mutate: func(pool *ccvdeployment.ExecutorPoolConfig) {
+				pool.SourceOnlyChains = []string{"01"}
+			},
+			wantErrContains: "canonical decimal form",
+		},
+		{
+			name: "duplicate selector",
+			mutate: func(pool *ccvdeployment.ExecutorPoolConfig) {
+				pool.SourceOnlyChains = []string{"2", "2"}
+			},
+			wantErrContains: "duplicate source-only chain 2",
+		},
+		{
+			name: "overlaps destination",
+			mutate: func(pool *ccvdeployment.ExecutorPoolConfig) {
+				pool.SourceOnlyChains = []string{"1"}
+			},
+			wantErrContains: "also appears in chain_configs",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pool := validPool()
+			tc.mutate(&pool)
+			require.ErrorContains(t, pool.Validate("default", topology), tc.wantErrContains)
+		})
+	}
+}

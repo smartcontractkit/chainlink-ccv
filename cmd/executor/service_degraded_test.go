@@ -94,10 +94,11 @@ execution_interval   = "1s"
 	assert.NotContains(t, skips.Error, health.ChainComponent(goodSelector))
 }
 
-func TestFactory_Start_IgnoresUnassignedPoolChains(t *testing.T) {
+func TestFactory_Start_IgnoresUnassignedPoolChainsAndSourceOnlyAddresses(t *testing.T) {
 	const (
 		assignedSelector   protocol.ChainSelector = 5009297550715157269
 		unassignedSelector protocol.ChainSelector = 3478487238524512106
+		sourceOnlySelector protocol.ChainSelector = 16423721717087811551
 	)
 
 	assigned := mocks.NewMockAccessor(t)
@@ -108,6 +109,7 @@ func TestFactory_Start_IgnoresUnassignedPoolChains(t *testing.T) {
 	fac := mocks.NewMockAccessorFactory(t)
 	fac.EXPECT().GetAccessor(mock.Anything, assignedSelector).Return(assigned, nil)
 	fac.EXPECT().GetAccessor(mock.Anything, unassignedSelector).Return(nil, errors.New("unassigned chain initialized")).Maybe()
+	fac.EXPECT().GetAccessor(mock.Anything, sourceOnlySelector).Return(nil, errors.New("source-only chain initialized")).Maybe()
 	evmFactory = fac
 	t.Cleanup(func() { evmFactory = nil })
 
@@ -116,6 +118,9 @@ func TestFactory_Start_IgnoresUnassignedPoolChains(t *testing.T) {
 executor_id = "test-executor"
 indexer_address = ["http://localhost:9090"]
 http_listen_port = %d
+
+[source_executor_addresses]
+"%d" = "0x0000000000000000000000000000000000000000000000000000000000000004"
 
 [chain_configuration."%d"]
 off_ramp_address = "0x0000000000000000000000000000000000000001"
@@ -130,7 +135,7 @@ rmn_address = "0x0000000000000000000000000000000000000002"
 default_executor_address = "0x0000000000000000000000000000000000000003"
 executor_pool = ["other-executor"]
 execution_interval = "1s"
-`, port, assignedSelector, unassignedSelector)
+`, port, sourceOnlySelector, assignedSelector, unassignedSelector)
 
 	lggr := logger.Nop()
 	reg, err := chainaccess.NewRegistry(lggr, "")

@@ -54,6 +54,9 @@ func executorDocInstance() any {
 	c := &executor.Configuration{
 		IndexerAddress: []string{"http://indexer-1:8080", "http://indexer-2:8080"},
 		ExecutorID:     "executor-1",
+		SourceExecutorAddresses: map[string]string{
+			"2": "0x0000000000000000000000000000000000000000000000000000000000000002",
+		},
 		ChainConfiguration: map[string]executor.ChainConfiguration{
 			"1": {
 				DestinationChainConfig: chainaccess.DestinationChainConfig{

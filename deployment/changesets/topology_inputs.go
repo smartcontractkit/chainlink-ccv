@@ -84,8 +84,18 @@ func ExecutorPoolInputFromTopology(pool ccvdeployment.ExecutorPoolConfig) Execut
 		}
 	}
 
+	sourceOnlyChains := make([]uint64, 0, len(pool.SourceOnlyChains))
+	for _, chainSelectorStr := range pool.SourceOnlyChains {
+		sel, err := strconv.ParseUint(chainSelectorStr, 10, 64)
+		if err != nil {
+			continue
+		}
+		sourceOnlyChains = append(sourceOnlyChains, sel)
+	}
+
 	return ExecutorPoolInput{
 		ChainConfigs:      chainConfigs,
+		SourceOnlyChains:  sourceOnlyChains,
 		IndexerQueryLimit: pool.IndexerQueryLimit,
 		BackoffDuration:   pool.BackoffDuration,
 		LookbackWindow:    pool.LookbackWindow,

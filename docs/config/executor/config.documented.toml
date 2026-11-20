@@ -99,6 +99,11 @@ http_listen_port = 8101
     # TraceBatchTimeout is the timeout for a batch of traces.
     TraceBatchTimeout = 0
 
+# source_executor_addresses maps source chain selectors to on-chain default executor addresses.
+# Entries do not assign destination chains; conflicting legacy defaults are rejected.
+[source_executor_addresses]
+  2 = "0x0000000000000000000000000000000000000000000000000000000000000002"
+
 # chain_configuration is a map of chain selector to chain configuration.
 # This is used to configure the chain-specific configuration for each chain such as addresses, executor pool, and execution interval.
 [chain_configuration]

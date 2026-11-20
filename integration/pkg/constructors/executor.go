@@ -34,6 +34,22 @@ var (
 	indexerGarbageCollectionInterval = 1 * time.Hour
 )
 
+func parseSourceExecutorAddresses(cfg executor.Configuration) (map[protocol.ChainSelector]protocol.UnknownAddress, error) {
+	addresses := make(map[protocol.ChainSelector]protocol.UnknownAddress)
+	for selStr, address := range cfg.ExecutorAddressesBySourceChain() {
+		selector, err := strconv.ParseUint(selStr, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse source selector '%s': %w", selStr, err)
+		}
+		parsed, err := protocol.NewUnknownAddressFromHex(address)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse source executor address '%s': %w", address, err)
+		}
+		addresses[protocol.ChainSelector(selector)] = parsed
+	}
+	return addresses, nil
+}
+
 // NewExecutorCoordinator initializes the executor coordinator object.
 func NewExecutorCoordinator(
 	lggr logger.Logger,
@@ -56,7 +72,6 @@ func NewExecutorCoordinator(
 	rmnAddresses := make(map[protocol.ChainSelector]protocol.UnknownAddress, len(cfg.ChainConfiguration))
 	execPool := make(map[protocol.ChainSelector][]string, len(cfg.ChainConfiguration))
 	execIntervals := make(map[protocol.ChainSelector]time.Duration, len(cfg.ChainConfiguration))
-	defaultExecutorAddresses := make(map[protocol.ChainSelector]protocol.UnknownAddress, len(cfg.ChainConfiguration))
 
 	for selStr, chainConfig := range cfg.ChainConfiguration {
 		intSel, err := strconv.ParseUint(selStr, 10, 64)
@@ -79,10 +94,11 @@ func NewExecutorCoordinator(
 		}
 		execPool[sel] = chainConfig.ExecutorPool
 		execIntervals[sel] = chainConfig.ExecutionInterval
-		defaultExecutorAddresses[sel], err = protocol.NewUnknownAddressFromHex(chainConfig.DefaultExecutorAddress)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse default executor address '%s': %w", chainConfig.DefaultExecutorAddress, err)
-		}
+	}
+
+	defaultExecutorAddresses, err := parseSourceExecutorAddresses(cfg)
+	if err != nil {
+		return nil, err
 	}
 
 	protocol.InitChainSelectorCache()

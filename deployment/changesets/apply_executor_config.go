@@ -89,6 +89,17 @@ func ApplyExecutorConfig() deployment.ChangeSetV2[ApplyExecutorConfigInput] {
 			}
 		}
 
+		sourceOnlyChains := make(map[uint64]struct{}, len(cfg.Pool.SourceOnlyChains))
+		for _, chainSelector := range cfg.Pool.SourceOnlyChains {
+			if _, exists := sourceOnlyChains[chainSelector]; exists {
+				return fmt.Errorf("duplicate source-only chain %d", chainSelector)
+			}
+			if _, exists := cfg.Pool.ChainConfigs[chainSelector]; exists {
+				return fmt.Errorf("source-only chain %d also has a destination chain config", chainSelector)
+			}
+			sourceOnlyChains[chainSelector] = struct{}{}
+		}
+
 		poolNOPs := executorPoolNOPAliases(cfg.Pool)
 		if len(poolNOPs) == 0 {
 			return fmt.Errorf("executor pool %q has no NOPs", cfg.ExecutorQualifier)
@@ -366,6 +377,33 @@ func buildExecutorJobSpecs(
 		nopAliases = poolNOPs
 	}
 
+	sourceExecutorAddresses := make(map[string]string)
+	missingSourceOnlyChains := make(map[uint64]struct{}, len(pool.SourceOnlyChains))
+	for _, chainSelector := range pool.SourceOnlyChains {
+		missingSourceOnlyChains[chainSelector] = struct{}{}
+	}
+	for chainSelectorStr, chainConfig := range adapterChainConfigs {
+		chainSelector, err := strconv.ParseUint(chainSelectorStr, 10, 64)
+		if err != nil {
+			return nil, scope, fmt.Errorf("internal: adapter chain key %q is not a valid chain selector: %w", chainSelectorStr, err)
+		}
+		if _, requested := missingSourceOnlyChains[chainSelector]; !requested {
+			continue
+		}
+		if _, inPool := pool.ChainConfigs[chainSelector]; !inPool {
+			sourceExecutorAddresses[chainSelectorStr] = chainConfig.DefaultExecutorAddress
+		}
+		delete(missingSourceOnlyChains, chainSelector)
+	}
+	if len(missingSourceOnlyChains) > 0 {
+		missing := make([]uint64, 0, len(missingSourceOnlyChains))
+		for chainSelector := range missingSourceOnlyChains {
+			missing = append(missing, chainSelector)
+		}
+		slices.Sort(missing)
+		return nil, scope, fmt.Errorf("source-only chains have no deployed executor config: %v", missing)
+	}
+
 	jobSpecs := make(shared.NOPJobSpecs)
 
 	for _, nopAlias := range nopAliases {
@@ -398,16 +436,17 @@ func buildExecutorJobSpecs(
 		jobSpecID := shared.NewExecutorJobID(nopAlias, scope)
 
 		executorCfg := executor.Configuration{
-			IndexerAddress:    indexerAddress,
-			ExecutorID:        jobSpecID.GetExecutorID(),
-			PyroscopeURL:      pyroscopeURL,
-			NtpServer:         pool.NtpServer,
-			IndexerQueryLimit: pool.IndexerQueryLimit,
-			BackoffDuration:   pool.BackoffDuration,
-			LookbackWindow:    pool.LookbackWindow,
-			ReaderCacheExpiry: pool.ReaderCacheExpiry,
-			MaxRetryDuration:  pool.MaxRetryDuration,
-			WorkerCount:       pool.WorkerCount,
+			IndexerAddress:          indexerAddress,
+			ExecutorID:              jobSpecID.GetExecutorID(),
+			PyroscopeURL:            pyroscopeURL,
+			NtpServer:               pool.NtpServer,
+			IndexerQueryLimit:       pool.IndexerQueryLimit,
+			BackoffDuration:         pool.BackoffDuration,
+			LookbackWindow:          pool.LookbackWindow,
+			ReaderCacheExpiry:       pool.ReaderCacheExpiry,
+			MaxRetryDuration:        pool.MaxRetryDuration,
+			WorkerCount:             pool.WorkerCount,
+			SourceExecutorAddresses: sourceExecutorAddresses,
 			// Monitoring is intentionally not set here: monitoring config is operator-provided via the
 			// bootstrap config, not the JD-shipped app config. See bootstrap.Config.Monitoring.
 			ChainConfiguration: chainCfgs,

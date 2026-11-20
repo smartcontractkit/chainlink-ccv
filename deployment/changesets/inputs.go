@@ -75,6 +75,7 @@ type CommitteeChainMembership struct {
 // through a single ExecutorPoolConfig struct.
 type ExecutorPoolInput struct {
 	ChainConfigs      map[uint64]ChainExecutorPoolMembership
+	SourceOnlyChains  []uint64
 	IndexerQueryLimit uint64
 	BackoffDuration   time.Duration
 	LookbackWindow    time.Duration

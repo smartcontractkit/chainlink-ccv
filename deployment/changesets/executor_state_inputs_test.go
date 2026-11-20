@@ -36,6 +36,11 @@ func seedExecutorJobs(t *testing.T, sel uint64, pool ExecutorPoolInput, indexer 
 			DefaultExecutorAddress: "0xexec",
 		},
 	}
+	for _, sourceOnlySelector := range pool.SourceOnlyChains {
+		adapterCfgs[strconv.FormatUint(sourceOnlySelector, 10)] = executor.ChainConfiguration{
+			DefaultExecutorAddress: "0x0000000000000000000000000000000000000002",
+		}
+	}
 
 	specs, _, err := buildExecutorJobSpecs(
 		adapterCfgs,
@@ -81,7 +86,9 @@ func samplePool(sel uint64) ExecutorPoolInput {
 
 func TestExecutorPoolInputFromState_RoundTrip(t *testing.T) {
 	sel := chainsel.TEST_90000001.Selector
+	sourceOnlySelector := chainsel.TEST_90000002.Selector
 	want := samplePool(sel)
+	want.SourceOnlyChains = []uint64{sourceOnlySelector}
 	ds := seedExecutorJobs(t, sel, want, []string{"http://indexer:1"})
 
 	got, extras, err := ExecutorPoolInputFromState(ds, testExecutorQualifier)
@@ -91,6 +98,7 @@ func TestExecutorPoolInputFromState_RoundTrip(t *testing.T) {
 	require.Contains(t, got.ChainConfigs, sel)
 	assert.Equal(t, []shared.NOPAlias{"nop1", "nop2"}, got.ChainConfigs[sel].NOPAliases)
 	assert.Equal(t, 30*time.Second, got.ChainConfigs[sel].ExecutionInterval)
+	assert.Equal(t, []uint64{sourceOnlySelector}, got.SourceOnlyChains)
 
 	// Pool-wide tuning recovered.
 	assert.Equal(t, uint64(100), got.IndexerQueryLimit)
