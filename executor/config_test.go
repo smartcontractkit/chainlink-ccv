@@ -153,6 +153,15 @@ func TestConfiguration_Validate(t *testing.T) {
 			wantErrContains: "invalid chain selector",
 		},
 		{
+			name: "non_canonical_source_executor_selector_fails",
+			config: func() Configuration {
+				c := validConfig()
+				c.SourceExecutorAddresses = map[string]string{"01": "0x0000000000000000000000000000000000000001"}
+				return c
+			}(),
+			wantErrContains: "canonical decimal form",
+		},
+		{
 			name: "invalid_source_executor_hex_fails",
 			config: func() Configuration {
 				c := validConfig()

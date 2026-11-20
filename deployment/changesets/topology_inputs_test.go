@@ -92,3 +92,9 @@ func TestCommitteeInputFromTopologyPerFamily_filtersChainConfigs(t *testing.T) {
 	_, ok = evm.ChainConfigs[chainsel.ETHEREUM_MAINNET.Selector]
 	require.True(t, ok)
 }
+
+func TestExecutorPoolInputFromTopology_SourceOnlyChains(t *testing.T) {
+	sourceOnlyChains := []uint64{chainsel.TEST_90000002.Selector, chainsel.TEST_90000001.Selector}
+	got := ExecutorPoolInputFromTopology(ccvdeployment.ExecutorPoolConfig{SourceOnlyChains: sourceOnlyChains})
+	require.Equal(t, sourceOnlyChains, got.SourceOnlyChains)
+}

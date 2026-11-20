@@ -3,6 +3,7 @@ package changesets
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -67,6 +68,7 @@ func ExecutorPoolInputFromState(ds datastore.DataStore, qualifier string) (Execu
 	// silently resolved to whichever job happened to be visited first.
 	var first *executor.Configuration
 	var firstJobID shared.JobID
+	sourceOnlyChains := make(map[uint64]struct{})
 
 	for _, byJobID := range allJobs {
 		for jobID, info := range byJobID {
@@ -76,6 +78,13 @@ func ExecutorPoolInputFromState(ds datastore.DataStore, qualifier string) (Execu
 			cfg, err := parseExecutorConfigFromSpec(info.Spec)
 			if err != nil {
 				return pool, extras, fmt.Errorf("executor pool %q: job %q: %w", qualifier, jobID, err)
+			}
+			for selStr := range cfg.SourceExecutorAddresses {
+				sel, parseErr := strconv.ParseUint(selStr, 10, 64)
+				if parseErr != nil {
+					return pool, extras, fmt.Errorf("executor pool %q: invalid source-only chain selector %q: %w", qualifier, selStr, parseErr)
+				}
+				sourceOnlyChains[sel] = struct{}{}
 			}
 			if first == nil {
 				c := cfg
@@ -113,6 +122,13 @@ func ExecutorPoolInputFromState(ds datastore.DataStore, qualifier string) (Execu
 			NOPAliases:        shared.ConvertStringToNopAliases(cc.ExecutorPool),
 			ExecutionInterval: cc.ExecutionInterval,
 		}
+	}
+	if len(sourceOnlyChains) > 0 {
+		pool.SourceOnlyChains = make([]uint64, 0, len(sourceOnlyChains))
+		for sel := range sourceOnlyChains {
+			pool.SourceOnlyChains = append(pool.SourceOnlyChains, sel)
+		}
+		slices.Sort(pool.SourceOnlyChains)
 	}
 
 	return pool, extras, nil

@@ -86,6 +86,7 @@ func ExecutorPoolInputFromTopology(pool ccvdeployment.ExecutorPoolConfig) Execut
 
 	return ExecutorPoolInput{
 		ChainConfigs:      chainConfigs,
+		SourceOnlyChains:  pool.SourceOnlyChains,
 		IndexerQueryLimit: pool.IndexerQueryLimit,
 		BackoffDuration:   pool.BackoffDuration,
 		LookbackWindow:    pool.LookbackWindow,

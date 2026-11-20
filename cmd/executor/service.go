@@ -293,7 +293,6 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 
 	execPool := make(map[protocol.ChainSelector][]string)
 	execIntervals := make(map[protocol.ChainSelector]time.Duration)
-	defaultExecutorAddresses := make(map[protocol.ChainSelector]protocol.UnknownAddress)
 	balanceSelectors := make([]protocol.ChainSelector, 0, len(executorConfig.ChainConfiguration))
 
 	for strSel, chainConfig := range executorConfig.ChainConfiguration {

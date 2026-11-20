@@ -150,6 +150,7 @@ type AggregatorConfig struct {
 // ExecutorPoolConfig defines executor pool membership and configuration.
 type ExecutorPoolConfig struct {
 	ChainConfigs      map[string]ChainExecutorPoolConfig `toml:"chain_configs"`
+	SourceOnlyChains  []uint64                           `toml:"source_only_chains"`
 	IndexerQueryLimit uint64                             `toml:"indexer_query_limit"`
 	BackoffDuration   time.Duration                      `toml:"backoff_duration"`
 	LookbackWindow    time.Duration                      `toml:"lookback_window"`

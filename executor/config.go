@@ -185,8 +185,12 @@ func (c *Configuration) Validate() error {
 		}
 	}
 	for chainSel, address := range c.SourceExecutorAddresses {
-		if _, err := strconv.ParseUint(chainSel, 10, 64); err != nil {
+		selector, err := strconv.ParseUint(chainSel, 10, 64)
+		if err != nil {
 			return fmt.Errorf("source_executor_addresses has invalid chain selector %q: %w", chainSel, err)
+		}
+		if strconv.FormatUint(selector, 10) != chainSel {
+			return fmt.Errorf("source_executor_addresses chain selector %q must use canonical decimal form", chainSel)
 		}
 		parsed, err := protocol.NewUnknownAddressFromHex(address)
 		if err != nil {

@@ -3,21 +3,23 @@
 ## Executive Summary
 
 - Executor job specs can carry default executor addresses by source chain independently of destination chain configuration.
-- `ApplyExecutorConfig` emits the new field only for deployed chains absent from the destination pool; other pools retain the prior spec format.
+- `ApplyExecutorConfig` emits the new field only for selectors explicitly listed in `source_only_chains`; the default empty list retains the prior spec format.
 - Standalone and CL-mode executors consume the optional `source_executor_addresses` map while retaining legacy chain-block fallback.
-- This allows unsupported destination assignments to be removed without dropping source-lane verifier-result filtering.
+- This allows selected unsupported destination assignments to be removed without dropping source-lane verifier-result filtering or forcing unrelated dormant chains into executor specs.
 
 ## AI Adapter Index
 
 | Symbol | Kind | Search | Location | Section |
 |---|---|---|---|---|
 | `executor.Configuration.SourceExecutorAddresses` | added | `SourceExecutorAddresses|source_executor_addresses` | `executor/config.go:86` | [#source-address-configuration](#source-address-configuration) |
-| `executor.Configuration.ExecutorAddressesBySourceChain` | added | `ExecutorAddressesBySourceChain\(` | `executor/config.go:211` | [#legacy-fallback-and-validation](#legacy-fallback-and-validation) |
-| `changesets.ApplyExecutorConfig` | behavior-changed | `ApplyExecutorConfig\(` | `deployment/changesets/apply_executor_config.go:50` | [#source-address-generation](#source-address-generation) |
+| `executor.Configuration.ExecutorAddressesBySourceChain` | added | `ExecutorAddressesBySourceChain\(` | `executor/config.go:215` | [#legacy-fallback-and-validation](#legacy-fallback-and-validation) |
+| `changesets.ExecutorPoolInput.SourceOnlyChains` | added | `SourceOnlyChains` | `deployment/changesets/inputs.go:78` | [#opt-in-source-address-generation](#opt-in-source-address-generation) |
+| `deployment.ExecutorPoolConfig.SourceOnlyChains` | added | `source_only_chains` | `deployment/topology.go:153` | [#opt-in-source-address-generation](#opt-in-source-address-generation) |
+| `changesets.ApplyExecutorConfig` | behavior-changed | `ApplyExecutorConfig\(` | `deployment/changesets/apply_executor_config.go:50` | [#opt-in-source-address-generation](#opt-in-source-address-generation) |
 
 ## Breaking Changes
 
-*No breaking changes for existing specs or regenerated pools without source-only chains.*
+*No breaking changes for existing specs or applies that leave `source_only_chains` empty.*
 
 A spec containing `source_executor_addresses` requires upgraded runtimes on every targeted NOP:
 
@@ -26,17 +28,18 @@ A spec containing `source_executor_addresses` requires upgraded runtimes on ever
 
 ## Migration Guide
 
-1. Before removing a destination from a pool, upgrade every targeted standalone NOP to an executor image containing `source_executor_addresses` support.
-2. Upgrade every targeted CL NOP to a Core release whose chainlink-ccv dependency contains the same support. An old CL job becoming active does not prove it supports the field.
-3. Upgrade the deployment module and apply the topology and executor-spec changes together with `ApplyExecutorConfig`.
+1. Leave `source_only_chains` empty for ordinary executor applies; no runtime upgrade is required and the new field is omitted.
+2. Before enabling a source-only selector, upgrade every targeted standalone NOP to an executor image containing `source_executor_addresses` support.
+3. Upgrade every targeted CL NOP to a Core release whose chainlink-ccv dependency contains the same support. An old CL job becoming active does not prove it supports the field.
+4. Set `source_only_chains` and remove the corresponding destination chain configuration in the same apply, after all targeted NOPs support the field.
 
-Pools without source-only chains omit the field and require no runtime upgrade. Existing jobs using only legacy chain blocks remain compatible with the new runtime.
+Only explicitly selected chains emit the field. Dormant deployed chains outside the destination pool do not trigger a spec-format change or runtime-upgrade requirement.
 
 ## New Features / Additions
 
 ### Source address configuration
 
-`source_executor_addresses` maps decimal source chain selectors to opaque, non-empty hex executor addresses. Entries do not create destination accessors, leader-election pools, balance readers, or chain inspectors.
+`source_executor_addresses` maps canonical decimal source chain selectors to opaque, non-empty hex executor addresses. Entries do not create destination accessors, leader-election pools, balance readers, or chain inspectors.
 
 ```toml
 [source_executor_addresses]
@@ -48,17 +51,25 @@ Pools without source-only chains omit the field and require no runtime upgrade. 
 
 `ExecutorAddressesBySourceChain` loads legacy defaults from every `chain_configuration` entry and overlays explicit `source_executor_addresses`. Existing specs need no immediate regeneration.
 
-Validation rejects non-numeric selectors, malformed or empty hex addresses, and conflicting values between the two forms. Matching duplicate values are accepted using decoded-address equality.
+Validation rejects non-numeric and non-canonical selectors, malformed or empty hex addresses, and conflicting values between the two forms. Matching duplicate values are accepted using decoded-address equality.
 
-### Source address generation
+### Opt-in source address generation
 
-`ApplyExecutorConfig` derives the map only from adapter-built executor chains absent from the destination pool. An empty map is omitted, so pools without source-only chains retain the previous spec representation and CL NOPs receive no cosmetic job change.
+`ExecutorPoolConfig.SourceOnlyChains` and `ExecutorPoolInput.SourceOnlyChains` select the deployed chains whose addresses are emitted without destination blocks:
+
+```toml
+[executor_pools.default]
+source_only_chains = [1234]
+```
+
+`ApplyExecutorConfig` rejects duplicate selectors, selectors that also have a destination chain config, and selectors with no deployed executor config. `ExecutorPoolInputFromState` recovers the selector set from existing jobs, including a union across jobs during a targeted rollout.
 
 The implementation uses chain selectors and existing executor adapters only; it contains no chain-family-specific branches.
 
 ## Compatibility & Requirements
 
-- **Rollout order:** all standalone and CL runtimes that will receive a source-only entry first; deployment changeset and regenerated JD specs second.
+- **Default behavior:** an empty source-only list produces the previous spec representation and no cosmetic CL job update.
+- **Rollout order:** all standalone and CL runtimes that will receive a source-only entry first; opt-in topology and regenerated JD specs second.
 - **Address representation:** values remain `protocol.UnknownAddress`; no EVM-length assumption is introduced.
 - **Deployment modes:** both standalone and CL-mode constructors use the combined source-address configuration.
 

@@ -114,6 +114,31 @@ func TestApplyExecutorConfig_Validation_TargetNOPMustBeInPool(t *testing.T) {
 	assert.Contains(t, err.Error(), `NOP alias "nop2" not found in executor pool`)
 }
 
+func TestApplyExecutorConfig_Validation_SourceOnlyChains(t *testing.T) {
+	sel := chainsel.TEST_90000001.Selector
+	tests := []struct {
+		name            string
+		sourceOnly      []uint64
+		wantErrContains string
+	}{
+		{name: "duplicate", sourceOnly: []uint64{2, 2}, wantErrContains: "duplicate source-only chain 2"},
+		{name: "overlaps destination", sourceOnly: []uint64{sel}, wantErrContains: "also has a destination chain config"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pool := sampleExecutorPool(sel, "nop1")
+			pool.SourceOnlyChains = tc.sourceOnly
+			err := ApplyExecutorConfig().VerifyPreconditions(deployment.Environment{}, ApplyExecutorConfigInput{
+				ExecutorQualifier: "default-executor",
+				NOPs:              []NOPInput{{Alias: "nop1", Mode: shared.NOPModeCL}},
+				IndexerAddress:    []string{"indexer:1234"},
+				Pool:              pool,
+			})
+			require.ErrorContains(t, err, tc.wantErrContains)
+		})
+	}
+}
+
 func TestApplyExecutorConfig_Validation_ProductionRejectsPyroscope(t *testing.T) {
 	cs := ApplyExecutorConfig()
 	err := cs.VerifyPreconditions(deployment.Environment{Name: "mainnet"}, ApplyExecutorConfigInput{
@@ -173,6 +198,9 @@ func TestBuildExecutorJobSpecs_StandaloneUsesAppConfig(t *testing.T) {
 			DefaultExecutorAddress: "0xexec",
 		},
 	}
+	adapterCfgs[strconv.FormatUint(chainsel.TEST_90000002.Selector, 10)] = executor.ChainConfiguration{
+		DefaultExecutorAddress: "0x0000000000000000000000000000000000000002",
+	}
 	specs, _, err := buildExecutorJobSpecs(
 		adapterCfgs,
 		"default-executor",
@@ -212,12 +240,17 @@ func TestBuildExecutorJobSpecs_SourceAddressesDoNotRequireDestinationConfig(t *t
 		},
 		sourceOnlySelectorStr: {DefaultExecutorAddress: sourceOnlyAddress},
 	}
+	adapterCfgs[strconv.FormatUint(sourceOnlySelector+1, 10)] = executor.ChainConfiguration{
+		DefaultExecutorAddress: "0x0000000000000000000000000000000000000003",
+	}
 
+	pool := sampleExecutorPool(destinationSelector, "nop1")
+	pool.SourceOnlyChains = []uint64{sourceOnlySelector}
 	specs, _, err := buildExecutorJobSpecs(
 		adapterCfgs,
 		"default-executor",
 		[]shared.NOPAlias{"nop1"},
-		sampleExecutorPool(destinationSelector, "nop1"),
+		pool,
 		[]string{"http://indexer:1"},
 		"",
 		map[shared.NOPAlias]shared.NOPMode{"nop1": shared.NOPModeStandalone},
@@ -240,6 +273,25 @@ func TestBuildExecutorJobSpecs_SourceAddressesDoNotRequireDestinationConfig(t *t
 	}
 }
 
+func TestBuildExecutorJobSpecs_SourceOnlyChainRequiresDeployedConfig(t *testing.T) {
+	sel := chainsel.TEST_90000001.Selector
+	adapterCfgs := map[string]executor.ChainConfiguration{
+		strconv.FormatUint(sel, 10): {DefaultExecutorAddress: "0xexec"},
+	}
+	pool := sampleExecutorPool(sel, "nop1")
+	pool.SourceOnlyChains = []uint64{2}
+	_, _, err := buildExecutorJobSpecs(
+		adapterCfgs,
+		"default-executor",
+		[]shared.NOPAlias{"nop1"},
+		pool,
+		[]string{"http://indexer:1"},
+		"",
+		nil,
+	)
+	require.ErrorContains(t, err, "source-only chains have no deployed executor config: [2]")
+}
+
 func TestBuildExecutorJobSpecs_CLUsesExecutorConfig(t *testing.T) {
 	sel := chainsel.TEST_90000001.Selector
 	adapterCfgs := map[string]executor.ChainConfiguration{
@@ -250,6 +302,9 @@ func TestBuildExecutorJobSpecs_CLUsesExecutorConfig(t *testing.T) {
 			},
 			DefaultExecutorAddress: "0xexec",
 		},
+	}
+	adapterCfgs[strconv.FormatUint(chainsel.TEST_90000002.Selector, 10)] = executor.ChainConfiguration{
+		DefaultExecutorAddress: "0x0000000000000000000000000000000000000002",
 	}
 	specs, _, err := buildExecutorJobSpecs(
 		adapterCfgs,

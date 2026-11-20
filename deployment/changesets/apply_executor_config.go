@@ -89,6 +89,17 @@ func ApplyExecutorConfig() deployment.ChangeSetV2[ApplyExecutorConfigInput] {
 			}
 		}
 
+		sourceOnlyChains := make(map[uint64]struct{}, len(cfg.Pool.SourceOnlyChains))
+		for _, chainSelector := range cfg.Pool.SourceOnlyChains {
+			if _, exists := sourceOnlyChains[chainSelector]; exists {
+				return fmt.Errorf("duplicate source-only chain %d", chainSelector)
+			}
+			if _, exists := cfg.Pool.ChainConfigs[chainSelector]; exists {
+				return fmt.Errorf("source-only chain %d also has a destination chain config", chainSelector)
+			}
+			sourceOnlyChains[chainSelector] = struct{}{}
+		}
+
 		poolNOPs := executorPoolNOPAliases(cfg.Pool)
 		if len(poolNOPs) == 0 {
 			return fmt.Errorf("executor pool %q has no NOPs", cfg.ExecutorQualifier)
@@ -367,14 +378,30 @@ func buildExecutorJobSpecs(
 	}
 
 	sourceExecutorAddresses := make(map[string]string)
+	missingSourceOnlyChains := make(map[uint64]struct{}, len(pool.SourceOnlyChains))
+	for _, chainSelector := range pool.SourceOnlyChains {
+		missingSourceOnlyChains[chainSelector] = struct{}{}
+	}
 	for chainSelectorStr, chainConfig := range adapterChainConfigs {
 		chainSelector, err := strconv.ParseUint(chainSelectorStr, 10, 64)
 		if err != nil {
 			return nil, scope, fmt.Errorf("internal: adapter chain key %q is not a valid chain selector: %w", chainSelectorStr, err)
 		}
+		if _, requested := missingSourceOnlyChains[chainSelector]; !requested {
+			continue
+		}
 		if _, inPool := pool.ChainConfigs[chainSelector]; !inPool {
 			sourceExecutorAddresses[chainSelectorStr] = chainConfig.DefaultExecutorAddress
 		}
+		delete(missingSourceOnlyChains, chainSelector)
+	}
+	if len(missingSourceOnlyChains) > 0 {
+		missing := make([]uint64, 0, len(missingSourceOnlyChains))
+		for chainSelector := range missingSourceOnlyChains {
+			missing = append(missing, chainSelector)
+		}
+		slices.Sort(missing)
+		return nil, scope, fmt.Errorf("source-only chains have no deployed executor config: %v", missing)
 	}
 
 	jobSpecs := make(shared.NOPJobSpecs)
