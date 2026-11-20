@@ -77,18 +77,35 @@ transmitter's configured native or ERC-20 balance at startup and on sampled new 
 notifications. With Beholder enabled, the monitor exports `node_balance` with `account`, `chainID`,
 and `chainFamily = "EVM"` attributes. `HeadTracker.SamplingInterval` caps head-driven reads at one
 per key per interval (5s in the CCIP fallback; 1s on a few chains). Continuous metric collection
-does not configure low-balance alerts; alert rules and ownership remain external and should also
-cover missing or stale series, since key and RPC read failures are logged in place.
+requires the CCV-owned dashboard, per-chain thresholds, and absent/stale alert package in
+[EVM executor balance monitoring](../runbooks/evm-executor-balance.md). Key and RPC read failures
+are logged, so low-value alerts alone are insufficient.
 
 A conflicting setting produces a startup warning. An unrecognized or undecodable setting, or one chainlink-evm rejects, is dropped by name and the chain starts with everything else. An `[[EVM]]` block whose `ChainID` does not decode is skipped while other chains still start.
 
 If the node config sets no TXM v2 block time, the value comes from a curated per-chain table when the chain's real block interval exceeds the two-second floor upstream validation enforces. Otherwise, the generic two-second fallback applies. The `ccv migrate inspect-config` report's `txm_block_time_source` reads `operator`, `curated_chain_default`, or `generic_fallback`. A process that writes to a chain logs the source when that chain's TXM starts. Review any `generic_fallback` on a slow chain and set an explicit value. The [TXM v2 assessment](../migration/txm-v2-assessment.md) explains the cadence and recovery tradeoffs.
 
-Send-only nodes and per-node `HTTPURLExtraWrite` and `IsLoadBalancedRPC` have no standalone equivalent and are dropped. Other per-node settings beyond endpoint URLs, name, and selection order are also dropped and named at startup. An operator relying on a send-only endpoint should add it as a full node.
+### Mantle explicit CCIP fee limits
+
+TXM v2's dependency applies `GasEstimator.LimitMultiplier` to explicit CCIP fee limits. Mantle mainnet and Sepolia therefore require an effective multiplier of `1`; for example, 694,835 gas at 23,000 becomes 15,981,205,000 and exceeds Mantle's block limit. CCV conversion emits `gas_estimator_limit_multiplier = 1` for Mantle, and the shared config builder rejects any other effective value before TXM construction. `inspect-config` prints the effective value and fails on an unsafe standalone entry. Non-Mantle multipliers are unchanged.
+
+This guard targets **v0.22.1 (unreleased)**; confirm the published release notes before treating that version as the minimum. v0.22.0 and earlier still require the manual Mantle `LimitMultiplier = 1` workaround. After every executor runs a published version containing this guard and `inspect-config` passes, the manual workaround may be retired because conversion and startup enforce the same safe value.
+
+Send-only nodes and per-node `HTTPURLExtraWrite` and `IsLoadBalancedRPC` have no standalone equivalent and are dropped. Other per-node settings beyond endpoint URLs, name, and selection order are also dropped and named at startup. The report's `broadcast_endpoints` compares legacy and standalone write-endpoint counts without printing URLs and marks lost redundancy for review. Add a former send-only or extra-write endpoint as a standard node only after confirming it is safe for reads and transaction broadcast; otherwise explicitly approve the reduced redundancy.
+
+`KeySpecific` targets legacy node keys and is never copied to the standalone transmitter. Do not copy legacy keys into standalone configuration. Review each affected setting and apply any still-required replacement at chain level for the generated transmitter.
 
 ## Declared chain coverage
 
-The bootstrap config's `[[chains]]` entries declare the chains the operator runs and registers the signing key in JD. Every EVM entry is checked against the mounted EVM config at boot without network calls.
+The bootstrap config's `[[chains]]` entries declare the chains the operator runs and registers the signing key in JD. Standalone EVM verifier and executor JD startup requires exactly one declaration for every active or explicitly disabled EVM config chain. Empty, missing, extra, duplicate, non-EVM, unknown, and unservable declarations fail before JD registration. Other bootstrap consumers and local mode retain the family coverage check without the exact-inventory requirement.
+
+Run the offline preflight before stopping the legacy node:
+
+```bash
+ccv migrate inspect-config --config /path/to/node-or-evm.toml --bootstrap-config /path/to/bootstrap.toml
+```
+
+The command reads no secrets and makes no network calls. It prints `chain_inventory` with the declared/configured chain IDs and every mismatch, then exits nonzero if the inventory is invalid.
 
 A declared chain stops startup with an error naming the chain, selector, and reason when:
 
@@ -96,7 +113,7 @@ A declared chain stops startup with an error naming the chain, selector, and rea
 - Its section fails to convert because it has no usable RPC endpoint or an unknown chain ID.
 - Its section cannot serve the chain because it has no RPC nodes or chainlink-evm rejects its settings.
 
-Inside conversion, an unservable chain is skipped and reported under `failed_chains` so an old unused `[[EVM]]` block does not take down every other chain. Declaring that chain in `[[chains]]` makes the same problem fatal. A chain present in EVM config but not declared sits unused unless a job spec references it.
+Inside conversion, an unservable chain is skipped and reported under `failed_chains` so an old unused `[[EVM]]` block does not take down every other chain. Declaring that chain in `[[chains]]` makes the same problem fatal. In local/non-exact mode, a chain present in EVM config but not declared sits unused unless a job spec references it; standalone JD preflight rejects that missing declaration.
 
 ## Finality checking
 
@@ -117,7 +134,24 @@ log_poller_source_reader_enabled = true
 
 It also needs an EVM secrets file (`EVM_SECRETS_PATH`, default `/etc/evm/secrets.toml`) whose `[db].url` names the database for the LogPoller's `evm` schema. This can be the verifier application database or a separate one; the schema and version table do not collide with the verifier's. The process refuses to start if a chain enables the reader and `[db]` is missing. With node TOML mounted, every chain reads over RPC even if the old node ran its LogPoller.
 
-LogPoller tables do not migrate. The standalone verifier starts without a checkpoint and its first scan begins 500 blocks behind the finalized head. Messages finalized after the old node stopped but before that block are not read by this verifier, whichever reader it runs. The lookback is well over an hour on a 12-second chain but only a few minutes on a sub-second chain. Schedule cutovers so the remaining committee stays safely above threshold, and keep overlapping verifier windows short.
+LogPoller tables do not migrate. For a new verifier ID with no chain-status row, the default first scan begins 500 blocks behind the finalized head. Messages finalized after the old node stopped but before that block are not read by this verifier, whichever reader it runs. The lookback is well over an hour on a 12-second chain but only a few minutes on a sub-second chain.
+
+For a migration that can exceed that window, set `initial_start_blocks` in the new standalone verifier job. Each value is the first block to scan, normally the legacy verifier's persisted finalized checkpoint plus one; never copy a legacy height of zero blindly.
+
+```toml
+[initial_start_blocks]
+"<chain-selector>" = <legacy-finalized-checkpoint-plus-one>
+```
+
+The override is used only when that chain has no row for the new verifier ID. Existing checkpoints resume at checkpoint plus one exactly as before, and existing `disabled` state is untouched. On first start the configured height must be at or below the chain's finalized head; a higher height is rejected. The reader keeps its normal finality and reorg handling and never substitutes `latest` or `safe`.
+
+Validate the rendered job while the verifier is stopped. Create a validation-only bootstrap file containing `app_config_mode = "local_app_config"` and a `local_app_config_path` pointing to the rendered job TOML, then run:
+
+```bash
+verifier validate-config --config /path/to/validation-bootstrap.toml
+```
+
+This performs no secret, database, JD, or network access; finalized-head validation occurs during source-reader initialization. Keep the coordinated handoff and confirm fresh signatures from this NOP. After checkpoints persist successfully, remove the migration override in a later job update so a future first start does not replay an unnecessarily old range.
 
 When the standalone LogPoller is enabled:
 
@@ -131,6 +165,8 @@ When the standalone LogPoller is enabled:
 ## Transaction safety during cutover
 
 The standalone executor reads each message's onchain execution state before executing, so anything the old node already landed is skipped. The gap is a transaction the node submitted that has not confirmed: the state read still says unexecuted, so standalone can submit its own attempt from its own account. One lands and the other reverts, which wastes a transaction but does not double-deliver the message. Draining the old node's queue before shutdown avoids that race.
+
+Funding exceptions and the reported legacy Mode/Henesys crashes are unsupported legacy-CLI paths, not reasons to edit TXM records. Follow [EVM migration funding and legacy crash containment](../runbooks/evm-migration-funding.md) for NOP-controlled external-wallet requirements and containment.
 
 ## Health and readiness endpoints
 

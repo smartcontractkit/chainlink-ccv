@@ -1,12 +1,14 @@
 package register
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 
+	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
 )
 
@@ -23,6 +25,42 @@ import (
 // The check loads the same file the accessor factory will load at job start. The double load is
 // deliberate: the file is small, the read is at boot, and reusing one load across the two would
 // couple the bootstrapper's config lifecycle to the registry's internals.
+// CheckDeclaredChainInventory enforces exact bootstrap/EVM reconciliation for standalone JD binaries.
+func CheckDeclaredChainInventory(registrations []bootstrap.ChainRegistration) error {
+	declarations := make([]evmconfig.ChainDeclaration, 0, len(registrations))
+	evmChains := 0
+	for _, registration := range registrations {
+		declarations = append(declarations, evmconfig.ChainDeclaration{Type: registration.Type, ID: registration.ID})
+		if strings.EqualFold(registration.Type, chainsel.FamilyEVM) {
+			evmChains++
+		}
+	}
+	if evmChains == 0 {
+		report, err := evmconfig.ReconcileChainInventory(&evmconfig.Config{}, nil, declarations)
+		if err != nil {
+			return err
+		}
+		return report.Err()
+	}
+
+	cfg, conversion, err := evmconfig.LoadConfigFile(evmconfig.ResolveConfigPath())
+	if err != nil {
+		return fmt.Errorf("standalone EVM chain inventory cannot load the EVM config: %w", err)
+	}
+	chainIDs := make([]string, 0, evmChains)
+	for _, declaration := range declarations {
+		if strings.EqualFold(declaration.Type, chainsel.FamilyEVM) {
+			chainIDs = append(chainIDs, declaration.ID)
+		}
+	}
+	coverageErr := checkDeclaredChainCoverageConfig(chainIDs, cfg, conversion)
+	report, err := evmconfig.ReconcileChainInventory(cfg, conversion, declarations)
+	if err != nil {
+		return errors.Join(coverageErr, err)
+	}
+	return errors.Join(coverageErr, report.Err())
+}
+
 func checkDeclaredChainCoverage(chainIDs []string) error {
 	if len(chainIDs) == 0 {
 		return nil
@@ -32,10 +70,10 @@ func checkDeclaredChainCoverage(chainIDs []string) error {
 		return fmt.Errorf("bootstrap config declares EVM chains (%s) but the EVM config cannot be loaded: %w",
 			strings.Join(chainIDs, ", "), err)
 	}
+	return checkDeclaredChainCoverageConfig(chainIDs, cfg, conversion)
+}
 
-	// ToInfos is what resolves the map keys into the selectors the accessor factory looks chains
-	// up by, and it rejects a selector written in a non-canonical form. Letting it report that is
-	// better than inventing a coverage gap for it, and it fails the boot either way.
+func checkDeclaredChainCoverageConfig(chainIDs []string, cfg *evmconfig.Config, conversion *evmconfig.Conversion) error {
 	infos, err := cfg.ToInfos()
 	if err != nil {
 		return fmt.Errorf("bootstrap config declares EVM chains (%s) but the EVM config is invalid: %w",

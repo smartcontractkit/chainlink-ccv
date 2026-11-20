@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/pelletier/go-toml/v2"
+	"github.com/shopspring/decimal"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	commonconfig "github.com/smartcontractkit/chainlink-common/pkg/config"
@@ -59,6 +60,8 @@ type Conversion struct {
 	// explicit disable is a choice, not a gap: it passes the declared-chain coverage check (the
 	// declaration still registers the key), while FailedChains entries do not.
 	DisabledChains []string
+	// BroadcastEndpoints exposes lost write redundancy without printing credential-bearing URLs.
+	BroadcastEndpoints []BroadcastEndpointSummary
 }
 
 // ChainFailure is one chain the conversion had to skip whole, with the reason in operator-facing
@@ -243,6 +246,7 @@ func convertChainlinkNodeConfig(nodeTOML []byte) (Conversion, error) {
 	warningsByChainID := make(map[string][]string, len(merged))
 	var failedChains []ChainFailure
 	var disabledChains []string
+	var broadcastEndpoints []BroadcastEndpointSummary
 	chains := make(map[string]ChainConfig, len(merged))
 	// Every warning is attributable to the chain being converted, so each iteration collects its own
 	// and the flat list is built from those. The two views cannot drift.
@@ -283,6 +287,8 @@ func convertChainlinkNodeConfig(nodeTOML []byte) (Conversion, error) {
 			fail(err.Error())
 			continue
 		}
+		broadcastSummary := summarizeBroadcastEndpoints(chainID, cfg.Nodes, nodes)
+		broadcastEndpoints = append(broadcastEndpoints, broadcastSummary)
 
 		finalityDepth, err := convertFinality(cfg)
 		if err != nil {
@@ -291,17 +297,19 @@ func convertChainlinkNodeConfig(nodeTOML []byte) (Conversion, error) {
 		}
 
 		chain := ChainConfig{
-			Nodes:         nodes,
-			FinalityDepth: finalityDepth,
-			TXMBlockTime:  txmBlockTimeOverride(cfg),
-			chainlinkEVM:  carriedChainSettings(cfg),
+			Nodes:                       nodes,
+			FinalityDepth:               finalityDepth,
+			TXMBlockTime:                txmBlockTimeOverride(cfg),
+			GasEstimatorLimitMultiplier: mantleStandaloneLimitMultiplier(chainID),
+			chainlinkEVM:                carriedChainSettings(cfg),
 		}
 		carried, txmBlockTime, rejected, rejectErr := buildableChainSettings(Info{
-			ChainID:       chainID,
-			Nodes:         chain.Nodes,
-			FinalityDepth: chain.FinalityDepth,
-			TXMBlockTime:  chain.TXMBlockTime,
-			chainlinkEVM:  chain.chainlinkEVM,
+			ChainID:                     chainID,
+			Nodes:                       chain.Nodes,
+			FinalityDepth:               chain.FinalityDepth,
+			TXMBlockTime:                chain.TXMBlockTime,
+			GasEstimatorLimitMultiplier: chain.GasEstimatorLimitMultiplier,
+			chainlinkEVM:                chain.chainlinkEVM,
 		})
 		chain.chainlinkEVM = carried
 		chain.TXMBlockTime = txmBlockTime
@@ -340,12 +348,13 @@ func convertChainlinkNodeConfig(nodeTOML []byte) (Conversion, error) {
 		return Conversion{}, fmt.Errorf("config declares no enabled EVM chains")
 	}
 	return Conversion{
-		Config:            Config{Chains: chains},
-		Warnings:          warnings,
-		WarningsByChainID: warningsByChainID,
-		IgnoredSections:   ignoredSections,
-		FailedChains:      failedChains,
-		DisabledChains:    disabledChains,
+		Config:             Config{Chains: chains},
+		Warnings:           warnings,
+		WarningsByChainID:  warningsByChainID,
+		IgnoredSections:    ignoredSections,
+		FailedChains:       failedChains,
+		DisabledChains:     disabledChains,
+		BroadcastEndpoints: broadcastEndpoints,
 	}, nil
 }
 
@@ -517,6 +526,13 @@ func chainSettingWarnings(chainID string, cfg *evmtoml.EVMConfig, rawChain *rawC
 				chainID, strings.Join(overridden, ", ")))
 		}
 	}
+	if isMantleChain(chainID) && cfg.GasEstimator.LimitMultiplier != nil &&
+		!cfg.GasEstimator.LimitMultiplier.Equal(decimal.NewFromInt(1)) {
+		warnings = append(warnings, fmt.Sprintf(
+			"chain %s: standalone overrides GasEstimator.LimitMultiplier = %s with gas_estimator_limit_multiplier = 1; "+
+				"TXM v2 otherwise multiplies explicit CCIP fee limits by the legacy value",
+			chainID, cfg.GasEstimator.LimitMultiplier.String()))
+	}
 	// Checked on the effective config: Scroll's chain defaults enable AutoPurge this way.
 	effective := chainDefaults(cfg.ChainID)
 	effective.SetFrom(&cfg.Chain)
@@ -527,8 +543,8 @@ func chainSettingWarnings(chainID string, cfg *evmtoml.EVMConfig, rawChain *rawC
 	}
 	if len(cfg.KeySpecific) > 0 {
 		warnings = append(warnings, fmt.Sprintf(
-			"chain %s: dropped KeySpecific: its entries name the node's own keys, and the standalone "+
-				"executor transmits from a new one", chainID))
+			"chain %s: dropped KeySpecific because it targets legacy node keys, not the standalone transmitter; "+
+				"do not copy legacy keys, and move any still-required setting to chain-level config after review", chainID))
 	}
 	return warnings
 }
@@ -782,7 +798,9 @@ func convertNodes(chainID string, nodes evmtoml.EVMNodes, rawNodes []map[string]
 				}
 			}
 			warnings = append(warnings, fmt.Sprintf(
-				"chain %s node %s: dropped, SendOnly nodes have no standalone equivalent%s", chainID, label, dropped))
+				"chain %s node %s: dropped SendOnly broadcast-only node%s; standalone has no send-only role. "+
+					"Add a standard node only if it is safe for reads and broadcast, or approve reduced redundancy",
+				chainID, label, dropped))
 			continue
 		}
 		if node.HTTPURL == nil {
@@ -793,6 +811,12 @@ func convertNodes(chainID string, nodes evmtoml.EVMNodes, rawNodes []map[string]
 
 		if i < len(rawNodes) {
 			for _, setting := range droppedNodeSettingPaths(rawNodes[i]) {
+				if strings.EqualFold(setting, "HTTPURLExtraWrite") {
+					warnings = append(warnings, fmt.Sprintf(
+						"chain %s node %s: dropped HTTPURLExtraWrite; standalone broadcasts through configured nodes' HTTPURL values. "+
+							"Add a standard node if this endpoint is required for broadcast redundancy", chainID, label))
+					continue
+				}
 				warnings = append(warnings, fmt.Sprintf(
 					"chain %s node %s: dropped %s, standalone CCV does not expose it", chainID, label, setting))
 			}

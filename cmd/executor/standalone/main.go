@@ -6,7 +6,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	cmdexecutor "github.com/smartcontractkit/chainlink-ccv/cmd/executor"
-	_ "github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm/register" // evm accessor driver
+	evmregister "github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm/register"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/contracttransmitter"
 	"github.com/smartcontractkit/chainlink-common/keystore"
 )
@@ -19,6 +19,7 @@ func main() {
 		"Executor",
 		cmdexecutor.NewFactory(),
 		bootstrap.WithKey(contracttransmitter.DefaultKeyName, "transmitting", keystore.ECDSA_S256), // EVM signing key for OffRamp transaction submission
+		bootstrap.WithDeclaredChainInventoryChecker(evmregister.CheckDeclaredChainInventory),
 	)
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "Failed to run executor: %v\n", err)

@@ -98,6 +98,11 @@ disable_finality_checkers = []
   # this aggregator. If 0 or not set, defaults to 4MB.
   max_recv_msg_size_bytes = 4194304
 
+# initial_start_blocks maps chain selectors to finalized heights for a new verifier ID's first scan.
+# Existing chain-status rows take precedence; standalone mode only, empty retains the 500-block fallback.
+[initial_start_blocks]
+  1 = 1000
+
 # committee_verifier_addresses is a map the addresses of the committee verifiers for each chain selector.
 [committee_verifier_addresses]
   1 = "0x00000000000000000000000000000000000000c1"

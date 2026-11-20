@@ -326,6 +326,7 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 			PollInterval:           verifier.SourceReaderPollInterval,
 			StalenessThreshold:     stalenessThreshold,
 			ChainSelector:          selector,
+			InitialStartBlock:      config.InitialStartBlock(selector),
 			DisableFinalityChecker: slices.Contains(config.DisableFinalityCheckers, strSelector),
 		}
 

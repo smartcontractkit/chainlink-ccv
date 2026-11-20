@@ -3,10 +3,12 @@ package commit
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/policy"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vsecrets"
@@ -197,6 +199,10 @@ type Config struct {
 	// 50 poll intervals. Stored as a string for the same reason as MessageDisablementRulesPollInterval.
 	SourceReaderStalenessThreshold string `toml:"source_reader_staleness_threshold"`
 
+	// InitialStartBlocks maps chain selectors to finalized heights for a new verifier ID's first scan.
+	// Existing chain-status rows take precedence; standalone mode only, empty retains the 500-block fallback.
+	InitialStartBlocks map[string]uint64 `toml:"initial_start_blocks,omitempty"`
+
 	// SignerAddress is the on-chain address of the verifier's result-signing key. When set to a hex
 	// address it is validated strictly on boot: the keystore's key must match, or the verifier fails
 	// loudly. Set it to the literal "auto" (the AutoSignerAddress constant) to explicitly opt out and
@@ -270,6 +276,15 @@ func (c *Config) MessageDisablementRulesClientTimeoutDuration() (time.Duration, 
 // SourceReaderStalenessThresholdDuration returns the configured staleness threshold, or zero to use the default of 50 poll intervals.
 func (c *Config) SourceReaderStalenessThresholdDuration() (time.Duration, error) {
 	return parseOptionalDurationString(c.SourceReaderStalenessThreshold, "source_reader_staleness_threshold")
+}
+
+// InitialStartBlock returns a copy of the configured first-scan height for selector, if present.
+func (c *Config) InitialStartBlock(selector protocol.ChainSelector) *uint64 {
+	height, ok := c.InitialStartBlocks[strconv.FormatUint(uint64(selector), 10)]
+	if !ok {
+		return nil
+	}
+	return &height
 }
 
 // ResolvedAggregators returns the effective list of aggregators for this config, applying
@@ -379,6 +394,18 @@ func (c *Config) Validate() error {
 	}
 	if _, err := c.SourceReaderStalenessThresholdDuration(); err != nil {
 		return err
+	}
+	for rawSelector := range c.InitialStartBlocks {
+		selector, err := strconv.ParseUint(rawSelector, 10, 64)
+		if err != nil {
+			return fmt.Errorf("invalid initial_start_blocks chain selector %q: %w", rawSelector, err)
+		}
+		if canonical := strconv.FormatUint(selector, 10); rawSelector != canonical {
+			return fmt.Errorf("initial_start_blocks chain selector %q must use canonical decimal form %q", rawSelector, canonical)
+		}
+		if _, ok := c.OnRampAddresses[rawSelector]; !ok {
+			return fmt.Errorf("initial_start_blocks chain selector %s is not present in onramp_addresses", rawSelector)
+		}
 	}
 
 	if c.HTTPListenPort < 0 {

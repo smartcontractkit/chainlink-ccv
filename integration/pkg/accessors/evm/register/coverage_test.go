@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
 )
 
@@ -146,5 +147,61 @@ HTTPURL = 'https://eth.example.com'
 	t.Run("no declared chains: nothing to check, the config need not exist", func(t *testing.T) {
 		t.Setenv(evmconfig.EVMConfigPathEnv, filepath.Join(t.TempDir(), "absent.toml"))
 		require.NoError(t, checkDeclaredChainCoverage(nil))
+	})
+}
+
+func TestCheckDeclaredChainInventory(t *testing.T) {
+	declarations := func(ids ...string) []bootstrap.ChainRegistration {
+		out := make([]bootstrap.ChainRegistration, 0, len(ids))
+		for _, id := range ids {
+			out = append(out, bootstrap.ChainRegistration{Type: "EVM", ID: id})
+		}
+		return out
+	}
+
+	t.Run("valid", func(t *testing.T) {
+		path := writeEVMConfigFile(t, standaloneChainTOML(ethMainnetSelector)+standaloneChainTOML(polygonSelector))
+		t.Setenv(evmconfig.EVMConfigPathEnv, path)
+		require.NoError(t, CheckDeclaredChainInventory(declarations("1", "137")))
+	})
+
+	t.Run("empty fails without loading EVM config", func(t *testing.T) {
+		t.Setenv(evmconfig.EVMConfigPathEnv, filepath.Join(t.TempDir(), "absent.toml"))
+		err := CheckDeclaredChainInventory(nil)
+		require.ErrorContains(t, err, "inventory is empty")
+		require.ErrorContains(t, err, "at least one EVM chain")
+	})
+
+	t.Run("missing declaration names the configured chain", func(t *testing.T) {
+		path := writeEVMConfigFile(t, standaloneChainTOML(ethMainnetSelector)+standaloneChainTOML(polygonSelector))
+		t.Setenv(evmconfig.EVMConfigPathEnv, path)
+		err := CheckDeclaredChainInventory(declarations("1"))
+		require.ErrorContains(t, err, "missing")
+		require.ErrorContains(t, err, "137")
+	})
+
+	t.Run("extra declaration names the extra chain", func(t *testing.T) {
+		path := writeEVMConfigFile(t, standaloneChainTOML(ethMainnetSelector))
+		t.Setenv(evmconfig.EVMConfigPathEnv, path)
+		err := CheckDeclaredChainInventory(declarations("1", "137"))
+		require.ErrorContains(t, err, "extra")
+		require.ErrorContains(t, err, "137")
+	})
+
+	t.Run("duplicate declaration", func(t *testing.T) {
+		path := writeEVMConfigFile(t, standaloneChainTOML(ethMainnetSelector))
+		t.Setenv(evmconfig.EVMConfigPathEnv, path)
+		err := CheckDeclaredChainInventory(declarations("1", "1"))
+		require.ErrorContains(t, err, "duplicate")
+		require.ErrorContains(t, err, "1")
+	})
+
+	t.Run("unsupported family and chain ID", func(t *testing.T) {
+		path := writeEVMConfigFile(t, standaloneChainTOML(ethMainnetSelector))
+		t.Setenv(evmconfig.EVMConfigPathEnv, path)
+		entries := append(declarations("1", "88888888888888"), bootstrap.ChainRegistration{Type: "SOLANA", ID: "1"})
+		err := CheckDeclaredChainInventory(entries)
+		require.ErrorContains(t, err, "SOLANA/1")
+		require.ErrorContains(t, err, "EVM/88888888888888")
 	})
 }

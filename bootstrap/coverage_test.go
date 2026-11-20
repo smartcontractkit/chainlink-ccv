@@ -78,3 +78,48 @@ func TestNewBootstrapperDeclaredChainCoverage(t *testing.T) {
 		assert.Nil(t, gotIDs)
 	})
 }
+
+func TestNewBootstrapperDeclaredChainInventoryChecker(t *testing.T) {
+	jdConfig := `
+[jd]
+server_wsrpc_url = "ws://localhost:8080/ws"
+server_csa_public_key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+[server]
+listen_port = 9988
+[keystore]
+password = "testpassword"
+[db]
+url = "postgres://localhost:5432/db"
+`
+	t.Run("JD mode runs the checker before start", func(t *testing.T) {
+		cfgPath, secretsPath := writeBootstrapConfigFiles(t, jdConfig)
+		called := false
+		_, err := NewBootstrapper("t", &mockServiceFactory{},
+			withBootstrapperConfigPath(cfgPath),
+			withBootstrapperSecretsPath(secretsPath),
+			WithDeclaredChainInventoryChecker(func(chains []ChainRegistration) error {
+				called = true
+				require.Empty(t, chains)
+				return errors.New("empty standalone inventory")
+			}),
+		)
+		require.ErrorContains(t, err, "empty standalone inventory")
+		require.True(t, called)
+	})
+
+	t.Run("local mode retains empty-chain behavior", func(t *testing.T) {
+		cfgPath, secretsPath := writeBootstrapConfigFiles(t,
+			"app_config_mode = \"local_app_config\"\nlocal_app_config_path = \"/etc/myapp/app.toml\"\n")
+		called := false
+		_, err := NewBootstrapper("t", &mockServiceFactory{},
+			withBootstrapperConfigPath(cfgPath),
+			withBootstrapperSecretsPath(secretsPath),
+			WithDeclaredChainInventoryChecker(func([]ChainRegistration) error {
+				called = true
+				return errors.New("must not run")
+			}),
+		)
+		require.NoError(t, err)
+		require.False(t, called)
+	})
+}

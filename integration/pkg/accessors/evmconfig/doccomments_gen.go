@@ -7,6 +7,7 @@ import "github.com/smartcontractkit/chainlink-common/x/config/commentparsing"
 func (ChainConfig) DocComments() map[string]commentparsing.FieldDoc {
 	return map[string]commentparsing.FieldDoc{
 		"FinalityDepth":                    {Comment: "FinalityDepth is the number of blocks required before a head is considered final.\nZero enables finality-tag mode; a positive value uses confirmation-depth mode."},
+		"GasEstimatorLimitMultiplier":      {Comment: "GasEstimatorLimitMultiplier is the CCV-owned standalone override for GasEstimator.LimitMultiplier.\nMantle conversion sets this to 1 and the runtime rejects any other effective Mantle value."},
 		"LogPollerSourceReaderEnabled":     {Comment: "LogPollerSourceReaderEnabled makes the committee verifier read this source chain through a LogPoller\ninstead of RPC. It requires [db] in the EVM secrets file. Defaults to false."},
 		"Nodes":                            {Comment: "Nodes are the RPC endpoints used to reach this chain."},
 		"SourceReaderHeaderFetchBatchSize": {Comment: "SourceReaderHeaderFetchBatchSize caps how many eth_getBlockByNumber requests\nare sent in a single JSON-RPC batch when the source reader fetches block\nheaders. Zero uses [DefaultSourceReaderHeaderFetchBatchSize], which is 25."},

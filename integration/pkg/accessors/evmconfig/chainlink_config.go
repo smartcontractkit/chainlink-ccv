@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shopspring/decimal"
+
 	commonconfig "github.com/smartcontractkit/chainlink-common/pkg/config"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 	evmtoml "github.com/smartcontractkit/chainlink-evm/pkg/config/toml"
@@ -103,6 +105,18 @@ var standaloneSettings = []standaloneSetting{
 	}},
 }
 
+func isMantleChain(chainID string) bool {
+	return chainID == "5000" || chainID == "5003"
+}
+
+func mantleStandaloneLimitMultiplier(chainID string) *decimal.Decimal {
+	if !isMantleChain(chainID) {
+		return nil
+	}
+	multiplier := decimal.NewFromInt(1)
+	return &multiplier
+}
+
 // autoPurgeWithoutThreshold reports a chain whose AutoPurge has no usable Threshold. TXM v2 detects
 // stuck transactions by a positive Threshold alone; zero would make pending transactions immediately eligible.
 func autoPurgeWithoutThreshold(chain *evmtoml.Chain) bool {
@@ -125,6 +139,22 @@ func BuildChainlinkEVMTOML(info Info) (*evmtoml.EVMConfig, error) {
 	chain := chainDefaults(sqlChainID)
 	if info.chainlinkEVM != nil {
 		chain.SetFrom(info.chainlinkEVM)
+	}
+	if info.GasEstimatorLimitMultiplier != nil {
+		multiplier := *info.GasEstimatorLimitMultiplier
+		chain.GasEstimator.LimitMultiplier = &multiplier
+	}
+	if isMantleChain(info.ChainID) {
+		multiplier := chain.GasEstimator.LimitMultiplier
+		if multiplier == nil || !multiplier.Equal(decimal.NewFromInt(1)) {
+			actual := "<nil>"
+			if multiplier != nil {
+				actual = multiplier.String()
+			}
+			return nil, fmt.Errorf("Mantle chain %s has unsafe GasEstimator.LimitMultiplier = %s: "+
+				"the dependency multiplies explicit CCIP fee limits by this value; set gas_estimator_limit_multiplier = 1",
+				info.ChainID, actual)
+		}
 	}
 
 	// Assign fresh pointers only: the defaults share pointers with chainlink-evm's and CCIP's.

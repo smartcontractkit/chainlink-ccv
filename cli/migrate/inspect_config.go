@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/BurntSushi/toml"
 	"github.com/urfave/cli"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 
+	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
 )
 
@@ -32,10 +34,11 @@ func inspectConfigCommand() cli.Command {
 			"RPC URLs are never printed — they can carry API keys. See docs/verifier/evm-standalone.md#evm-config-conversion.",
 		Flags: []cli.Flag{
 			cli.StringFlag{Name: "config", Usage: "path to the EVM config: the node's TOML or a standalone-format file", Required: true},
+			cli.StringFlag{Name: "bootstrap-config", Usage: "optional: reconcile this bootstrap file's [[chains]] with the EVM inventory and fail on any mismatch"},
 			cli.StringFlag{Name: "chain-selector", Usage: "optional: print only this chain"},
 		},
 		Action: func(c *cli.Context) error {
-			report, err := buildConfigReport(c.String("config"), c.String("chain-selector"))
+			report, err := buildConfigReportWithBootstrap(c.String("config"), c.String("chain-selector"), c.String("bootstrap-config"))
 			if err != nil {
 				return err
 			}
@@ -44,6 +47,9 @@ func inspectConfigCommand() cli.Command {
 				return fmt.Errorf("failed to render the config report: %w", err)
 			}
 			fmt.Println(string(data)) //nolint:forbidigo // CLI user output
+			if report.ChainInventory != nil {
+				return report.ChainInventory.Err()
+			}
 			return nil
 		},
 	}
@@ -62,11 +68,18 @@ type configReport struct {
 	IgnoredSections []string `json:"ignored_top_level_sections,omitempty"`
 	// FailedChains are the chains the conversion skipped whole, with reasons — the chains that
 	// will not be served at all. They narrow with --chain-selector like the warnings.
-	FailedChains []evmconfig.ChainFailure            `json:"failed_chains,omitempty"`
-	Chains       map[string]evmconfig.EffectiveChain `json:"chains"`
+	FailedChains             []evmconfig.ChainFailure             `json:"failed_chains,omitempty"`
+	Chains                   map[string]evmconfig.EffectiveChain  `json:"chains"`
+	ConversionReviewRequired bool                                 `json:"conversion_review_required"`
+	BroadcastEndpoints       []evmconfig.BroadcastEndpointSummary `json:"broadcast_endpoints,omitempty"`
+	ChainInventory           *evmconfig.ChainInventoryReport      `json:"chain_inventory,omitempty"`
 }
 
 func buildConfigReport(configPath, chainSelector string) (*configReport, error) {
+	return buildConfigReportWithBootstrap(configPath, chainSelector, "")
+}
+
+func buildConfigReportWithBootstrap(configPath, chainSelector, bootstrapPath string) (*configReport, error) {
 	cfg, conversion, err := evmconfig.LoadConfigFile(configPath)
 	if err != nil {
 		return nil, err
@@ -86,6 +99,23 @@ func buildConfigReport(configPath, chainSelector string) (*configReport, error) 
 		report.Warnings = conversion.Warnings
 		report.IgnoredSections = conversion.IgnoredSections
 		report.FailedChains = conversion.FailedChains
+		report.BroadcastEndpoints = conversion.BroadcastEndpoints
+		report.ConversionReviewRequired = len(conversion.Warnings) > 0 || len(conversion.FailedChains) > 0
+	}
+	if bootstrapPath != "" {
+		var bootstrapConfig bootstrap.NonSecretConfig
+		if _, err := toml.DecodeFile(bootstrapPath, &bootstrapConfig); err != nil {
+			return nil, fmt.Errorf("failed to read bootstrap config %s: %w", bootstrapPath, err)
+		}
+		declarations := make([]evmconfig.ChainDeclaration, 0, len(bootstrapConfig.Chains))
+		for _, chain := range bootstrapConfig.Chains {
+			declarations = append(declarations, evmconfig.ChainDeclaration{Type: chain.Type, ID: chain.ID})
+		}
+		inventory, err := evmconfig.ReconcileChainInventory(cfg, conversion, declarations)
+		if err != nil {
+			return nil, err
+		}
+		report.ChainInventory = inventory
 	}
 
 	if chainSelector != "" {
@@ -122,6 +152,12 @@ func narrowReportToChain(
 	}
 	report.Warnings = conversion.WarningsByChainID[chain.ChainID]
 	report.FailedChains = nil
+	report.BroadcastEndpoints = nil
+	for _, summary := range conversion.BroadcastEndpoints {
+		if summary.ChainID == chain.ChainID {
+			report.BroadcastEndpoints = []evmconfig.BroadcastEndpointSummary{summary}
+		}
+	}
 	for _, failure := range conversion.FailedChains {
 		if failure.ChainID == chain.ChainID {
 			report.FailedChains = []evmconfig.ChainFailure{failure}
@@ -154,6 +190,7 @@ func narrowToSkippedChain(
 		report.Chains = make(map[string]evmconfig.EffectiveChain)
 		report.Warnings = conversion.WarningsByChainID[chainID]
 		report.FailedChains = []evmconfig.ChainFailure{failure}
+		report.BroadcastEndpoints = nil
 		return nil
 	}
 	return notFound

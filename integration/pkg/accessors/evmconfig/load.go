@@ -129,6 +129,7 @@ func (c Config) ToInfos() (chainaccess.Infos[Info], error) {
 			Nodes:                            chain.Nodes,
 			FinalityDepth:                    chain.FinalityDepth,
 			TXMBlockTime:                     chain.TXMBlockTime,
+			GasEstimatorLimitMultiplier:      chain.GasEstimatorLimitMultiplier,
 			SourceReaderHeaderFetchBatchSize: chain.SourceReaderHeaderFetchBatchSize,
 			chainlinkEVM:                     chain.chainlinkEVM,
 		}

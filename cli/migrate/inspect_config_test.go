@@ -1,12 +1,16 @@
 package migrate
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/urfave/cli"
+
+	chainsel "github.com/smartcontractkit/chain-selectors"
 
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
 )
@@ -58,9 +62,14 @@ SendOnly = true
 		assert.Equal(t, "12s", chain.TXMBlockTime)
 		assert.False(t, chain.TXMBlockTimeIsDefault)
 		require.Len(t, chain.Nodes, 1, "the send-only node is dropped")
+		require.Len(t, report.BroadcastEndpoints, 1)
+		assert.Equal(t, 2, report.BroadcastEndpoints[0].LegacyEndpoints)
+		assert.Equal(t, 1, report.BroadcastEndpoints[0].StandaloneEndpoints)
+		assert.True(t, report.BroadcastEndpoints[0].ReviewRequired)
+		assert.True(t, report.ConversionReviewRequired)
 
 		assert.Equal(t, []string{
-			"chain 11155111 node send-only: dropped, SendOnly nodes have no standalone equivalent",
+			"chain 11155111 node send-only: dropped SendOnly broadcast-only node; standalone has no send-only role. Add a standard node only if it is safe for reads and broadcast, or approve reduced redundancy",
 		}, report.Warnings, "GasEstimator.Mode and BalanceMonitor.Enabled carry over, so they are not deviations")
 		assert.Equal(t, evmconfig.ChainDefaultsSource(), report.ChainDefaults)
 		assert.Empty(t, report.ChainDefaultsProblems)
@@ -231,5 +240,130 @@ HTTPURL = 'https://sepolia.example.com'
 		narrowed, err := buildConfigReport(path, "16015286601757825753")
 		require.NoError(t, err)
 		assert.Equal(t, full.IgnoredSections, narrowed.IgnoredSections)
+	})
+}
+
+const inventoryPreflightEVMConfig = `
+[chains."5009297550715157269"]
+[[chains."5009297550715157269".nodes]]
+name = "eth"
+http_url = "https://eth.example.com"
+[chains."4051577828743386545"]
+[[chains."4051577828743386545".nodes]]
+name = "polygon"
+http_url = "https://polygon.example.com"
+`
+
+func TestInspectConfigBootstrapPreflight(t *testing.T) {
+	evmPath := writeConfigFile(t, inventoryPreflightEVMConfig)
+
+	t.Run("valid inventory passes", func(t *testing.T) {
+		bootstrapPath := writeConfigFile(t, `
+[[chains]]
+type = "EVM"
+id = "1"
+[[chains]]
+type = "EVM"
+id = "137"
+`)
+		report, err := buildConfigReportWithBootstrap(evmPath, "", bootstrapPath)
+		require.NoError(t, err)
+		require.NotNil(t, report.ChainInventory)
+		require.NoError(t, report.ChainInventory.Err())
+	})
+
+	t.Run("empty and missing declarations are diagnosed", func(t *testing.T) {
+		bootstrapPath := writeConfigFile(t, "")
+		report, err := buildConfigReportWithBootstrap(evmPath, "", bootstrapPath)
+		require.NoError(t, err)
+		require.True(t, report.ChainInventory.Empty)
+		require.Equal(t, []string{"1", "137"}, report.ChainInventory.MissingDeclarations)
+	})
+
+	t.Run("extra declaration is diagnosed", func(t *testing.T) {
+		oneChainPath := writeConfigFile(t, `
+[chains."5009297550715157269"]
+[[chains."5009297550715157269".nodes]]
+name = "eth"
+http_url = "https://eth.example.com"
+`)
+		bootstrapPath := writeConfigFile(t, `
+[[chains]]
+type = "EVM"
+id = "1"
+[[chains]]
+type = "EVM"
+id = "137"
+`)
+		report, err := buildConfigReportWithBootstrap(oneChainPath, "", bootstrapPath)
+		require.NoError(t, err)
+		require.Equal(t, []string{"137"}, report.ChainInventory.ExtraDeclarations)
+	})
+
+	t.Run("duplicate and unsupported declarations are diagnosed", func(t *testing.T) {
+		bootstrapPath := writeConfigFile(t, `
+[[chains]]
+type = "EVM"
+id = "1"
+[[chains]]
+type = "EVM"
+id = "1"
+[[chains]]
+type = "EVM"
+id = "137"
+[[chains]]
+type = "SOLANA"
+id = "1"
+`)
+		report, err := buildConfigReportWithBootstrap(evmPath, "", bootstrapPath)
+		require.NoError(t, err)
+		require.Equal(t, []string{"1"}, report.ChainInventory.DuplicateDeclarations)
+		require.Contains(t, report.ChainInventory.UnsupportedDeclarations[0], "SOLANA/1")
+	})
+
+	t.Run("command exits nonzero after rendering a mismatch", func(t *testing.T) {
+		bootstrapPath := writeConfigFile(t, "")
+		command := inspectConfigCommand()
+		app := cli.NewApp()
+		app.Commands = []cli.Command{command}
+		err := app.Run([]string{"ccv", "inspect-config", "--config", evmPath, "--bootstrap-config", bootstrapPath})
+		require.ErrorContains(t, err, "inventory is empty")
+		require.ErrorContains(t, err, "missing")
+	})
+}
+
+func TestInspectConfigMantleLimitMultiplier(t *testing.T) {
+	details, err := chainsel.GetChainDetailsByChainIDAndFamily("5000", chainsel.FamilyEVM)
+	require.NoError(t, err)
+	selector := fmt.Sprintf("%d", details.ChainSelector)
+
+	t.Run("conversion reports the safe effective override", func(t *testing.T) {
+		path := writeConfigFile(t, `
+[[EVM]]
+ChainID = '5000'
+[EVM.GasEstimator]
+LimitMultiplier = '23000'
+[[EVM.Nodes]]
+Name = 'primary'
+HTTPURL = 'https://mantle.example.com'
+`)
+		report, err := buildConfigReport(path, "")
+		require.NoError(t, err)
+		require.Equal(t, "1", report.Chains[selector].GasEstimatorLimitMultiplier)
+		require.Contains(t, report.Warnings[0], "overrides GasEstimator.LimitMultiplier = 23000")
+	})
+
+	t.Run("unsafe standalone config fails preflight", func(t *testing.T) {
+		path := writeConfigFile(t, fmt.Sprintf(`
+[chains."%[1]s"]
+gas_estimator_limit_multiplier = '23000'
+[[chains."%[1]s".nodes]]
+name = "primary"
+http_url = "https://mantle.example.com"
+`, selector))
+		_, err := buildConfigReport(path, "")
+		require.ErrorContains(t, err, "Mantle chain 5000")
+		require.ErrorContains(t, err, "LimitMultiplier = 23000")
+		require.ErrorContains(t, err, "gas_estimator_limit_multiplier = 1")
 	})
 }

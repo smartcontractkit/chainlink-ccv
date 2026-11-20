@@ -252,6 +252,8 @@ type Bootstrapper struct {
 	name             string
 	applicationReady atomic.Bool
 
+	declaredChainInventoryChecker DeclaredChainInventoryChecker
+
 	// accCloser is set by startLocal; JD mode uses runner.accCloser instead.
 	accCloser *AccessorCloserRegistry
 
@@ -306,13 +308,13 @@ func NewBootstrapper(
 		b.localConfigPath = b.config.LocalAppConfigPath
 	}
 
-	// A declared chain the family's mounted config cannot serve fails here, at boot, rather than
-	// when the first message for it arrives. Runs in both modes: the declaration is wrong either
-	// way, and the local mode's config watcher would otherwise hide it behind a waiting service.
-	// The check is the family's own — bootstrap only groups the declaration by family; a family
-	// that registered no coverage checker (chainaccess.RegisterDeclaredChainCoverageChecker) has
-	// no family-local config contract to enforce and is skipped.
-	if err := chainaccess.CheckDeclaredChainCoverage(declaredChainsByFamily(b.config.Chains)); err != nil {
+	// Standalone JD binaries require exact inventory reconciliation; other modes retain family coverage only.
+	declared := declaredChainsByFamily(b.config.Chains)
+	if b.mode == AppConfigModeJD && b.declaredChainInventoryChecker != nil {
+		if err := b.declaredChainInventoryChecker(b.config.Chains); err != nil {
+			return nil, fmt.Errorf("standalone chain inventory validation failed: %w", err)
+		}
+	} else if err := chainaccess.CheckDeclaredChainCoverage(declared); err != nil {
 		return nil, err
 	}
 
@@ -1081,6 +1083,23 @@ func findCSAKeyName(requiredKeys []keyToInit) string {
 
 // Option configures a [Bootstrapper].
 type Option func(*Bootstrapper) error
+
+// DeclaredChainInventoryChecker validates an application's complete JD-mode chain inventory.
+type DeclaredChainInventoryChecker func([]ChainRegistration) error
+
+// WithDeclaredChainInventoryChecker enables app-specific exact inventory validation in JD mode only.
+func WithDeclaredChainInventoryChecker(checker DeclaredChainInventoryChecker) Option {
+	return func(b *Bootstrapper) error {
+		if checker == nil {
+			return fmt.Errorf("declared chain inventory checker cannot be nil")
+		}
+		if b.declaredChainInventoryChecker != nil {
+			return fmt.Errorf("declared chain inventory checker is already configured")
+		}
+		b.declaredChainInventoryChecker = checker
+		return nil
+	}
+}
 
 // csaKeyPurpose marks the key used to authenticate to JD. It is the one key a migration never
 // imports: the JD node record is repointed at a freshly generated CSA key instead, so no private

@@ -328,10 +328,10 @@ HTTPURLExtraWrite = 'https://sepolia-write.example.com'
 	require.NoError(t, err)
 
 	require.Equal(t, []string{
-		"chain " + arbSepChainID + " node zeta: dropped HTTPURLExtraWrite, standalone CCV does not expose it",
+		"chain " + arbSepChainID + " node zeta: dropped HTTPURLExtraWrite; standalone broadcasts through configured nodes' HTTPURL values. Add a standard node if this endpoint is required for broadcast redundancy",
 		"chain " + arbSepChainID + " node zeta: dropped IsLoadBalancedRPC, standalone CCV does not expose it",
-		"chain " + arbSepChainID + " node alpha: dropped, SendOnly nodes have no standalone equivalent",
-		"chain " + sepoliaChainID + " node primary: dropped HTTPURLExtraWrite, standalone CCV does not expose it",
+		"chain " + arbSepChainID + " node alpha: dropped SendOnly broadcast-only node; standalone has no send-only role. Add a standard node only if it is safe for reads and broadcast, or approve reduced redundancy",
+		"chain " + sepoliaChainID + " node primary: dropped HTTPURLExtraWrite; standalone broadcasts through configured nodes' HTTPURL values. Add a standard node if this endpoint is required for broadcast redundancy",
 	}, got.Warnings)
 	assert.Equal(t, int32(50), got.Config.Chains[arbSepSelector].Nodes[0].Order,
 		"Order is carried, not warned about")
@@ -340,12 +340,12 @@ HTTPURLExtraWrite = 'https://sepolia-write.example.com'
 	// inspect-config --chain-selector`) narrows them without parsing the message text.
 	assert.Equal(t, map[string][]string{
 		arbSepChainID: {
-			"chain " + arbSepChainID + " node zeta: dropped HTTPURLExtraWrite, standalone CCV does not expose it",
+			"chain " + arbSepChainID + " node zeta: dropped HTTPURLExtraWrite; standalone broadcasts through configured nodes' HTTPURL values. Add a standard node if this endpoint is required for broadcast redundancy",
 			"chain " + arbSepChainID + " node zeta: dropped IsLoadBalancedRPC, standalone CCV does not expose it",
-			"chain " + arbSepChainID + " node alpha: dropped, SendOnly nodes have no standalone equivalent",
+			"chain " + arbSepChainID + " node alpha: dropped SendOnly broadcast-only node; standalone has no send-only role. Add a standard node only if it is safe for reads and broadcast, or approve reduced redundancy",
 		},
 		sepoliaChainID: {
-			"chain " + sepoliaChainID + " node primary: dropped HTTPURLExtraWrite, standalone CCV does not expose it",
+			"chain " + sepoliaChainID + " node primary: dropped HTTPURLExtraWrite; standalone broadcasts through configured nodes' HTTPURL values. Add a standard node if this endpoint is required for broadcast redundancy",
 		},
 	}, got.WarningsByChainID)
 }
@@ -556,8 +556,8 @@ HTTPURL = 'https://sepolia.example.com'
 `))
 	require.NoError(t, err)
 	require.Equal(t, []string{
-		"chain " + sepoliaChainID + ": dropped KeySpecific: its entries name the node's own keys, and the " +
-			"standalone executor transmits from a new one",
+		"chain " + sepoliaChainID + ": dropped KeySpecific because it targets legacy node keys, not the standalone transmitter; " +
+			"do not copy legacy keys, and move any still-required setting to chain-level config after review",
 	}, got.Warnings)
 	assert.Empty(t, got.Config.Chains[sepoliaSelector].chainlinkEVM.KeySpecific)
 }
@@ -583,8 +583,9 @@ FutureNodeSetting = true
 `))
 	require.NoError(t, err)
 	require.Equal(t, []string{
-		"chain " + sepoliaChainID + " node broadcast: dropped, SendOnly nodes have no standalone " +
-			"equivalent (FutureNodeSetting, HTTPURLExtraWrite dropped with it)",
+		"chain " + sepoliaChainID + " node broadcast: dropped SendOnly broadcast-only node " +
+			"(FutureNodeSetting, HTTPURLExtraWrite dropped with it); standalone has no send-only role. " +
+			"Add a standard node only if it is safe for reads and broadcast, or approve reduced redundancy",
 	}, got.Warnings)
 	require.Len(t, got.Config.Chains[sepoliaSelector].Nodes, 1, "only the full node is carried")
 }

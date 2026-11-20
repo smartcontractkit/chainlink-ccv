@@ -13,6 +13,9 @@
     # default block interval when one exists and DefaultTXMBlockTime otherwise; upstream
     # validation rejects values below two seconds.
     txm_block_time = "2s"
+    # gas_estimator_limit_multiplier is the CCV-owned standalone override for GasEstimator.LimitMultiplier.
+    # Mantle conversion sets this to 1 and the runtime rejects any other effective Mantle value.
+    gas_estimator_limit_multiplier = "1"
     # source_reader_header_fetch_batch_size caps how many eth_getBlockByNumber requests
     # are sent in a single JSON-RPC batch when the source reader fetches block
     # headers. Zero uses [DefaultSourceReaderHeaderFetchBatchSize], which is 25.

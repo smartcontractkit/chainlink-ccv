@@ -13,9 +13,10 @@ import (
 // RPC URLs are deliberately absent: they can carry API keys, and a diff needs the redundancy
 // picture (names, order, WebSocket coverage), not the endpoints.
 type EffectiveChain struct {
-	ChainID            string `json:"chain_id"`
-	FinalityDepth      uint32 `json:"finality_depth"`
-	FinalityTagEnabled bool   `json:"finality_tag_enabled"`
+	ChainID                     string `json:"chain_id"`
+	FinalityDepth               uint32 `json:"finality_depth"`
+	FinalityTagEnabled          bool   `json:"finality_tag_enabled"`
+	GasEstimatorLimitMultiplier string `json:"gas_estimator_limit_multiplier"`
 	// TXMBlockTime and NewHeadsPollInterval are duration strings ("12s"): this report is read by
 	// a human running a diff, not by another program.
 	TXMBlockTime string `json:"txm_block_time"`
@@ -77,6 +78,9 @@ func projectEffectiveChain(info Info, tomlConfig *evmtoml.EVMConfig) EffectiveCh
 	}
 	if chain.FinalityDepth != nil {
 		projected.FinalityDepth = *chain.FinalityDepth
+	}
+	if chain.GasEstimator.LimitMultiplier != nil {
+		projected.GasEstimatorLimitMultiplier = chain.GasEstimator.LimitMultiplier.String()
 	}
 	if chain.Transactions.TransactionManagerV2.BlockTime != nil {
 		projected.TXMBlockTime = chain.Transactions.TransactionManagerV2.BlockTime.Duration().String()

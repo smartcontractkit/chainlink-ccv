@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vsecrets"
 )
 
@@ -497,4 +498,53 @@ func TestConfig_SourceReaderStalenessThresholdDuration(t *testing.T) {
 		_, err := c.SourceReaderStalenessThresholdDuration()
 		require.ErrorContains(t, err, "invalid source_reader_staleness_threshold")
 	})
+}
+
+func TestConfigInitialStartBlocks(t *testing.T) {
+	newConfig := func() Config {
+		return Config{
+			CommitteeVerifierAddresses: map[string]string{"1": "0xCommittee1"},
+			CommitteeConfig: chainaccess.CommitteeConfig{
+				OnRampAddresses: map[string]string{"1": "0xOnRamp1"},
+			},
+			InitialStartBlocks: map[string]uint64{"1": 900},
+		}
+	}
+
+	cfg := newConfig()
+	require.NoError(t, cfg.Validate())
+	start := cfg.InitialStartBlock(protocol.ChainSelector(1))
+	require.NotNil(t, start)
+	require.Equal(t, uint64(900), *start)
+	require.Nil(t, cfg.InitialStartBlock(protocol.ChainSelector(2)))
+	*start = 1000
+	require.Equal(t, uint64(900), cfg.InitialStartBlocks["1"], "callers cannot mutate the job config")
+
+	for name, selector := range map[string]string{
+		"not a number":   "abc",
+		"non-canonical":  "01",
+		"not configured": "2",
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg := newConfig()
+			cfg.InitialStartBlocks = map[string]uint64{selector: 900}
+			require.ErrorContains(t, cfg.Validate(), "initial_start_blocks")
+		})
+	}
+}
+
+func TestConfigInitialStartBlocksTOML(t *testing.T) {
+	data := []byte(`
+[initial_start_blocks]
+"1" = 900
+"2" = 1000
+`)
+	var fromBurntSushi Config
+	_, err := burntsushi.Decode(string(data), &fromBurntSushi)
+	require.NoError(t, err)
+	require.Equal(t, map[string]uint64{"1": 900, "2": 1000}, fromBurntSushi.InitialStartBlocks)
+
+	var fromPelletier Config
+	require.NoError(t, pelletier.Unmarshal(data, &fromPelletier))
+	require.Equal(t, fromBurntSushi.InitialStartBlocks, fromPelletier.InitialStartBlocks)
 }

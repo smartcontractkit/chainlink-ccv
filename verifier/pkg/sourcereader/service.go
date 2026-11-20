@@ -692,7 +692,6 @@ func (r *Service) initializeStartBlock(ctx context.Context) (uint64, error) {
 
 	chainStatus, ok := chainStatuses[r.chainSelector]
 	if !ok {
-		r.logger.Infow("No chainStatus found, starting from block 1")
 		_, finalized, err := r.sourceReader.LatestAndFinalizedBlock(ctx)
 		if err != nil {
 			return 0, fmt.Errorf("failed to get finalized block: %w", err)
@@ -700,6 +699,16 @@ func (r *Service) initializeStartBlock(ctx context.Context) (uint64, error) {
 		if finalized == nil {
 			return 0, fmt.Errorf("finalized block is nil")
 		}
+		if configured := r.sourceCfg.InitialStartBlock; configured != nil {
+			if *configured > finalized.Number {
+				return 0, fmt.Errorf("configured initial start block %d is not finalized (current finalized block %d)",
+					*configured, finalized.Number)
+			}
+			r.logger.Infow("Using configured migration initial start block",
+				"startBlock", *configured, "finalizedBlock", finalized.Number)
+			return *configured, nil
+		}
+		r.logger.Infow("No chainStatus found, using default lookback")
 		return r.fallbackBlockEstimate(finalized.Number, 500), nil
 	}
 

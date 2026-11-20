@@ -9,6 +9,8 @@ package registry
 import (
 	"time"
 
+	"github.com/shopspring/decimal"
+
 	aggregator "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	aggsecrets "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/secrets"
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
@@ -155,6 +157,7 @@ func committeeVerifierConfigInstance() any {
 		CommitteeVerifierAddresses:           map[string]string{"1": "0x00000000000000000000000000000000000000c1"},
 		DefaultExecutorOnRampAddresses:       map[string]string{"1": "0x00000000000000000000000000000000000000e1"},
 		DisableFinalityCheckers:              []string{},
+		InitialStartBlocks:                   map[string]uint64{"1": 1000},
 		PolicyHook: &policy.Config{
 			BaseURL:        "https://policy.example.com",
 			RequestTimeout: "5s",
@@ -372,6 +375,7 @@ func monitoringConfig() *monitoring.Config {
 func evmConfigInstance() any { return evmConfig() }
 
 func evmConfig() evm.Config {
+	multiplier := decimal.NewFromInt(1)
 	return evm.Config{
 		Chains: map[string]evm.ChainConfig{
 			"1": {
@@ -385,6 +389,7 @@ func evmConfig() evm.Config {
 				},
 				FinalityDepth:                0,
 				TXMBlockTime:                 2 * time.Second,
+				GasEstimatorLimitMultiplier:  &multiplier,
 				LogPollerSourceReaderEnabled: true,
 			},
 		},

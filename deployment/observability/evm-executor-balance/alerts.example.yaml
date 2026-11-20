@@ -1,0 +1,116 @@
+{
+  "groups": [
+    {
+      "name": "ccv-evm-executor-balance-low",
+      "interval": "30s",
+      "rules": [
+        {
+          "alert": "CCVExecutorBalanceLow",
+          "expr": "node_balance{account=\"0x0000000000000000000000000000000000000001\",chainID=\"1\",chainFamily=\"EVM\"} \u003c 3",
+          "for": "15m",
+          "labels": {
+            "chain_id": "1",
+            "runbook": "https://github.com/smartcontractkit/chainlink-ccv/blob/main/docs/runbooks/evm-executor-balance.md",
+            "service": "chainlink-ccv-executor",
+            "severity": "critical",
+            "threshold": "3",
+            "threshold_unit": "ETH"
+          },
+          "annotations": {
+            "description": "Account 0x0000000000000000000000000000000000000001 has {{ $value }} ETH; required minimum is 3 ETH.",
+            "summary": "Executor transmitter balance is low on Ethereum (1)"
+          }
+        },
+        {
+          "alert": "CCVExecutorBalanceLow",
+          "expr": "node_balance{account=\"0x0000000000000000000000000000000000000001\",chainID=\"5000\",chainFamily=\"EVM\"} \u003c 1600",
+          "for": "15m",
+          "labels": {
+            "chain_id": "5000",
+            "runbook": "https://github.com/smartcontractkit/chainlink-ccv/blob/main/docs/runbooks/evm-executor-balance.md",
+            "service": "chainlink-ccv-executor",
+            "severity": "critical",
+            "threshold": "1600",
+            "threshold_unit": "MNT"
+          },
+          "annotations": {
+            "description": "Account 0x0000000000000000000000000000000000000001 has {{ $value }} MNT; required minimum is 1600 MNT.",
+            "summary": "Executor transmitter balance is low on Mantle (5000)"
+          }
+        }
+      ]
+    },
+    {
+      "name": "ccv-evm-executor-balance-absent",
+      "interval": "30s",
+      "rules": [
+        {
+          "alert": "CCVExecutorBalanceAbsent",
+          "expr": "absent(node_balance{account=\"0x0000000000000000000000000000000000000001\",chainID=\"1\",chainFamily=\"EVM\"})",
+          "for": "10m",
+          "labels": {
+            "chain_id": "1",
+            "runbook": "https://github.com/smartcontractkit/chainlink-ccv/blob/main/docs/runbooks/evm-executor-balance.md",
+            "service": "chainlink-ccv-executor",
+            "severity": "critical"
+          },
+          "annotations": {
+            "description": "No node_balance sample exists for account 0x0000000000000000000000000000000000000001. Check Beholder, the sidecar scrape, and BalanceMonitor.Enabled.",
+            "summary": "Executor balance series is absent on Ethereum (1)"
+          }
+        },
+        {
+          "alert": "CCVExecutorBalanceAbsent",
+          "expr": "absent(node_balance{account=\"0x0000000000000000000000000000000000000001\",chainID=\"5000\",chainFamily=\"EVM\"})",
+          "for": "10m",
+          "labels": {
+            "chain_id": "5000",
+            "runbook": "https://github.com/smartcontractkit/chainlink-ccv/blob/main/docs/runbooks/evm-executor-balance.md",
+            "service": "chainlink-ccv-executor",
+            "severity": "critical"
+          },
+          "annotations": {
+            "description": "No node_balance sample exists for account 0x0000000000000000000000000000000000000001. Check Beholder, the sidecar scrape, and BalanceMonitor.Enabled.",
+            "summary": "Executor balance series is absent on Mantle (5000)"
+          }
+        }
+      ]
+    },
+    {
+      "name": "ccv-evm-executor-balance-stale",
+      "interval": "30s",
+      "rules": [
+        {
+          "alert": "CCVExecutorBalanceStale",
+          "expr": "(time() - timestamp(node_balance{account=\"0x0000000000000000000000000000000000000001\",chainID=\"1\",chainFamily=\"EVM\"})) \u003e 600",
+          "for": "5m",
+          "labels": {
+            "chain_id": "1",
+            "runbook": "https://github.com/smartcontractkit/chainlink-ccv/blob/main/docs/runbooks/evm-executor-balance.md",
+            "service": "chainlink-ccv-executor",
+            "severity": "warning"
+          },
+          "annotations": {
+            "description": "The newest sample for account 0x0000000000000000000000000000000000000001 is over ten minutes old; read failures may leave no reliable current value.",
+            "summary": "Executor balance series is stale on Ethereum (1)"
+          }
+        },
+        {
+          "alert": "CCVExecutorBalanceStale",
+          "expr": "(time() - timestamp(node_balance{account=\"0x0000000000000000000000000000000000000001\",chainID=\"5000\",chainFamily=\"EVM\"})) \u003e 600",
+          "for": "5m",
+          "labels": {
+            "chain_id": "5000",
+            "runbook": "https://github.com/smartcontractkit/chainlink-ccv/blob/main/docs/runbooks/evm-executor-balance.md",
+            "service": "chainlink-ccv-executor",
+            "severity": "warning"
+          },
+          "annotations": {
+            "description": "The newest sample for account 0x0000000000000000000000000000000000000001 is over ten minutes old; read failures may leave no reliable current value.",
+            "summary": "Executor balance series is stale on Mantle (5000)"
+          }
+        }
+      ]
+    }
+  ]
+}

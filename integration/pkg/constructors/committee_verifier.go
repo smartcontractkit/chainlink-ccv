@@ -64,6 +64,9 @@ func NewVerificationCoordinator(
 		lggr.Errorw("Invalid CCV verifier configuration.", "error", err)
 		return nil, fmt.Errorf("invalid ccv verifier configuration: %w", err)
 	}
+	if len(cfg.InitialStartBlocks) > 0 {
+		return nil, fmt.Errorf("invalid ccv verifier configuration: initial_start_blocks is supported only by the standalone verifier")
+	}
 
 	if err := cfg.Validate(); err != nil {
 		lggr.Errorw("Invalid CCV verifier configuration.", "error", err)

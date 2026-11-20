@@ -15,6 +15,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shopspring/decimal"
+
 	evmtoml "github.com/smartcontractkit/chainlink-evm/pkg/config/toml"
 
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
@@ -49,6 +51,9 @@ type ChainConfig struct {
 	// default block interval when one exists and DefaultTXMBlockTime otherwise; upstream
 	// validation rejects values below two seconds.
 	TXMBlockTime time.Duration `toml:"txm_block_time,omitempty"`
+	// GasEstimatorLimitMultiplier is the CCV-owned standalone override for GasEstimator.LimitMultiplier.
+	// Mantle conversion sets this to 1 and the runtime rejects any other effective Mantle value.
+	GasEstimatorLimitMultiplier *decimal.Decimal `toml:"gas_estimator_limit_multiplier,omitempty"`
 	// SourceReaderHeaderFetchBatchSize caps how many eth_getBlockByNumber requests
 	// are sent in a single JSON-RPC batch when the source reader fetches block
 	// headers. Zero uses [DefaultSourceReaderHeaderFetchBatchSize], which is 25.
@@ -87,6 +92,7 @@ func NewConfigFromInfos(infos chainaccess.Infos[Info]) Config {
 			Nodes:                            nodesWithDefaultNames(info),
 			FinalityDepth:                    info.FinalityDepth,
 			TXMBlockTime:                     info.TXMBlockTime,
+			GasEstimatorLimitMultiplier:      info.GasEstimatorLimitMultiplier,
 			SourceReaderHeaderFetchBatchSize: info.SourceReaderHeaderFetchBatchSize,
 			chainlinkEVM:                     info.chainlinkEVM,
 		}
@@ -125,14 +131,15 @@ func (n Node) Empty() bool {
 
 // Info represents blockchain connection information.
 type Info struct {
-	ChainID                          string        `json:"chain_id"                              toml:"chain_id"`
-	Type                             string        `json:"type"                                  toml:"type"`
-	Family                           string        `json:"family"                                toml:"family"`
-	UniqueChainName                  string        `json:"unique_chain_name"                     toml:"unique_chain_name"`
-	Nodes                            []Node        `json:"nodes"                                 toml:"nodes"`
-	FinalityDepth                    uint32        `json:"finality_depth"                        toml:"finality_depth"`
-	TXMBlockTime                     time.Duration `json:"txm_block_time"                        toml:"txm_block_time"`
-	SourceReaderHeaderFetchBatchSize int           `json:"source_reader_header_fetch_batch_size" toml:"source_reader_header_fetch_batch_size"`
+	ChainID                          string           `json:"chain_id"                              toml:"chain_id"`
+	Type                             string           `json:"type"                                  toml:"type"`
+	Family                           string           `json:"family"                                toml:"family"`
+	UniqueChainName                  string           `json:"unique_chain_name"                     toml:"unique_chain_name"`
+	Nodes                            []Node           `json:"nodes"                                 toml:"nodes"`
+	FinalityDepth                    uint32           `json:"finality_depth"                        toml:"finality_depth"`
+	TXMBlockTime                     time.Duration    `json:"txm_block_time"                        toml:"txm_block_time"`
+	GasEstimatorLimitMultiplier      *decimal.Decimal `json:"gas_estimator_limit_multiplier"        toml:"gas_estimator_limit_multiplier"`
+	SourceReaderHeaderFetchBatchSize int              `json:"source_reader_header_fetch_batch_size" toml:"source_reader_header_fetch_batch_size"`
 
 	// chainlinkEVM is ChainConfig.chainlinkEVM, carried to BuildChainlinkEVMTOML.
 	chainlinkEVM *evmtoml.Chain
@@ -141,7 +148,7 @@ type Info struct {
 func (bi Info) Empty() bool {
 	return bi.ChainID == "" && bi.Type == "" && bi.Family == "" && bi.UniqueChainName == "" &&
 		len(bi.Nodes) == 0 && bi.FinalityDepth == 0 && bi.TXMBlockTime == 0 &&
-		bi.SourceReaderHeaderFetchBatchSize == 0
+		bi.GasEstimatorLimitMultiplier == nil && bi.SourceReaderHeaderFetchBatchSize == 0
 }
 
 func nodesWithDefaultNames(info Info) []Node {
