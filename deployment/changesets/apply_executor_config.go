@@ -366,9 +366,15 @@ func buildExecutorJobSpecs(
 		nopAliases = poolNOPs
 	}
 
-	sourceExecutorAddresses := make(map[string]string, len(adapterChainConfigs))
-	for chainSelector, chainConfig := range adapterChainConfigs {
-		sourceExecutorAddresses[chainSelector] = chainConfig.DefaultExecutorAddress
+	sourceExecutorAddresses := make(map[string]string)
+	for chainSelectorStr, chainConfig := range adapterChainConfigs {
+		chainSelector, err := strconv.ParseUint(chainSelectorStr, 10, 64)
+		if err != nil {
+			return nil, scope, fmt.Errorf("internal: adapter chain key %q is not a valid chain selector: %w", chainSelectorStr, err)
+		}
+		if _, inPool := pool.ChainConfigs[chainSelector]; !inPool {
+			sourceExecutorAddresses[chainSelectorStr] = chainConfig.DefaultExecutorAddress
+		}
 	}
 
 	jobSpecs := make(shared.NOPJobSpecs)

@@ -192,8 +192,10 @@ func TestBuildExecutorJobSpecs_StandaloneUsesAppConfig(t *testing.T) {
 	assert.Contains(t, jobSpec, "appConfig = '''")
 	assert.NotContains(t, jobSpec, "executorConfig")
 
-	_, err = parseExecutorConfigFromSpec(jobSpec)
+	cfg, err := parseExecutorConfigFromSpec(jobSpec)
 	require.NoError(t, err)
+	assert.Empty(t, cfg.SourceExecutorAddresses)
+	assert.NotContains(t, jobSpec, "source_executor_addresses")
 }
 
 func TestBuildExecutorJobSpecs_SourceAddressesDoNotRequireDestinationConfig(t *testing.T) {
@@ -227,9 +229,12 @@ func TestBuildExecutorJobSpecs_SourceAddressesDoNotRequireDestinationConfig(t *t
 		require.NoError(t, err)
 		require.NoError(t, cfg.Validate())
 		assert.Equal(t, map[string]string{
+			sourceOnlySelectorStr: sourceOnlyAddress,
+		}, cfg.SourceExecutorAddresses)
+		assert.Equal(t, map[string]string{
 			destinationSelectorStr: destinationAddress,
 			sourceOnlySelectorStr:  sourceOnlyAddress,
-		}, cfg.SourceExecutorAddresses)
+		}, cfg.ExecutorAddressesBySourceChain())
 		assert.Contains(t, cfg.ChainConfiguration, destinationSelectorStr)
 		assert.NotContains(t, cfg.ChainConfiguration, sourceOnlySelectorStr)
 	}
@@ -265,4 +270,5 @@ func TestBuildExecutorJobSpecs_CLUsesExecutorConfig(t *testing.T) {
 	i := strings.Index(jobSpec, open)
 	require.GreaterOrEqual(t, i, 0, "job spec must contain executorConfig")
 	assert.NotContains(t, jobSpec, "appConfig")
+	assert.NotContains(t, jobSpec, "source_executor_addresses")
 }

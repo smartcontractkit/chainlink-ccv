@@ -79,6 +79,25 @@ func validateJobSpec(spec bootstrap.JobSpec) (*executorsvc.Configuration, error)
 	return executorConfig, nil
 }
 
+func parseSourceExecutorAddresses(config *executorsvc.Configuration) (map[protocol.ChainSelector]protocol.UnknownAddress, map[string]error) {
+	addresses := make(map[protocol.ChainSelector]protocol.UnknownAddress)
+	errs := make(map[string]error)
+	for strSel, address := range config.ExecutorAddressesBySourceChain() {
+		selector, err := strconv.ParseUint(strSel, 10, 64)
+		if err != nil {
+			errs[strSel] = err
+			continue
+		}
+		parsed, err := protocol.NewUnknownAddressFromHex(address)
+		if err != nil {
+			errs[strSel] = err
+			continue
+		}
+		addresses[protocol.ChainSelector(selector)] = parsed
+	}
+	return addresses, errs
+}
+
 // Validate implements [bootstrap.ServiceFactoryValidator].
 func (f *Factory) Validate(spec bootstrap.JobSpec) error {
 	_, err := validateJobSpec(spec)
@@ -292,20 +311,12 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	}
 
 	// Verifier results use source executor addresses independently of destination assignments.
-	for strSel, address := range executorConfig.ExecutorAddressesBySourceChain() {
-		selectorUint, err := strconv.ParseUint(strSel, 10, 64)
-		if err != nil {
-			f.lggr.Errorw("Invalid source chain selector in configuration", "error", err, "chainSelector", strSel)
-			startupSkips.SkipChain(strSel, err)
-			continue
-		}
-		sel := protocol.ChainSelector(selectorUint)
-		defaultExecutorAddresses[sel], err = protocol.NewUnknownAddressFromHex(address)
-		if err != nil {
-			f.lggr.Errorw("Invalid source executor address in configuration", "error", err, "chainSelector", strSel)
-			startupSkips.Skip(fmt.Sprintf("DefaultExecutorAddress[%s]", strSel), err)
-			executorMonitoring.RecordChainHealthy(ctx, sel, false)
-			continue
+	defaultExecutorAddresses, sourceAddressErrs := parseSourceExecutorAddresses(executorConfig)
+	for strSel, err := range sourceAddressErrs {
+		f.lggr.Errorw("Invalid source executor address in configuration", "error", err, "chainSelector", strSel)
+		startupSkips.Skip(fmt.Sprintf("DefaultExecutorAddress[%s]", strSel), err)
+		if selector, parseErr := strconv.ParseUint(strSel, 10, 64); parseErr == nil {
+			executorMonitoring.RecordChainHealthy(ctx, protocol.ChainSelector(selector), false)
 		}
 	}
 

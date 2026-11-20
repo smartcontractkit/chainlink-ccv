@@ -144,6 +144,50 @@ func TestConfiguration_Validate(t *testing.T) {
 			wantErrContains: "source executor address must be configured",
 		},
 		{
+			name: "invalid_source_executor_selector_fails",
+			config: func() Configuration {
+				c := validConfig()
+				c.SourceExecutorAddresses = map[string]string{"not-a-selector": "0x0000000000000000000000000000000000000002"}
+				return c
+			}(),
+			wantErrContains: "invalid chain selector",
+		},
+		{
+			name: "invalid_source_executor_hex_fails",
+			config: func() Configuration {
+				c := validConfig()
+				c.SourceExecutorAddresses = map[string]string{"2": "not-valid-hex"}
+				return c
+			}(),
+			wantErrContains: "invalid address",
+		},
+		{
+			name: "empty_hex_source_executor_address_fails",
+			config: func() Configuration {
+				c := validConfig()
+				c.SourceExecutorAddresses = map[string]string{"2": "0x"}
+				return c
+			}(),
+			wantErrContains: "source executor address must be configured",
+		},
+		{
+			name: "matching_source_and_legacy_addresses_pass",
+			config: func() Configuration {
+				c := validConfig()
+				c.SourceExecutorAddresses = map[string]string{"1": "0xDEADBEEF12345678"}
+				return c
+			}(),
+		},
+		{
+			name: "conflicting_source_and_legacy_addresses_fail",
+			config: func() Configuration {
+				c := validConfig()
+				c.SourceExecutorAddresses = map[string]string{"1": "0x0000000000000000000000000000000000000001"}
+				return c
+			}(),
+			wantErrContains: "conflicts with chain_configuration.default_executor_address",
+		},
+		{
 			name: "invalid_with_no_configurations",
 			config: func() Configuration {
 				c := validConfig()
@@ -299,14 +343,14 @@ func TestConfiguration_ExecutorAddressesBySourceChain(t *testing.T) {
 	c.ChainConfiguration["2"] = legacyOnly
 	c.ChainConfiguration["3"] = overridden
 	c.SourceExecutorAddresses = map[string]string{
-		"3": "0x0000000000000000000000000000000000000000000000000000000000000003",
+		"3": "0x0000000000000000000000000000000000000003",
 		"4": "0x0000000000000000000000000000000000000000000000000000000000000004",
 	}
 
 	require.Equal(t, map[string]string{
 		"1": "0xdeadbeef12345678",
 		"2": "0x0000000000000000000000000000000000000002",
-		"3": "0x0000000000000000000000000000000000000000000000000000000000000003",
+		"3": "0x0000000000000000000000000000000000000003",
 		"4": "0x0000000000000000000000000000000000000000000000000000000000000004",
 	}, c.ExecutorAddressesBySourceChain())
 }

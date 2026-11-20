@@ -134,6 +134,26 @@ func TestFactory_Stop_WithCoordinator(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestParseSourceExecutorAddresses_SourceOnly(t *testing.T) {
+	const selector protocol.ChainSelector = 42
+	const rawAddress = "0x0000000000000000000000000000000000000000000000000000000000000002"
+	addresses, errs := parseSourceExecutorAddresses(&executorsvc.Configuration{
+		SourceExecutorAddresses: map[string]string{"42": rawAddress},
+	})
+	require.Empty(t, errs)
+	expected, err := protocol.NewUnknownAddressFromHex(rawAddress)
+	require.NoError(t, err)
+	require.True(t, expected.Equal(addresses[selector]))
+}
+
+func TestParseSourceExecutorAddresses_InvalidSourceOnlyAddress(t *testing.T) {
+	addresses, errs := parseSourceExecutorAddresses(&executorsvc.Configuration{
+		SourceExecutorAddresses: map[string]string{"42": "not-valid-hex"},
+	})
+	assert.Empty(t, addresses)
+	require.Error(t, errs["42"])
+}
+
 // TestFactory_Validate exercises the ServiceFactoryValidator implementation: the same
 // decode+normalize checks Start performs, but with no services constructed.
 func TestFactory_Validate(t *testing.T) {

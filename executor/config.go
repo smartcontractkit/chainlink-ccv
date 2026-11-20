@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"maps"
 	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/common/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
 const (
@@ -80,7 +82,7 @@ type Configuration struct {
 	// NTP retries are independent of source_backoff_duration.
 	NtpServer string `toml:"ntp_server"`
 	// SourceExecutorAddresses maps source chain selectors to on-chain default executor addresses.
-	// Entries override legacy ChainConfiguration defaults and do not assign destination chains.
+	// Entries do not assign destination chains; conflicting legacy defaults are rejected.
 	SourceExecutorAddresses map[string]string `toml:"source_executor_addresses,omitempty"`
 	// ChainConfiguration is a map of chain selector to chain configuration.
 	// This is used to configure the chain-specific configuration for each chain such as addresses, executor pool, and execution interval.
@@ -183,8 +185,21 @@ func (c *Configuration) Validate() error {
 		}
 	}
 	for chainSel, address := range c.SourceExecutorAddresses {
-		if address == "" {
+		if _, err := strconv.ParseUint(chainSel, 10, 64); err != nil {
+			return fmt.Errorf("source_executor_addresses has invalid chain selector %q: %w", chainSel, err)
+		}
+		parsed, err := protocol.NewUnknownAddressFromHex(address)
+		if err != nil {
+			return fmt.Errorf("source_executor_addresses has invalid address for source chain %s: %w", chainSel, err)
+		}
+		if parsed.IsEmpty() {
 			return fmt.Errorf("source executor address must be configured for source chain %s", chainSel)
+		}
+		if legacy, ok := c.ChainConfiguration[chainSel]; ok {
+			legacyAddress, legacyErr := protocol.NewUnknownAddressFromHex(legacy.DefaultExecutorAddress)
+			if legacyErr == nil && !legacyAddress.Equal(parsed) {
+				return fmt.Errorf("source_executor_addresses conflicts with chain_configuration.default_executor_address for chain %s", chainSel)
+			}
 		}
 	}
 
@@ -192,7 +207,7 @@ func (c *Configuration) Validate() error {
 }
 
 // ExecutorAddressesBySourceChain combines legacy chain defaults with explicit source addresses.
-// Explicit source addresses take precedence.
+// Validate rejects conflicting values before this merged view is used.
 func (c *Configuration) ExecutorAddressesBySourceChain() map[string]string {
 	addresses := make(map[string]string, len(c.ChainConfiguration)+len(c.SourceExecutorAddresses))
 	for chainSel, chainConfig := range c.ChainConfiguration {
