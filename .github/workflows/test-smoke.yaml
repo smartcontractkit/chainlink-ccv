@@ -220,6 +220,14 @@ jobs:
             pattern: TestE2ESmoke_LegacyTokenPoolMigrationEVM2EVM
             profile: standard.profile
             timeout: 15m
+          - name: TestE2ESmoke_MTTPTransfers
+            pattern: TestE2ESmoke_MTTPTransfers
+            profile: standard.profile
+            timeout: 15m
+          - name: TestE2ESmoke_MTTPMigration
+            pattern: TestE2ESmoke_MTTPMigration
+            profile: standard.profile
+            timeout: 20m
     steps:
       - name: Enable S3 Cache for Self-Hosted Runners
         uses: runs-on/action@cd2b598b0515d39d78c38a02d529db87d2196d1e # v2.0.3

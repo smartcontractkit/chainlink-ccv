@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
@@ -147,6 +148,46 @@ func DeployBurnMintTokenPoolV161(t *testing.T, env *deployment.Environment, sel 
 	t.Helper()
 
 	return deployTokenPoolWithPresets(t, env, sel, qual, cciputils.BurnMintTokenPool.String(), cciputils.Version_1_6_1, nil)
+}
+
+// DeployMTTPToken deploys a burn-mint token on its own, with no legacy pool. Use it for tokens that
+// go straight onto the MTTP, so no unused pool is deployed. The token starts with the deployer as
+// admin and is handed to the timelock when the MTTP registration runs.
+func DeployMTTPToken(t *testing.T, env *deployment.Environment, sel uint64, qual string) common.Address {
+	t.Helper()
+
+	env.OperationsBundle = operations.NewBundle(env.OperationsBundle.GetContext, env.OperationsBundle.Logger, operations.NewMemoryReporter())
+	out, err := tokens.TokenExpansion().Apply(*env, tokens.TokenExpansionInput{
+		ChainAdapterVersion: cciputils.Version_1_6_1,
+		MCMS:                mcms.DefaultInput("Deploy MTTP Token " + qual),
+		TokenExpansionInputPerChain: map[uint64]tokens.TokenExpansionInputPerChain{
+			sel: {
+				SkipOwnershipTransfer: false,
+				DeployTokenInput: &tokens.DeployTokenInput{
+					Name:          "MTTP Token " + qual,
+					Decimals:      TokenDecimals,
+					Symbol:        qual,
+					Type:          bnm_drip_v1_0.ContractType,
+					ExternalAdmin: MustDeployerAddress(t, env, sel),
+					PreMint:       new(DefaultPreMint),
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+	testhelpers.ProcessTimelockProposals(t, *env, out.MCMSTimelockProposals, true)
+	dsutils.MergeDataStore(t, env, out.DataStore.Seal())
+
+	return MustGetDatastoreAddress(
+		t,
+		env.DataStore,
+		datastore.NewAddressRefKey(
+			sel,
+			datastore.ContractType(bnm_drip_v1_0.ContractType.String()),
+			cciputils.Version_1_0_0,
+			qual,
+		),
+	)
 }
 
 // DeployBurnMintTokenPoolV150 deploys a plain v1.5.0 BurnMintTokenPool, which unlike the v1.5.0
