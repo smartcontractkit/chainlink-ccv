@@ -151,7 +151,7 @@ func BuildChainlinkEVMTOML(info Info) (*evmtoml.EVMConfig, error) {
 			if multiplier != nil {
 				actual = multiplier.String()
 			}
-			return nil, fmt.Errorf("Mantle chain %s has unsafe GasEstimator.LimitMultiplier = %s: "+
+			return nil, fmt.Errorf("chain %s (Mantle) has unsafe GasEstimator.LimitMultiplier = %s: "+
 				"the dependency multiplies explicit CCIP fee limits by this value; set gas_estimator_limit_multiplier = 1",
 				info.ChainID, actual)
 		}

@@ -362,7 +362,7 @@ name = "primary"
 http_url = "https://mantle.example.com"
 `, selector))
 		_, err := buildConfigReport(path, "")
-		require.ErrorContains(t, err, "Mantle chain 5000")
+		require.ErrorContains(t, err, "chain 5000 (Mantle)")
 		require.ErrorContains(t, err, "LimitMultiplier = 23000")
 		require.ErrorContains(t, err, "gas_estimator_limit_multiplier = 1")
 	})

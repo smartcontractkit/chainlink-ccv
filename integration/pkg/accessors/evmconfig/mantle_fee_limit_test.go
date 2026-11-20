@@ -74,7 +74,7 @@ func TestMantleStandaloneRejectsUnsafeLimitMultiplier(t *testing.T) {
 		GasEstimatorLimitMultiplier: &unsafe,
 		Nodes:                       []Node{{Name: "primary", HTTPUrl: "https://mantle.example.com"}},
 	})
-	require.ErrorContains(t, err, "Mantle chain 5000")
+	require.ErrorContains(t, err, "chain 5000 (Mantle)")
 	require.ErrorContains(t, err, "LimitMultiplier = 23000")
 	require.ErrorContains(t, err, "gas_estimator_limit_multiplier = 1")
 }
