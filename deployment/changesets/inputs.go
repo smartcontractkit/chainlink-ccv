@@ -19,6 +19,9 @@ type NOPInput struct {
 	ExecutorNodeID string
 	// ExecutorNodeName targets the standalone executor's JD node by name, resolved at apply time.
 	ExecutorNodeName string
+	// InitialDisabledChainSelectors seeds missing chain-status rows as disabled on standalone startup.
+	// Existing rows are left unchanged; ignored by executor jobs and rejected for CL-mode verifiers.
+	InitialDisabledChainSelectors []string
 	// PolicyHook is this NOP's custom policy endpoint, emitted into its verifier job spec.
 	// Nil leaves the section out of the spec entirely, so a NOP without a hook gets the same
 	// bytes it did before the hook existed. Ignored by the executor changeset.

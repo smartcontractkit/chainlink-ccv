@@ -3,10 +3,12 @@ package commit
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/policy"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vsecrets"
@@ -223,6 +225,9 @@ type Config struct {
 	// EVM standalone jobs must not set it: CL mode is the production reference and never disables
 	// checking. The field remains for chain families with existing standalone deployments that rely on it.
 	DisableFinalityCheckers []string `toml:"disable_finality_checkers"`
+	// InitialDisabledChainSelectors seeds missing status rows as disabled on standalone startup.
+	// Existing rows are left unchanged so an explicit operator re-enable survives restarts.
+	InitialDisabledChainSelectors []string `toml:"initial_disabled_chain_selectors,omitempty"`
 	// Monitoring is deprecated and ignored. Standalone monitoring comes from the bootstrap
 	// config's [Monitoring] section and CL-mode monitoring from the node; this section has no
 	// consumer in either mode. It is retained so older job specs still decode, and it is
@@ -243,6 +248,29 @@ type Config struct {
 
 	// CommitteeConfig that is needed by the SourceReader and the application.
 	chainaccess.CommitteeConfig
+}
+
+// ParseInitialDisabledChainSelectors validates and decodes the configured decimal selectors.
+func (c *Config) ParseInitialDisabledChainSelectors() ([]protocol.ChainSelector, error) {
+	selectors := make([]protocol.ChainSelector, 0, len(c.InitialDisabledChainSelectors))
+	seen := make(map[protocol.ChainSelector]struct{}, len(c.InitialDisabledChainSelectors))
+	for _, configured := range c.InitialDisabledChainSelectors {
+		raw := strings.TrimSpace(configured)
+		value, err := strconv.ParseUint(raw, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid initial_disabled_chain_selectors selector %q: %w", configured, err)
+		}
+		if raw != strconv.FormatUint(value, 10) {
+			return nil, fmt.Errorf("initial disabled chain selector %q must use canonical decimal form", configured)
+		}
+		selector := protocol.ChainSelector(value)
+		if _, duplicate := seen[selector]; duplicate {
+			return nil, fmt.Errorf("duplicate initial disabled chain selector %d", value)
+		}
+		seen[selector] = struct{}{}
+		selectors = append(selectors, selector)
+	}
+	return selectors, nil
 }
 
 func parseOptionalDurationString(value, fieldName string) (time.Duration, error) {
@@ -368,6 +396,17 @@ func (c *Config) Validate() error {
 	for k := range c.OnRampAddresses {
 		if _, ok := c.CommitteeVerifierAddresses[k]; !ok {
 			return fmt.Errorf("invalid verifier configuration, chain selector in onramp (%s) not in committee verifier addresses", k)
+		}
+	}
+
+	initialDisabled, err := c.ParseInitialDisabledChainSelectors()
+	if err != nil {
+		return err
+	}
+	for _, selector := range initialDisabled {
+		key := strconv.FormatUint(uint64(selector), 10)
+		if _, assigned := c.OnRampAddresses[key]; !assigned {
+			return fmt.Errorf("initial disabled chain selector %d is not an assigned source chain", selector)
 		}
 	}
 

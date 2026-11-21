@@ -316,6 +316,10 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	if err != nil {
 		return err
 	}
+	initialDisabled, err := config.ParseInitialDisabledChainSelectors()
+	if err != nil {
+		return err
+	}
 	sourceConfigs := make(map[protocol.ChainSelector]verifier.SourceConfig)
 	for selector := range sourceReaders {
 		strSelector := strconv.FormatUint(uint64(selector), 10)
@@ -333,13 +337,14 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	}
 
 	coordinatorConfig := verifier.CoordinatorConfig{
-		VerifierID:          config.VerifierID,
-		SourceConfigs:       sourceConfigs,
-		StorageBatchSize:    50,
-		StorageBatchTimeout: 100 * time.Millisecond,
-		StorageRetryDelay:   2 * time.Second,
-		CursePollInterval:   cursechecker.DEFAULT_POLL_INTERVAL, // Poll RMN Remotes for curse status
-		HeartbeatInterval:   10 * time.Second,                   // Send heartbeat to aggregator every 10s
+		VerifierID:                    config.VerifierID,
+		SourceConfigs:                 sourceConfigs,
+		InitialDisabledChainSelectors: initialDisabled,
+		StorageBatchSize:              50,
+		StorageBatchTimeout:           100 * time.Millisecond,
+		StorageRetryDelay:             2 * time.Second,
+		CursePollInterval:             cursechecker.DEFAULT_POLL_INTERVAL, // Poll RMN Remotes for curse status
+		HeartbeatInterval:             10 * time.Second,                   // Send heartbeat to aggregator every 10s
 		// How often buffered chain statuses are written. A disabled status is written immediately.
 		ChainStatusFlushInterval:  chainstatus.DefaultFlushInterval,
 		ChainStatusFlushThreshold: chainstatus.DefaultFlushThreshold,

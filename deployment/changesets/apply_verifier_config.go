@@ -427,10 +427,11 @@ func buildVerifierContractConfigs(
 }
 
 type verifierNOPInput struct {
-	Alias                 shared.NOPAlias
-	SignerAddressByFamily map[string]string
-	Mode                  shared.NOPMode
-	PolicyHook            *policy.Config
+	Alias                         shared.NOPAlias
+	SignerAddressByFamily         map[string]string
+	Mode                          shared.NOPMode
+	InitialDisabledChainSelectors []string
+	PolicyHook                    *policy.Config
 }
 
 // AggregatorRef describes a single aggregator instance a verifier NOP connects to.
@@ -535,6 +536,15 @@ func buildVerifierJobSpecs(
 			)
 		}
 
+		if mode == shared.NOPModeCL && len(nop.InitialDisabledChainSelectors) > 0 {
+			return nil, affectedScope, fmt.Errorf(
+				"NOP %q has initial disabled chain selectors but runs in %q mode; seeding is supported on a standalone verifier only",
+				nopAlias, mode,
+			)
+		}
+
+		sortedInitialDisabled := slices.Clone(nop.InitialDisabledChainSelectors)
+		slices.Sort(sortedInitialDisabled)
 		sortedFinalityCheckers := slices.Clone(disableFinalityCheckers)
 		slices.Sort(sortedFinalityCheckers)
 
@@ -546,6 +556,7 @@ func buildVerifierJobSpecs(
 			CommitteeVerifierAddresses:     filterAddressesByChains(committeeVerifierAddrs, nopChains),
 			DefaultExecutorOnRampAddresses: filterAddressesByChains(executorOnRampAddrs, nopChains),
 			DisableFinalityCheckers:        sortedFinalityCheckers,
+			InitialDisabledChainSelectors:  sortedInitialDisabled,
 			// Nil for a NOP with no hook, which keeps policy_hook out of the emitted spec.
 			PolicyHook: nop.PolicyHook,
 			// Monitoring is intentionally not set here: monitoring config is operator-provided via the
@@ -556,6 +567,11 @@ func buildVerifierJobSpecs(
 				// RMN derivation keep loading it; empty when no RMN proxy was resolved.
 				RMNRemoteAddresses: filterAddressesByChains(rmnRemoteAddrs, nopChains),
 			},
+		}
+		if len(sortedInitialDisabled) > 0 {
+			if err := baseCfg.Validate(); err != nil {
+				return nil, affectedScope, fmt.Errorf("invalid initial disabled chains for NOP %q: %w", nopAlias, err)
+			}
 		}
 
 		emitJob := func(verifierJobID shared.VerifierJobID, verifierCfg commit.Config, label string) error {
@@ -714,10 +730,11 @@ func mergeSigningKeysIntoNOPInputs(
 			signerAddresses[signerFamily] = signer
 		}
 		result[i] = verifierNOPInput{
-			Alias:                 nop.Alias,
-			SignerAddressByFamily: signerAddresses,
-			Mode:                  nop.GetMode(),
-			PolicyHook:            nop.PolicyHook,
+			Alias:                         nop.Alias,
+			SignerAddressByFamily:         signerAddresses,
+			Mode:                          nop.GetMode(),
+			InitialDisabledChainSelectors: slices.Clone(nop.InitialDisabledChainSelectors),
+			PolicyHook:                    nop.PolicyHook,
 		}
 	}
 	return result

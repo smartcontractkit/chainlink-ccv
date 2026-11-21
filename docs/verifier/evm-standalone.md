@@ -102,6 +102,12 @@ Inside conversion, an unservable chain is skipped and reported under `failed_cha
 
 The job spec accepts `disable_finality_checkers`, but only standalone mode honors it; CL mode ignores it and always runs finality checkers. Do not set it on an EVM migration job: the node never disabled checking, so the cutover must not either. The field exists for chain families whose standalone deployments predate EVM migration.
 
+## Initial disabled chains for migration
+
+A standalone migration job can carry `initial_disabled_chain_selectors` for chains that were disabled under a legacy verifier ID. Before source readers start, the verifier writes missing status rows with `disabled = true` and a zero finalized height. It never overwrites an existing row, so a later explicit operator re-enable survives restarts. A failed read or seed write stops job initialization rather than allowing signing with unknown migration state.
+
+CLD supplies this list per NOP through `initialDisabledChainSelectors`. Selectors must be unique canonical decimal strings assigned to that NOP. CL-mode proposal generation rejects the field because existing Chainlink node images do not support it. This seeds disabled state only; it never copies finalized heights or replaces the chain-status CLI for subsequent operations.
+
 ## Source logs: RPC or a LogPoller
 
 A CL-mode verifier reads `CCIPMessageSent` logs through the node's LogPoller when `[Feature] LogPoller = true`, and uses its finality signal in place of the header-based finality checker. Otherwise it issues `eth_getLogs` per poll.

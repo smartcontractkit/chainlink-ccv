@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math/big"
 	"slices"
 	"time"
 
@@ -502,15 +503,27 @@ func filterConfiguredSourceReaders(
 		allSelectors = append(allSelectors, selector)
 	}
 
-	// The statuses only inform logging; bound the read and degrade to unknown on
-	// failure rather than aborting startup — each source reader re-reads its own
-	// status (with retries) during background init.
+	for _, selector := range config.InitialDisabledChainSelectors {
+		if !slices.Contains(allSelectors, selector) {
+			allSelectors = append(allSelectors, selector)
+		}
+	}
+
+	// Without migration seeding, status read failure is non-fatal because readers retry in background.
+	// Initial disabled selectors fail closed so no signing can happen before their rows exist.
 	readCtx, cancel := context.WithTimeout(ctx, chainStatusReadTimeout)
-	statusMap, err := chainStatusManager.ReadChainStatuses(readCtx, allSelectors) //nolint:noeagerio // single bounded read of the service's own DB at coordinator start; failure is non-fatal
+	statusMap, err := chainStatusManager.ReadChainStatuses(readCtx, allSelectors) //nolint:noeagerio // bounded read of the service's own DB before readers start
 	cancel()
 	if err != nil {
+		if len(config.InitialDisabledChainSelectors) > 0 {
+			return nil, fmt.Errorf("failed to read chain statuses before applying initial disabled selectors: %w", err)
+		}
 		lggr.Errorw("Failed to read chain statuses from storage, continuing with unknown statuses", "error", err)
 		statusMap = nil
+	}
+	statusMap, err = seedInitialDisabledChains(ctx, lggr, chainStatusManager, statusMap, config.InitialDisabledChainSelectors)
+	if err != nil {
+		return nil, err
 	}
 
 	configuredSourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
@@ -529,6 +542,50 @@ func filterConfiguredSourceReaders(
 		configuredSourceReaders[chainSelector] = sourceReader
 	}
 	return configuredSourceReaders, nil
+}
+
+// seedInitialDisabledChains persists only missing rows and leaves operator-controlled rows unchanged.
+func seedInitialDisabledChains(
+	ctx context.Context,
+	lggr logger.Logger,
+	manager protocol.ChainStatusManager,
+	statusMap map[protocol.ChainSelector]*protocol.ChainStatusInfo,
+	selectors []protocol.ChainSelector,
+) (map[protocol.ChainSelector]*protocol.ChainStatusInfo, error) {
+	if len(selectors) == 0 {
+		return statusMap, nil
+	}
+	if statusMap == nil {
+		statusMap = make(map[protocol.ChainSelector]*protocol.ChainStatusInfo)
+	}
+	missing := make(map[protocol.ChainSelector]struct{})
+	for _, selector := range selectors {
+		if _, exists := statusMap[selector]; !exists {
+			missing[selector] = struct{}{}
+		}
+	}
+	if len(missing) == 0 {
+		return statusMap, nil
+	}
+
+	statuses := make([]protocol.ChainStatusInfo, 0, len(missing))
+	for _, selector := range slices.Sorted(maps.Keys(missing)) {
+		statuses = append(statuses, protocol.ChainStatusInfo{
+			ChainSelector: selector, FinalizedBlockHeight: new(big.Int), Disabled: true,
+		})
+	}
+	writeCtx, cancel := context.WithTimeout(ctx, chainStatusReadTimeout)
+	err := manager.WriteChainStatuses(writeCtx, statuses) //nolint:noeagerio // own-DB write must complete before any reader can sign
+	cancel()
+	if err != nil {
+		return nil, fmt.Errorf("failed to persist initial disabled chain selectors: %w", err)
+	}
+	for i := range statuses {
+		status := statuses[i]
+		statusMap[status.ChainSelector] = &status
+	}
+	lggr.Infow("Persisted initial disabled chain selectors", "count", len(statuses))
+	return statusMap, nil
 }
 
 func (vc *Coordinator) Close() error {

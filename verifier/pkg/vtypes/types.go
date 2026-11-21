@@ -81,6 +81,9 @@ type CoordinatorConfig struct {
 	CursePollInterval time.Duration `json:"curse_poll_interval"` // How often to poll RMN Remote contracts for curse status (default: 10s)
 	CurseRPCTimeout   time.Duration `json:"curse_rpc_timeout"`   // Timeout for each RMN RPC call (default: 5s)
 	HeartbeatInterval time.Duration `json:"heartbeat_interval"`  // How often to send heartbeat to aggregator (default: 10s, 0 disables heartbeat)
+	// InitialDisabledChainSelectors seeds missing status rows as disabled before source readers start.
+	// Existing rows are preserved so an explicit operator re-enable survives restarts.
+	InitialDisabledChainSelectors []protocol.ChainSelector `json:"initial_disabled_chain_selectors"`
 	// ChainStatusFlushInterval is how often buffered chain statuses are written to
 	// the database (default: 30s). A disabled status is always written immediately.
 	ChainStatusFlushInterval time.Duration `json:"chain_status_flush_interval"`

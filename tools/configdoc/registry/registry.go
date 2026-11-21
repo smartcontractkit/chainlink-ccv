@@ -158,6 +158,7 @@ func committeeVerifierConfigInstance() any {
 		CommitteeVerifierAddresses:           map[string]string{"1": "0x00000000000000000000000000000000000000c1"},
 		DefaultExecutorOnRampAddresses:       map[string]string{"1": "0x00000000000000000000000000000000000000e1"},
 		DisableFinalityCheckers:              []string{},
+		InitialDisabledChainSelectors:        []string{"1"},
 		PolicyHook: &policy.Config{
 			BaseURL:        "https://policy.example.com",
 			RequestTimeout: "5s",
