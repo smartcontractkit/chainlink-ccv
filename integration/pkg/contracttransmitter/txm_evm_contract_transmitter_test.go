@@ -447,20 +447,37 @@ func TestTXMEVMContractTransmitter_EstimateGasLimit(t *testing.T) {
 		assert.Equal(t, uint64(780629), got)
 	})
 
-	t.Run("zero estimate is rejected", func(t *testing.T) {
-		ct := &TXMEVMContractTransmitter{gasEstimator: gasEstimatorFunc(func(context.Context, ethereum.CallMsg) (uint64, error) {
+	t.Run("zero estimate falls back to message gas", func(t *testing.T) {
+		ct := &TXMEVMContractTransmitter{lggr: logger.Test(t), gasEstimator: gasEstimatorFunc(func(context.Context, ethereum.CallMsg) (uint64, error) {
 			return 0, nil
 		})}
-		_, err := ct.estimateGasLimit(t.Context(), from, payload, 1000)
-		require.ErrorContains(t, err, "returned zero")
+		got, err := ct.estimateGasLimit(t.Context(), from, payload, 1000)
+		require.NoError(t, err)
+		assert.Equal(t, uint64(1000), got)
 	})
 
-	t.Run("buffer overflow is rejected", func(t *testing.T) {
+	t.Run("raw estimate above the cap is rejected", func(t *testing.T) {
 		ct := &TXMEVMContractTransmitter{gasEstimator: gasEstimatorFunc(func(context.Context, ethereum.CallMsg) (uint64, error) {
-			return math.MaxUint64, nil
+			return maxTransactionGasLimit + 1, nil
 		})}
 		_, err := ct.estimateGasLimit(t.Context(), from, payload, 0)
-		require.ErrorContains(t, err, "failed to buffer gas estimate")
+		require.ErrorContains(t, err, "exceeds per-transaction cap")
+	})
+
+	t.Run("buffered estimate is clamped to the cap", func(t *testing.T) {
+		ct := &TXMEVMContractTransmitter{gasEstimator: gasEstimatorFunc(func(context.Context, ethereum.CallMsg) (uint64, error) {
+			return maxTransactionGasLimit - 100000, nil
+		})}
+		got, err := ct.estimateGasLimit(t.Context(), from, payload, 1000)
+		require.NoError(t, err)
+		assert.Equal(t, maxTransactionGasLimit, got)
+	})
+
+	t.Run("message limit is clamped to the cap", func(t *testing.T) {
+		ct := &TXMEVMContractTransmitter{gasEstimator: gasEstimatorFunc(lowGasEstimator)}
+		got, err := ct.estimateGasLimit(t.Context(), from, payload, maxTransactionGasLimit+1000)
+		require.NoError(t, err)
+		assert.Equal(t, maxTransactionGasLimit, got)
 	})
 
 	t.Run("missing estimator is rejected", func(t *testing.T) {
@@ -470,11 +487,14 @@ func TestTXMEVMContractTransmitter_EstimateGasLimit(t *testing.T) {
 	})
 }
 
-func TestTXMEVMContractTransmitter_EstimationFailureDoesNotCreateTransaction(t *testing.T) {
+func TestTXMEVMContractTransmitter_EstimationFailureUsesMessageGas(t *testing.T) {
 	from := common.HexToAddress("0xabcdef1234567890abcdef1234567890abcdef12")
 	mockRR := new(mockRoundRobin)
 	mockRR.On("GetNextAddress", mock.Anything, mock.Anything).Return(from, nil)
 	mockTxm := new(mockTxManager)
+	mockTxm.On("CreateTransaction", mock.Anything, mock.MatchedBy(func(req txmgr.TxRequest) bool {
+		return req.FeeLimit == 574980
+	})).Return(txmgr.Tx{}, nil)
 	estimator := gasEstimatorFunc(func(context.Context, ethereum.CallMsg) (uint64, error) {
 		return 0, errors.New("RPC unavailable")
 	})
@@ -485,8 +505,27 @@ func TestTXMEVMContractTransmitter_EstimationFailureDoesNotCreateTransaction(t *
 	)
 	report := protocol.AbstractAggregatedReport{Message: mustCreateMessage(t, 1, 2, 100, 574980, 0)}
 
+	require.NoError(t, transmitter.ConvertAndWriteMessageToChain(t.Context(), report))
+	mockTxm.AssertExpectations(t)
+}
+
+func TestTXMEVMContractTransmitter_ExecutionRevertDoesNotCreateTransaction(t *testing.T) {
+	from := common.HexToAddress("0xabcdef1234567890abcdef1234567890abcdef12")
+	mockRR := new(mockRoundRobin)
+	mockRR.On("GetNextAddress", mock.Anything, mock.Anything).Return(from, nil)
+	mockTxm := new(mockTxManager)
+	estimator := gasEstimatorFunc(func(context.Context, ethereum.CallMsg) (uint64, error) {
+		return 0, errors.New("execution reverted")
+	})
+	transmitter := NewEVMContractTransmitterFromTxm(
+		logger.Test(t), protocol.ChainSelector(1), mockTxm,
+		common.HexToAddress("0x9999999999999999999999999999999999999999"),
+		mockRR, []common.Address{from}, monitoring.NewNoopExecutorMonitoring(), WithGasEstimator(estimator),
+	)
+	report := protocol.AbstractAggregatedReport{Message: mustCreateMessage(t, 1, 2, 100, 574980, 0)}
+
 	err := transmitter.ConvertAndWriteMessageToChain(t.Context(), report)
-	require.ErrorContains(t, err, "RPC unavailable")
+	require.ErrorContains(t, err, "execution reverted")
 	mockTxm.AssertNotCalled(t, "CreateTransaction", mock.Anything, mock.Anything)
 }
 

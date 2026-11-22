@@ -4,7 +4,8 @@
 
 - EVM execution now estimates the complete OffRamp transaction with the selected transmitter before creating a TXM transaction.
 - The gas limit is the larger of the message-derived limit and the RPC estimate with a 15% buffer, covering stale source-chain calldata prices and current destination rules.
-- Estimation failures return a retryable error before TXM assigns a nonce, preventing invalid attempts from blocking later messages.
+- Execution reverts and invalid estimator configuration return a retryable error before TXM assigns a nonce; other estimation failures fall back to capped message gas without blocking later messages.
+- Submission gas is capped at 16,777,216 (2^24), including the 15% buffer, so estimates near the cap cannot produce an over-cap transaction.
 - Deterministic first-broadcast gas rejections are discarded and their nonces reused, matching TXM v1 behavior and preventing a rejected message from holding the queue.
 - Standalone and legacy executor construction enable the estimator; existing constructor calls remain source-compatible.
 
@@ -30,12 +31,12 @@ The submitted gas limit is:
 
 ```text
 messageLimit = ExecutionGasLimit + EIP150ForwardingBuffer(CcipReceiveGasLimit)
-submissionLimit = max(messageLimit, estimatedGas * 1.15)
+submissionLimit = min(16,777,216, max(messageLimit, estimatedGas * 1.15))
 ```
 
-The message limit remains a floor, so the existing EIP-150 compensation is preserved when the RPC estimate is lower. The buffer is applied by `chainlink-framework/chains/fees.ApplyMultiplier`, including overflow checks.
+The message limit remains a floor, so the existing EIP-150 compensation is preserved when the RPC estimate is lower. The buffer is applied by `chainlink-framework/chains/fees.ApplyMultiplier`, including overflow checks. A raw estimate above 2^24 is rejected instead of clamped because it cannot fit the transaction cap.
 
-A missing estimator, a zero estimate, an estimation RPC error, or buffer overflow returns an error before `TxmClient.CreateTransaction`. The executor's existing `ErrExecutionContended` path schedules a retry. These errors are not counted as unrecoverable message failures; a TXM creation error is no longer counted as unrecoverable either.
+A missing estimator or an execution revert returns an error before `TxmClient.CreateTransaction`; reverting executions therefore stay off-chain and retry until the normal message expiry. Other estimation errors and zero estimates log a warning and use `min(messageLimit, 2^24)`. The first-broadcast handler prevents an under-gassed fallback from wedging the key. Estimation and TXM creation errors are not counted as unrecoverable message failures.
 
 ## Construction
 
@@ -56,7 +57,7 @@ The handler calls `MarkTxFatal`, rewinds the just-assigned nonce, and lets the n
 
 The release does not update source-chain fee-quoter configuration. It allows already-verified messages carrying stale gas limits to be resubmitted with current destination-chain estimates.
 
-See `docs/runbooks/evm-executor-gas-recovery.md` for the config-only stopgap and release recovery paths, the eight-hour lookback, and the full Solana Glamsterdam migration required for sustainable source-side pricing and execution.
+See `docs/runbooks/evm-executor-gas-recovery.md` for the config-only stopgap and release recovery paths, the eight-hour lookback, and the full Solana Glamsterdam migration required for sustainable source-side pricing and execution. The fixed-release rollout sets `LimitMultiplier = 1` in the same change so TXM does not multiply the new estimate again.
 
 ## Verification
 
@@ -65,8 +66,9 @@ See `docs/runbooks/evm-executor-gas-recovery.md` for the config-only stopgap and
 - Raising a stale 574,980-gas message limit from a 678,808-gas RPC estimate to 780,629 gas.
 - Sender, OffRamp, and payload propagation into the estimator.
 - Preserving the message limit when it exceeds the estimate.
-- Zero estimates, estimator absence, buffer overflow, and RPC failure.
-- No `CreateTransaction` call after estimation failure.
+- Message-gas fallback for zero estimates and non-revert RPC failures.
+- No `CreateTransaction` call after an execution revert or missing estimator.
+- Rejection of raw estimates above 2^24 and clamping of buffered estimates and message limits to 2^24.
 
 `integration/pkg/accessors/evm/txm_error_handler_test.go` additionally covers both rejection strings, nonce reuse by the next transaction, and preservation of later-attempt and unrelated transactions.
 

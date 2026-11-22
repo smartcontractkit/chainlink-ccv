@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
@@ -31,6 +32,7 @@ const (
 	eip150ForwardingNumerator   = 64
 	eip150ForwardingDenominator = 63
 	executionGasEstimateBuffer  = float32(1.15)
+	maxTransactionGasLimit      = uint64(1 << 24)
 )
 
 // GasEstimator estimates the complete transaction cost, including calldata and contract execution.
@@ -150,19 +152,27 @@ func (ct *TXMEVMContractTransmitter) estimateGasLimit(ctx context.Context, from 
 	}
 	estimatedGas, err := ct.gasEstimator.EstimateGas(ctx, ethereum.CallMsg{From: from, To: &ct.OffRampAddress, Data: payload})
 	if err != nil {
-		return 0, err
+		if strings.Contains(err.Error(), "execution reverted") {
+			return 0, err
+		}
+		ct.lggr.Warnw("execution gas estimation failed; using message gas limit", "messageGasLimit", messageGasLimit, "error", err)
+		return min(messageGasLimit, maxTransactionGasLimit), nil
 	}
 	if estimatedGas == 0 {
-		return 0, errors.New("EVM gas estimator returned zero")
+		ct.lggr.Warnw("execution gas estimator returned zero; using message gas limit", "messageGasLimit", messageGasLimit)
+		return min(messageGasLimit, maxTransactionGasLimit), nil
+	}
+	if estimatedGas > maxTransactionGasLimit {
+		return 0, fmt.Errorf("estimated gas %d exceeds per-transaction cap %d", estimatedGas, maxTransactionGasLimit)
 	}
 	if estimatedGas <= messageGasLimit {
-		return messageGasLimit, nil
+		return min(messageGasLimit, maxTransactionGasLimit), nil
 	}
 	buffered, err := fees.ApplyMultiplier(estimatedGas, executionGasEstimateBuffer)
 	if err != nil {
 		return 0, fmt.Errorf("failed to buffer gas estimate %d: %w", estimatedGas, err)
 	}
-	return max(messageGasLimit, buffered), nil
+	return min(max(messageGasLimit, buffered), maxTransactionGasLimit), nil
 }
 
 // eip150ForwardingGasBuffer returns the extra gas needed to compensate for EIP-150

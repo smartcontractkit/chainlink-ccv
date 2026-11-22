@@ -84,10 +84,12 @@ Repeat for the remaining affected deployments, then roll the rest in the same co
 
 The next executor release adds two independent protections:
 
-1. **Full transaction estimation:** the transmitter estimates the exact OffRamp payload with the selected sender and submits `max(message gas limit, estimate * 1.15)`. Estimation failures happen before TXM assigns a nonce.
+1. **Full transaction estimation:** the transmitter estimates the exact OffRamp payload with the selected sender and submits `min(2^24, max(message gas limit, estimate * 1.15))`. Raw estimates above 2^24 are rejected. Non-revert estimation failures fall back to capped message gas without blocking the key; execution reverts stay off-chain and retry until the normal message expiry.
 2. **Deterministic first-broadcast recovery:** `intrinsic gas too low` and `insufficient gas for floor data gas cost` are marked fatal on the first broadcast, the rejected transaction is discarded, and the next transaction reuses its nonce. Later attempts are not rewound because that could collide with subsequent in-flight nonces.
 
-Deploy it with the same expanded lookback and canary/wave procedure. Once every executor runs the fixed release, `LimitMultiplier` can return to 1; leaving it higher is valid but increases balance requirements. Keep `EstimateLimit = false` because estimation now happens in the CCV transmitter. AutoPurge can remain enabled as a backstop.
+Deploy it with the same expanded lookback and canary/wave procedure. **Set `LimitMultiplier = 1` in the same rollout** so TXM does not apply a second `2 × estimate × 1.15` expansion. Keep `EstimateLimit = false` because estimation now happens in the CCV transmitter. AutoPurge can remain enabled as a backstop.
+
+Reverting executions now stay off-chain rather than appearing as failed on-chain attempts. This saves gas but removes those failures from on-chain execution history; account for that when debugging receiver problems or relying on historical attempt data.
 
 A restart alone is not the fix: without the release or the multiplier, rediscovery simply creates the same under-gassed transaction and wedges the key again.
 
