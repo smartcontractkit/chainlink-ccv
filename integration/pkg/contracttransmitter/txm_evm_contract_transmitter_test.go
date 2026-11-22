@@ -6,7 +6,6 @@ import (
 	"math"
 	"testing"
 
-	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -43,16 +42,6 @@ type mockRoundRobin struct {
 func (m *mockRoundRobin) GetNextAddress(ctx context.Context, addresses ...common.Address) (common.Address, error) {
 	args := m.Called(ctx, addresses)
 	return args.Get(0).(common.Address), args.Error(1)
-}
-
-type gasEstimatorFunc func(context.Context, ethereum.CallMsg) (uint64, error)
-
-func (f gasEstimatorFunc) EstimateGas(ctx context.Context, msg ethereum.CallMsg) (uint64, error) {
-	return f(ctx, msg)
-}
-
-func lowGasEstimator(context.Context, ethereum.CallMsg) (uint64, error) {
-	return 1, nil
 }
 
 func TestTXMEVMContractTransmitter_ConvertAndWriteMessageToChain(t *testing.T) {
@@ -226,7 +215,6 @@ func TestTXMEVMContractTransmitter_ConvertAndWriteMessageToChain(t *testing.T) {
 				mockRR,
 				fromAddresses,
 				monitoring.NewNoopExecutorMonitoring(),
-				WithGasEstimator(gasEstimatorFunc(lowGasEstimator)),
 			)
 
 			// Execute
@@ -364,7 +352,6 @@ func TestTXMEVMContractTransmitter_ABIEncoding(t *testing.T) {
 				mockRR,
 				[]common.Address{fromAddr},
 				monitoring.NewNoopExecutorMonitoring(),
-				WithGasEstimator(gasEstimatorFunc(lowGasEstimator)),
 			)
 
 			err := transmitter.ConvertAndWriteMessageToChain(ctx, tc.report)
@@ -390,143 +377,6 @@ func TestTXMEVMContractTransmitter_ABIEncoding(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestTXMEVMContractTransmitter_RaisesStaleMessageGasFromRPC(t *testing.T) {
-	ctx := context.Background()
-	lggr := logger.Test(t)
-	offRamp := common.HexToAddress("0x9999999999999999999999999999999999999999")
-	from := common.HexToAddress("0xabcdef1234567890abcdef1234567890abcdef12")
-	testKey := "test-key"
-
-	mockRR := new(mockRoundRobin)
-	mockRR.On("GetNextAddress", mock.Anything, mock.Anything).Return(from, nil)
-	mockTxm := new(mockTxManager)
-	mockTxm.On("CreateTransaction", mock.Anything, mock.MatchedBy(func(req txmgr.TxRequest) bool {
-		return req.FeeLimit == 780629 && req.FromAddress == from && req.ToAddress == offRamp
-	})).Return(txmgr.Tx{IdempotencyKey: &testKey}, nil)
-
-	var call ethereum.CallMsg
-	estimator := gasEstimatorFunc(func(_ context.Context, msg ethereum.CallMsg) (uint64, error) {
-		call = msg
-		return 678808, nil
-	})
-	transmitter := NewEVMContractTransmitterFromTxm(
-		lggr, protocol.ChainSelector(1), mockTxm, offRamp, mockRR, []common.Address{from}, monitoring.NewNoopExecutorMonitoring(), WithGasEstimator(estimator),
-	)
-	report := protocol.AbstractAggregatedReport{
-		CCVS:    []protocol.UnknownAddress{protocol.UnknownAddress(common.HexToAddress("0x1111111111111111111111111111111111111111").Bytes())},
-		CCVData: [][]byte{make([]byte, 9000)},
-		Message: mustCreateMessage(t, 1, 2, 100, 574980, 0),
-	}
-
-	require.NoError(t, transmitter.ConvertAndWriteMessageToChain(ctx, report))
-	assert.Equal(t, from, call.From)
-	assert.Equal(t, offRamp, *call.To)
-	assert.NotEmpty(t, call.Data)
-	mockTxm.AssertExpectations(t)
-}
-
-func TestTXMEVMContractTransmitter_EstimateGasLimit(t *testing.T) {
-	from := common.HexToAddress("0xabcdef1234567890abcdef1234567890abcdef12")
-	payload := []byte{1, 2, 3}
-
-	t.Run("message gas remains the floor", func(t *testing.T) {
-		ct := &TXMEVMContractTransmitter{gasEstimator: gasEstimatorFunc(lowGasEstimator)}
-		got, err := ct.estimateGasLimit(t.Context(), from, payload, 1000)
-		require.NoError(t, err)
-		assert.Equal(t, uint64(1000), got)
-	})
-
-	t.Run("RPC estimate gets a fifteen percent buffer", func(t *testing.T) {
-		ct := &TXMEVMContractTransmitter{gasEstimator: gasEstimatorFunc(func(context.Context, ethereum.CallMsg) (uint64, error) {
-			return 678808, nil
-		})}
-		got, err := ct.estimateGasLimit(t.Context(), from, payload, 574980)
-		require.NoError(t, err)
-		assert.Equal(t, uint64(780629), got)
-	})
-
-	t.Run("zero estimate falls back to message gas", func(t *testing.T) {
-		ct := &TXMEVMContractTransmitter{lggr: logger.Test(t), gasEstimator: gasEstimatorFunc(func(context.Context, ethereum.CallMsg) (uint64, error) {
-			return 0, nil
-		})}
-		got, err := ct.estimateGasLimit(t.Context(), from, payload, 1000)
-		require.NoError(t, err)
-		assert.Equal(t, uint64(1000), got)
-	})
-
-	t.Run("raw estimate above the cap is rejected", func(t *testing.T) {
-		ct := &TXMEVMContractTransmitter{gasEstimator: gasEstimatorFunc(func(context.Context, ethereum.CallMsg) (uint64, error) {
-			return maxTransactionGasLimit + 1, nil
-		})}
-		_, err := ct.estimateGasLimit(t.Context(), from, payload, 0)
-		require.ErrorContains(t, err, "exceeds per-transaction cap")
-	})
-
-	t.Run("buffered estimate is clamped to the cap", func(t *testing.T) {
-		ct := &TXMEVMContractTransmitter{gasEstimator: gasEstimatorFunc(func(context.Context, ethereum.CallMsg) (uint64, error) {
-			return maxTransactionGasLimit - 100000, nil
-		})}
-		got, err := ct.estimateGasLimit(t.Context(), from, payload, 1000)
-		require.NoError(t, err)
-		assert.Equal(t, maxTransactionGasLimit, got)
-	})
-
-	t.Run("message limit is clamped to the cap", func(t *testing.T) {
-		ct := &TXMEVMContractTransmitter{gasEstimator: gasEstimatorFunc(lowGasEstimator)}
-		got, err := ct.estimateGasLimit(t.Context(), from, payload, maxTransactionGasLimit+1000)
-		require.NoError(t, err)
-		assert.Equal(t, maxTransactionGasLimit, got)
-	})
-
-	t.Run("missing estimator is rejected", func(t *testing.T) {
-		ct := &TXMEVMContractTransmitter{}
-		_, err := ct.estimateGasLimit(t.Context(), from, payload, 1000)
-		require.ErrorContains(t, err, "not configured")
-	})
-}
-
-func TestTXMEVMContractTransmitter_EstimationFailureUsesMessageGas(t *testing.T) {
-	from := common.HexToAddress("0xabcdef1234567890abcdef1234567890abcdef12")
-	mockRR := new(mockRoundRobin)
-	mockRR.On("GetNextAddress", mock.Anything, mock.Anything).Return(from, nil)
-	mockTxm := new(mockTxManager)
-	mockTxm.On("CreateTransaction", mock.Anything, mock.MatchedBy(func(req txmgr.TxRequest) bool {
-		return req.FeeLimit == 574980
-	})).Return(txmgr.Tx{}, nil)
-	estimator := gasEstimatorFunc(func(context.Context, ethereum.CallMsg) (uint64, error) {
-		return 0, errors.New("RPC unavailable")
-	})
-	transmitter := NewEVMContractTransmitterFromTxm(
-		logger.Test(t), protocol.ChainSelector(1), mockTxm,
-		common.HexToAddress("0x9999999999999999999999999999999999999999"),
-		mockRR, []common.Address{from}, monitoring.NewNoopExecutorMonitoring(), WithGasEstimator(estimator),
-	)
-	report := protocol.AbstractAggregatedReport{Message: mustCreateMessage(t, 1, 2, 100, 574980, 0)}
-
-	require.NoError(t, transmitter.ConvertAndWriteMessageToChain(t.Context(), report))
-	mockTxm.AssertExpectations(t)
-}
-
-func TestTXMEVMContractTransmitter_ExecutionRevertDoesNotCreateTransaction(t *testing.T) {
-	from := common.HexToAddress("0xabcdef1234567890abcdef1234567890abcdef12")
-	mockRR := new(mockRoundRobin)
-	mockRR.On("GetNextAddress", mock.Anything, mock.Anything).Return(from, nil)
-	mockTxm := new(mockTxManager)
-	estimator := gasEstimatorFunc(func(context.Context, ethereum.CallMsg) (uint64, error) {
-		return 0, errors.New("execution reverted")
-	})
-	transmitter := NewEVMContractTransmitterFromTxm(
-		logger.Test(t), protocol.ChainSelector(1), mockTxm,
-		common.HexToAddress("0x9999999999999999999999999999999999999999"),
-		mockRR, []common.Address{from}, monitoring.NewNoopExecutorMonitoring(), WithGasEstimator(estimator),
-	)
-	report := protocol.AbstractAggregatedReport{Message: mustCreateMessage(t, 1, 2, 100, 574980, 0)}
-
-	err := transmitter.ConvertAndWriteMessageToChain(t.Context(), report)
-	require.ErrorContains(t, err, "execution reverted")
-	mockTxm.AssertNotCalled(t, "CreateTransaction", mock.Anything, mock.Anything)
 }
 
 func TestEIP150ForwardingGasBuffer(t *testing.T) {
@@ -593,7 +443,6 @@ func TestTXMEVMContractTransmitter_SetsMessageIDMeta(t *testing.T) {
 		mockRR,
 		[]common.Address{fromAddr},
 		monitoring.NewNoopExecutorMonitoring(),
-		WithGasEstimator(gasEstimatorFunc(lowGasEstimator)),
 	)
 
 	require.NoError(t, transmitter.ConvertAndWriteMessageToChain(ctx, report))

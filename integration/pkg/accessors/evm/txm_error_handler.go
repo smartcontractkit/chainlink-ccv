@@ -11,9 +11,11 @@ import (
 	"github.com/smartcontractkit/chainlink-evm/pkg/txm/types"
 )
 
-type deterministicTxErrorHandler struct{}
+type deterministicTxErrorHandler struct {
+	metrics discardedTransactionMetrics
+}
 
-func (deterministicTxErrorHandler) HandleError(
+func (h deterministicTxErrorHandler) HandleError(
 	ctx context.Context,
 	lggr logger.Logger,
 	tx *types.Transaction,
@@ -31,8 +33,18 @@ func (deterministicTxErrorHandler) HandleError(
 		return false, err
 	}
 	setNonce(tx.FromAddress, *tx.Nonce)
+	if h.metrics != nil {
+		h.metrics.IncrementDiscardedTransactions(ctx)
+	}
+	var messageIDs []string
+	meta, err := tx.GetMeta()
+	if err != nil {
+		logger.Sugared(lggr).Warnw("Failed to read metadata for discarded transaction", "txID", tx.ID, "error", err)
+	} else if meta != nil {
+		messageIDs = meta.MessageIDs
+	}
 	logger.Sugared(lggr).Warnw("Discarded transaction rejected on its first broadcast; reusing its nonce",
-		"txID", tx.ID, "nonce", *tx.Nonce, "error", txErr)
+		"txID", tx.ID, "nonce", *tx.Nonce, "messageIDs", messageIDs, "error", txErr)
 	return true, nil
 }
 

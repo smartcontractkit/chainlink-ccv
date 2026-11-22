@@ -98,7 +98,7 @@ func newTxmV2(
 	attemptBuilder := txm.NewAttemptBuilder(feeCfg.PriceMaxKey, withPurgeFeeFallback(estimator, gasCfg), chainKeystore,
 		emptyTxGasLimit, false)
 	store := storage.NewInMemoryStoreManager(lggr, chainID)
-	metrics := txm.NewTxmMetrics(lggr, chainID)
+	metrics := newCCVTxmMetrics(lggr, chainID)
 
 	blockTime := *txmV2Cfg.BlockTime()
 	resendAfter := cfg.Transactions().ResendAfterThreshold()
@@ -122,7 +122,7 @@ func newTxmV2(
 			EmptyTxLimitDefault: emptyTxGasLimit,
 		},
 		chainKeystore,
-		deterministicTxErrorHandler{},
+		deterministicTxErrorHandler{metrics: metrics},
 		metrics,
 	)
 

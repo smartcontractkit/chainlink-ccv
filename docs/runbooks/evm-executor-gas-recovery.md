@@ -82,16 +82,13 @@ Repeat for the remaining affected deployments, then roll the rest in the same co
 
 ## Path 2: fixed release behavior
 
-The next executor release adds two independent protections:
+The next executor release adds deterministic first-broadcast recovery: `intrinsic gas too low` and `insufficient gas for floor data gas cost` are marked fatal on the first broadcast, the rejected transaction is discarded, and the next transaction immediately reuses its nonce. Later attempts are not rewound because that could collide with subsequent in-flight nonces. AutoPurge remains the backstop for later attempts, mempool-stuck transactions, and unmatched errors such as the per-transaction gas cap.
 
-1. **Full transaction estimation:** the transmitter estimates the exact OffRamp payload with the selected sender and submits `min(2^24, max(message gas limit, estimate * 1.15))`. Raw estimates above 2^24 are rejected. Non-revert estimation failures fall back to capped message gas without blocking the key; execution reverts stay off-chain and retry until the normal message expiry.
-2. **Deterministic first-broadcast recovery:** `intrinsic gas too low` and `insufficient gas for floor data gas cost` are marked fatal on the first broadcast, the rejected transaction is discarded, and the next transaction reuses its nonce. Later attempts are not rewound because that could collide with subsequent in-flight nonces.
+Each discard increments `executor_txm_discarded_transactions_total{chainID}` and logs the CCIP message IDs from TXM metadata. Use both to verify recovery and build alerts.
 
-Deploy it with the same expanded lookback and canary/wave procedure. **Set `LimitMultiplier = 1` in the same rollout** so TXM does not apply a second `2 × estimate × 1.15` expansion. Keep `EstimateLimit = false` because estimation now happens in the CCV transmitter. AutoPurge can remain enabled as a backstop.
+Deploy it with the same expanded lookback and canary/wave procedure. Keep `LimitMultiplier = 2` on testnet while the backlog drains: it is a separate testnet-only top-up, and removing it before the Solana migration would leave stale messages unexecuted or requiring manual execution. Do not carry that multiplier into mainnet configuration before product decides.
 
-Reverting executions now stay off-chain rather than appearing as failed on-chain attempts. This saves gas but removes those failures from on-chain execution history; account for that when debugging receiver problems or relying on historical attempt data.
-
-A restart alone is not the fix: without the release or the multiplier, rediscovery simply creates the same under-gassed transaction and wedges the key again.
+A restart alone is not the fix: without the handler or the multiplier, rediscovery simply creates the same under-gassed transaction and wedges the key again.
 
 ## Full Solana Glamsterdam migration
 
@@ -123,7 +120,7 @@ Useful incident checks include:
 
 - `0xbd285f7fba23af53bd57ef9df6b3124420db800a69590c9fd97fb4cf2d34e1a3` executes after being queued. Its manual estimate was 270,615 gas and its automatic message limit was 947,656 gas.
 - No executor repeats a rejected transaction thousands of times or reports `Reached transaction limit` with a stuck pending nonce.
-- `submitted tx to txm` entries have sufficient `gasLimit`; the fixed release logs both `gasLimit` and `messageGasLimit`.
+- `Discarded transaction rejected on its first broadcast` logs include the expected CCIP message IDs, and `executor_txm_discarded_transactions_total` increases only for deterministic first-broadcast rejections.
 
 Query message status rather than treating TXM submission as execution proof. If the public indexer endpoint is unavailable, use a read-only port-forward:
 
@@ -132,6 +129,6 @@ kubectl --context "$CTX" -n "$NS" port-forward deploy/chainlink-ccv-indexer-1 18
 curl -sS 'http://127.0.0.1:18100/v1/messages?destChainSelectors=16015286601757825753&sourceChainSelectors=3478487238524512106&limit=100'
 ```
 
-Stop the rollout if estimation failures persist, multiplied gas is absent, or new RPC errors appear. Keep a working canary running and investigate; do not roll back to `v0.22.1` without a mitigation, because that recreates the rejected transactions and nonce blockage.
+Stop the rollout if deterministic rejections are not discarded, the multiplier is absent, or new RPC errors appear. Keep a working canary running and investigate; do not roll back to `v0.22.1` without a mitigation, because that recreates the rejected transactions and nonce blockage.
 
 Messages older than the eight-hour retry window require the reviewed manual-execution path. Do not repeatedly restart or manually replace nonces to make them disappear from TXM logs.

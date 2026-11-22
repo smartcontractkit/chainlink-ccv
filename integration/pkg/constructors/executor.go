@@ -127,7 +127,6 @@ func NewExecutorCoordinator(
 			keys[sel],
 			fromAddresses[sel],
 			executorMonitoring,
-			contracttransmitter.WithGasEstimator(chain.Client()),
 		)
 
 		evmDestReader, err := destinationreader.NewEvmDestinationReader(
