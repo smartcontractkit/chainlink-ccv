@@ -122,7 +122,7 @@ func newTxmV2(
 			EmptyTxLimitDefault: emptyTxGasLimit,
 		},
 		chainKeystore,
-		nil, // No error handler: that is dual broadcast's, which is rejected above.
+		deterministicTxErrorHandler{},
 		metrics,
 	)
 

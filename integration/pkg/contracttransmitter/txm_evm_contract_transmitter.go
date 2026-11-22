@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/offramp"
@@ -17,6 +18,7 @@ import (
 	"github.com/smartcontractkit/chainlink-evm/pkg/txmgr"
 
 	evmtypes "github.com/smartcontractkit/chainlink-evm/pkg/types"
+	"github.com/smartcontractkit/chainlink-framework/chains/fees"
 	txmgrcommon "github.com/smartcontractkit/chainlink-framework/chains/txmgr"
 )
 
@@ -28,7 +30,24 @@ const (
 	// Numerator and Denominator to compensate for EIP-150 forwarding.
 	eip150ForwardingNumerator   = 64
 	eip150ForwardingDenominator = 63
+	executionGasEstimateBuffer  = float32(1.15)
 )
+
+// GasEstimator estimates the complete transaction cost, including calldata and contract execution.
+type GasEstimator interface {
+	// EstimateGas returns the gas required by the complete transaction.
+	EstimateGas(context.Context, ethereum.CallMsg) (uint64, error)
+}
+
+// TransmitterOption customizes a TXMEVMContractTransmitter.
+type TransmitterOption func(*TXMEVMContractTransmitter)
+
+// WithGasEstimator enables full transaction estimation before TXM creates an attempt.
+func WithGasEstimator(estimator GasEstimator) TransmitterOption {
+	return func(ct *TXMEVMContractTransmitter) {
+		ct.gasEstimator = estimator
+	}
+}
 
 var (
 	_          chainaccess.ContractTransmitter      = &TXMEVMContractTransmitter{}
@@ -43,11 +62,12 @@ type TXMEVMContractTransmitter struct {
 	fromAddresses  []common.Address
 	OffRampAddress common.Address
 	chainSelector  protocol.ChainSelector
+	gasEstimator   GasEstimator
 	monitoring     monitoring.Monitoring
 }
 
-func NewEVMContractTransmitterFromTxm(lggr logger.Logger, chainSelector protocol.ChainSelector, client txmgr.TxManager, offRampAddress common.Address, keys keys.RoundRobin, fromAddresses []common.Address, monitoring monitoring.Monitoring) *TXMEVMContractTransmitter {
-	return &TXMEVMContractTransmitter{
+func NewEVMContractTransmitterFromTxm(lggr logger.Logger, chainSelector protocol.ChainSelector, client txmgr.TxManager, offRampAddress common.Address, keys keys.RoundRobin, fromAddresses []common.Address, monitoring monitoring.Monitoring, opts ...TransmitterOption) *TXMEVMContractTransmitter {
+	ct := &TXMEVMContractTransmitter{
 		lggr:           lggr,
 		chainSelector:  chainSelector,
 		OffRampAddress: offRampAddress,
@@ -56,6 +76,10 @@ func NewEVMContractTransmitterFromTxm(lggr logger.Logger, chainSelector protocol
 		fromAddresses:  fromAddresses,
 		monitoring:     monitoring,
 	}
+	for _, opt := range opts {
+		opt(ct)
+	}
+	return ct
 }
 
 // SetExecutorMonitoring implements chainaccess.ExecutorMonitoringSetter. The accessor builds the
@@ -92,15 +116,19 @@ func (ct *TXMEVMContractTransmitter) ConvertAndWriteMessageToChain(ctx context.C
 		return fmt.Errorf("skipping transmit, error getting round-robin from address: %w", err)
 	}
 	messageID, _ := report.Message.MessageID()
-	feeLimit := uint64(report.Message.ExecutionGasLimit) +
+	messageGasLimit := uint64(report.Message.ExecutionGasLimit) +
 		eip150ForwardingGasBuffer(report.Message.CcipReceiveGasLimit)
+	gasLimit, err := ct.estimateGasLimit(ctx, roundRobinFromAddress, payload, messageGasLimit)
+	if err != nil {
+		return fmt.Errorf("failed to estimate execution gas for message %s: %w", messageID, err)
+	}
 
 	// we don't want to use an idempotency key based on messageid in case the CCV Data changes in between resubmissions
 	tx, err := ct.TxmClient.CreateTransaction(ctx, txmgr.TxRequest{
 		FromAddress:    roundRobinFromAddress,
 		ToAddress:      ct.OffRampAddress,
 		EncodedPayload: payload,
-		FeeLimit:       feeLimit,
+		FeeLimit:       gasLimit,
 		Strategy:       txmgrcommon.NewSendEveryStrategy(),
 		// Correlates this tx with its CCIP message in TXM logs (the TXM
 		// logs meta.MessageIDs as "messageID" on every tx log line).
@@ -109,12 +137,32 @@ func (ct *TXMEVMContractTransmitter) ConvertAndWriteMessageToChain(ctx context.C
 		},
 	})
 	if err != nil {
-		ct.monitoring.Metrics().IncrementUnrecoverableMessageFailure(ctx)
 		return fmt.Errorf("failed to create txm transaction: %w", err)
 	}
 
-	ct.lggr.Infow("submitted tx to txm", "messageID", messageID, "txm key", tx.IdempotencyKey)
+	ct.lggr.Infow("submitted tx to txm", "messageID", messageID, "txm key", tx.IdempotencyKey, "gasLimit", gasLimit, "messageGasLimit", messageGasLimit)
 	return nil
+}
+
+func (ct *TXMEVMContractTransmitter) estimateGasLimit(ctx context.Context, from common.Address, payload []byte, messageGasLimit uint64) (uint64, error) {
+	if ct.gasEstimator == nil {
+		return 0, errors.New("EVM gas estimator is not configured")
+	}
+	estimatedGas, err := ct.gasEstimator.EstimateGas(ctx, ethereum.CallMsg{From: from, To: &ct.OffRampAddress, Data: payload})
+	if err != nil {
+		return 0, err
+	}
+	if estimatedGas == 0 {
+		return 0, errors.New("EVM gas estimator returned zero")
+	}
+	if estimatedGas <= messageGasLimit {
+		return messageGasLimit, nil
+	}
+	buffered, err := fees.ApplyMultiplier(estimatedGas, executionGasEstimateBuffer)
+	if err != nil {
+		return 0, fmt.Errorf("failed to buffer gas estimate %d: %w", estimatedGas, err)
+	}
+	return max(messageGasLimit, buffered), nil
 }
 
 // eip150ForwardingGasBuffer returns the extra gas needed to compensate for EIP-150

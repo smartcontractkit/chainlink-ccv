@@ -335,8 +335,8 @@ func (c *standaloneChain) TransmitterAddresses(ctx context.Context, ks keystore.
 }
 
 // NewContractTransmitter starts chainlink-evm's production TXM v2 and returns
-// the existing TXM-backed CCV transmitter. TXM owns nonce tracking, fee
-// estimation, retries, gas bumping, and multi-node writes.
+// the existing TXM-backed CCV transmitter. TXM owns nonce tracking, transaction
+// fees, retries, gas bumping, and multi-node writes.
 func (c *standaloneChain) NewContractTransmitter(
 	ctx context.Context,
 	chainSelector protocol.ChainSelector,
@@ -368,6 +368,7 @@ func (c *standaloneChain) NewContractTransmitter(
 		c.chainKeystore,
 		c.fromAddresses,
 		monitoring.NewNoopExecutorMonitoring(),
+		contracttransmitter.WithGasEstimator(c.chainClient),
 	)
 	c.contractTransmitter = transmitter
 	return transmitter, nil
