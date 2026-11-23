@@ -13,6 +13,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil/pg"
+	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 )
 
 const testWindow = time.Hour
@@ -89,7 +90,7 @@ func TestClaimWork_LeasesUntilExpiry(t *testing.T) {
 		claims, err = s.ClaimWork(t.Context(), 10, time.Second, testWindow)
 		require.NoError(t, err)
 		return len(claims) == 1
-	}, 5*time.Second, 100*time.Millisecond)
+	}, tests.WaitTimeout(t), 100*time.Millisecond)
 	require.Equal(t, 2, claims[0].Attempt)
 }
 
@@ -136,7 +137,7 @@ func TestSettleWork_RetryOrTimeout(t *testing.T) {
 		claims, err = s.ClaimWork(t.Context(), 10, time.Minute, testWindow)
 		require.NoError(t, err)
 		return len(claims) == 1
-	}, 5*time.Second, 100*time.Millisecond)
+	}, tests.WaitTimeout(t), 100*time.Millisecond)
 
 	status, err = s.SettleWork(t.Context(), common.WorkSettlement{MessageID: ids[1], Attempt: attempt[ids[1]], Status: common.MessageProcessing, RetryDelay: 2 * testWindow, Window: testWindow})
 	require.NoError(t, err)
