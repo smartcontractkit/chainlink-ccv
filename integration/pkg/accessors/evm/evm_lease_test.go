@@ -14,6 +14,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/common/lazy"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 )
 
 // fakeDBLease records how often it was taken and released, and can block or fail TakeAndHold.
@@ -80,9 +81,9 @@ func TestEVMLeaseEveryWaitingAcquireHearsTheLeaseIsHeld(t *testing.T) {
 	}
 	acquire(0)
 	acquire(1)
-	require.Eventually(t, func() bool { return heard[0].Load() && heard[1].Load() }, time.Second, time.Millisecond)
+	require.Eventually(t, func() bool { return heard[0].Load() && heard[1].Load() }, tests.WaitTimeout(t), time.Millisecond)
 	acquire(2) // arrives while the wait goes on
-	require.Eventually(t, heard[2].Load, time.Second, time.Millisecond)
+	require.Eventually(t, heard[2].Load, tests.WaitTimeout(t), time.Millisecond)
 
 	cancel()
 	wg.Wait()
@@ -135,7 +136,7 @@ func TestEVMLeaseAcquireInFlightDuringTheLastDropGivesTheLeaseBack(t *testing.T)
 	l.retain()
 	done := make(chan error, 1)
 	go func() { done <- l.Acquire(context.Background(), nil) }()
-	require.Eventually(t, func() bool { return fake.takes.Load() == 1 }, time.Second, time.Millisecond)
+	require.Eventually(t, func() bool { return fake.takes.Load() == 1 }, tests.WaitTimeout(t), time.Millisecond)
 
 	require.NoError(t, l.drop(), "the last drop does not wait for the Acquire in flight")
 	close(unblock)

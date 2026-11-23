@@ -24,6 +24,7 @@ import (
 	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 
 	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
 	verifierpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1"
@@ -2060,7 +2061,7 @@ func TestTryAcquireOrphanRecoveryLock(t *testing.T) {
 			}
 			r()
 			return true
-		}, 5*time.Second, 100*time.Millisecond)
+		}, tests.WaitTimeout(t), 100*time.Millisecond)
 
 		// Release on a connection that the server closed must not block or panic.
 		done := make(chan struct{})

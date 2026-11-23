@@ -13,6 +13,7 @@ import (
 	shared "github.com/smartcontractkit/chainlink-ccv/common/messagerules"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 )
 
 type fakeStore struct {
@@ -355,5 +356,5 @@ func TestRegistry_StartPeriodicRefresh_CallsRefreshRepeatedly(t *testing.T) {
 
 	require.Eventually(t, func() bool {
 		return store.listCallCount() >= 2
-	}, 100*time.Millisecond, 5*time.Millisecond)
+	}, tests.WaitTimeout(t), 5*time.Millisecond)
 }

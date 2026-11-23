@@ -19,6 +19,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/admin"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 )
 
 type balanceReaderFunc func(context.Context) ([]chainaccess.TransmitterKeyBalance, error)
@@ -117,7 +118,7 @@ func TestStartAdminConsoleServesJobAndBalances(t *testing.T) {
 	require.Eventually(t, func() bool {
 		status, body, err = get("/job", true)
 		return err == nil && status == http.StatusOK
-	}, 5*time.Second, 50*time.Millisecond)
+	}, tests.WaitTimeout(t), 50*time.Millisecond)
 	require.Contains(t, body, "executor-e2e")
 	require.Contains(t, body, "executor_id")
 

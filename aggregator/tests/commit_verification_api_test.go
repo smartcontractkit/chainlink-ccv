@@ -18,6 +18,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/common/committee"
 	"github.com/smartcontractkit/chainlink-ccv/common/messagerules"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 
 	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
 	msgdiscoverypb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/message-discovery/v1"
@@ -248,7 +249,7 @@ func TestKeyRotation(t *testing.T) {
 			})
 			require.NoError(collect, err)
 			require.Len(collect, getResp.Results, 1, "Should have 1 aggregation record after key rotation (old report fails quorum threshold)")
-		}, 5*time.Second, 100*time.Millisecond, "should have 1 aggregation record after key rotation")
+		}, tests.WaitTimeout(t), 100*time.Millisecond, "should have 1 aggregation record after key rotation")
 
 		ccvNodeData4, _ := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, testutil.WithSignatureFrom(t, signer1Rotated))
 		resp4, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData4))
@@ -261,7 +262,7 @@ func TestKeyRotation(t *testing.T) {
 			})
 			require.NoError(collect, err)
 			require.Len(collect, getResp2.Results, 1, "Should still have 1 aggregation record (old report fails quorum threshold)")
-		}, 5*time.Second, 100*time.Millisecond, "should still have 1 aggregation record")
+		}, tests.WaitTimeout(t), 100*time.Millisecond, "should still have 1 aggregation record")
 
 		readResp1, err := aggregatorClient.ReadCommitteeVerifierNodeResult(t.Context(), &committeepb.ReadCommitteeVerifierNodeResultRequest{
 			MessageId: messageId[:],
@@ -329,7 +330,7 @@ func assertCCVDataNotFound(t *testing.T, ctx context.Context, ccvDataClient veri
 			require.Len(collect, respCcvData.Errors, 1, "expected one error")
 			require.Equal(collect, int32(codes.NotFound), respCcvData.Errors[0].Code, "expected NotFound error code")
 		}
-	}, 500*time.Millisecond, 50*time.Millisecond, "CCV data should not be found")
+	}, tests.WaitTimeout(t), 50*time.Millisecond, "CCV data should not be found")
 }
 
 func assertCCVDataFound(t *testing.T, ctx context.Context, ccvDataClient verifierpb.VerifierClient, messageId protocol.Bytes32, message *verifierpb.Message, sourceVerifierAddress, destVerifierAddress []byte, options ...SignatureValidationOption) {
@@ -371,7 +372,7 @@ func assertCCVDataFound(t *testing.T, ctx context.Context, ccvDataClient verifie
 		if len(options) > 0 {
 			validateSignatures(collect, respCcvData.CcvData, messageId, options...)
 		}
-	}, 5*time.Second, 100*time.Millisecond, "CCV data not found within timeout")
+	}, tests.WaitTimeout(t), 100*time.Millisecond, "CCV data not found within timeout")
 }
 
 // validateSignatures decodes the CCV data and validates signatures from expected signers.
@@ -546,7 +547,7 @@ func TestChangingCommitteeAfterAggregation(t *testing.T) {
 			require.Len(collect, response.Errors, 1)
 			require.Equal(collect, int32(codes.Internal), response.Errors[0].Code,
 				"expected Internal error when valid signatures below quorum threshold after committee change")
-		}, 5*time.Second, 100*time.Millisecond, "old report should fail quorum threshold after committee change")
+		}, tests.WaitTimeout(t), 100*time.Millisecond, "old report should fail quorum threshold after committee change")
 
 		// Ensure that we can still write new signatures with the updated committee
 		ccvNodeData3, _ := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, testutil.WithSignatureFrom(t, signer3))
@@ -866,7 +867,7 @@ func TestStopAggregationAfterQuorum(t *testing.T) {
 			})
 			require.NoError(collect, err, "GetMessagesSince should succeed")
 			require.Len(collect, getResp.Results, 0, "Should return 0 reports (no quorum yet with 1/2 signatures)")
-		}, 2*time.Second, 100*time.Millisecond, "No aggregation should occur with only 1 signature")
+		}, tests.WaitTimeout(t), 100*time.Millisecond, "No aggregation should occur with only 1 signature")
 		t.Log("✓ Phase 1 complete: No aggregation with 1/2 signatures")
 
 		// Phase 2: Signer2 sends verification (2/2 threshold - quorum reached!)
@@ -883,7 +884,7 @@ func TestStopAggregationAfterQuorum(t *testing.T) {
 			})
 			require.NoError(collect, err, "GetMessagesSince should succeed")
 			require.Len(collect, getResp.Results, 1, "Should return 1 report (quorum reached with 2/2 signatures)")
-		}, 5*time.Second, 100*time.Millisecond, "Aggregation should complete after reaching quorum")
+		}, tests.WaitTimeout(t), 100*time.Millisecond, "Aggregation should complete after reaching quorum")
 
 		// Verify the aggregated report contains signatures from signer1 and signer2
 		assertCCVDataFound(t, t.Context(), ccvDataClient, messageId, ccvNodeData2.GetMessage(), sourceVerifierAddress, destVerifierAddress,
@@ -909,7 +910,7 @@ func TestStopAggregationAfterQuorum(t *testing.T) {
 			})
 			require.NoError(collect, err, "GetMessagesSince should succeed")
 			require.Len(collect, getResp.Results, 1, "Should still return only 1 report (no re-aggregation)")
-		}, 2*time.Second, 100*time.Millisecond, "No re-aggregation should occur (stop-aggregation-after-quorum)")
+		}, tests.WaitTimeout(t), 100*time.Millisecond, "No re-aggregation should occur (stop-aggregation-after-quorum)")
 
 		// Verify the report still only contains signatures from signer1 and signer2
 		// (signer3's signature should NOT have been aggregated)
@@ -1024,7 +1025,7 @@ func TestBatchGetVerifierResult_HappyPath(t *testing.T) {
 			require.True(collect, found, "message2 should be found in batch results")
 			require.Equal(collect, destVerifierAddress, result2.Metadata.VerifierDestAddress, "dest verifier address should match")
 			require.NotNil(collect, result2.CcvData, "CCV data should not be nil")
-		}, 5*time.Second, 100*time.Millisecond, "batch retrieval with both messages should succeed")
+		}, tests.WaitTimeout(t), 100*time.Millisecond, "batch retrieval with both messages should succeed")
 	}
 
 	for _, storageType := range storageTypes {
@@ -1090,7 +1091,7 @@ func TestBatchGetVerifierResult_DuplicateMessageIDs(t *testing.T) {
 				require.Equal(collect, uint64(1001), result.GetMessage().GetSequenceNumber(), "nonce should match for result %d", i)
 				require.Equal(collect, destVerifierAddress, result.Metadata.VerifierDestAddress, "dest verifier address should match for result %d", i)
 			}
-		}, 5*time.Second, 100*time.Millisecond, "batch retrieval with duplicate message IDs should succeed")
+		}, tests.WaitTimeout(t), 100*time.Millisecond, "batch retrieval with duplicate message IDs should succeed")
 	}
 
 	for _, storageType := range storageTypes {
@@ -1168,7 +1169,7 @@ func TestBatchGetVerifierResult_MissingMessages(t *testing.T) {
 			if batchResp.Results[1] != nil {
 				require.Nil(collect, batchResp.Results[1].Message, "second result should be empty for not-found message")
 			}
-		}, 5*time.Second, 100*time.Millisecond, "batch retrieval with missing messages should return partial results")
+		}, tests.WaitTimeout(t), 100*time.Millisecond, "batch retrieval with missing messages should return partial results")
 	}
 
 	for _, storageType := range storageTypes {
@@ -1363,7 +1364,7 @@ func TestBatchGetVerifierResult_MixedSuccessFailure(t *testing.T) {
 			if batchResp.Results[2] != nil {
 				require.Nil(collect, batchResp.Results[2].Message, "third result should be empty for not-found message")
 			}
-		}, 5*time.Second, 100*time.Millisecond, "batch mixed success/failure test should complete with 1:1 error correspondence")
+		}, tests.WaitTimeout(t), 100*time.Millisecond, "batch mixed success/failure test should complete with 1:1 error correspondence")
 	}
 
 	for _, storageType := range storageTypes {
@@ -1572,7 +1573,7 @@ func TestGetVerifierResultsForMessage_ReturnsNotFoundWhenSourceVerifierNotInCCVA
 
 			// Verify it returns NotFound
 			require.Equal(collect, int32(codes.NotFound), batchResp.Errors[0].Code, "should return NotFound when source verifier not in ccvAddresses")
-		}, 5*time.Second, 100*time.Millisecond, "should return NotFound when source verifier not in ccvAddresses")
+		}, tests.WaitTimeout(t), 100*time.Millisecond, "should return NotFound when source verifier not in ccvAddresses")
 	}
 
 	for _, storageType := range storageTypes {
@@ -1641,7 +1642,7 @@ func TestGetMessagesSince_ReturnsNilMetadataWhenSourceVerifierNotInCCVAddresses(
 				"CcvData should be at least version length bytes")
 			require.True(collect, bytes.Equal(protocol.MessageDiscoveryVersion, result.VerifierResult.CcvData[:protocol.MessageDiscoveryVersionLength]),
 				"CCV version in result should be MessageDiscoveryVersion")
-		}, 5*time.Second, 100*time.Millisecond, "should return nil metadata addresses when source verifier not in ccvAddresses")
+		}, tests.WaitTimeout(t), 100*time.Millisecond, "should return nil metadata addresses when source verifier not in ccvAddresses")
 
 		// Message-discovery reports count as aggregated without the source verifier check.
 		requireMessageStatus(t, statusClient, messageId[:], 2, 2, true)
@@ -1699,7 +1700,7 @@ func TestGetMessagesSince_ReturnsNoResultsWhenSourceVerifierNotInCCVAddressesAnd
 			})
 			require.NoError(collect, err, "GetMessagesSince should succeed")
 			require.Len(collect, resp.Results, 0, "should have 0 results because aggregation was rejected (source verifier not in ccvAddresses with regular version)")
-		}, 5*time.Second, 100*time.Millisecond, "should return no results when source verifier not in ccvAddresses and regular version")
+		}, tests.WaitTimeout(t), 100*time.Millisecond, "should return no results when source verifier not in ccvAddresses and regular version")
 
 		// The quorum count is reached, but no report exists.
 		requireMessageStatus(t, statusClient, messageId[:], 2, 2, false)
@@ -1758,7 +1759,7 @@ func TestSourceVerifierInCCVAddresses_MetadataPopulated(t *testing.T) {
 			require.NotNil(collect, result.Metadata, "Metadata should not be nil")
 			require.Equal(collect, sourceVerifierAddress, result.Metadata.VerifierSourceAddress, "VerifierSourceAddress should be populated")
 			require.Equal(collect, destVerifierAddress, result.Metadata.VerifierDestAddress, "VerifierDestAddress should be populated")
-		}, 5*time.Second, 100*time.Millisecond, "GetVerifierResultsForMessage should return OK with populated metadata")
+		}, tests.WaitTimeout(t), 100*time.Millisecond, "GetVerifierResultsForMessage should return OK with populated metadata")
 
 		// Test GetMessagesSince - should also have populated metadata
 		require.EventuallyWithTf(t, func(collect *assert.CollectT) {
@@ -1772,7 +1773,7 @@ func TestSourceVerifierInCCVAddresses_MetadataPopulated(t *testing.T) {
 			require.NotNil(collect, msgResult.VerifierResult.Metadata, "Metadata should not be nil")
 			require.Equal(collect, sourceVerifierAddress, msgResult.VerifierResult.Metadata.VerifierSourceAddress, "VerifierSourceAddress should be populated")
 			require.Equal(collect, destVerifierAddress, msgResult.VerifierResult.Metadata.VerifierDestAddress, "VerifierDestAddress should be populated")
-		}, 5*time.Second, 100*time.Millisecond, "GetMessagesSince should return populated metadata")
+		}, tests.WaitTimeout(t), 100*time.Millisecond, "GetMessagesSince should return populated metadata")
 
 		requireMessageStatus(t, statusClient, messageId[:], 2, 2, true)
 	}
@@ -1851,7 +1852,7 @@ func TestAggregatedReport_DoesNotMixVerificationRecordsFromDifferentAggregationK
 				"CcvData should be at least VerifierVersionLength bytes")
 			require.Equal(collect, versionA, result.CcvData[:committee.VerifierVersionLength],
 				"aggregated report CCV version must be versionA, not mixed")
-		}, 5*time.Second, 100*time.Millisecond, "aggregated report should contain only versionA records")
+		}, tests.WaitTimeout(t), 100*time.Millisecond, "aggregated report should contain only versionA records")
 
 		assertCCVDataFound(t, t.Context(), ccvDataClient, messageId, ccvNodeData1a.GetMessage(),
 			sourceVerifierAddress, destVerifierAddress,

@@ -86,9 +86,9 @@ type Service struct {
 	mu                          sync.RWMutex
 	lastProcessedFinalizedBlock atomic.Uint64
 	startBlockInitialized       atomic.Bool  // guards lastProcessedFinalizedBlock; set by the background init in Start
-	lastSuccessfulQuery         atomic.Int64 // unix ts of the last successful chain query; drives Ready() staleness
-	lastCompleteScan            atomic.Int64 // unix ts of the last log scan that read every chunk
-	lastFinalityCheck           atomic.Int64 // unix ts of the last finality checker update that succeeded
+	lastSuccessfulQuery         atomic.Int64 // unix nano timestamp of the last successful chain query; drives Ready() staleness
+	lastCompleteScan            atomic.Int64 // unix nano timestamp of the last log scan that read every chunk
+	lastFinalityCheck           atomic.Int64 // unix nano timestamp of the last finality checker update that succeeded
 	pendingTasks                map[string]verifier.VerificationTask
 	pendingSince                map[string]time.Time
 	pendingMetricDestinations   map[protocol.ChainSelector]struct{}
@@ -293,7 +293,7 @@ func (r *Service) initializeAndMonitor() {
 		}
 	}
 	// Staleness starts once the source can serve reads, so a long load does not count against it.
-	now := time.Now().Unix()
+	now := time.Now().UnixNano()
 	r.lastSuccessfulQuery.Store(now)
 	r.lastCompleteScan.Store(now)
 	r.lastFinalityCheck.Store(now)
@@ -370,13 +370,13 @@ func (r *Service) readiness() error {
 	return nil
 }
 
-// staleFor reports how long ago the unix timestamp last was, and whether that exceeds threshold.
+// staleFor reports how long ago the unix-nanosecond timestamp last was, and whether that exceeds threshold.
 // Zero means the clock has not started, which is never stale.
 func staleFor(last int64, threshold time.Duration) (time.Duration, bool) {
 	if last <= 0 {
 		return 0, false
 	}
-	since := time.Since(time.Unix(last, 0))
+	since := time.Since(time.Unix(0, last))
 	return since.Round(time.Second), since > threshold
 }
 
@@ -433,13 +433,13 @@ func (r *Service) eventMonitoringLoop() {
 					r.monitoring.RecordChainHealthy(ctx, r.chainSelector, false)
 					return
 				}
-				r.lastSuccessfulQuery.Store(time.Now().Unix())
+				r.lastSuccessfulQuery.Store(time.Now().UnixNano())
 				// A successful query is healthy only if the source and the chain's other inputs are too.
 				r.recordChainHealth(ctx)
 				r.recoveryHeartbeat(ctx, &latest.Number)
 				if r.recovery != nil && r.recovery.rebuildingID != "" {
 					// An operator rebuild pauses normal scanning on purpose; that is not a stalled scan.
-					r.lastCompleteScan.Store(time.Now().Unix())
+					r.lastCompleteScan.Store(time.Now().UnixNano())
 					if r.checkFinality(ctx, finalized) {
 						r.recoverRange(ctx, latest, safe, finalized)
 					}
@@ -447,7 +447,7 @@ func (r *Service) eventMonitoringLoop() {
 				}
 				pollSucceeded := r.processEventCycle(ctx, latest, finalized)
 				if pollSucceeded {
-					r.lastCompleteScan.Store(time.Now().Unix())
+					r.lastCompleteScan.Store(time.Now().UnixNano())
 					r.metrics().SetSourceReaderLastSuccessfulPollTimestamp(ctx, time.Now().Unix())
 					r.metrics().SetSourceReaderState(ctx, monitoring.SourceReaderStateRunning)
 				} else {
@@ -1227,7 +1227,7 @@ func (r *Service) checkFinality(ctx context.Context, finalized *protocol.BlockHe
 		return false
 	}
 
-	r.lastFinalityCheck.Store(time.Now().Unix())
+	r.lastFinalityCheck.Store(time.Now().UnixNano())
 	return !r.disabled.Load()
 }
 

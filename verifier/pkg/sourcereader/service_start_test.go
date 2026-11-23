@@ -19,6 +19,7 @@ import (
 	verifiermonitoring "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 )
 
 // Start must return promptly without waiting on the DB/chain reads that derive
@@ -89,7 +90,7 @@ func TestSRS_StartDoesNotBlockOnInitIO(t *testing.T) {
 	releaseFn()
 	require.Eventually(t, func() bool {
 		return srs.Ready() == nil
-	}, 2*time.Second, 5*time.Millisecond)
+	}, tests.WaitTimeout(t), 5*time.Millisecond)
 }
 
 // A failing init (DB down, RPC down) must not fail Start; the service retries
@@ -133,7 +134,7 @@ func TestSRS_StartRetriesFailedInit(t *testing.T) {
 	// non-readiness while initialization is deterministically held pending.
 	require.Eventually(t, func() bool {
 		return srs.Ready() == nil
-	}, 2*time.Second, 5*time.Millisecond, "service should self-heal once init succeeds")
+	}, tests.WaitTimeout(t), 5*time.Millisecond, "service should self-heal once init succeeds")
 	require.GreaterOrEqual(t, attempts.Load(), int32(3))
 }
 
@@ -176,18 +177,18 @@ func TestSRS_ReadyReportsStaleAfterFailedQueries(t *testing.T) {
 
 	require.Eventually(t, func() bool {
 		return srs.Ready() == nil
-	}, 2*time.Second, 5*time.Millisecond)
+	}, tests.WaitTimeout(t), 5*time.Millisecond)
 
 	failQueries.Store(true)
 	require.Eventually(t, func() bool {
 		err := srs.Ready()
 		return err != nil && strings.Contains(err.Error(), "no successful chain query")
-	}, 5*time.Second, 20*time.Millisecond, "reader should report staleness once queries stop succeeding")
+	}, tests.WaitTimeout(t), 20*time.Millisecond, "reader should report staleness once queries stop succeeding")
 
 	failQueries.Store(false)
 	require.Eventually(t, func() bool {
 		return srs.Ready() == nil
-	}, 2*time.Second, 5*time.Millisecond, "reader should recover once the chain answers again")
+	}, tests.WaitTimeout(t), 5*time.Millisecond, "reader should recover once the chain answers again")
 }
 
 // newStalenessTestSRS runs a reader whose heads always answer, so only log reads or finality checks can fail.
@@ -240,16 +241,16 @@ func TestSRS_ReadyReportsStaleWhenLogScansKeepFailing(t *testing.T) {
 	srs := newStalenessTestSRS(t, &failLogs, &failFinality)
 	require.NoError(t, srs.Start(t.Context()))
 	defer func() { require.NoError(t, srs.Close()) }()
-	require.Eventually(t, func() bool { return srs.Ready() == nil }, 2*time.Second, 5*time.Millisecond)
+	require.Eventually(t, func() bool { return srs.Ready() == nil }, tests.WaitTimeout(t), 5*time.Millisecond)
 
 	failLogs.Store(true)
 	require.Eventually(t, func() bool {
 		err := srs.Ready()
 		return err != nil && strings.Contains(err.Error(), "no complete log scan")
-	}, 5*time.Second, 20*time.Millisecond, "reader should report a stalled scan while heads stay fresh")
+	}, tests.WaitTimeout(t), 20*time.Millisecond, "reader should report a stalled scan while heads stay fresh")
 
 	failLogs.Store(false)
-	require.Eventually(t, func() bool { return srs.Ready() == nil }, 2*time.Second, 5*time.Millisecond,
+	require.Eventually(t, func() bool { return srs.Ready() == nil }, tests.WaitTimeout(t), 5*time.Millisecond,
 		"reader should recover once a scan completes")
 }
 
@@ -259,16 +260,16 @@ func TestSRS_ReadyReportsStaleWhenFinalityChecksKeepFailing(t *testing.T) {
 	srs := newStalenessTestSRS(t, &failLogs, &failFinality)
 	require.NoError(t, srs.Start(t.Context()))
 	defer func() { require.NoError(t, srs.Close()) }()
-	require.Eventually(t, func() bool { return srs.Ready() == nil }, 2*time.Second, 5*time.Millisecond)
+	require.Eventually(t, func() bool { return srs.Ready() == nil }, tests.WaitTimeout(t), 5*time.Millisecond)
 
 	failFinality.Store(true)
 	require.Eventually(t, func() bool {
 		err := srs.Ready()
 		return err != nil && strings.Contains(err.Error(), "finality checks failing")
-	}, 5*time.Second, 20*time.Millisecond, "reader should report failing finality checks")
+	}, tests.WaitTimeout(t), 20*time.Millisecond, "reader should report failing finality checks")
 
 	failFinality.Store(false)
-	require.Eventually(t, func() bool { return srs.Ready() == nil }, 2*time.Second, 5*time.Millisecond,
+	require.Eventually(t, func() bool { return srs.Ready() == nil }, tests.WaitTimeout(t), 5*time.Millisecond,
 		"reader should recover once the finality checker updates again")
 }
 
@@ -304,7 +305,7 @@ func TestSRS_ReadyIgnoresStalenessWhenDisabled(t *testing.T) {
 
 	require.Eventually(t, func() bool {
 		return srs.Ready() == nil
-	}, 2*time.Second, 5*time.Millisecond)
+	}, tests.WaitTimeout(t), 5*time.Millisecond)
 
 	srs.disabled.Store(true)
 	require.Never(t, func() bool {

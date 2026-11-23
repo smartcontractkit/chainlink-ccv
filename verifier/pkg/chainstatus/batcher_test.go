@@ -14,6 +14,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 )
 
 const (
@@ -136,7 +137,7 @@ func TestChainStatusBatcher_TickerFlushesBuffer(t *testing.T) {
 		status(1, 100, false),
 	}))
 
-	require.Eventually(t, func() bool { return recorder.count() >= 1 }, time.Second, 5*time.Millisecond)
+	require.Eventually(t, func() bool { return recorder.count() >= 1 }, tests.WaitTimeout(t), 5*time.Millisecond)
 
 	batches := recorder.all()
 	require.Len(t, batches[0], 1)
@@ -299,7 +300,7 @@ func TestChainStatusBatcher_FlushFailureRetries(t *testing.T) {
 	require.NoError(t, batcher.Start(ctx))
 	t.Cleanup(func() { _ = batcher.Close() })
 
-	require.Eventually(t, func() bool { return recorder.count() >= 1 }, time.Second, 5*time.Millisecond)
+	require.Eventually(t, func() bool { return recorder.count() >= 1 }, tests.WaitTimeout(t), 5*time.Millisecond)
 	batches := recorder.all()
 	require.Equal(t, big.NewInt(100), batches[0][0].FinalizedBlockHeight)
 }
