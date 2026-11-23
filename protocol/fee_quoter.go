@@ -73,6 +73,8 @@ type FeeToken struct {
 	Address UnknownAddress
 	// Symbol is the fee token's on-chain symbol, empty on chains without one.
 	Symbol string
+	// Decimals is the fee token's decimals, so smallest-unit amounts can be converted to whole tokens.
+	Decimals uint8
 }
 
 // FeeTokenPrice is a fee token's price and when it was updated.

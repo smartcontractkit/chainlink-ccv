@@ -163,8 +163,8 @@ func TestReaderFillsTheSymbolOfATokenTheWriterCachedDecimalsFor(t *testing.T) {
 	require.NoError(t, err)
 
 	require.ElementsMatch(t, []protocol.FeeToken{
-		{Address: env.Link.Bytes(), Symbol: "LINK"},
-		{Address: env.USDC.Bytes(), Symbol: "USDC"},
+		{Address: env.Link.Bytes(), Symbol: "LINK", Decimals: 18},
+		{Address: env.USDC.Bytes(), Symbol: "USDC", Decimals: 6},
 	}, state.FeeTokens)
 	usdc := state.FeeTokenPrices[protocol.UnknownAddress(env.USDC.Bytes()).String()]
 	require.Equal(t, big.NewInt(1e18), usdc.Price.ToInt(), "the cached decimals must be used")

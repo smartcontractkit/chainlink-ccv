@@ -33,8 +33,8 @@ func TestGetFQState(t *testing.T) {
 	require.NoError(t, err)
 
 	require.ElementsMatch(t, []protocol.FeeToken{
-		{Address: env.Link.Bytes(), Symbol: "LINK"},
-		{Address: env.USDC.Bytes(), Symbol: "USDC"},
+		{Address: env.Link.Bytes(), Symbol: "LINK", Decimals: 18},
+		{Address: env.USDC.Bytes(), Symbol: "USDC", Decimals: 6},
 	}, state.FeeTokens)
 
 	oneE18 := big.NewInt(1e18)
