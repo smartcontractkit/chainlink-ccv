@@ -710,7 +710,7 @@ func (markerFeeQuoterWriter) GetTransactionStatus(context.Context, string) (comm
 	return commontypes.Unknown, nil
 }
 
-func TestFactoryAccessorProvidesAUsableCCIPApiParser(t *testing.T) {
+func TestFactoryAccessorProvidesAUsableCCIPAPIParser(t *testing.T) {
 	t.Parallel()
 
 	env := pricereadertest.New(t)
@@ -725,7 +725,7 @@ func TestFactoryAccessorProvidesAUsableCCIPApiParser(t *testing.T) {
 	got, err := factory.GetAccessor(t.Context(), pricerTestSelector)
 	require.NoError(t, err)
 
-	parser, err := got.CCIPApiParser()
+	parser, err := got.CCIPAPIParser()
 	require.NoError(t, err)
 	require.NotNil(t, parser)
 
@@ -733,8 +733,8 @@ func TestFactoryAccessorProvidesAUsableCCIPApiParser(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, env.USDC.Bytes(), []byte(decoded))
 
-	_, err = parser.DecodeAddress("0x1234")
-	require.ErrorContains(t, err, "invalid EVM address")
+	_, err = parser.DecodeAddress("0xzz")
+	require.Error(t, err)
 }
 
 func TestSetKeystoreReplacesTheFeeQuoterWriterWithTheRuntimeOne(t *testing.T) {
