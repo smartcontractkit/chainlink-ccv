@@ -32,6 +32,11 @@ Order = 5
 [[EVM.Nodes]]
 Name = 'backup'
 HTTPURL = 'https://sepolia-backup.example.com'
+
+[[EVM.Nodes]]
+Name = 'broadcast'
+HTTPURL = 'https://sepolia-broadcast.example.com'
+SendOnly = true
 `))
 		require.NoError(t, err)
 
@@ -47,13 +52,17 @@ HTTPURL = 'https://sepolia-backup.example.com'
 		assert.Equal(t, string(TXMBlockTimeOperator), chain.TXMBlockTimeSource)
 		assert.False(t, chain.HeadTrackerPersistence, "standalone always runs the in-memory saver")
 
-		require.Len(t, chain.Nodes, 2)
+		require.Len(t, chain.Nodes, 3)
 		assert.Equal(t, "primary", chain.Nodes[0].Name)
 		assert.True(t, chain.Nodes[0].HasWebSocket)
+		assert.False(t, chain.Nodes[0].SendOnly)
 		require.NotNil(t, chain.Nodes[0].Order)
 		assert.Equal(t, int32(5), *chain.Nodes[0].Order)
 		assert.Equal(t, "backup", chain.Nodes[1].Name)
 		assert.False(t, chain.Nodes[1].HasWebSocket)
+		assert.False(t, chain.Nodes[1].SendOnly)
+		assert.Equal(t, "broadcast", chain.Nodes[2].Name)
+		assert.True(t, chain.Nodes[2].SendOnly)
 	})
 
 	t.Run("an unset block time on a curated chain uses the chain's default", func(t *testing.T) {

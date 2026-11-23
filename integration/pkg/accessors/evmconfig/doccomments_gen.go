@@ -29,10 +29,11 @@ func (DBConfig) DocComments() map[string]commentparsing.FieldDoc {
 
 func (Node) DocComments() map[string]commentparsing.FieldDoc {
 	return map[string]commentparsing.FieldDoc{
-		"HTTPUrl": {Comment: "HTTPUrl is the JSON-RPC endpoint used for reads and transaction submission. It is required."},
-		"Name":    {Comment: "Name identifies the RPC provider or endpoint in logs and health reports."},
-		"Order":   {Comment: "Order is the node's selection priority, 1 (highest) through 100 (lowest). When several nodes\nare equally healthy the multi-node pool prefers the one with the lowest Order value, so an\noperator can keep a primary RPC ahead of its backups. Zero is the default and leaves Order\nunset: the conversion sends no Order to chainlink-evm, which then applies its own default\npriority. A converted Chainlink node config carries each node's Order over unchanged."},
-		"WSUrl":   {Comment: "WSUrl is the optional WebSocket endpoint used for head subscriptions. Nodes without one\nfall back to HTTP head polling."},
+		"HTTPUrl":  {Comment: "HTTPUrl is the JSON-RPC endpoint used for reads and transaction submission. Send-only nodes\nuse it only for transaction submission. It is required."},
+		"Name":     {Comment: "Name identifies the RPC provider or endpoint in logs and health reports."},
+		"Order":    {Comment: "Order is the primary node's selection priority, from 1 (highest) through 100 (lowest); zero\nleaves it unset for chainlink-evm's default. Send-only nodes ignore it, matching Chainlink."},
+		"SendOnly": {Comment: "SendOnly restricts the node to transaction broadcasts over HTTP. It defaults to false, and at\nleast one primary (non-send-only) node is required per chain."},
+		"WSUrl":    {Comment: "WSUrl is the optional WebSocket endpoint used for head subscriptions on primary nodes. Primary\nnodes without one fall back to HTTP head polling; send-only nodes ignore it."},
 	}
 }
 

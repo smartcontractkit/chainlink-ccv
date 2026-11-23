@@ -19,11 +19,18 @@ func TestLoadConfig(t *testing.T) {
 		"5009297550715157269": {
 			FinalityDepth: 42,
 			TXMBlockTime:  12 * time.Second,
-			Nodes: []Node{{
-				Name:    "chainstack",
-				HTTPUrl: "http://evm-node:8545",
-				WSUrl:   "ws://evm-node:8546",
-			}},
+			Nodes: []Node{
+				{
+					Name:    "chainstack",
+					HTTPUrl: "http://evm-node:8545",
+					WSUrl:   "ws://evm-node:8546",
+				},
+				{
+					Name:     "broadcast",
+					HTTPUrl:  "http://evm-broadcast:8545",
+					SendOnly: true,
+				},
+			},
 		},
 	}}
 
@@ -226,12 +233,12 @@ func TestLoadConfigRejectsUnexposedChainlinkEVMNodeFields(t *testing.T) {
 [chains.5009297550715157269]
 [[chains.5009297550715157269.nodes]]
 http_url = "http://evm-node:8545"
-SendOnly = true
+IsLoadBalancedRPC = true
 `), 0o600))
 
 	_, _, err := LoadConfigFile(path)
 	require.ErrorContains(t, err, "unknown fields in config")
-	require.ErrorContains(t, err, "SendOnly")
+	require.ErrorContains(t, err, "IsLoadBalancedRPC")
 }
 
 func TestResolveConfigPath(t *testing.T) {

@@ -590,8 +590,7 @@ func overriddenChainSettings(cfg *evmtoml.EVMConfig, blocks []map[string]any) []
 	return overridden
 }
 
-// carriedOverNodeSettings is the node-level equivalent: the keys convertNodes reads. SendOnly is
-// read too — a send-only node is dropped wholesale, with its own warning.
+// carriedOverNodeSettings is the node-level equivalent: the keys convertNodes reads and carries over.
 var carriedOverNodeSettings = map[string]struct{}{
 	"name":     {},
 	"httpurl":  {},
@@ -737,16 +736,9 @@ func droppedNodeSettingPaths(node map[string]any) []string {
 	return dropped
 }
 
-// convertNodes maps the node's RPC endpoints onto CCV's narrower node type. CCV models one HTTP
-// endpoint, an optional WebSocket endpoint, and the node's selection priority (Order) per node and
-// nothing else, so anything a Chainlink node can express beyond that is dropped with a warning
-// rather than approximated. The dropped settings are named from the operator's file (rawNodes,
-// paired with the decoded nodes by position — they are the same entries), so a node field this
-// repo's chainlink-evm version predates is named too; a missing or short raw set degrades the
-// warnings, never the conversion.
-//
-// Errors come back as bare reasons without the chain ID: the caller prefixes them with the chain
-// when it records the chain as skipped.
+// convertNodes maps HTTP/WS endpoints, SendOnly, and Order onto standalone nodes. Unsupported settings
+// are named from rawNodes, paired with nodes by position; missing raw data only degrades warnings.
+// Errors are bare reasons for the caller to prefix with the chain ID.
 func convertNodes(chainID string, nodes evmtoml.EVMNodes, rawNodes []map[string]any) ([]Node, []string, error) {
 	if len(nodes) == 0 {
 		return nil, nil, fmt.Errorf("has no [[EVM.Nodes]] entries")
@@ -754,6 +746,7 @@ func convertNodes(chainID string, nodes evmtoml.EVMNodes, rawNodes []map[string]
 
 	var warnings []string
 	converted := make([]Node, 0, len(nodes))
+	hasPrimary := false
 	for i, node := range nodes {
 		if node == nil {
 			continue
@@ -767,24 +760,8 @@ func convertNodes(chainID string, nodes evmtoml.EVMNodes, rawNodes []map[string]
 			label = fmt.Sprintf("index %d", i)
 		}
 
-		// A send-only node is broadcast-only on a Chainlink node. CCV has no such concept, and
-		// carrying it over as an ordinary node would make it eligible for reads and head tracking —
-		// which is exactly what the operator marked it unfit for. Dropping it is the safe reading.
-		if node.SendOnly != nil && *node.SendOnly {
-			// The whole node goes, so its other settings go with it. They are named in this one
-			// warning rather than as separate per-setting lines: a node that is not carried has
-			// no setting that was individually dropped, and listing them as such reads as though
-			// the node survived without them.
-			dropped := ""
-			if i < len(rawNodes) {
-				if paths := droppedNodeSettingPaths(rawNodes[i]); len(paths) > 0 {
-					dropped = fmt.Sprintf(" (%s dropped with it)", strings.Join(paths, ", "))
-				}
-			}
-			warnings = append(warnings, fmt.Sprintf(
-				"chain %s node %s: dropped, SendOnly nodes have no standalone equivalent%s", chainID, label, dropped))
-			continue
-		}
+		sendOnly := node.SendOnly != nil && *node.SendOnly
+		hasPrimary = hasPrimary || !sendOnly
 		if node.HTTPURL == nil {
 			return nil, nil, fmt.Errorf(
 				"node %s has no HTTPURL; standalone CCV requires an HTTP endpoint for every node",
@@ -798,23 +775,26 @@ func convertNodes(chainID string, nodes evmtoml.EVMNodes, rawNodes []map[string]
 			}
 		}
 
-		// Order carries over so a converted node keeps the RPC prioritization the operator set on
-		// their Chainlink node. An unset Order stays zero, which standalone CCV leaves at the pool's
-		// lowest priority, matching how chainlink-evm treats a node with no Order.
+		// Order carries over unchanged; chainlink-evm applies its default when unset and ignores it
+		// on send-only nodes, just as it does for a Chainlink node.
 		var order int32
 		if node.Order != nil {
 			order = *node.Order
 		}
 		converted = append(converted, Node{
-			Name:    name,
-			HTTPUrl: urlString(node.HTTPURL),
-			WSUrl:   urlString(node.WSURL),
-			Order:   order,
+			Name:     name,
+			HTTPUrl:  urlString(node.HTTPURL),
+			WSUrl:    urlString(node.WSURL),
+			SendOnly: sendOnly,
+			Order:    order,
 		})
 	}
 
 	if len(converted) == 0 {
 		return nil, nil, fmt.Errorf("has no usable [[EVM.Nodes]] entries after conversion")
+	}
+	if !hasPrimary {
+		return nil, nil, fmt.Errorf("must have at least one primary node")
 	}
 	return converted, warnings, nil
 }

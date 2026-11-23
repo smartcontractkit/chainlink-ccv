@@ -57,11 +57,13 @@ SendOnly = true
 		assert.Equal(t, uint32(22), chain.FinalityDepth)
 		assert.Equal(t, "12s", chain.TXMBlockTime)
 		assert.False(t, chain.TXMBlockTimeIsDefault)
-		require.Len(t, chain.Nodes, 1, "the send-only node is dropped")
+		require.Len(t, chain.Nodes, 2)
+		assert.False(t, chain.Nodes[0].SendOnly)
+		assert.True(t, chain.Nodes[1].SendOnly)
+		assert.Empty(t, chain.NewHeadsPollInterval, "a send-only node without WS must not enable primary polling")
 
-		assert.Equal(t, []string{
-			"chain 11155111 node send-only: dropped, SendOnly nodes have no standalone equivalent",
-		}, report.Warnings, "GasEstimator.Mode and BalanceMonitor.Enabled carry over, so they are not deviations")
+		assert.Empty(t, report.Warnings,
+			"GasEstimator.Mode, BalanceMonitor.Enabled, and SendOnly carry over, so they are not deviations")
 		assert.Equal(t, evmconfig.ChainDefaultsSource(), report.ChainDefaults)
 		assert.Empty(t, report.ChainDefaultsProblems)
 	})

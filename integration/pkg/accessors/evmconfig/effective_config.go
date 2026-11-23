@@ -11,7 +11,7 @@ import (
 // drops, and this projection shows what standalone runs instead.
 //
 // RPC URLs are deliberately absent: they can carry API keys, and a diff needs the redundancy
-// picture (names, order, WebSocket coverage), not the endpoints.
+// picture (names, roles, order, WebSocket coverage), not the endpoints.
 type EffectiveChain struct {
 	ChainID            string `json:"chain_id"`
 	FinalityDepth      uint32 `json:"finality_depth"`
@@ -29,10 +29,11 @@ type EffectiveChain struct {
 	Nodes                  []EffectiveNode `json:"nodes"`
 }
 
-// EffectiveNode is one RPC node's projection: identity and selection priority, never its URLs.
+// EffectiveNode is one RPC node's projection: identity, role, and selection priority, never its URLs.
 type EffectiveNode struct {
 	Name         string `json:"name"`
 	HasWebSocket bool   `json:"has_websocket"`
+	SendOnly     bool   `json:"send_only"`
 	Order        *int32 `json:"order,omitempty"`
 }
 
@@ -88,7 +89,11 @@ func projectEffectiveChain(info Info, tomlConfig *evmtoml.EVMConfig) EffectiveCh
 		if node == nil {
 			continue
 		}
-		entry := EffectiveNode{HasWebSocket: node.WSURL != nil, Order: node.Order}
+		entry := EffectiveNode{
+			HasWebSocket: node.WSURL != nil,
+			SendOnly:     node.SendOnly != nil && *node.SendOnly,
+			Order:        node.Order,
+		}
 		if node.Name != nil {
 			entry.Name = *node.Name
 		}

@@ -12,6 +12,7 @@ type ChainEndpoint struct {
 	HTTPURL      string
 	WSURL        string
 	HasWebSocket bool
+	SendOnly     bool
 	Order        *int32
 }
 

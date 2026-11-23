@@ -25,15 +25,27 @@
     [[chains.1.nodes]]
       # name identifies the RPC provider or endpoint in logs and health reports.
       name = "node-1"
-      # http_url is the JSON-RPC endpoint used for reads and transaction submission. It is required.
+      # http_url is the JSON-RPC endpoint used for reads and transaction submission. Send-only nodes
+      # use it only for transaction submission. It is required.
       http_url = "http://rpc-url.com"
-      # ws_url is the optional WebSocket endpoint used for head subscriptions. Nodes without one
-      # fall back to HTTP head polling.
+      # ws_url is the optional WebSocket endpoint used for head subscriptions on primary nodes. Primary
+      # nodes without one fall back to HTTP head polling; send-only nodes ignore it.
       ws_url = "ws://rpc-url.com"
-      # order is the node's selection priority, 1 (highest) through 100 (lowest). When several nodes
-      # are equally healthy the multi-node pool prefers the one with the lowest Order value, so an
-      # operator can keep a primary RPC ahead of its backups. Zero is the default and leaves Order
-      # unset: the conversion sends no Order to chainlink-evm, which then applies its own default
-      # priority. A converted Chainlink node config carries each node's Order over unchanged.
+      # order is the primary node's selection priority, from 1 (highest) through 100 (lowest); zero
+      # leaves it unset for chainlink-evm's default. Send-only nodes ignore it, matching Chainlink.
       order = 1
+
+    # nodes are the RPC endpoints used to reach this chain.
+    [[chains.1.nodes]]
+      # name identifies the RPC provider or endpoint in logs and health reports.
+      name = "send-only-1"
+      # http_url is the JSON-RPC endpoint used for reads and transaction submission. Send-only nodes
+      # use it only for transaction submission. It is required.
+      http_url = "http://send-only-rpc-url.com"
+      # send_only restricts the node to transaction broadcasts over HTTP. It defaults to false, and at
+      # least one primary (non-send-only) node is required per chain.
+      send_only = true
+      # order is the primary node's selection priority, from 1 (highest) through 100 (lowest); zero
+      # leaves it unset for chainlink-evm's default. Send-only nodes ignore it, matching Chainlink.
+      order = 0
 

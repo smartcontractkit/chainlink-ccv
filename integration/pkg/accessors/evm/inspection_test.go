@@ -17,18 +17,27 @@ import (
 func TestInspectEVMConfigSanitizesEndpointsAndProjectsDefaults(t *testing.T) {
 	inspection, err := inspectEVMConfig(protocol.ChainSelector(1), Info{
 		ChainID: "1", FinalityDepth: 22, TXMBlockTime: 7 * time.Second,
-		Nodes: []Node{{
-			Name: "primary", HTTPUrl: "https://user:pass@rpc.example.com/path?api-key=secret",
-			WSUrl: "wss://user:pass@ws.example.com/socket?token=secret", Order: 1,
-		}},
+		Nodes: []Node{
+			{
+				Name: "primary", HTTPUrl: "https://user:pass@rpc.example.com/path?api-key=secret",
+				WSUrl: "wss://user:pass@ws.example.com/socket?token=secret", Order: 1,
+			},
+			{
+				Name: "broadcast", HTTPUrl: "https://user:pass@broadcast.example.com/path?api-key=secret",
+				SendOnly: true,
+			},
+		},
 	})
 	require.NoError(t, err)
 	require.Equal(t, "evm", inspection.Family)
 	require.Equal(t, "1", inspection.ChainID)
-	require.Len(t, inspection.Endpoints, 1)
+	require.Len(t, inspection.Endpoints, 2)
 	require.Equal(t, "https://rpc.example.com", inspection.Endpoints[0].HTTPURL)
 	require.Equal(t, "wss://ws.example.com", inspection.Endpoints[0].WSURL)
 	require.True(t, inspection.Endpoints[0].HasWebSocket)
+	require.False(t, inspection.Endpoints[0].SendOnly)
+	require.Equal(t, "https://broadcast.example.com", inspection.Endpoints[1].HTTPURL)
+	require.True(t, inspection.Endpoints[1].SendOnly)
 	require.NotContains(t, fmt.Sprint(inspection), "secret")
 	require.NotContains(t, fmt.Sprint(inspection), "user:pass")
 

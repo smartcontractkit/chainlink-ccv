@@ -28,9 +28,10 @@ state is transferred; this decision is about operation after cutover, not live s
 - Node-config conversion carries the node's chain-level settings, including `GasEstimator`,
   `NodePool`, `HeadTracker`, and `Transactions` tuning, over the chain defaults, except the few
   standalone fixes itself (see [EVM config conversion](../verifier/evm-standalone.md#evm-config-conversion)). Send-only nodes
-  are dropped. If no v2 block time is present, standalone uses a curated per-chain default for chains
-  whose real block interval exceeds the 2s validation floor (Ethereum and its testnets, Rootstock,
-  Gnosis, and similar), and 2 seconds otherwise; fast chains are already served by the floor.
+  carry over and receive transaction broadcasts alongside primary nodes. If no v2 block time is present,
+  standalone uses a curated per-chain default for chains whose real block interval exceeds the 2s
+  validation floor (Ethereum and its testnets, Rootstock, Gnosis, and similar), and 2 seconds otherwise;
+  fast chains are already served by the floor.
 - V2 rebroadcasts a transaction once it is `BumpThreshold` block times old, and every tick when that
   is 0. V1 reads 0 as "never bump" and still resends every `ResendAfterThreshold`, so standalone maps
   0 to that resend cadence (Hedera's defaults give 60 blocks, about 2 minutes).
@@ -52,7 +53,7 @@ Chainlink node database schemas and their migrations.
 Make production cutover conditional on three checks: review `txm_block_time` per chain in the
 pre-cutover diff (an operator-set value always wins; `txm_block_time_source` says whether a curated
 chain default or the generic 2s fallback produced the reported value) along with the effective
-gas/TXM/node settings; confirm forwarders, dual broadcast, send-only capacity, and
+gas/TXM/node settings, including each node's `send_only` role; confirm forwarders, dual broadcast, and
 `AutoPurge` are not required or provide equivalents; and pass a canary restart with transactions in
 flight on representative chains. Track a durable v2 store and removal of the local builder copy as
 follow-up work. Until then, in-memory restart recovery is an accepted residual risk and rollout
