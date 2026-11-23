@@ -181,6 +181,15 @@ type GasPriceReader interface {
 	GetGasPrice(ctx context.Context) (protocol.NativeGasPrice, error)
 }
 
+// CCIPApiParser parses the chain-specific values in CCIP API results, such as fee token addresses.
+// A chain family implements it so callers never branch on the family. It is separate from CCTPCodec
+// as it is not a guarantee that a given chain family will support CCTP thereby not implementing CCTPCodec.
+type CCIPApiParser interface {
+	// DecodeAddress parses an address string from a CCIP API result into the chain's native address bytes.
+	// It returns an error if the string is not a valid address for the chain.
+	DecodeAddress(address string) (protocol.UnknownAddress, error)
+}
+
 // Accessor provides objects that in turn provide specific kinds of blockchain access.
 // It is scoped to a particular chain selector. All methods are optional: implementations
 // return an error for capabilities they do not support.
@@ -197,6 +206,8 @@ type Accessor interface {
 	ContractTransmitter() (ContractTransmitter, error)
 	// CCTPCodec returns the CCTPCodec for this chain, or an error if not available.
 	CCTPCodec() (CCTPCodec, error)
+	// CCIPApiParser returns the CCIPApiParser for this chain, or an error if not available.
+	CCIPApiParser() (CCIPApiParser, error)
 	// FeeQuoterReader returns the FeeQuoterReader for this chain, or an error if not available.
 	FeeQuoterReader() (FeeQuoterReader, error)
 	// FeeQuoterWriter returns the FeeQuoterWriter for this chain, or an error if not available.

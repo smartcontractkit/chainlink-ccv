@@ -55,6 +55,10 @@ func (a *testAccessor) CCTPCodec() (chainaccess.CCTPCodec, error) {
 	return nil, errors.New("chain codec not available")
 }
 
+func (a *testAccessor) CCIPApiParser() (chainaccess.CCIPApiParser, error) {
+	return nil, errors.New("ccip api parser not available")
+}
+
 func (a *testAccessor) FeeQuoterReader() (chainaccess.FeeQuoterReader, error) {
 	return nil, errors.New("fee quoter reader not available")
 }
