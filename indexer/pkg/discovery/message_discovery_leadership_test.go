@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 )
 
 type fakeGate struct {
@@ -58,7 +60,7 @@ func TestAggregatorMessageDiscovery_NewLeaderLoadsCursorFromStorage(t *testing.T
 	leaderCtx, demote := context.WithCancel(ts.Context)
 	gate.elect(leaderCtx)
 
-	require.Eventually(t, func() bool { return ts.MockReader.GetCallCount() > 0 }, 2*time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool { return ts.MockReader.GetCallCount() > 0 }, tests.WaitTimeout(t), 10*time.Millisecond)
 	since, _ := ts.Reader.GetSinceValue()
 	require.Equal(t, int64(0), since, "the new leader must use the cursor from storage")
 

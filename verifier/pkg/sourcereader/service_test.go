@@ -1918,24 +1918,17 @@ func TestSRS_EventMonitoringLoop_ContinuesAfterPanic(t *testing.T) {
 		require.NoError(t, srs.Close())
 	}()
 
-	// Wait for multiple poll cycles to complete
-	// This gives time for:
-	// - 1st call: successful processing
-	// - 2nd call: panic and recovery
-	// - 3rd+ calls: continued processing after panic
-	time.Sleep(300 * time.Millisecond)
+	// The third call proves the loop recovered from the panic on the second call.
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return callCount >= 3
+	}, tests.WaitTimeout(t), 10*time.Millisecond,
+		"eventMonitoringLoop should continue processing after panic recovery")
 
-	// Verify that the loop continued processing after the panic
 	mu.Lock()
 	actualCallCount := callCount
 	mu.Unlock()
-
-	// We should have at least 3 calls:
-	// 1. First successful call
-	// 2. Call that panicked
-	// 3. Call(s) after recovery proving the loop continued
-	assert.GreaterOrEqual(t, actualCallCount, 3,
-		"eventMonitoringLoop should continue processing after panic recovery")
 
 	t.Logf("LatestAndFinalizedBlock called %d times (including 1 panic)", actualCallCount)
 }
@@ -2002,17 +1995,17 @@ func TestSRS_EventMonitoringLoop_PanicInProcessEventCycle(t *testing.T) {
 		require.NoError(t, srs.Close())
 	}()
 
-	// Wait for multiple poll cycles
-	time.Sleep(300 * time.Millisecond)
+	// The third fetch proves the loop recovered from the panic on the second fetch.
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return fetchCallCount >= 3
+	}, tests.WaitTimeout(t), 10*time.Millisecond,
+		"eventMonitoringLoop should continue processing after panic in processEventCycle")
 
-	// Verify that the loop continued processing after the panic
 	mu.Lock()
 	actualFetchCount := fetchCallCount
 	mu.Unlock()
-
-	// Should have at least 3 fetch calls (before, panic, after)
-	assert.GreaterOrEqual(t, actualFetchCount, 3,
-		"eventMonitoringLoop should continue processing after panic in processEventCycle")
 
 	t.Logf("FetchMessageSentEvents called %d times (including 1 panic)", actualFetchCount)
 }

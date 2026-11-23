@@ -536,7 +536,7 @@ func TestHealthCheck_ReportsStoppedAfterContextCancellation(t *testing.T) {
 
 	require.Eventually(t, func() bool {
 		return a.Ready() != nil
-	}, 2*time.Second, 10*time.Millisecond)
+	}, tests.WaitTimeout(t), 10*time.Millisecond)
 	err := a.Ready()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "stopped")
@@ -637,7 +637,7 @@ func TestHealthCheck_ReturnsErrorAfterConsecutiveWorkerFailures(t *testing.T) {
 	require.Eventually(t, func() bool {
 		err := a.Ready()
 		return err != nil
-	}, 5*time.Second, 20*time.Millisecond, "Ready() should return error after 3 consecutive worker failures")
+	}, tests.WaitTimeout(t), 20*time.Millisecond, "Ready() should return error after 3 consecutive worker failures")
 
 	err := a.Ready()
 	require.Error(t, err)
@@ -647,7 +647,7 @@ func TestHealthCheck_ReturnsErrorAfterConsecutiveWorkerFailures(t *testing.T) {
 
 	require.Eventually(t, func() bool {
 		return a.Ready() == nil
-	}, 5*time.Second, 20*time.Millisecond, "Ready() should return nil again after a successful aggregation")
+	}, tests.WaitTimeout(t), 20*time.Millisecond, "Ready() should return nil again after a successful aggregation")
 
 	cancel()
 	require.Eventually(t, func() bool {
@@ -697,7 +697,7 @@ func TestStartBackground_Shutdown(t *testing.T) {
 
 		require.Eventually(t, func() bool {
 			return a.Ready() != nil
-		}, 5*time.Second, 10*time.Millisecond, "aggregator should signal done after drain")
+		}, tests.WaitTimeout(t), 10*time.Millisecond, "aggregator should signal done after drain")
 
 		require.Equal(t, int32(2), processedCount.Load(), "both in-flight requests should finish during drain")
 		size, err := queue.Size(t.Context())
@@ -741,7 +741,7 @@ func TestStartBackground_Shutdown(t *testing.T) {
 
 		require.Eventually(t, func() bool {
 			return a.Ready() != nil
-		}, 5*time.Second, 10*time.Millisecond)
+		}, tests.WaitTimeout(t), 10*time.Millisecond)
 
 		require.False(t, ctxWasCancelled.Load(), "worker context should not be cancelled (WithoutCancel)")
 	})
@@ -785,7 +785,7 @@ func TestStartBackground_Shutdown(t *testing.T) {
 
 		require.Eventually(t, func() bool {
 			return a.Ready() != nil
-		}, 2*time.Second, 10*time.Millisecond, "done should close after drain timeout even with in-flight work")
+		}, tests.WaitTimeout(t), 10*time.Millisecond, "done should close after drain timeout even with in-flight work")
 
 		close(workerRelease)
 	})
@@ -818,7 +818,7 @@ func TestStartBackground_Shutdown(t *testing.T) {
 
 		require.Eventually(t, func() bool {
 			return a.Ready() != nil
-		}, 5*time.Second, 10*time.Millisecond, "aggregator should shut down cleanly despite worker errors")
+		}, tests.WaitTimeout(t), 10*time.Millisecond, "aggregator should shut down cleanly despite worker errors")
 	})
 }
 
@@ -850,16 +850,23 @@ func TestStartBackground_ClaimsOnlyFreeWorkerSlots(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
 	a.StartBackground(ctx)
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-a.Done():
+		case <-time.After(tests.WaitTimeout(t)):
+			t.Error("aggregator did not shut down")
+		}
+	})
 
-	require.Eventually(t, func() bool { return started.Load() == workers }, 5*time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool { return started.Load() == workers }, tests.WaitTimeout(t), 10*time.Millisecond)
 	size, err := queue.Size(t.Context())
 	require.NoError(t, err)
 	assert.Equal(t, jobs-workers, size, "jobs beyond the free slots must stay pending")
 
 	close(release)
-	require.Eventually(t, func() bool { return started.Load() == jobs }, 5*time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool { return started.Load() == jobs }, tests.WaitTimeout(t), 10*time.Millisecond)
 	for _, claim := range queue.claimSizes() {
 		assert.LessOrEqual(t, claim, workers)
 	}
@@ -934,12 +941,12 @@ func TestReady_ReportsRepeatedQueueClaimFailures(t *testing.T) {
 	require.Eventually(t, func() bool {
 		_ = a.CheckAggregation(ctx, trigger)
 		return a.Ready() != nil
-	}, 5*time.Second, 20*time.Millisecond, "repeated claim failures must make the aggregator not ready")
+	}, tests.WaitTimeout(t), 20*time.Millisecond, "repeated claim failures must make the aggregator not ready")
 	assert.ErrorContains(t, a.Ready(), "aggregation queue claim failed")
 
 	queue.setConsumeErr(nil)
 	require.Eventually(t, func() bool {
 		_ = a.CheckAggregation(ctx, trigger)
 		return a.Ready() == nil
-	}, 5*time.Second, 20*time.Millisecond, "a successful claim must clear the failure count")
+	}, tests.WaitTimeout(t), 20*time.Millisecond, "a successful claim must clear the failure count")
 }

@@ -19,6 +19,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
+	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 	clevmconfig "github.com/smartcontractkit/chainlink-evm/pkg/config"
 	evmtoml "github.com/smartcontractkit/chainlink-evm/pkg/config/toml"
@@ -136,7 +137,7 @@ func TestStandaloneBalanceMonitorReadsTransmitterOnStartupAndNewHeads(t *testing
 	require.Eventually(t, func() bool {
 		balance := chain.balanceMonitor.GetEthBalance(testBalanceMonitorAddress)
 		return balance != nil && balance.ToInt().Int64() == 100
-	}, 5*time.Second, 10*time.Millisecond)
+	}, tests.WaitTimeout(t), 10*time.Millisecond)
 
 	rpcClient.balance.Store(150)
 	chain.headBroadcaster.BroadcastNewLongestChain(&evmtypes.Head{Number: 1})
@@ -144,7 +145,7 @@ func TestStandaloneBalanceMonitorReadsTransmitterOnStartupAndNewHeads(t *testing
 	require.Eventually(t, func() bool {
 		balance := chain.balanceMonitor.GetEthBalance(testBalanceMonitorAddress)
 		return balance != nil && balance.ToInt().Int64() == 150
-	}, 5*time.Second, 10*time.Millisecond)
+	}, tests.WaitTimeout(t), 10*time.Millisecond)
 }
 
 func TestStandaloneBalanceMonitorRealRebuildsAndLeavesNoGoroutines(t *testing.T) {
@@ -421,7 +422,7 @@ func TestStandaloneBalanceMonitorERC20CachesDecimalsAndClosesCleanly(t *testing.
 		started := chain.balanceMonitorStarted
 		chain.mu.Unlock()
 		return started && monitor != nil && monitor.GetEthBalance(testBalanceMonitorAddress) != nil
-	}, 5*time.Second, 10*time.Millisecond)
+	}, tests.WaitTimeout(t), 10*time.Millisecond)
 	chain.balanceMonitorStartWG.Wait()
 	require.NoError(t, chain.Degraded())
 	require.NoError(t, chain.Close())

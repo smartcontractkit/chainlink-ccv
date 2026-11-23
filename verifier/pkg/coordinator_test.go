@@ -11,6 +11,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
+	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/assert"
@@ -428,7 +429,7 @@ func TestMultiSourceVerifier_HealthReporter(t *testing.T) {
 	require.Eventually(t, func() bool {
 		report = v.HealthReport()
 		return report != nil && report[v.Name()] == nil
-	}, 5*time.Second, 10*time.Millisecond)
+	}, tests.WaitTimeout(t), 10*time.Millisecond)
 	require.Contains(t, report, v.Name())
 
 	// Close the verifier

@@ -14,6 +14,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 )
 
 func TestPollerService_UnknownUntilSuccessfulPoll(t *testing.T) {
@@ -52,7 +53,7 @@ func TestPollerService_UsesLastSuccessfulRules(t *testing.T) {
 	require.Eventually(t, func() bool {
 		disabled, err := svc.IsMessageDisabled(context.Background(), protocol.Message{SourceChainSelector: 10, DestChainSelector: 20})
 		return err == nil && disabled
-	}, time.Second, time.Millisecond)
+	}, tests.WaitTimeout(t), time.Millisecond)
 
 	metrics.EXPECT().SetMessageDisablementRulesRefreshFailure(mock.Anything, int64(1))
 	client.EXPECT().ListMessageRules(mock.Anything).Return(nil, errors.New("transient"))
@@ -61,5 +62,5 @@ func TestPollerService_UsesLastSuccessfulRules(t *testing.T) {
 	require.Eventually(t, func() bool {
 		disabled, err := svc.IsMessageDisabled(context.Background(), protocol.Message{SourceChainSelector: 10, DestChainSelector: 20})
 		return err == nil && disabled
-	}, time.Second, time.Millisecond)
+	}, tests.WaitTimeout(t), time.Millisecond)
 }

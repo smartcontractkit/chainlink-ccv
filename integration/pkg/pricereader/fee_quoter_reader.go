@@ -100,7 +100,7 @@ func (f *EVMFeeQuoterReader) GetFQState(ctx context.Context) (protocol.FQState, 
 	for i, token := range structure.tokens {
 		address := protocol.UnknownAddress(token.Bytes())
 		metadata := prices.metadata[token]
-		state.FeeTokens = append(state.FeeTokens, protocol.FeeToken{Address: address, Symbol: metadata.symbol})
+		state.FeeTokens = append(state.FeeTokens, protocol.FeeToken{Address: address, Symbol: metadata.symbol, Decimals: metadata.decimals})
 		// A zero timestamp means that the token has no price on chain.
 		if prices.tokenPrices[i].Timestamp == 0 {
 			continue

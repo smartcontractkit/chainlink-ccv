@@ -1353,8 +1353,8 @@ func TestManager_OnConnectHook_RetriesUntilItSucceeds(t *testing.T) {
 	require.NoError(t, m.Start(t.Context()))
 	defer func() { require.NoError(t, m.Stop()) }()
 
-	require.Eventually(t, func() bool { return calls.Load() >= 3 }, 2*time.Second, 5*time.Millisecond)
-	require.Eventually(t, func() bool { return status.Degraded() == nil }, 2*time.Second, 5*time.Millisecond)
+	require.Eventually(t, func() bool { return calls.Load() >= 3 }, tests.WaitTimeout(t), 5*time.Millisecond)
+	require.Eventually(t, func() bool { return status.Degraded() == nil }, tests.WaitTimeout(t), 5*time.Millisecond)
 	time.Sleep(100 * time.Millisecond)
 	require.Equal(t, int32(3), calls.Load(), "a hook that succeeded is not run again")
 }
@@ -1371,7 +1371,7 @@ func TestManager_OnConnectHook_FailureDegradesStatusAndStopEndsRetries(t *testin
 	}, status)
 	require.NoError(t, m.Start(t.Context()))
 
-	require.Eventually(t, func() bool { return calls.Load() >= 3 }, 2*time.Second, 5*time.Millisecond, "a failing hook is retried")
+	require.Eventually(t, func() bool { return calls.Load() >= 3 }, tests.WaitTimeout(t), 5*time.Millisecond, "a failing hook is retried")
 	require.ErrorContains(t, status.Degraded(), "deadline exceeded")
 	require.ErrorContains(t, status.HealthReport()["jd.UpdateNode"], "deadline exceeded")
 	require.NoError(t, status.Ready(), "a failing hook degrades the service, it never makes it not ready")

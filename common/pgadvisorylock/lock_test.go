@@ -14,6 +14,7 @@ import (
 	_ "github.com/lib/pq"
 
 	"github.com/smartcontractkit/chainlink-ccv/common/pgadvisorylock"
+	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 )
 
 const key = "pgadvisorylock_test"
@@ -83,7 +84,7 @@ func TestTryAcquire(t *testing.T) {
 			}
 			l.Release()
 			return true
-		}, 5*time.Second, 100*time.Millisecond)
+		}, tests.WaitTimeout(t), 100*time.Millisecond)
 
 		require.Error(t, lock.Heartbeat(t.Context()), "heartbeat on a closed session must fail")
 		lock.Release()
