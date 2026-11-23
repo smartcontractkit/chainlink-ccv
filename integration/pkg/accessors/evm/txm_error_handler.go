@@ -2,6 +2,7 @@ package evm
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -11,11 +12,17 @@ import (
 	"github.com/smartcontractkit/chainlink-evm/pkg/txm/types"
 )
 
-type deterministicTxErrorHandler struct {
-	metrics discardedTransactionMetrics
+type pendingNonceClient interface {
+	PendingNonceAt(context.Context, common.Address) (uint64, error)
 }
 
-func (h deterministicTxErrorHandler) HandleError(
+type deterministicTxErrorHandler struct {
+	client   pendingNonceClient
+	getNonce func(common.Address) uint64
+	metrics  discardedTransactionMetrics
+}
+
+func (h *deterministicTxErrorHandler) HandleError(
 	ctx context.Context,
 	lggr logger.Logger,
 	tx *types.Transaction,
@@ -23,17 +30,34 @@ func (h deterministicTxErrorHandler) HandleError(
 	txStore txm.TxStore,
 	setNonce func(common.Address, uint64),
 ) (bool, error) {
-	if tx.AttemptCount != 1 || !isDeterministicGasRejection(txErr) {
+	if tx.AttemptCount != 1 || tx.IsPurgeable || !isDeterministicGasRejection(txErr) {
 		return false, nil
 	}
 	if tx.Nonce == nil {
 		return false, nil
 	}
-	if err := txStore.MarkTxFatal(ctx, tx, tx.FromAddress); err != nil {
-		return false, err
+
+	pendingNonce, err := h.client.PendingNonceAt(ctx, tx.FromAddress)
+	if err != nil {
+		return false, fmt.Errorf("failed to verify rejected transaction nonce: %w", err)
 	}
-	setNonce(tx.FromAddress, *tx.Nonce)
+	if pendingNonce > *tx.Nonce {
+		return false, nil
+	}
+
+	nonceRewound := h.getNonce(tx.FromAddress) == *tx.Nonce+1
+	if nonceRewound {
+		if err := txStore.MarkTxFatal(ctx, tx, tx.FromAddress); err != nil {
+			return false, err
+		}
+		setNonce(tx.FromAddress, *tx.Nonce)
+	} else {
+		if err := txStore.MarkUnconfirmedTransactionPurgeable(ctx, *tx.Nonce, tx.FromAddress); err != nil {
+			return false, err
+		}
+	}
 	if h.metrics != nil {
+		h.metrics.IncrementLifecycleFailure(ctx, txm.StageBroadcast)
 		h.metrics.IncrementDiscardedTransactions(ctx)
 	}
 	var messageIDs []string
@@ -43,8 +67,8 @@ func (h deterministicTxErrorHandler) HandleError(
 	} else if meta != nil {
 		messageIDs = meta.MessageIDs
 	}
-	logger.Sugared(lggr).Warnw("Discarded transaction rejected on its first broadcast; reusing its nonce",
-		"txID", tx.ID, "nonce", *tx.Nonce, "messageIDs", messageIDs, "error", txErr)
+	logger.Sugared(lggr).Warnw("Discarded transaction after deterministic first-broadcast rejection",
+		"txID", tx.ID, "nonce", *tx.Nonce, "nonceRewound", nonceRewound, "messageIDs", messageIDs, "error", txErr)
 	return true, nil
 }
 
@@ -52,7 +76,9 @@ func isDeterministicGasRejection(err error) bool {
 	if err == nil {
 		return false
 	}
-	msg := err.Error()
+	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "intrinsic gas too low") ||
-		strings.Contains(msg, "insufficient gas for floor data gas cost")
+		strings.Contains(msg, "insufficient gas for floor data gas cost") ||
+		strings.Contains(msg, "intrinsic gas exceeds gas limit") ||
+		strings.Contains(msg, "is insufficient of intrinsic gas required")
 }

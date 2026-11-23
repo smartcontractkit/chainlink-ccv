@@ -2,19 +2,20 @@
 
 ## Executive Summary
 
-- Standalone TXM v2 now discards deterministic first-broadcast gas rejections and immediately reuses their nonces, restoring TXM v1 behavior instead of waiting for AutoPurge.
-- Both `intrinsic gas too low` and geth's `insufficient gas for floor data gas cost` are recognized, including backend-specific suffixes.
-- `executor_txm_discarded_transactions_total{chainID}` counts discards, and discard logs include CCIP message IDs from TXM metadata.
-- AutoPurge remains the backstop for later attempts, mempool-stuck transactions, and unmatched deterministic failures such as the per-transaction gas cap.
-- No transmitter gas estimation or additional gas top-up is introduced by this change. Testnet retains its separate `LimitMultiplier = 2` stopgap while the backlog drains; no mainnet multiplier is prescribed.
+- Standalone TXM v2 now handles deterministic first-broadcast gas rejections instead of waiting for AutoPurge. A rejected newest nonce is immediately reused; an older nonce becomes purgeable for empty-transaction backfill.
+- `PendingNonceAt` guards against discarding a transmission another node accepted, and purge/nonce-gap transactions are excluded.
+- Geth's `intrinsic gas too low` and `insufficient gas for floor data gas cost`, Besu's `Intrinsic gas exceeds gas limit`, and Hedera's intrinsic-gas rejection are recognized case-insensitively, including backend-specific suffixes.
+- `executor_txm_discarded_transactions_total{chainID}` and the standard broadcast-lifecycle failure counter record handled rejections. Logs include CCIP message IDs supplied by the transmitter.
+- AutoPurge remains an optional, separately configured backstop for later attempts, mempool-stuck transactions, and unmatched deterministic failures.
+- No transmitter gas estimation or additional gas top-up is introduced. Testnet retains its separate `LimitMultiplier = 2` stopgap while the backlog drains; no mainnet multiplier is prescribed.
 
 ## AI Adapter Index
 
 | Symbol | Kind | Search | Location | Section |
 |---|---|---|---|---|
-| `evm.deterministicTxErrorHandler.HandleError` | added | `deterministicTxErrorHandler` | `integration/pkg/accessors/evm/txm_error_handler.go:16` | [#deterministic-rejection-handling](#deterministic-rejection-handling) |
-| `evm.newCCVTxmMetrics` | added | `newCCVTxmMetrics\(` | `integration/pkg/accessors/evm/txm_metrics.go:25` | [#discard-observability](#discard-observability) |
-| `evm.newTxmV2` | behavior-changed | `newTxmV2\(` | `integration/pkg/accessors/evm/txm.go:49` | [#deterministic-rejection-handling](#deterministic-rejection-handling) |
+| `evm.deterministicTxErrorHandler.HandleError` | added | `deterministicTxErrorHandler` | `integration/pkg/accessors/evm/txm_error_handler.go` | [#deterministic-rejection-handling](#deterministic-rejection-handling) |
+| `evm.NewCCVTxmMetrics` | added | `NewCCVTxmMetrics\(` | `integration/pkg/accessors/evm/txm_metrics.go` | [#discard-observability](#discard-observability) |
+| `evm.newTxmV2` | behavior-changed | `newTxmV2\(` | `integration/pkg/accessors/evm/txm.go` | [#deterministic-rejection-handling](#deterministic-rejection-handling) |
 
 ## Breaking Changes
 
@@ -22,24 +23,28 @@
 
 ## Deterministic rejection handling
 
-`newTxmV2` installs `deterministicTxErrorHandler` instead of a nil error handler. It handles only a transaction's first broadcast, when rewinding the just-assigned nonce cannot collide with subsequent in-flight transactions.
+`newTxmV2` installs `deterministicTxErrorHandler` instead of a nil error handler. It handles only non-purgeable transactions on their first broadcast and first checks `PendingNonceAt`: an increased pending nonce leaves the transaction under normal TXM handling.
 
-The handler calls `MarkTxFatal`, rewinds that nonce, and lets the next transaction reuse it. A rejected transaction leaves nothing on-chain, so later executor turns no longer leave a sequence of stuck heads behind them.
+When the rejected transaction holds the latest assigned nonce, the handler deletes it from the in-memory store and rewinds exactly one nonce. The next transaction immediately reuses that nonce. Such deleted transactions no longer appear in TXM status or idempotency-key lookups; the store does not retain a queryable fatal record.
 
-Later attempts are deliberately ineligible: rewinding then could collide with subsequent nonces. Unrelated RPC errors are also left to normal TXM handling. AutoPurge remains available for those later attempts, mempool-stuck transactions, and other deterministic failures.
+When later nonces were already assigned, rewinding would collide with in-flight work. The handler instead marks the older transaction purgeable, and the next backfill tick replaces its contents with an empty transaction at the same nonce even when AutoPurge is disabled. Existing purge and nonce-gap transactions, later attempts, unrelated RPC errors, and failed pending-nonce reads are left to normal TXM handling.
+
+AutoPurge is off by default and is not a universal backstop. Enable it with `Threshold` and `MinAttempts` where coverage is wanted for later attempts, mempool-stuck transactions, and other deterministic failures such as the per-transaction gas cap.
 
 ## Discard observability
 
-`newCCVTxmMetrics` wraps the standard TXM metrics without changing the upstream interface. Each discard increments `executor_txm_discarded_transactions_total` with a `chainID` label, and the log includes `txID`, `nonce`, `messageIDs`, and the RPC error. Metric initialization failure degrades to log-only behavior without preventing recovery.
+`NewCCVTxmMetrics` wraps the standard TXM metrics without changing the upstream interface. Each handled rejection increments `executor_txm_discarded_transactions_total` with a `chainID` label and `txm_transaction_lifecycle_failure_total` with `stage="broadcast"`. The log includes `txID`, `nonce`, `nonceRewound`, `messageIDs`, and the RPC error. The transmitter populates `MessageIDs` from each CCIP report. Metric initialization failure degrades the new counter to log-only behavior without preventing recovery.
+
+The integration TXM package is registered in `tools/metricsgolden/registry`; the golden file includes the discard counter and the standard TXM instruments.
 
 ## Recovery
 
 `docs/runbooks/evm-executor-gas-recovery.md` describes:
 
 - The testnet-only `LimitMultiplier = 2` stopgap for draining stale Solana messages.
-- AutoPurge with a positive threshold and an eight-hour rediscovery window.
-- Immediate first-broadcast recovery from the fixed release and controlled canary/fleet restarts.
-- The full Solana Glamsterdam migration required for correct pricing and execution of new messages, plus manual handling for messages older than eight hours.
+- AutoPurge with positive `Threshold` and `MinAttempts`, plus an eight-hour rediscovery window.
+- Immediate newest-nonce recovery, older-nonce purge recovery, and controlled canary/fleet restarts.
+- OffRamp execution verification and the full Solana Glamsterdam migration, including post-fork lane-build defaults and manual handling for messages older than eight hours.
 
 Do not carry the multiplier into mainnet configuration before product decides the appropriate gas policy.
 
@@ -47,10 +52,11 @@ Do not carry the multiplier into mainnet configuration before product decides th
 
 `integration/pkg/accessors/evm/txm_error_handler_test.go` covers:
 
-- Both rejection strings, including RPC suffixes.
-- Immediate nonce reuse by the next transaction.
-- One discard per accepted handler invocation and no discards for later attempts, unrelated errors, or nil errors.
-- CCIP message IDs in discard logs.
+- Geth, Besu, and Hedera rejection strings, including case differences and RPC suffixes.
+- Immediate reuse of a nonzero nonce through the real TXM broadcast path.
+- Older-nonce purging without a rewind, and preservation of later in-flight nonces.
+- No discard for accepted transmissions, failed nonce reads, existing purge transactions, later attempts, unrelated errors, nil errors, or nil nonces.
+- Discard and lifecycle metrics plus CCIP message IDs in logs.
 
 ## References
 

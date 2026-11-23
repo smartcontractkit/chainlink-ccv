@@ -3,8 +3,10 @@
 package registry
 
 import (
+	"math/big"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 
@@ -16,9 +18,11 @@ import (
 	ccvmonitoring "github.com/smartcontractkit/chainlink-ccv/common/monitoring"
 	execmonitoring "github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	idxmonitoring "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/monitoring"
+	evmaccessors "github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
 	vermonitoring "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/metrics"
+	"github.com/smartcontractkit/chainlink-evm/pkg/txm/types"
 )
 
 // Target is one package that creates metrics.
@@ -67,6 +71,17 @@ var Targets = []Target{
 			metricstest.CallAll(t, execmonitoring.NewExecutorMetricLabeler(metrics.NewLabeler(), m), nil, "With")
 		},
 		Unrecorded: []string{"executor_get_ccv_info_total"},
+	},
+	{
+		Name:    "executor_txm",
+		Package: "integration/pkg/accessors/evm",
+		Exercise: func(t *testing.T) {
+			m := evmaccessors.NewCCVTxmMetrics(logger.Test(t), big.NewInt(11155111))
+			nonce := uint64(0)
+			metricstest.CallAll(t, m, map[string][]any{
+				"EmitTxMessage": {t.Context(), common.Hash{}, common.Address{}, &types.Transaction{Nonce: &nonce}, uint64(21_000)},
+			})
+		},
 	},
 	{
 		Name:    "indexer",

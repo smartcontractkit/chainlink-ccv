@@ -28,10 +28,9 @@ import (
 // back into the store at a known nonce, and txmgr.NewTxmV2 builds the store internally and never
 // exposes it (chainlink-evm pkg/txmgr/builder.go).
 //
-// So newTxmV2 assembles the same objects that builder does, from the same exported constructors,
-// and keeps the store reference. It is a fork of upstream's builder and will drift if that builder
-// changes. The intended end state is for NewTxmV2 to accept a store manager, after which this file
-// goes away.
+// So newTxmV2 mirrors upstream's builder to retain the store. This fork can drift, and its
+// deterministic error handler and metrics wrapper are CCV additions that must be upstreamed or
+// retained before this file is removed.
 type txmV2 struct {
 	txmgr.TxManager
 
@@ -68,10 +67,8 @@ func newTxmV2(
 	feeCfg := txmgr.NewEvmTxmFeeConfig(cfg.GasEstimator())
 	gasCfg := cfg.GasEstimator()
 
-	// AutoPurge drives the stuck transaction detector, which marks a transaction purgeable when the
-	// chain stops making progress on it. newChainlinkEVMConfig leaves it off (see the note there),
-	// so this branch is not taken today; it is wired up so that turning AutoPurge on is a config
-	// change rather than a code change.
+	// AutoPurge follows node config when Enabled, Threshold, and MinAttempts are set. The stuck
+	// transaction detector then marks transactions purgeable when the chain stops making progress.
 	var stuckTxDetector txm.StuckTxDetector
 	if autoPurge := cfg.Transactions().AutoPurge(); autoPurge.Enabled() {
 		var detectionURL string
@@ -98,7 +95,7 @@ func newTxmV2(
 	attemptBuilder := txm.NewAttemptBuilder(feeCfg.PriceMaxKey, withPurgeFeeFallback(estimator, gasCfg), chainKeystore,
 		emptyTxGasLimit, false)
 	store := storage.NewInMemoryStoreManager(lggr, chainID)
-	metrics := newCCVTxmMetrics(lggr, chainID)
+	metrics := NewCCVTxmMetrics(lggr, chainID)
 
 	blockTime := *txmV2Cfg.BlockTime()
 	resendAfter := cfg.Transactions().ResendAfterThreshold()
@@ -108,6 +105,7 @@ func newTxmV2(
 			"retryBlockThreshold", retryThreshold, "resendAfterThreshold", resendAfter, "blockTime", blockTime)
 	}
 
+	errorHandler := &deterministicTxErrorHandler{client: wrappedClient, metrics: metrics}
 	inner := txm.NewTxm(
 		lggr,
 		chainID,
@@ -122,9 +120,10 @@ func newTxmV2(
 			EmptyTxLimitDefault: emptyTxGasLimit,
 		},
 		chainKeystore,
-		deterministicTxErrorHandler{metrics: metrics},
+		errorHandler,
 		metrics,
 	)
+	errorHandler.getNonce = inner.GetNonce
 
 	orchestrator := txm.NewTxmOrchestrator[common.Hash, *evmtypes.Head](
 		lggr,
