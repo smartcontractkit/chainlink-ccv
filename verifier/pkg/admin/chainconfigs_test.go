@@ -29,9 +29,14 @@ func TestChainConfigsPage(t *testing.T) {
 			1: chainInspectorFunc(func(context.Context) (chainaccess.ChainInspection, error) {
 				return chainaccess.ChainInspection{
 					Selector: 1, Family: "test-family", ChainID: "chain-one", Roles: []string{"source", "destination"},
-					Endpoints: []chainaccess.ChainEndpoint{{
-						Name: "primary", HTTPURL: "https://rpc.example.com", WSURL: "wss://rpc.example.com", HasWebSocket: true, Order: &order,
-					}},
+					Endpoints: []chainaccess.ChainEndpoint{
+						{
+							Name: "primary", HTTPURL: "https://rpc.example.com", WSURL: "wss://rpc.example.com", HasWebSocket: true, Order: &order,
+						},
+						{
+							Name: "broadcast", HTTPURL: "https://broadcast.example.com", SendOnly: true,
+						},
+					},
 					Attributes: []chainaccess.ChainAttribute{
 						{Name: "z.value", Value: "last", Source: "operator"},
 						{Name: "a.value", Value: "first", Source: "family_default"},
@@ -55,7 +60,8 @@ func TestChainConfigsPage(t *testing.T) {
 	body := rec.Body.String()
 	for _, expected := range []string{
 		"Chain configurations", "test-family", "chain-one", "source, destination",
-		"https://rpc.example.com", "wss://rpc.example.com", "degraded example", "driver failed",
+		"Primary", "Send-only", "ignored", "https://rpc.example.com", "https://broadcast.example.com",
+		"wss://rpc.example.com", "degraded example", "driver failed",
 		"a.value", "z.value", "family_default", "operator",
 	} {
 		require.Contains(t, body, expected)

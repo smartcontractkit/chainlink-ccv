@@ -47,5 +47,5 @@
       send_only = true
       # order is the primary node's selection priority, from 1 (highest) through 100 (lowest); zero
       # leaves it unset for chainlink-evm's default. Send-only nodes ignore it, matching Chainlink.
-      order = 0
+      order = 100
 

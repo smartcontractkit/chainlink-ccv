@@ -89,10 +89,11 @@ func projectEffectiveChain(info Info, tomlConfig *evmtoml.EVMConfig) EffectiveCh
 		if node == nil {
 			continue
 		}
-		entry := EffectiveNode{
-			HasWebSocket: node.WSURL != nil,
-			SendOnly:     node.SendOnly != nil && *node.SendOnly,
-			Order:        node.Order,
+		sendOnly := node.SendOnly != nil && *node.SendOnly
+		entry := EffectiveNode{SendOnly: sendOnly}
+		if !sendOnly {
+			entry.HasWebSocket = node.WSURL != nil
+			entry.Order = node.Order
 		}
 		if node.Name != nil {
 			entry.Name = *node.Name

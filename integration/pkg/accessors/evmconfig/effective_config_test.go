@@ -36,7 +36,9 @@ HTTPURL = 'https://sepolia-backup.example.com'
 [[EVM.Nodes]]
 Name = 'broadcast'
 HTTPURL = 'https://sepolia-broadcast.example.com'
+WSURL = 'wss://sepolia-broadcast.example.com'
 SendOnly = true
+Order = 50
 `))
 		require.NoError(t, err)
 
@@ -63,6 +65,8 @@ SendOnly = true
 		assert.False(t, chain.Nodes[1].SendOnly)
 		assert.Equal(t, "broadcast", chain.Nodes[2].Name)
 		assert.True(t, chain.Nodes[2].SendOnly)
+		assert.False(t, chain.Nodes[2].HasWebSocket, "an ignored send-only WSURL is not effective WebSocket coverage")
+		assert.Nil(t, chain.Nodes[2].Order, "an ignored send-only Order is not an effective selection priority")
 	})
 
 	t.Run("an unset block time on a curated chain uses the chain's default", func(t *testing.T) {

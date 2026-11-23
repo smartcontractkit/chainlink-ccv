@@ -389,6 +389,7 @@ func evmConfig() evm.Config {
 						Name:     "send-only-1",
 						HTTPUrl:  "http://send-only-rpc-url.com",
 						SendOnly: true,
+						Order:    100,
 					},
 				},
 				FinalityDepth:                0,

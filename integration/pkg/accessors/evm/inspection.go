@@ -49,7 +49,9 @@ func inspectEVMEndpoints(infos []Node, effective []evmconfig.EffectiveNode) []ch
 		}
 		if i < len(infos) {
 			endpoint.HTTPURL = sanitizeRPCURL(infos[i].HTTPUrl)
-			endpoint.WSURL = sanitizeRPCURL(infos[i].WSUrl)
+			if !node.SendOnly {
+				endpoint.WSURL = sanitizeRPCURL(infos[i].WSUrl)
+			}
 		}
 		endpoints = append(endpoints, endpoint)
 	}

@@ -24,7 +24,7 @@ func TestInspectEVMConfigSanitizesEndpointsAndProjectsDefaults(t *testing.T) {
 			},
 			{
 				Name: "broadcast", HTTPUrl: "https://user:pass@broadcast.example.com/path?api-key=secret",
-				SendOnly: true,
+				WSUrl: "wss://user:pass@broadcast-ws.example.com/socket?token=secret", SendOnly: true, Order: 7,
 			},
 		},
 	})
@@ -38,6 +38,9 @@ func TestInspectEVMConfigSanitizesEndpointsAndProjectsDefaults(t *testing.T) {
 	require.False(t, inspection.Endpoints[0].SendOnly)
 	require.Equal(t, "https://broadcast.example.com", inspection.Endpoints[1].HTTPURL)
 	require.True(t, inspection.Endpoints[1].SendOnly)
+	require.False(t, inspection.Endpoints[1].HasWebSocket)
+	require.Empty(t, inspection.Endpoints[1].WSURL)
+	require.Nil(t, inspection.Endpoints[1].Order)
 	require.NotContains(t, fmt.Sprint(inspection), "secret")
 	require.NotContains(t, fmt.Sprint(inspection), "user:pass")
 

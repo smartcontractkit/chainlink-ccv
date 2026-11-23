@@ -57,6 +57,6 @@ Verifiers dial send-only nodes but never submit transactions. On Hedera, chainli
 
 ### Inspection
 
-`EffectiveNode` includes `send_only` for every node in the pre-cutover JSON report, and the runtime `ChainEndpoint` projection carries the same role. RPC URLs remain sanitized or absent from these views.
+`EffectiveNode` includes `send_only` for every node in the pre-cutover JSON report and omits ignored WebSocket and order fields for send-only nodes. The runtime `ChainEndpoint` projection carries the role, and the admin chain-configurations page displays it. RPC URLs remain sanitized or absent from these views.
 
 The generated EVM config reference includes primary and send-only node examples; regenerate it with `just config-docs` after changing node fields or comments.
