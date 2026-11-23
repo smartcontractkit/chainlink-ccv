@@ -45,7 +45,7 @@ func (h *deterministicTxErrorHandler) HandleError(
 		return false, nil
 	}
 
-	nonceRewound := h.getNonce(tx.FromAddress) == *tx.Nonce+1
+	nonceRewound := h.getNonce != nil && h.getNonce(tx.FromAddress) == *tx.Nonce+1
 	if nonceRewound {
 		if err := txStore.MarkTxFatal(ctx, tx, tx.FromAddress); err != nil {
 			return false, err

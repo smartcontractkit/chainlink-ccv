@@ -160,6 +160,30 @@ func TestDeterministicTxErrorHandlerPurgesOlderNonceInsteadOfRewinding(t *testin
 	require.False(t, later.IsPurgeable)
 }
 
+func TestDeterministicTxErrorHandlerNilNonceGetterPurges(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	address := common.HexToAddress("0x000000000000000000000000000000000000dEaD")
+	store := storage.NewInMemoryStoreManager(logger.Test(t), big.NewInt(11155111))
+	require.NoError(t, store.Add(address))
+	_, err := store.CreateTransaction(ctx, &types.TxRequest{FromAddress: address, ToAddress: address, Value: big.NewInt(0)})
+	require.NoError(t, err)
+	tx, err := store.UpdateUnstartedTransactionWithNonce(ctx, address, 7)
+	require.NoError(t, err)
+	tx.AttemptCount = 1
+
+	handler := &deterministicTxErrorHandler{client: &fixedPendingNonceClient{nonce: 7}}
+	noTransmission, err := handler.HandleError(ctx, logger.Test(t), tx, errors.New("intrinsic gas too low"), store,
+		func(common.Address, uint64) { t.Fatal("a nil nonce getter must not cause a rewind") })
+	require.NoError(t, err)
+	require.True(t, noTransmission)
+	purged, _, err := store.FetchUnconfirmedTransactionAtNonceWithCount(ctx, 7, address)
+	require.NoError(t, err)
+	require.NotNil(t, purged)
+	require.True(t, purged.IsPurgeable)
+}
+
 func TestDeterministicTxErrorHandlerLeavesAcceptedTransmissionAlone(t *testing.T) {
 	t.Parallel()
 
