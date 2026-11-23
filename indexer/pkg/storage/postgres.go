@@ -32,7 +32,7 @@ const (
 	maxBatchSizeCCVData = 5000
 
 	// maxBatchSizeMessages is the maximum number of message rows that can be inserted in a single query
-	// to avoid Postgres bind parameter overflow (65535 limit). With 7 parameters per row, 5000 rows = 35000 parameters.
+	// to avoid Postgres bind parameter overflow (65535 limit). With 9 parameters per row, 5000 rows = 45000 parameters.
 	maxBatchSizeMessages = 5000
 
 	ccvDataConflictInsert = ` ON CONFLICT (message_id, verifier_source_address, verifier_dest_address) DO NOTHING`
@@ -67,6 +67,13 @@ type PostgresStorage struct {
 	ds         DataSource
 	lggr       logger.Logger
 	monitoring common.IndexerMonitoring
+	// onMessagesPersisted wakes the local worker pool after a discovery commit.
+	onMessagesPersisted func()
+}
+
+// SetOnMessagesPersisted sets a callback that runs after a discovery batch with messages commits.
+func (d *PostgresStorage) SetOnMessagesPersisted(fn func()) {
+	d.onMessagesPersisted = fn
 }
 
 func NewPostgresStorage(ctx context.Context, lggr logger.Logger, monitoring common.IndexerMonitoring, uri, driverName string, config pg.DBConfig, connMaxLifetime, connMaxIdleTime time.Duration) (*PostgresStorage, error) {
@@ -404,10 +411,11 @@ func buildBatchMessagesQuery(messages []common.MessageWithMetadata, conflictClau
 			source_chain_selector,
 			dest_chain_selector,
 			ingestion_timestamp,
-			message_ccv_addresses
+			message_ccv_addresses,
+			trace_parent
 		) VALUES `)
 
-	const colsPerRow = 8
+	const colsPerRow = 9
 	args := make([]any, 0, len(messages)*colsPerRow)
 	valueClauses := make([]string, 0, len(messages))
 
@@ -427,8 +435,8 @@ func buildBatchMessagesQuery(messages []common.MessageWithMetadata, conflictClau
 			ccvAddressesHex[j] = addr.String()
 		}
 
-		valueClause := fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
-			baseIdx+1, baseIdx+2, baseIdx+3, baseIdx+4, baseIdx+5, baseIdx+6, baseIdx+7, baseIdx+8)
+		valueClause := fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, NULLIF($%d, ''))",
+			baseIdx+1, baseIdx+2, baseIdx+3, baseIdx+4, baseIdx+5, baseIdx+6, baseIdx+7, baseIdx+8, baseIdx+9)
 		valueClauses = append(valueClauses, valueClause)
 
 		args = append(args,
@@ -440,6 +448,7 @@ func buildBatchMessagesQuery(messages []common.MessageWithMetadata, conflictClau
 			msg.Message.DestChainSelector,
 			msg.Metadata.IngestionTimestamp,
 			pq.Array(ccvAddressesHex),
+			msg.Metadata.TraceParent,
 		)
 
 		baseIdx += colsPerRow
@@ -728,6 +737,10 @@ func (d *PostgresStorage) PersistDiscoveryBatch(ctx context.Context, batch commo
 	if err != nil {
 		d.lggr.Errorw("Failed to persist discovery batch", "error", err)
 		return err
+	}
+
+	if len(batch.Messages) > 0 && d.onMessagesPersisted != nil {
+		d.onMessagesPersisted()
 	}
 
 	if len(batch.Verifications) > 0 {

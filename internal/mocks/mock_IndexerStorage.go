@@ -24,6 +24,123 @@ func (_m *MockIndexerStorage) EXPECT() *MockIndexerStorage_Expecter {
 	return &MockIndexerStorage_Expecter{mock: &_m.Mock}
 }
 
+// ClaimWork provides a mock function with given fields: ctx, limit, lease, window
+func (_m *MockIndexerStorage) ClaimWork(ctx context.Context, limit int, lease time.Duration, window time.Duration) ([]common.WorkClaim, error) {
+	ret := _m.Called(ctx, limit, lease, window)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ClaimWork")
+	}
+
+	var r0 []common.WorkClaim
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, int, time.Duration, time.Duration) ([]common.WorkClaim, error)); ok {
+		return rf(ctx, limit, lease, window)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, int, time.Duration, time.Duration) []common.WorkClaim); ok {
+		r0 = rf(ctx, limit, lease, window)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]common.WorkClaim)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, int, time.Duration, time.Duration) error); ok {
+		r1 = rf(ctx, limit, lease, window)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockIndexerStorage_ClaimWork_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ClaimWork'
+type MockIndexerStorage_ClaimWork_Call struct {
+	*mock.Call
+}
+
+// ClaimWork is a helper method to define mock.On call
+//   - ctx context.Context
+//   - limit int
+//   - lease time.Duration
+//   - window time.Duration
+func (_e *MockIndexerStorage_Expecter) ClaimWork(ctx interface{}, limit interface{}, lease interface{}, window interface{}) *MockIndexerStorage_ClaimWork_Call {
+	return &MockIndexerStorage_ClaimWork_Call{Call: _e.mock.On("ClaimWork", ctx, limit, lease, window)}
+}
+
+func (_c *MockIndexerStorage_ClaimWork_Call) Run(run func(ctx context.Context, limit int, lease time.Duration, window time.Duration)) *MockIndexerStorage_ClaimWork_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(int), args[2].(time.Duration), args[3].(time.Duration))
+	})
+	return _c
+}
+
+func (_c *MockIndexerStorage_ClaimWork_Call) Return(_a0 []common.WorkClaim, _a1 error) *MockIndexerStorage_ClaimWork_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockIndexerStorage_ClaimWork_Call) RunAndReturn(run func(context.Context, int, time.Duration, time.Duration) ([]common.WorkClaim, error)) *MockIndexerStorage_ClaimWork_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// CountProcessingMessages provides a mock function with given fields: ctx
+func (_m *MockIndexerStorage) CountProcessingMessages(ctx context.Context) (int64, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CountProcessingMessages")
+	}
+
+	var r0 int64
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) (int64, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) int64); ok {
+		r0 = rf(ctx)
+	} else {
+		r0 = ret.Get(0).(int64)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockIndexerStorage_CountProcessingMessages_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CountProcessingMessages'
+type MockIndexerStorage_CountProcessingMessages_Call struct {
+	*mock.Call
+}
+
+// CountProcessingMessages is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *MockIndexerStorage_Expecter) CountProcessingMessages(ctx interface{}) *MockIndexerStorage_CountProcessingMessages_Call {
+	return &MockIndexerStorage_CountProcessingMessages_Call{Call: _e.mock.On("CountProcessingMessages", ctx)}
+}
+
+func (_c *MockIndexerStorage_CountProcessingMessages_Call) Run(run func(ctx context.Context)) *MockIndexerStorage_CountProcessingMessages_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *MockIndexerStorage_CountProcessingMessages_Call) Return(_a0 int64, _a1 error) *MockIndexerStorage_CountProcessingMessages_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockIndexerStorage_CountProcessingMessages_Call) RunAndReturn(run func(context.Context) (int64, error)) *MockIndexerStorage_CountProcessingMessages_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // CreateDiscoveryState provides a mock function with given fields: ctx, discoveryLocation, startingSequenceNumber
 func (_m *MockIndexerStorage) CreateDiscoveryState(ctx context.Context, discoveryLocation string, startingSequenceNumber int) error {
 	ret := _m.Called(ctx, discoveryLocation, startingSequenceNumber)
@@ -68,6 +185,64 @@ func (_c *MockIndexerStorage_CreateDiscoveryState_Call) Return(_a0 error) *MockI
 }
 
 func (_c *MockIndexerStorage_CreateDiscoveryState_Call) RunAndReturn(run func(context.Context, string, int) error) *MockIndexerStorage_CreateDiscoveryState_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ExpireWork provides a mock function with given fields: ctx, window, limit
+func (_m *MockIndexerStorage) ExpireWork(ctx context.Context, window time.Duration, limit int) (int64, error) {
+	ret := _m.Called(ctx, window, limit)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ExpireWork")
+	}
+
+	var r0 int64
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, time.Duration, int) (int64, error)); ok {
+		return rf(ctx, window, limit)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, time.Duration, int) int64); ok {
+		r0 = rf(ctx, window, limit)
+	} else {
+		r0 = ret.Get(0).(int64)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, time.Duration, int) error); ok {
+		r1 = rf(ctx, window, limit)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockIndexerStorage_ExpireWork_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ExpireWork'
+type MockIndexerStorage_ExpireWork_Call struct {
+	*mock.Call
+}
+
+// ExpireWork is a helper method to define mock.On call
+//   - ctx context.Context
+//   - window time.Duration
+//   - limit int
+func (_e *MockIndexerStorage_Expecter) ExpireWork(ctx interface{}, window interface{}, limit interface{}) *MockIndexerStorage_ExpireWork_Call {
+	return &MockIndexerStorage_ExpireWork_Call{Call: _e.mock.On("ExpireWork", ctx, window, limit)}
+}
+
+func (_c *MockIndexerStorage_ExpireWork_Call) Run(run func(ctx context.Context, window time.Duration, limit int)) *MockIndexerStorage_ExpireWork_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(time.Duration), args[2].(int))
+	})
+	return _c
+}
+
+func (_c *MockIndexerStorage_ExpireWork_Call) Return(_a0 int64, _a1 error) *MockIndexerStorage_ExpireWork_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockIndexerStorage_ExpireWork_Call) RunAndReturn(run func(context.Context, time.Duration, int) (int64, error)) *MockIndexerStorage_ExpireWork_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -661,6 +836,63 @@ func (_c *MockIndexerStorage_Ready_Call) Return(_a0 error) *MockIndexerStorage_R
 }
 
 func (_c *MockIndexerStorage_Ready_Call) RunAndReturn(run func() error) *MockIndexerStorage_Ready_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SettleWork provides a mock function with given fields: ctx, s
+func (_m *MockIndexerStorage) SettleWork(ctx context.Context, s common.WorkSettlement) (common.MessageStatus, error) {
+	ret := _m.Called(ctx, s)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SettleWork")
+	}
+
+	var r0 common.MessageStatus
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, common.WorkSettlement) (common.MessageStatus, error)); ok {
+		return rf(ctx, s)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, common.WorkSettlement) common.MessageStatus); ok {
+		r0 = rf(ctx, s)
+	} else {
+		r0 = ret.Get(0).(common.MessageStatus)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, common.WorkSettlement) error); ok {
+		r1 = rf(ctx, s)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockIndexerStorage_SettleWork_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SettleWork'
+type MockIndexerStorage_SettleWork_Call struct {
+	*mock.Call
+}
+
+// SettleWork is a helper method to define mock.On call
+//   - ctx context.Context
+//   - s common.WorkSettlement
+func (_e *MockIndexerStorage_Expecter) SettleWork(ctx interface{}, s interface{}) *MockIndexerStorage_SettleWork_Call {
+	return &MockIndexerStorage_SettleWork_Call{Call: _e.mock.On("SettleWork", ctx, s)}
+}
+
+func (_c *MockIndexerStorage_SettleWork_Call) Run(run func(ctx context.Context, s common.WorkSettlement)) *MockIndexerStorage_SettleWork_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(common.WorkSettlement))
+	})
+	return _c
+}
+
+func (_c *MockIndexerStorage_SettleWork_Call) Return(_a0 common.MessageStatus, _a1 error) *MockIndexerStorage_SettleWork_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockIndexerStorage_SettleWork_Call) RunAndReturn(run func(context.Context, common.WorkSettlement) (common.MessageStatus, error)) *MockIndexerStorage_SettleWork_Call {
 	_c.Call.Return(run)
 	return _c
 }

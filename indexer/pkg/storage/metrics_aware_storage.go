@@ -10,16 +10,20 @@ import (
 )
 
 const (
-	opGetCCVData            = "GetCCVData"
-	opQueryCCVData          = "QueryCCVData"
-	opInsertVerifierResults = "InsertVerifierResults"
-	opGetMessage            = "GetMessage"
-	opQueryMessages         = "QueryMessages"
-	opGetProcessingMessages = "GetProcessingMessages"
-	opUpdateMessageStatus   = "UpdateMessageStatus"
-	opCreateDiscoveryState  = "CreateDiscoveryState"
-	opGetDiscoverySequence  = "GetDiscoverySequenceNumber"
-	opPersistDiscoveryBatch = "PersistDiscoveryBatch"
+	opGetCCVData              = "GetCCVData"
+	opQueryCCVData            = "QueryCCVData"
+	opInsertVerifierResults   = "InsertVerifierResults"
+	opGetMessage              = "GetMessage"
+	opQueryMessages           = "QueryMessages"
+	opGetProcessingMessages   = "GetProcessingMessages"
+	opUpdateMessageStatus     = "UpdateMessageStatus"
+	opClaimWork               = "ClaimWork"
+	opSettleWork              = "SettleWork"
+	opExpireWork              = "ExpireWork"
+	opCountProcessingMessages = "CountProcessingMessages"
+	opCreateDiscoveryState    = "CreateDiscoveryState"
+	opGetDiscoverySequence    = "GetDiscoverySequenceNumber"
+	opPersistDiscoveryBatch   = "PersistDiscoveryBatch"
 
 	defaultSlowQueryThreshold = 500 * time.Millisecond
 )
@@ -152,4 +156,28 @@ func captureMetricsNoReturn(ctx context.Context, metrics common.IndexerMetricLab
 		return struct{}{}, fn()
 	})
 	return err
+}
+
+func (s *MetricsAwareStorage) ClaimWork(ctx context.Context, limit int, lease, window time.Duration) ([]common.WorkClaim, error) {
+	return captureMetrics(ctx, s.m.Metrics(), s.l, s.slowQueryThreshold, opClaimWork, func() ([]common.WorkClaim, error) {
+		return s.inner.ClaimWork(ctx, limit, lease, window)
+	})
+}
+
+func (s *MetricsAwareStorage) SettleWork(ctx context.Context, settlement common.WorkSettlement) (common.MessageStatus, error) {
+	return captureMetrics(ctx, s.m.Metrics(), s.l, s.slowQueryThreshold, opSettleWork, func() (common.MessageStatus, error) {
+		return s.inner.SettleWork(ctx, settlement)
+	})
+}
+
+func (s *MetricsAwareStorage) ExpireWork(ctx context.Context, window time.Duration, limit int) (int64, error) {
+	return captureMetrics(ctx, s.m.Metrics(), s.l, s.slowQueryThreshold, opExpireWork, func() (int64, error) {
+		return s.inner.ExpireWork(ctx, window, limit)
+	})
+}
+
+func (s *MetricsAwareStorage) CountProcessingMessages(ctx context.Context) (int64, error) {
+	return captureMetrics(ctx, s.m.Metrics(), s.l, s.slowQueryThreshold, opCountProcessingMessages, func() (int64, error) {
+		return s.inner.CountProcessingMessages(ctx)
+	})
 }

@@ -1,0 +1,25 @@
+=== EXPLAIN ANALYZE: expire ===
+Update on indexer.messages  (cost=1476.93..1558.13 rows=0 width=0) (actual time=3.098..3.098 rows=0 loops=1)
+  Buffers: shared hit=6699 dirtied=9 written=9
+  InitPlan 1 (returns $3)
+    ->  Limit  (cost=105.76..1476.51 rows=1000 width=20) (actual time=0.718..0.919 rows=500 loops=1)
+          Output: messages_1.message_id, messages_1.ctid
+          Buffers: shared hit=1060
+          ->  LockRows  (cost=105.76..3066.59 rows=2160 width=20) (actual time=0.718..0.899 rows=500 loops=1)
+                Output: messages_1.message_id, messages_1.ctid
+                Buffers: shared hit=1060
+                ->  Bitmap Heap Scan on indexer.messages messages_1  (cost=105.76..3044.99 rows=2160 width=20) (actual time=0.716..0.786 rows=500 loops=1)
+                      Output: messages_1.message_id, messages_1.ctid
+                      Recheck Cond: (messages_1.status = 'PROCESSING'::text)
+                      Filter: (((messages_1.next_attempt_at IS NULL) OR (messages_1.next_attempt_at <= now())) AND (COALESCE(messages_1.retry_deadline, ((messages_1.ingestion_timestamp AT TIME ZONE 'UTC'::text) + '08:00:00'::interval)) <= now()))
+                      Rows Removed by Filter: 6000
+                      Heap Blocks: exact=92
+                      Buffers: shared hit=109
+                      ->  Bitmap Index Scan on idx_messages_processing_due  (cost=0.00..105.22 rows=6590 width=0) (actual time=0.067..0.067 rows=6551 loops=1)
+                            Buffers: shared hit=17
+  ->  Index Scan using messages_pkey on indexer.messages  (cost=0.42..81.62 rows=10 width=78) (actual time=1.103..1.529 rows=500 loops=1)
+        Output: 'TIMEOUT'::text, 'retry deadline passed'::text, NULL::timestamp with time zone, messages.ctid
+        Index Cond: (messages.message_id = ANY ($3))
+        Buffers: shared hit=2654
+Planning Time: 0.046 ms
+Execution Time: 3.127 ms
