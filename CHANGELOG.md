@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.23.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.22.1...v0.23.0) (2026-11-23)
+
+
+### Features
+
+* **evm:** support send-only nodes in standalone ([#1626](https://github.com/smartcontractkit/chainlink-ccv/issues/1626)) ([85341f9](https://github.com/smartcontractkit/chainlink-ccv/commit/85341f9e1da4434fd0accc735453d06c6fcbb783))
+* **pricer:** FeeQuoter Reader include decimals in FQState ([#1620](https://github.com/smartcontractkit/chainlink-ccv/issues/1620)) ([b8f6cdd](https://github.com/smartcontractkit/chainlink-ccv/commit/b8f6cdd566855410d035866b9e72528d91356d65))
+
+
+### Bug Fixes
+
+* detect executor config drift and stabilize tests ([#1622](https://github.com/smartcontractkit/chainlink-ccv/issues/1622)) ([9bd7f37](https://github.com/smartcontractkit/chainlink-ccv/commit/9bd7f3798d65f9aba00e5ecdec87433531f14f9f))
+* **executor:** release nonces after gas rejections ([#1624](https://github.com/smartcontractkit/chainlink-ccv/issues/1624)) ([bd85f2e](https://github.com/smartcontractkit/chainlink-ccv/commit/bd85f2ec3d8a27f0fcfedeee467055622379d68d))
+
 ## [0.22.1](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.22.0...v0.22.1) (2026-11-20)
 
 
