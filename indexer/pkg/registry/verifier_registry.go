@@ -23,14 +23,17 @@ import (
 type VerifierRegistry struct {
 	verifiers  map[string][]*readers.VerifierReader
 	addrToName map[string]string
-	mu         sync.RWMutex
+	// unavailable holds configured addresses whose reader did not start.
+	unavailable map[string]struct{}
+	mu          sync.RWMutex
 }
 
 // NewVerifierRegistry creates and returns a new VerifierRegistry instance.
 func NewVerifierRegistry() *VerifierRegistry {
 	return &VerifierRegistry{
-		verifiers:  make(map[string][]*readers.VerifierReader),
-		addrToName: make(map[string]string),
+		verifiers:   make(map[string][]*readers.VerifierReader),
+		addrToName:  make(map[string]string),
+		unavailable: make(map[string]struct{}),
 	}
 }
 
@@ -125,4 +128,19 @@ func (v *VerifierRegistry) GetVerifierNameFromAddress(address protocol.UnknownAd
 	defer v.mu.RUnlock()
 
 	return v.addrToName[address.String()]
+}
+
+// MarkUnavailable records a configured address whose reader did not start, so tasks retry it.
+func (v *VerifierRegistry) MarkUnavailable(address protocol.UnknownAddress) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.unavailable[address.String()] = struct{}{}
+}
+
+// IsUnavailable reports if address is configured but has no started reader.
+func (v *VerifierRegistry) IsUnavailable(address protocol.UnknownAddress) bool {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	_, ok := v.unavailable[address.String()]
+	return ok && len(v.verifiers[address.String()]) == 0
 }

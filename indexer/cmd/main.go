@@ -230,6 +230,12 @@ func createAllVerifierReaders(ctx context.Context, lggr logger.Logger, verifierR
 		if err != nil {
 			lggr.Errorw("Skipping verifier, failed to create readers", "verifier", verifierConfig.Name, "error", err)
 			startupSkips.Skip(fmt.Sprintf("VerifierReader[%s]", verifierConfig.Name), err)
+			// Mark the addresses so tasks retry them; else this replica can set SUCCESS without this verifier.
+			for _, address := range verifierConfig.IssuerAddresses {
+				if a, parseErr := protocol.NewUnknownAddressFromHex(address); parseErr == nil {
+					verifierRegistry.MarkUnavailable(a)
+				}
+			}
 			continue
 		}
 		created++

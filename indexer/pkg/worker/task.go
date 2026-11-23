@@ -151,7 +151,7 @@ func (t *Task) collectVerifierResults(ctx context.Context, targets []verifierTar
 	return results
 }
 
-func (t *Task) loadVerifierReaders(verifierAddresses []string) (readerList []verifierTarget, loadedReaders, missingReaders []string) {
+func (t *Task) loadVerifierReaders(verifierAddresses []string) (readerList []verifierTarget, loadedReaders, missingReaders, unavailable []string) {
 	for _, v := range verifierAddresses {
 		unknownAddress, err := protocol.NewUnknownAddressFromHex(v)
 		if err != nil {
@@ -163,7 +163,11 @@ func (t *Task) loadVerifierReaders(verifierAddresses []string) (readerList []ver
 		// multiple readers backed by different aggregators).
 		addrReaders := t.registry.GetVerifiers(unknownAddress)
 		if len(addrReaders) == 0 {
-			missingReaders = append(missingReaders, v)
+			if t.registry.IsUnavailable(unknownAddress) {
+				unavailable = append(unavailable, v)
+			} else {
+				missingReaders = append(missingReaders, v)
+			}
 			continue
 		}
 
@@ -173,7 +177,7 @@ func (t *Task) loadVerifierReaders(verifierAddresses []string) (readerList []ver
 		// normalize casing to lower-case hex strings to match getExistingVerifiers/getVerifiers
 		loadedReaders = append(loadedReaders, strings.ToLower(unknownAddress.String()))
 	}
-	return readerList, loadedReaders, missingReaders
+	return readerList, loadedReaders, missingReaders, unavailable
 }
 
 func (t *Task) getMissingVerifiers(ctx context.Context) (missing []string, err error) {
