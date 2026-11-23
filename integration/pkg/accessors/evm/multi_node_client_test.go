@@ -15,6 +15,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 	"github.com/smartcontractkit/chainlink-evm/pkg/config/chaintype"
 )
 
@@ -142,7 +143,7 @@ func TestProductionMultiNodeClientBroadcastsToSendOnlyRPC(t *testing.T) {
 	require.Eventually(t, func() bool {
 		states := chainClient.NodeStates()
 		return states["primary"] == "Alive" && states["broadcast"] == "Alive"
-	}, 5*time.Second, 10*time.Millisecond)
+	}, tests.WaitTimeout(t), 10*time.Millisecond)
 
 	require.NoError(t, chainClient.SendTransaction(ctx, tx))
 	select {
