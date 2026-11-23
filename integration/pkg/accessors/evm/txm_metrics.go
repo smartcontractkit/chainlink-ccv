@@ -17,6 +17,13 @@ type discardedTransactionMetrics interface {
 	IncrementLifecycleFailure(context.Context, txm.LifecycleFailureStage)
 }
 
+// CCVTxmMetrics combines the standard TXM metrics with CCV discard observability.
+type CCVTxmMetrics interface {
+	txm.Metrics
+	// IncrementDiscardedTransactions records a deterministic rejection discarded by CCV.
+	IncrementDiscardedTransactions(context.Context)
+}
+
 type ccvTxmMetrics struct {
 	txm.Metrics
 	discarded metric.Int64Counter
@@ -24,7 +31,7 @@ type ccvTxmMetrics struct {
 }
 
 // NewCCVTxmMetrics creates the standard TXM metrics plus CCV discard observability.
-func NewCCVTxmMetrics(lggr logger.Logger, chainID *big.Int) *ccvTxmMetrics {
+func NewCCVTxmMetrics(lggr logger.Logger, chainID *big.Int) CCVTxmMetrics {
 	discarded, err := beholder.GetMeter().Int64Counter(
 		"executor_txm_discarded_transactions_total",
 		metric.WithDescription("Transactions discarded after a deterministic first-broadcast gas rejection"),

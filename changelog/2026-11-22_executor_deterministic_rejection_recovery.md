@@ -39,12 +39,9 @@ The integration TXM package is registered in `tools/metricsgolden/registry`; the
 
 ## Recovery
 
-`docs/runbooks/evm-executor-gas-recovery.md` describes:
+For testnet recovery, retain the separate `LimitMultiplier = 2` stopgap with `EstimateLimit = false`, enable AutoPurge with positive `Threshold` and `MinAttempts`, and temporarily expand `startup_lookback_window` to eight hours for a canary restart followed by controlled fleet waves. Restore the one-hour lookback after the backlog drains. Verify execution through the destination OffRamp rather than indexer verification status.
 
-- The testnet-only `LimitMultiplier = 2` stopgap for draining stale Solana messages.
-- AutoPurge with positive `Threshold` and `MinAttempts`, plus an eight-hour rediscovery window.
-- Immediate newest-nonce recovery, older-nonce purge recovery, and controlled canary/fleet restarts.
-- OffRamp execution verification and the full Solana Glamsterdam migration, including post-fork lane-build defaults and manual handling for messages older than eight hours.
+The durable pricing fix is the complete Solana Glamsterdam migration, including router, fee-quoter, verifier, and token-pool gas fields. Follow up in the lane tooling to replace its post-fork 20-gas-per-byte default or enforce destination fork minimums. Messages older than the eight-hour retry window require the reviewed manual-execution path.
 
 Do not carry the multiplier into mainnet configuration before product decides the appropriate gas policy.
 
