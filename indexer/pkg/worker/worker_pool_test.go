@@ -17,6 +17,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 )
 
 // fakeStore hands out claims from memory and records each settlement.
@@ -112,7 +113,7 @@ func waitSettled(t *testing.T, f *fakeStore, id protocol.Bytes32) common.WorkSet
 		var ok bool
 		s, ok = f.settlement(id)
 		return ok
-	}, 2*time.Second, 10*time.Millisecond)
+	}, tests.WaitTimeout(t), 10*time.Millisecond)
 	return s
 }
 
@@ -222,8 +223,8 @@ func TestPool_SettleErrorIsNotFatal(t *testing.T) {
 		f.mu.Lock()
 		defer f.mu.Unlock()
 		return len(f.due) == 0
-	}, 2*time.Second, 10*time.Millisecond)
-	require.Eventually(t, func() bool { return p.inFlight.Load() == 0 }, 2*time.Second, 10*time.Millisecond)
+	}, tests.WaitTimeout(t), 10*time.Millisecond)
+	require.Eventually(t, func() bool { return p.inFlight.Load() == 0 }, tests.WaitTimeout(t), 10*time.Millisecond)
 	require.NoError(t, p.Ready())
 }
 

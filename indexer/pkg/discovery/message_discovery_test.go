@@ -22,6 +22,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 )
 
 // testSetup contains all the components needed for message discovery tests.
@@ -288,7 +289,7 @@ func TestStart_LaunchesGoroutine(t *testing.T) {
 	assert.Empty(t, ts.CapturedJobs(), "unexpected worker job")
 
 	// The goroutine polls the reader on the first tick.
-	require.Eventually(t, func() bool { return ts.MockReader.GetCallCount() > 0 }, time.Second, 5*time.Millisecond)
+	require.Eventually(t, func() bool { return ts.MockReader.GetCallCount() > 0 }, tests.WaitTimeout(t), 5*time.Millisecond)
 }
 
 // TestClose_GracefullyStops tests that Close gracefully stops discovery.
