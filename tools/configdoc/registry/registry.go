@@ -385,6 +385,12 @@ func evmConfig() evm.Config {
 						WSUrl:   "ws://rpc-url.com",
 						Order:   1,
 					},
+					{
+						Name:     "send-only-1",
+						HTTPUrl:  "http://send-only-rpc-url.com",
+						SendOnly: true,
+						Order:    100,
+					},
 				},
 				FinalityDepth:                0,
 				TXMBlockTime:                 2 * time.Second,

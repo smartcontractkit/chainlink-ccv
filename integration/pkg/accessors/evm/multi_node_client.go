@@ -9,9 +9,8 @@ import (
 	clevmconfig "github.com/smartcontractkit/chainlink-evm/pkg/config"
 )
 
-// CreateMultiNodeClientFromInfo creates and starts chainlink-evm's production
-// multi-node client. Every configured node is registered with the pool, allowing
-// the pool to move reads and writes away from unhealthy RPCs.
+// CreateMultiNodeClientFromInfo creates and starts chainlink-evm's production multi-node client.
+// Primary nodes serve reads and writes; send-only nodes receive transaction broadcasts only.
 func CreateMultiNodeClientFromInfo(ctx context.Context, info Info, lggr logger.Logger) (client.Client, error) {
 	chainClient, _, err := newMultiNodeClientFromInfo(info, lggr)
 	if err != nil {

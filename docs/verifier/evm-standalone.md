@@ -62,7 +62,7 @@ Reusing the node TOML preserves chain-level settings for gas estimation, node po
 
 A core node image with `CL_CHAIN_DEFAULTS` empty uses chainlink-evm's built-ins alone and can differ on settings its config does not pin. Standalone always resolves the CCIP pair. Do not set `CL_CHAIN_DEFAULTS` on standalone containers: chainlink-evm then loads that directory instead and exits at startup on a file it cannot decode, while the embedded defaults skip such a file with a warning.
 
-Per-node `Order` carries over, preserving RPC prioritization. A node with no `Order` stays at the pool's lowest priority.
+Per-node `Order` carries over, preserving primary RPC prioritization. A primary node with no `Order` stays at the pool's lowest priority. `Order` is accepted but ignored on send-only nodes, as on a Chainlink node.
 
 Standalone fixes a few chain-level settings because its runtime has no other mode:
 
@@ -84,7 +84,20 @@ A conflicting setting produces a startup warning. An unrecognized or undecodable
 
 If the node config sets no TXM v2 block time, the value comes from a curated per-chain table when the chain's real block interval exceeds the two-second floor upstream validation enforces. Otherwise, the generic two-second fallback applies. The `ccv migrate inspect-config` report's `txm_block_time_source` reads `operator`, `curated_chain_default`, or `generic_fallback`. A process that writes to a chain logs the source when that chain's TXM starts. Review any `generic_fallback` on a slow chain and set an explicit value. The [TXM v2 assessment](../migration/txm-v2-assessment.md) explains the cadence and recovery tradeoffs.
 
-Send-only nodes and per-node `HTTPURLExtraWrite` and `IsLoadBalancedRPC` have no standalone equivalent and are dropped. Other per-node settings beyond endpoint URLs, name, and selection order are also dropped and named at startup. An operator relying on a send-only endpoint should add it as a full node.
+Per-node `SendOnly` carries over. In standalone-format EVM config, mark a broadcast-only endpoint with `send_only = true`:
+
+```toml
+[[chains.16015286601757825753.nodes]]
+name = "broadcast"
+http_url = "https://sepolia-broadcast.example.com"
+send_only = true
+```
+
+Send-only nodes receive transaction broadcasts over HTTP and are never selected for reads or head subscriptions. They do not need `ws_url`; a configured `ws_url` is ignored. A send-only node without one does not enable HTTP head polling for WebSocket-capable primary nodes. Every chain needs at least one primary node: conversion skips an all-send-only pool, and standalone-format config rejects one.
+
+A send-only endpoint must still answer `eth_chainId` when dialed. Verifiers dial these nodes but never broadcast to them. On Hedera, chainlink-evm submits through a single primary RPC, so send-only nodes receive no broadcasts.
+
+Per-node `HTTPURLExtraWrite` and `IsLoadBalancedRPC` have no standalone equivalent and are dropped. Other per-node settings beyond endpoint URLs, name, `SendOnly`, and selection order are also dropped and named at startup.
 
 ## Declared chain coverage
 

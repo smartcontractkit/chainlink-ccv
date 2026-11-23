@@ -102,16 +102,17 @@ func NewConfigFromInfos(infos chainaccess.Infos[Info]) Config {
 type Node struct {
 	// Name identifies the RPC provider or endpoint in logs and health reports.
 	Name string `json:"name" toml:"name,omitempty"`
-	// HTTPUrl is the JSON-RPC endpoint used for reads and transaction submission. It is required.
+	// HTTPUrl is the JSON-RPC endpoint used for reads and transaction submission. Send-only nodes
+	// use it only for transaction submission. It is required.
 	HTTPUrl string `json:"http_url" toml:"http_url"`
-	// WSUrl is the optional WebSocket endpoint used for head subscriptions. Nodes without one
-	// fall back to HTTP head polling.
+	// WSUrl is the optional WebSocket endpoint used for head subscriptions on primary nodes. Primary
+	// nodes without one fall back to HTTP head polling; send-only nodes ignore it.
 	WSUrl string `json:"ws_url" toml:"ws_url,omitempty"`
-	// Order is the node's selection priority, 1 (highest) through 100 (lowest). When several nodes
-	// are equally healthy the multi-node pool prefers the one with the lowest Order value, so an
-	// operator can keep a primary RPC ahead of its backups. Zero is the default and leaves Order
-	// unset: the conversion sends no Order to chainlink-evm, which then applies its own default
-	// priority. A converted Chainlink node config carries each node's Order over unchanged.
+	// SendOnly restricts the node to transaction broadcasts over HTTP. It defaults to false, and at
+	// least one primary (non-send-only) node is required per chain.
+	SendOnly bool `json:"send_only,omitempty" toml:"send_only,omitempty"`
+	// Order is the primary node's selection priority, from 1 (highest) through 100 (lowest); zero
+	// leaves it unset for chainlink-evm's default. Send-only nodes ignore it, matching Chainlink.
 	Order int32 `json:"order,omitempty" toml:"order,omitempty"`
 }
 

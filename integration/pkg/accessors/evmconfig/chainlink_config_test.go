@@ -257,6 +257,57 @@ func TestToChainlinkEVMNodeCarriesSelectionPriority(t *testing.T) {
 	require.Equal(t, int32(5), *node.Order)
 }
 
+func TestToChainlinkEVMNodeCarriesSendOnly(t *testing.T) {
+	t.Parallel()
+
+	info := Info{
+		ChainID: "1337",
+		Nodes: []Node{{
+			Name:     "broadcast",
+			HTTPUrl:  "http://node.internal:8545",
+			WSUrl:    "ws://node.internal:8546",
+			SendOnly: true,
+			Order:    7,
+		}},
+	}
+
+	node, usesPolling, err := toChainlinkEVMNode(info, 0, info.Nodes[0])
+	require.NoError(t, err)
+	require.NotNil(t, node.SendOnly)
+	assert.True(t, *node.SendOnly)
+	assert.False(t, usesPolling, "send-only nodes never subscribe to heads")
+	require.Equal(t, "ws://node.internal:8546", node.WSURL.String())
+	require.Equal(t, int32(7), *node.Order)
+}
+
+func TestBuildChainlinkEVMTOMLSendOnlyDoesNotEnablePrimaryHTTPPolling(t *testing.T) {
+	t.Parallel()
+
+	built, err := BuildChainlinkEVMTOML(Info{
+		ChainID: "1337",
+		Nodes: []Node{
+			{Name: "primary", HTTPUrl: "http://node.internal:8545", WSUrl: "ws://node.internal:8546"},
+			{Name: "broadcast", HTTPUrl: "http://broadcast.internal:8545", SendOnly: true},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, built.Nodes, 2)
+	require.NotNil(t, built.Nodes[1].SendOnly)
+	assert.True(t, *built.Nodes[1].SendOnly)
+	require.NotNil(t, built.NodePool.NewHeadsPollInterval)
+	assert.Zero(t, built.NodePool.NewHeadsPollInterval.Duration())
+}
+
+func TestBuildChainlinkEVMTOMLRejectsAnAllSendOnlyPool(t *testing.T) {
+	t.Parallel()
+
+	_, err := BuildChainlinkEVMTOML(Info{
+		ChainID: "1337",
+		Nodes:   []Node{{Name: "broadcast", HTTPUrl: "http://node.internal:8545", SendOnly: true}},
+	})
+	require.ErrorContains(t, err, "must have at least one primary node")
+}
+
 // The three sources of a chain's TXM v2 block time: the operator's explicit value always wins,
 // then the curated per-chain default, then the generic 2s fallback.
 func TestResolveTXMBlockTime(t *testing.T) {

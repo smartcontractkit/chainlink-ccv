@@ -88,12 +88,16 @@ func (h *handlers) chainConfigsPage(c *gin.Context) {
 			chain.Diagnostics = append(chain.Diagnostics, result.Err.Error())
 		}
 		for _, endpoint := range inspection.Endpoints {
+			role := "Primary"
 			order := "default"
-			if endpoint.Order != nil {
+			if endpoint.SendOnly {
+				role = "Send-only"
+				order = "ignored"
+			} else if endpoint.Order != nil {
 				order = strconv.Itoa(int(*endpoint.Order))
 			}
 			chain.Endpoints = append(chain.Endpoints, views.ChainEndpointVM{
-				Name: endpoint.Name, HTTPURL: endpoint.HTTPURL, WSURL: endpoint.WSURL, Order: order,
+				Name: endpoint.Name, Role: role, HTTPURL: endpoint.HTTPURL, WSURL: endpoint.WSURL, Order: order,
 			})
 		}
 		attributes := append([]chainaccess.ChainAttribute(nil), inspection.Attributes...)

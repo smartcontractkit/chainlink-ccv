@@ -44,10 +44,14 @@ func inspectEVMConfig(selector protocol.ChainSelector, info Info) (chainaccess.C
 func inspectEVMEndpoints(infos []Node, effective []evmconfig.EffectiveNode) []chainaccess.ChainEndpoint {
 	endpoints := make([]chainaccess.ChainEndpoint, 0, len(effective))
 	for i, node := range effective {
-		endpoint := chainaccess.ChainEndpoint{Name: node.Name, HasWebSocket: node.HasWebSocket, Order: node.Order}
+		endpoint := chainaccess.ChainEndpoint{
+			Name: node.Name, HasWebSocket: node.HasWebSocket, SendOnly: node.SendOnly, Order: node.Order,
+		}
 		if i < len(infos) {
 			endpoint.HTTPURL = sanitizeRPCURL(infos[i].HTTPUrl)
-			endpoint.WSURL = sanitizeRPCURL(infos[i].WSUrl)
+			if !node.SendOnly {
+				endpoint.WSURL = sanitizeRPCURL(infos[i].WSUrl)
+			}
 		}
 		endpoints = append(endpoints, endpoint)
 	}

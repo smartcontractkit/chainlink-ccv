@@ -3,15 +3,19 @@ package evm
 import (
 	"context"
 	"encoding/json"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 	"github.com/smartcontractkit/chainlink-evm/pkg/config/chaintype"
 )
 
@@ -70,6 +74,83 @@ func TestProductionMultiNodeClientUsesHealthyRPCWhenAnotherRPCFails(t *testing.T
 	height, err := chainClient.LatestBlockHeight(ctx)
 	require.NoError(t, err)
 	require.Equal(t, int64(42), height.Int64())
+}
+
+func TestProductionMultiNodeClientBroadcastsToSendOnlyRPC(t *testing.T) {
+	t.Parallel()
+
+	tx := types.NewTransaction(0, common.HexToAddress("0x1234"), big.NewInt(1), 21000, big.NewInt(1), nil)
+	broadcast := make(chan struct{}, 1)
+	newRPC := func(broadcasts chan<- struct{}) *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var req struct {
+				JSONRPC string          `json:"jsonrpc"`
+				ID      json.RawMessage `json:"id"`
+				Method  string          `json:"method"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+
+			var result any
+			switch req.Method {
+			case "eth_chainId":
+				result = "0x539"
+			case "eth_blockNumber":
+				result = "0x2a"
+			case "eth_getBlockByNumber":
+				result = map[string]any{
+					"hash": common.BigToHash(big.NewInt(42)).Hex(), "number": "0x2a",
+					"parentHash": common.Hash{}.Hex(), "timestamp": "0x1",
+				}
+			case "eth_sendRawTransaction":
+				result = tx.Hash().Hex()
+				select {
+				case broadcasts <- struct{}{}:
+				default:
+				}
+			default:
+				http.Error(w, "unexpected RPC method: "+req.Method, http.StatusBadRequest)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			if err := json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      req.ID,
+				"result":  result,
+			}); err != nil {
+				t.Errorf("encode JSON-RPC response: %v", err)
+			}
+		}))
+	}
+	primaryRPC := newRPC(nil)
+	defer primaryRPC.Close()
+	sendOnlyRPC := newRPC(broadcast)
+	defer sendOnlyRPC.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	chainClient, err := CreateMultiNodeClientFromInfo(ctx, Info{
+		ChainID: "1337",
+		Nodes: []Node{
+			{Name: "primary", HTTPUrl: primaryRPC.URL},
+			{Name: "broadcast", HTTPUrl: sendOnlyRPC.URL, SendOnly: true},
+		},
+	}, logger.Test(t))
+	require.NoError(t, err)
+	defer chainClient.Close()
+	require.Eventually(t, func() bool {
+		states := chainClient.NodeStates()
+		return states["primary"] == "Alive" && states["broadcast"] == "Alive"
+	}, tests.WaitTimeout(t), 10*time.Millisecond)
+
+	require.NoError(t, chainClient.SendTransaction(ctx, tx))
+	select {
+	case <-broadcast:
+	case <-ctx.Done():
+		t.Fatal("send-only RPC did not receive the transaction broadcast")
+	}
 }
 
 func TestNewChainlinkEVMConfigUsesProductionDefaultsAndEveryRPCNode(t *testing.T) {
@@ -215,7 +296,7 @@ func TestNewChainlinkEVMConfigRejectsInvalidStandaloneConfig(t *testing.T) {
 	}
 }
 
-func TestNewChainlinkEVMConfigEnablesPollingWhenAnyNodeHasNoWebSocket(t *testing.T) {
+func TestNewChainlinkEVMConfigEnablesPollingWhenAnyPrimaryNodeHasNoWebSocket(t *testing.T) {
 	t.Parallel()
 
 	cfg, err := newChainlinkEVMConfig(Info{

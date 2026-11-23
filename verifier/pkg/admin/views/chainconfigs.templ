@@ -3,6 +3,7 @@ package views
 // ChainEndpointVM is one sanitized RPC endpoint.
 type ChainEndpointVM struct {
 	Name    string
+	Role    string
 	HTTPURL string
 	WSURL   string
 	Order   string
@@ -67,11 +68,12 @@ templ ChainConfigsPage(vm ChainConfigsVM, nav Navigation) {
 					<h3>RPC endpoints</h3>
 					<div class="table-wrap">
 						<table>
-							<thead><tr><th>Name</th><th>HTTP</th><th>WebSocket</th><th>Order</th></tr></thead>
+							<thead><tr><th>Name</th><th>Role</th><th>HTTP</th><th>WebSocket</th><th>Order</th></tr></thead>
 							<tbody>
 								for _, endpoint := range chain.Endpoints {
 									<tr>
 										<td>{ endpoint.Name }</td>
+										<td>{ endpoint.Role }</td>
 										<td><code class="mid">{ endpoint.HTTPURL }</code></td>
 										<td><code class="mid">{ endpoint.WSURL }</code></td>
 										<td>{ endpoint.Order }</td>

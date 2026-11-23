@@ -161,7 +161,7 @@ FinalityDepth = 99
 		assert.Equal(t, uint32(99), got.Config.Chains[sepoliaSelector].FinalityDepth)
 	})
 
-	t.Run("drops send-only nodes with a warning", func(t *testing.T) {
+	t.Run("carries send-only nodes without a warning", func(t *testing.T) {
 		t.Parallel()
 		got, err := convertChainlinkNodeConfig([]byte(`
 [[EVM]]
@@ -176,11 +176,16 @@ HTTPURL = 'https://sepolia-broadcast.example.com'
 SendOnly = true
 `))
 		require.NoError(t, err)
-		require.Len(t, got.Config.Chains[sepoliaSelector].Nodes, 1)
-		assert.Equal(t, "primary", got.Config.Chains[sepoliaSelector].Nodes[0].Name)
-		require.Len(t, got.Warnings, 1)
-		assert.Contains(t, got.Warnings[0], "broadcast-only")
-		assert.Contains(t, got.Warnings[0], "SendOnly")
+		nodes := got.Config.Chains[sepoliaSelector].Nodes
+		require.Len(t, nodes, 2)
+		assert.Equal(t, "primary", nodes[0].Name)
+		assert.False(t, nodes[0].SendOnly)
+		assert.Equal(t, Node{
+			Name:     "broadcast-only",
+			HTTPUrl:  "https://sepolia-broadcast.example.com",
+			SendOnly: true,
+		}, nodes[1])
+		assert.Empty(t, got.Warnings)
 	})
 
 	t.Run("warns about settings with no standalone equivalent", func(t *testing.T) {
@@ -330,11 +335,12 @@ HTTPURLExtraWrite = 'https://sepolia-write.example.com'
 	require.Equal(t, []string{
 		"chain " + arbSepChainID + " node zeta: dropped HTTPURLExtraWrite, standalone CCV does not expose it",
 		"chain " + arbSepChainID + " node zeta: dropped IsLoadBalancedRPC, standalone CCV does not expose it",
-		"chain " + arbSepChainID + " node alpha: dropped, SendOnly nodes have no standalone equivalent",
 		"chain " + sepoliaChainID + " node primary: dropped HTTPURLExtraWrite, standalone CCV does not expose it",
 	}, got.Warnings)
-	assert.Equal(t, int32(50), got.Config.Chains[arbSepSelector].Nodes[0].Order,
-		"Order is carried, not warned about")
+	nodes := got.Config.Chains[arbSepSelector].Nodes
+	require.Len(t, nodes, 2)
+	assert.Equal(t, int32(50), nodes[0].Order, "Order is carried, not warned about")
+	assert.True(t, nodes[1].SendOnly, "SendOnly is carried, not warned about")
 
 	// The grouped view carries the same warnings, so a per-chain report (`ccv migrate
 	// inspect-config --chain-selector`) narrows them without parsing the message text.
@@ -342,7 +348,6 @@ HTTPURLExtraWrite = 'https://sepolia-write.example.com'
 		arbSepChainID: {
 			"chain " + arbSepChainID + " node zeta: dropped HTTPURLExtraWrite, standalone CCV does not expose it",
 			"chain " + arbSepChainID + " node zeta: dropped IsLoadBalancedRPC, standalone CCV does not expose it",
-			"chain " + arbSepChainID + " node alpha: dropped, SendOnly nodes have no standalone equivalent",
 		},
 		sepoliaChainID: {
 			"chain " + sepoliaChainID + " node primary: dropped HTTPURLExtraWrite, standalone CCV does not expose it",
@@ -562,10 +567,8 @@ HTTPURL = 'https://sepolia.example.com'
 	assert.Empty(t, got.Config.Chains[sepoliaSelector].chainlinkEVM.KeySpecific)
 }
 
-// A dropped node takes its settings with it, and the migration guide promises every dropped
-// per-node setting is named at startup. The node-level drop carries them rather than emitting a
-// line per setting, which would read as though the node survived without them.
-func TestConvertChainlinkNodeConfigNamesSettingsDroppedWithASendOnlyNode(t *testing.T) {
+// SendOnly carries over, but unsupported settings on that node are still named individually.
+func TestConvertChainlinkNodeConfigNamesSettingsDroppedOnASendOnlyNode(t *testing.T) {
 	t.Parallel()
 
 	got, err := convertChainlinkNodeConfig([]byte(`
@@ -583,10 +586,12 @@ FutureNodeSetting = true
 `))
 	require.NoError(t, err)
 	require.Equal(t, []string{
-		"chain " + sepoliaChainID + " node broadcast: dropped, SendOnly nodes have no standalone " +
-			"equivalent (FutureNodeSetting, HTTPURLExtraWrite dropped with it)",
+		"chain " + sepoliaChainID + " node broadcast: dropped FutureNodeSetting, standalone CCV does not expose it",
+		"chain " + sepoliaChainID + " node broadcast: dropped HTTPURLExtraWrite, standalone CCV does not expose it",
 	}, got.Warnings)
-	require.Len(t, got.Config.Chains[sepoliaSelector].Nodes, 1, "only the full node is carried")
+	nodes := got.Config.Chains[sepoliaSelector].Nodes
+	require.Len(t, nodes, 2)
+	assert.True(t, nodes[1].SendOnly)
 }
 
 // Everything outside [[EVM]] is ignored by design — but named, not silent: the conversion lists
@@ -666,10 +671,16 @@ Order = 10
 [[EVM.Nodes]]
 Name = 'backup'
 HTTPURL = 'https://sepolia-backup.example.com'
+[[EVM.Nodes]]
+Name = 'broadcast'
+HTTPURL = 'https://sepolia-broadcast.example.com'
+SendOnly = true
 `))
 	require.NoError(t, err)
 	require.Equal(t, int32(10), converted.Config.Chains[sepoliaSelector].Nodes[0].Order,
 		"a converted Order must reach the encode/decode round-trip below")
+	require.True(t, converted.Config.Chains[sepoliaSelector].Nodes[2].SendOnly,
+		"a converted SendOnly must reach the encode/decode round-trip below")
 
 	encoded, err := toml.Marshal(converted.Config)
 	require.NoError(t, err)
@@ -736,7 +747,7 @@ WSURL = 'wss://sepolia.example.com'
 			wantErr: "no HTTPURL",
 		},
 		{
-			name: "every node dropped",
+			name: "pool without a primary node",
 			config: `
 [[EVM]]
 ChainID = '` + sepoliaChainID + `'
@@ -745,7 +756,7 @@ Name = 'broadcast-only'
 HTTPURL = 'https://sepolia.example.com'
 SendOnly = true
 `,
-			wantErr: "no usable [[EVM.Nodes]] entries",
+			wantErr: "must have at least one primary node",
 		},
 		{
 			name: "all chains disabled",
@@ -867,7 +878,7 @@ HTTPURL = 'https://eth.example.com'
 		assert.Equal(t, sepoliaChainID, got.FailedChains[0].ChainID)
 		assert.Contains(t, got.FailedChains[0].Reason, "has no [[EVM.Nodes]] entries")
 		assert.Equal(t, arbSepChainID, got.FailedChains[1].ChainID)
-		assert.Contains(t, got.FailedChains[1].Reason, "has no usable [[EVM.Nodes]] entries after conversion")
+		assert.Contains(t, got.FailedChains[1].Reason, "must have at least one primary node")
 	})
 
 	t.Run("every enabled chain failing is an error naming all of them", func(t *testing.T) {
