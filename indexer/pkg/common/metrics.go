@@ -38,6 +38,7 @@ type IndexerMetricLabeler interface {
 	// RecordScannerPollingErrorsCounter records the scanner polling errors counter.
 	RecordScannerPollingErrorsCounter(ctx context.Context)
 	// RecordVerificationRecordChannelSizeGauge records the verification record channel size gauge.
+	// Deprecated: the channel is replaced by the database claim; use RecordWorkerQueueSizeGauge.
 	RecordVerificationRecordChannelSizeGauge(ctx context.Context, size int64)
 	// RecordWorkerQueueSizeGauge records the number of PROCESSING messages.
 	RecordWorkerQueueSizeGauge(ctx context.Context, size int64)

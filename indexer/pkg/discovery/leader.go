@@ -40,19 +40,12 @@ type LeaderElectorConfig struct {
 // LeaderElectorOption changes an optional setting of a LeaderElector.
 type LeaderElectorOption func(*LeaderElector)
 
-// WithOnElected adds a callback that runs in its own goroutine each time this replica becomes leader.
-// The callback context is canceled when leadership is lost.
-func WithOnElected(fn func(ctx context.Context)) LeaderElectorOption {
-	return func(e *LeaderElector) { e.onElected = append(e.onElected, fn) }
-}
-
 // LeaderElector holds the discovery lock so that one indexer replica at a time runs discovery.
 type LeaderElector struct {
-	locker    common.DiscoveryLocker
-	cfg       LeaderElectorConfig
-	lggr      logger.Logger
-	metrics   common.IndexerMetricLabeler
-	onElected []func(ctx context.Context)
+	locker  common.DiscoveryLocker
+	cfg     LeaderElectorConfig
+	lggr    logger.Logger
+	metrics common.IndexerMetricLabeler
 
 	mu                sync.RWMutex
 	leaderCtx         context.Context
@@ -199,18 +192,12 @@ func (e *LeaderElector) lead(ctx context.Context, lock common.DiscoveryLock) {
 	e.metrics.RecordDiscoveryLeaderGauge(ctx, true)
 	e.metrics.IncrementDiscoveryLeaderChanges(ctx)
 
-	var callbacksWG sync.WaitGroup
-	for _, fn := range e.onElected {
-		callbacksWG.Go(func() { fn(leaderCtx) })
-	}
-
 	e.heartbeat(leaderCtx, lock)
 
 	e.mu.Lock()
 	e.leaderCtx = nil
 	e.mu.Unlock()
 	cancelLeader()
-	callbacksWG.Wait()
 	lock.Release()
 	e.lggr.Infow("Stopped being discovery leader")
 	e.metrics.RecordDiscoveryLeaderGauge(context.WithoutCancel(ctx), false)

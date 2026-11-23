@@ -28,7 +28,7 @@ type IndexerMetrics struct {
 
 	// Scanner Metrics
 	scannerPollingErrorsCounter        metric.Int64Counter
-	verificationRecordChannelSizeGauge metric.Int64Gauge
+	verificationRecordChannelSizeGauge metric.Int64Gauge // Deprecated: no longer recorded; kept for dashboards.
 	workerQueueSizeGauge               metric.Int64Gauge
 	discoveryLeaderGauge               metric.Int64Gauge
 	discoveryLeaderChanges             metric.Int64Counter

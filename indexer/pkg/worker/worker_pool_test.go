@@ -13,506 +13,307 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/registry"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/storage"
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-func TestPool_EnqueueMessagesCreatesTask(t *testing.T) {
-	lggr := logger.Test(t)
+// fakeStore hands out claims from memory and records each settlement.
+// Leases, claim tokens and deadlines are covered by the Postgres-backed tests.
+type fakeStore struct {
+	*mocks.MockIndexerStorage
+	mu        sync.Mutex
+	due       []common.WorkClaim
+	claimErr  error
+	settleErr error
+	settled   map[protocol.Bytes32]common.WorkSettlement
+	// settleStatus overrides the status that SettleWork returns, as the database does on a deadline.
+	settleStatus map[protocol.Bytes32]common.MessageStatus
+	claimSizes   []int
+}
 
-	// discovery channel for the pool
-	discoveryCh := make(chan common.VerifierResultWithMetadata, 1)
+func newFakeStore(t *testing.T) *fakeStore {
+	return &fakeStore{
+		MockIndexerStorage: mocks.NewMockIndexerStorage(t),
+		settled:            map[protocol.Bytes32]common.WorkSettlement{},
+		settleStatus:       map[protocol.Bytes32]common.MessageStatus{},
+	}
+}
 
-	// scheduler with BaseDelay=0 to ensure Enqueue writes directly to ready
-	schedCfg := config.SchedulerConfig{TickerInterval: 50, BaseDelay: 0, MaxDelay: 0, VerificationVisibilityWindow: 60}
-	scheduler, err := NewScheduler(lggr, schedCfg)
+func (f *fakeStore) add(id protocol.Bytes32, attempt int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.due = append(f.due, common.WorkClaim{MessageID: id, Attempt: attempt})
+}
+
+func (f *fakeStore) ClaimWork(_ context.Context, limit int, _ time.Duration) ([]common.WorkClaim, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.claimErr != nil {
+		return nil, f.claimErr
+	}
+	n := min(limit, len(f.due))
+	out := f.due[:n:n]
+	f.due = f.due[n:]
+	if n > 0 {
+		f.claimSizes = append(f.claimSizes, n)
+	}
+	return out, nil
+}
+
+func (f *fakeStore) SettleWork(_ context.Context, s common.WorkSettlement) (common.MessageStatus, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.settleErr != nil {
+		return common.MessageProcessing, f.settleErr
+	}
+	f.settled[s.MessageID] = s
+	if st, ok := f.settleStatus[s.MessageID]; ok {
+		return st, nil
+	}
+	return s.Status, nil
+}
+
+func (f *fakeStore) settlement(id protocol.Bytes32) (common.WorkSettlement, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	s, ok := f.settled[id]
+	return s, ok
+}
+
+var testSchedulerCfg = config.SchedulerConfig{BaseDelay: 1000, MaxDelay: 8000, VerificationVisibilityWindow: 60}
+
+func newTestPool(t *testing.T, f common.IndexerStorage, workers int) *Pool {
+	t.Helper()
+	p, err := NewWorkerPool(logger.Test(t), config.PoolConfig{ConcurrentWorkers: workers, WorkerTimeout: 1, PollInterval: 20}, testSchedulerCfg, registry.NewVerifierRegistry(), f)
 	require.NoError(t, err)
+	return p
+}
 
-	// pool config
+func startPool(t *testing.T, f *fakeStore, workers int) *Pool {
+	t.Helper()
+	p := newTestPool(t, f, workers)
+	p.Start(t.Context())
+	t.Cleanup(p.Stop)
+	return p
+}
+
+// expectNoMissingVerifiers makes Execute find nothing missing, so the attempt succeeds.
+func expectNoMissingVerifiers(f *fakeStore, msgID any) {
+	f.On("GetMessage", mock.Anything, msgID).Return(common.MessageWithMetadata{}, nil)
+	f.On("GetCCVData", mock.Anything, msgID).Return(nil, storage.ErrCCVDataNotFound)
+}
+
+func waitSettled(t *testing.T, f *fakeStore, id protocol.Bytes32) common.WorkSettlement {
+	t.Helper()
+	var s common.WorkSettlement
+	require.Eventually(t, func() bool {
+		var ok bool
+		s, ok = f.settlement(id)
+		return ok
+	}, 2*time.Second, 10*time.Millisecond)
+	return s
+}
+
+func TestNewWorkerPool_RequiresDependencies(t *testing.T) {
+	lggr := logger.Test(t)
 	poolCfg := config.PoolConfig{ConcurrentWorkers: 1, WorkerTimeout: 1}
 	reg := registry.NewVerifierRegistry()
-	storage := mocks.NewMockIndexerStorage(t)
+	ms := mocks.NewMockIndexerStorage(t)
 
-	p, err := NewWorkerPool(lggr, poolCfg, discoveryCh, scheduler, reg, storage)
-	require.NoError(t, err)
-
-	// run only the enqueueMessages goroutine so we can assert scheduler received a task
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	p.wg.Add(1)
-	go p.enqueueMessages(ctx)
-
-	// send a discovery message
-	discoveryCh <- common.VerifierResultWithMetadata{
-		VerifierResult: protocol.VerifierResult{MessageID: protocol.Bytes32{}},
-		Metadata:       common.VerifierResultMetadata{IngestionTimestamp: time.Now()},
-	}
-
-	// wait for a task to be enqueued into scheduler.Ready
-	select {
-	case task := <-scheduler.Ready():
-		require.NotNil(t, task)
-	case <-time.After(500 * time.Millisecond):
-		t.Fatalf("timed out waiting for task in scheduler ready channel")
-	}
-
-	// cleanup: cancel will cause enqueueMessages to exit and call Done
-	cancel()
-	// wait a brief moment for goroutine to exit
-	time.Sleep(50 * time.Millisecond)
-}
-
-func TestRun_MarksSuccessful(t *testing.T) {
-	lggr := logger.Test(t)
-
-	// scheduler
-	schedCfg := config.SchedulerConfig{TickerInterval: 50, BaseDelay: 0, MaxDelay: 0, VerificationVisibilityWindow: 60}
-	scheduler, err := NewScheduler(lggr, schedCfg)
-	require.NoError(t, err)
-
-	// pool
-	poolCfg := config.PoolConfig{ConcurrentWorkers: 1, WorkerTimeout: 1}
-	storage := mocks.NewMockIndexerStorage(t)
-	discoveryCh := make(chan common.VerifierResultWithMetadata, 1)
-	p, err := NewWorkerPool(lggr, poolCfg, discoveryCh, scheduler, registry.NewVerifierRegistry(), storage)
-	require.NoError(t, err)
-
-	// Task to process: no verifiers so Execute should return successful result (UnavailableCCVs == 0)
-	msg := protocol.VerifierResult{}
-	// Expect GetCCVData called and return empty
-	storage.On("GetCCVData", mock.Anything, mock.Anything).Return([]common.VerifierResultWithMetadata{}, nil)
-
-	done := make(chan struct{})
-	storage.On("UpdateMessageStatus", mock.Anything, mock.Anything, common.MessageSuccessful, mock.Anything).Run(func(args mock.Arguments) {
-		close(done)
-	}).Return(nil)
-
-	task, err := NewTask(lggr, msg, registry.NewVerifierRegistry(), storage, time.Now().Add(time.Second))
-	require.NoError(t, err)
-
-	// run only the run loop
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	p.wg.Add(1)
-	go p.run(ctx)
-
-	// enqueue task into scheduler using Enqueue (can't send to Ready channel directly)
-	reqErr := scheduler.Enqueue(ctx, task)
-	require.NoError(t, reqErr)
-
-	// wait for UpdateMessageStatus to be called
-	select {
-	case <-done:
-		// success
-	case <-time.After(1 * time.Second):
-		t.Fatalf("timed out waiting for UpdateMessageStatus")
-	}
-
-	// cleanup
-	cancel()
-	waitDone := make(chan struct{})
-	go func() {
-		p.wg.Wait()
-		close(waitDone)
-	}()
-	select {
-	case <-waitDone:
-		// ok
-	case <-time.After(500 * time.Millisecond):
-		t.Fatalf("timed out waiting for worker run loop to exit")
-	}
-	p.pool.Wait()
-}
-
-func TestRun_RetriesOnError(t *testing.T) {
-	lggr := logger.Test(t)
-
-	// scheduler
-	schedCfg := config.SchedulerConfig{TickerInterval: 50, BaseDelay: 0, MaxDelay: 0, VerificationVisibilityWindow: 60}
-	scheduler, err := NewScheduler(lggr, schedCfg)
-	require.NoError(t, err)
-
-	// Simulate storage error so Execute returns an error
-	storage := mocks.NewMockIndexerStorage(t)
-	storage.On("GetCCVData", mock.Anything, mock.Anything).Return(nil, errors.New("db fail"))
-
-	msg := protocol.VerifierResult{}
-	task, err := NewTask(lggr, msg, registry.NewVerifierRegistry(), storage, time.Now().Add(time.Second))
-	require.NoError(t, err)
-
-	// Instead of starting p.run (which would consume Ready()), run Execute synchronously
-	// and re-enqueue the task on error so the test can observe it deterministically.
-	errExec := func() error {
-		_, e := Execute(context.Background(), task)
-		if e != nil {
-			return scheduler.Enqueue(context.Background(), task)
-		}
-		return nil
-	}()
-	require.NoError(t, errExec)
-
-	// expect the task to be enqueued due to error
-	timedOut := time.After(2 * time.Second)
-	for {
-		select {
-		case rt := <-scheduler.Ready():
-			require.Equal(t, task, rt)
-			goto done
-		case dl := <-scheduler.DLQ():
-			// If it ended in DLQ, that's also acceptable for this test pattern,
-			// but record and fail to make the test explicit.
-			require.Failf(t, "task went to DLQ", "task was sent to DLQ: %v", dl)
-		case <-timedOut:
-			t.Fatalf("timed out waiting for re-enqueued task on Ready or DLQ")
-		}
-	}
-done:
-
-	// cleanup
-	// small sleep to allow goroutine to exit
-	time.Sleep(50 * time.Millisecond)
-}
-
-func TestWorkerPool_StartStop_ClosedDiscovery(t *testing.T) {
-	lggr := logger.Test(t)
-
-	// closed discovery channel should cause enqueueMessages to exit immediately
-	discoveryCh := make(chan common.VerifierResultWithMetadata)
-	close(discoveryCh)
-
-	schedCfg := config.SchedulerConfig{TickerInterval: 50, BaseDelay: 0, MaxDelay: 0, VerificationVisibilityWindow: 60}
-	scheduler, err := NewScheduler(lggr, schedCfg)
-	require.NoError(t, err)
-
-	poolCfg := config.PoolConfig{ConcurrentWorkers: 1, WorkerTimeout: 1}
-	reg := registry.NewVerifierRegistry()
-	storage := mocks.NewMockIndexerStorage(t)
-
-	p, err := NewWorkerPool(lggr, poolCfg, discoveryCh, scheduler, reg, storage)
-	require.NoError(t, err)
-
-	// Start the pool
-	p.Start(context.Background())
-
-	// Call Stop in a goroutine and ensure it returns within a reasonable timeout
-	done := make(chan struct{})
-	go func() {
-		p.Stop()
-		close(done)
-	}()
-
-	select {
-	case <-done:
-		// success
-	case <-time.After(1 * time.Second):
-		t.Fatalf("Stop did not return in time for closed discovery channel")
-	}
-}
-
-func TestWorkerPool_StartStop_Cancel(t *testing.T) {
-	lggr := logger.Test(t)
-
-	// open discovery channel - Stop should cancel the child context and exit goroutines
-	discoveryCh := make(chan common.VerifierResultWithMetadata, 1)
-
-	schedCfg := config.SchedulerConfig{TickerInterval: 50, BaseDelay: 0, MaxDelay: 0, VerificationVisibilityWindow: 60}
-	scheduler, err := NewScheduler(lggr, schedCfg)
-	require.NoError(t, err)
-
-	poolCfg := config.PoolConfig{ConcurrentWorkers: 1, WorkerTimeout: 1}
-	reg := registry.NewVerifierRegistry()
-	storage := mocks.NewMockIndexerStorage(t)
-
-	p, err := NewWorkerPool(lggr, poolCfg, discoveryCh, scheduler, reg, storage)
-	require.NoError(t, err)
-
-	// Start the pool
-	p.Start(context.Background())
-
-	// Call Stop in a goroutine and ensure it returns within a reasonable timeout
-	done := make(chan struct{})
-	go func() {
-		p.Stop()
-		close(done)
-	}()
-
-	select {
-	case <-done:
-		// success
-	case <-time.After(1 * time.Second):
-		t.Fatalf("Stop did not return in time when canceling child context")
-	}
-}
-
-func TestRun_ExitsWhenSchedulerReadyClosed(t *testing.T) {
-	lggr := logger.Test(t)
-
-	// Construct a scheduler with a ready channel that we'll close to simulate the closed condition
-	s := &Scheduler{
-		lggr: lggr,
-		// small buffered channels, but we'll close ready immediately
-		ready: make(chan *Task, 1),
-		dlq:   make(chan *Task, 1),
-	}
-	close(s.ready)
-
-	poolCfg := config.PoolConfig{ConcurrentWorkers: 1, WorkerTimeout: 1}
-	discoveryCh := make(chan common.VerifierResultWithMetadata, 1)
-	p, err := NewWorkerPool(lggr, poolCfg, discoveryCh, s, registry.NewVerifierRegistry(), mocks.NewMockIndexerStorage(t))
-	require.NoError(t, err)
-
-	// Run p.run in a goroutine and ensure it returns when Ready is closed
-	done := make(chan struct{})
-	p.wg.Add(1)
-	go func() {
-		p.run(context.Background())
-		close(done)
-	}()
-
-	select {
-	case <-done:
-		// success
-	case <-time.After(500 * time.Millisecond):
-		t.Fatalf("p.run did not exit when scheduler.Ready was closed")
-	}
-	p.pool.Wait()
-}
-
-func TestHandleDLQ_ExitsWhenDLQClosed(t *testing.T) {
-	lggr := logger.Test(t)
-
-	// Construct a scheduler with a closed DLQ channel
-	s := &Scheduler{
-		lggr:   lggr,
-		ready:  make(chan *Task, 1),
-		dlq:    make(chan *Task, 1),
-		config: config.SchedulerConfig{TickerInterval: 50, BaseDelay: 0, MaxDelay: 0, VerificationVisibilityWindow: 60},
-	}
-	close(s.dlq)
-
-	discoveryCh := make(chan common.VerifierResultWithMetadata, 1)
-	p, err := NewWorkerPool(lggr, config.PoolConfig{ConcurrentWorkers: 1, WorkerTimeout: 1}, discoveryCh, s, registry.NewVerifierRegistry(), mocks.NewMockIndexerStorage(t))
-	require.NoError(t, err)
-
-	done := make(chan struct{})
-	// account for waitgroup since we're starting the goroutine manually
-	p.wg.Add(1)
-	go func() {
-		p.handleDLQ(context.Background())
-		close(done)
-	}()
-
-	select {
-	case <-done:
-		// success
-	case <-time.After(500 * time.Millisecond):
-		t.Fatalf("handleDLQ did not exit when DLQ was closed")
-	}
-}
-
-func TestEnqueueMessages_ExitsWhenDiscoveryClosed(t *testing.T) {
-	lggr := logger.Test(t)
-
-	// closed discovery channel
-	discoveryCh := make(chan common.VerifierResultWithMetadata)
-	close(discoveryCh)
-
-	schedCfg := config.SchedulerConfig{TickerInterval: 50, BaseDelay: 0, MaxDelay: 0, VerificationVisibilityWindow: 60}
-	scheduler, err := NewScheduler(lggr, schedCfg)
-	require.NoError(t, err)
-
-	p, err := NewWorkerPool(lggr, config.PoolConfig{ConcurrentWorkers: 1, WorkerTimeout: 1}, discoveryCh, scheduler, registry.NewVerifierRegistry(), mocks.NewMockIndexerStorage(t))
-	require.NoError(t, err)
-
-	done := make(chan struct{})
-	// account for waitgroup since we're starting the goroutine manually
-	p.wg.Add(1)
-	go func() {
-		p.enqueueMessages(context.Background())
-		close(done)
-	}()
-
-	select {
-	case <-done:
-		// success
-	case <-time.After(500 * time.Millisecond):
-		t.Fatalf("enqueueMessages did not exit when discovery channel was closed")
-	}
-}
-
-func TestRun_PoolFull_EnqueuesTask(t *testing.T) {
-	lggr := logger.Test(t)
-
-	// Create a scheduler with ready channel
-	s := &Scheduler{
-		lggr:   lggr,
-		ready:  make(chan *Task, 1),
-		dlq:    make(chan *Task, 1),
-		config: config.SchedulerConfig{TickerInterval: 50, BaseDelay: 0, MaxDelay: 0, VerificationVisibilityWindow: 60},
-	}
-
-	// Use a real conc.Pool via NewWorkerPool and block the first GetCCVData to
-	// occupy the worker goroutine so we can ensure the second task executes later.
-	storageMock := mocks.NewMockIndexerStorage(t)
-	var mu sync.Mutex
-	callCount := 0
-	firstBlock := make(chan struct{})
-	execCalled := make(chan struct{})
-
-	storageMock.On("GetCCVData", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-		mu.Lock()
-		callCount++
-		c := callCount
-		mu.Unlock()
-		if c == 1 {
-			// block first call until we release it
-			<-firstBlock
-			return
-		}
-		// on second call, signal the test and return
-		select {
-		case <-execCalled:
-		default:
-			close(execCalled)
-		}
-	}).Return([]common.VerifierResultWithMetadata{}, nil)
-	storageMock.On("UpdateMessageStatus", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
-	discoveryCh := make(chan common.VerifierResultWithMetadata, 1)
-
-	p, err := NewWorkerPool(lggr, config.PoolConfig{ConcurrentWorkers: 1, WorkerTimeout: 1}, discoveryCh, s, registry.NewVerifierRegistry(), storageMock)
-	require.NoError(t, err)
-
-	// Create two tasks
-	msg := protocol.VerifierResult{}
-	task1, err := NewTask(lggr, msg, p.registry, p.storage, time.Now().Add(time.Second))
-	require.NoError(t, err)
-	task2, err := NewTask(lggr, msg, p.registry, p.storage, time.Now().Add(time.Second))
-	require.NoError(t, err)
-
-	// Start the pool
-	p.Start(context.Background())
-
-	// Enqueue first task (will block inside GetCCVData)
-	require.NoError(t, s.Enqueue(context.Background(), task1))
-
-	// Give run a moment to pick the first task
-	time.Sleep(50 * time.Millisecond)
-
-	// Enqueue second task; because the pool has 1 worker, p.pool.Go will block
-	// until the first finishes. We expect the second to execute only after we
-	// release the first.
-	require.NoError(t, s.Enqueue(context.Background(), task2))
-
-	// release the first task so it can complete and free the worker
-	close(firstBlock)
-
-	// wait for second task execution
-	select {
-	case <-execCalled:
-		// success
-	case <-time.After(5 * time.Second):
-		p.Stop()
-		t.Fatalf("timed out waiting for second task execution")
-	}
-
-	p.Stop()
-}
-
-func TestPool_HydratesProcessingTasksOnStart(t *testing.T) {
-	lggr := logger.Test(t)
-
-	scheduler, err := NewScheduler(lggr, config.SchedulerConfig{TickerInterval: 50, BaseDelay: 0, MaxDelay: 0, VerificationVisibilityWindow: 60})
-	require.NoError(t, err)
-
-	storageMock := mocks.NewMockIndexerStorage(t)
-	discoveryCh := make(chan common.VerifierResultWithMetadata, 1)
-	p, err := NewWorkerPool(lggr, config.PoolConfig{ConcurrentWorkers: 2, WorkerTimeout: 1}, discoveryCh, scheduler, registry.NewVerifierRegistry(), storageMock)
-	require.NoError(t, err)
-
-	// Seed storage with 2 PROCESSING messages that the pool should resume on startup.
-	now := time.Now()
-	msg1 := common.MessageWithMetadata{Metadata: common.MessageMetadata{Status: common.MessageProcessing, IngestionTimestamp: now}}
-	msg2 := common.MessageWithMetadata{Metadata: common.MessageMetadata{Status: common.MessageProcessing, IngestionTimestamp: now}}
-	storageMock.On("GetProcessingMessages", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return([]common.MessageWithMetadata{msg1, msg2}, nil)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	// Collect tasks from Ready() concurrently — hydrateFromStorage blocks on each send
-	// to the scheduler's ready channel (buffered 1), so a consumer must be running.
-	received := make(chan *Task, 2)
-	go func() {
-		for {
-			select {
-			case task := <-scheduler.Ready():
-				received <- task
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
-
-	err = p.Hydrate(ctx)
-	require.NoError(t, err)
-
-	// Both tasks should have been enqueued.
-	for i := range 2 {
-		select {
-		case task := <-received:
-			require.NotNil(t, task)
-		case <-time.After(500 * time.Millisecond):
-			t.Fatalf("timed out waiting for hydrated task %d", i+1)
-		}
-	}
-}
-
-func TestHandleDLQ_SetsMessageTimeoutOnExpiredTask(t *testing.T) {
-	lggr := logger.Test(t)
-
-	s := &Scheduler{
-		lggr:   lggr,
-		ready:  make(chan *Task, 1),
-		dlq:    make(chan *Task, 1),
-		config: config.SchedulerConfig{TickerInterval: 50, BaseDelay: 0, MaxDelay: 0, VerificationVisibilityWindow: 60},
-	}
-
-	storageMock := mocks.NewMockIndexerStorage(t)
-	discoveryCh := make(chan common.VerifierResultWithMetadata, 1)
-	p, err := NewWorkerPool(lggr, config.PoolConfig{ConcurrentWorkers: 1, WorkerTimeout: 1}, discoveryCh, s, registry.NewVerifierRegistry(), storageMock)
-	require.NoError(t, err)
-
-	msg := protocol.VerifierResult{}
-	task, err := NewTask(lggr, msg, p.registry, p.storage, time.Now().Add(time.Second))
-	require.NoError(t, err)
-	task.ttl = time.Now().Add(-time.Minute)
-	task.lastErr = errors.New("simulated failure")
-
-	dlqCalled := make(chan struct{})
-	storageMock.On("UpdateMessageStatus", mock.Anything, mock.Anything, common.MessageTimeout, "simulated failure").Run(func(args mock.Arguments) {
-		select {
-		case <-dlqCalled:
-		default:
-			close(dlqCalled)
-		}
-	}).Return(nil)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	p.wg.Add(1)
-	go p.handleDLQ(ctx)
-
-	err = s.Enqueue(ctx, task)
+	_, err := NewWorkerPool(lggr, poolCfg, testSchedulerCfg, nil, ms)
 	require.Error(t, err)
+	_, err = NewWorkerPool(lggr, poolCfg, testSchedulerCfg, reg, nil)
+	require.Error(t, err)
+	_, err = NewWorkerPool(lggr, config.PoolConfig{}, testSchedulerCfg, reg, ms)
+	require.Error(t, err)
+}
 
-	select {
-	case <-dlqCalled:
-		// handleDLQ consumed the task and called UpdateMessageStatus
-	case <-time.After(500 * time.Millisecond):
-		t.Fatalf("timed out waiting for UpdateMessageStatus from handleDLQ")
+func TestNewWorkerPool_DefaultsPollInterval(t *testing.T) {
+	p, err := NewWorkerPool(logger.Test(t), config.PoolConfig{ConcurrentWorkers: 1, WorkerTimeout: 5}, testSchedulerCfg, registry.NewVerifierRegistry(), mocks.NewMockIndexerStorage(t))
+	require.NoError(t, err)
+	require.Equal(t, defaultPollInterval, p.pollInterval)
+	require.Equal(t, 5*time.Second+leaseMargin, p.lease)
+}
+
+func TestPool_SuccessSettlesWithClaimToken(t *testing.T) {
+	f := newFakeStore(t)
+	msgID := protocol.Bytes32{1}
+	expectNoMissingVerifiers(f, msgID)
+	f.add(msgID, 3)
+	startPool(t, f, 1)
+
+	s := waitSettled(t, f, msgID)
+	require.Equal(t, common.MessageSuccessful, s.Status)
+	require.Equal(t, 3, s.Attempt)
+}
+
+func TestPool_ErrorRetriesWithBackoff(t *testing.T) {
+	f := newFakeStore(t)
+	msgID := protocol.Bytes32{2}
+	f.On("GetMessage", mock.Anything, msgID).Return(common.MessageWithMetadata{}, errors.New("db down"))
+	f.add(msgID, 2)
+	startPool(t, f, 1)
+
+	s := waitSettled(t, f, msgID)
+	require.Equal(t, common.MessageProcessing, s.Status)
+	// Attempt 2 waits BackoffDelay(3, 1s, 2, 8s) = 4s, as the old scheduler did.
+	require.Equal(t, 4*time.Second, s.RetryDelay)
+	require.Contains(t, s.LastErr, "db down")
+}
+
+// The database decides the deadline; the pool reports the TIMEOUT that SettleWork returns.
+func TestPool_RetryPastDeadlineIsReportedAsTimeout(t *testing.T) {
+	f := newFakeStore(t)
+	msgID := protocol.Bytes32{3}
+	f.On("GetMessage", mock.Anything, msgID).Return(common.MessageWithMetadata{}, errors.New("db down"))
+	f.settleStatus[msgID] = common.MessageTimeout
+	f.add(msgID, 1)
+	startPool(t, f, 1)
+
+	s := waitSettled(t, f, msgID)
+	require.Equal(t, common.MessageProcessing, s.Status, "the pool asks for a retry")
+}
+
+func TestPool_MissingMessageTimesOutWithoutRetry(t *testing.T) {
+	f := newFakeStore(t)
+	msgID := protocol.Bytes32{4}
+	f.On("GetMessage", mock.Anything, msgID).Return(common.MessageWithMetadata{}, storage.ErrMessageNotFound)
+	f.add(msgID, 1)
+	startPool(t, f, 1)
+
+	s := waitSettled(t, f, msgID)
+	require.Equal(t, common.MessageTimeout, s.Status)
+	require.Zero(t, s.RetryDelay)
+}
+
+func TestPool_ClaimsAtMostOnePerWorker(t *testing.T) {
+	f := newFakeStore(t)
+	expectNoMissingVerifiers(f, mock.Anything)
+	ids := make([]protocol.Bytes32, 0, 5)
+	for i := range 5 {
+		id := protocol.Bytes32{byte(10 + i)}
+		ids = append(ids, id)
+		f.add(id, 1)
 	}
+	startPool(t, f, 2)
 
-	cancel()
-	p.wg.Wait()
+	for _, id := range ids {
+		waitSettled(t, f, id)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, n := range f.claimSizes {
+		require.LessOrEqual(t, n, 2, "a claim must not exceed the free worker slots")
+	}
+}
+
+// A lost claim or a failed settle changes nothing; the lease ends and a worker claims the message again.
+func TestPool_SettleErrorIsNotFatal(t *testing.T) {
+	f := newFakeStore(t)
+	msgID := protocol.Bytes32{5}
+	expectNoMissingVerifiers(f, msgID)
+	f.settleErr = common.ErrClaimLost
+	f.add(msgID, 1)
+	p := startPool(t, f, 1)
+
+	require.Eventually(t, func() bool {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return len(f.due) == 0
+	}, 2*time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool { return p.inFlight.Load() == 0 }, 2*time.Second, 10*time.Millisecond)
+	require.NoError(t, p.Ready())
+}
+
+func TestPool_NotReadyAfterRepeatedClaimErrors(t *testing.T) {
+	f := newFakeStore(t)
+	f.claimErr = errors.New("db down")
+	p := newTestPool(t, f, 1)
+	require.Error(t, p.Ready(), "not ready before Start")
+
+	p.Start(t.Context())
+	defer p.Stop()
+	for range maxConsecutiveClaimErrors {
+		p.claim(t.Context())
+	}
+	require.ErrorContains(t, p.Ready(), "claim failed")
+}
+
+func TestPool_StopWaitsForRunLoop(t *testing.T) {
+	p := newTestPool(t, newFakeStore(t), 1)
+	p.Start(context.Background())
+	require.NoError(t, p.Ready())
+
+	done := make(chan struct{})
+	go func() {
+		p.Stop()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("Stop did not return")
+	}
+	require.Error(t, p.Ready(), "not ready after Stop")
+}
+
+type fakeLeader bool
+
+func (l fakeLeader) IsLeader() bool { return bool(l) }
+
+func TestPool_ExpireRunsOnlyOnLeader(t *testing.T) {
+	ms := mocks.NewMockIndexerStorage(t)
+	p := newTestPool(t, ms, 1)
+	var recorded int64
+	p.SetSizeRecorder(func(_ context.Context, n int64) { recorded = n })
+
+	p.SetLeadership(fakeLeader(false))
+	p.expire(t.Context())
+	ms.AssertNotCalled(t, "ExpireWork", mock.Anything, mock.Anything)
+
+	ms.On("ExpireWork", mock.Anything, expireBatchSize).Return(int64(2), nil).Once()
+	ms.On("CountProcessingMessages", mock.Anything).Return(int64(7), nil).Once()
+	p.SetLeadership(fakeLeader(true))
+	p.expire(t.Context())
+	require.EqualValues(t, 7, recorded)
+}
+
+// A full batch means more messages may be past their deadline, so expire runs again in the same tick.
+func TestPool_ExpireRepeatsWhileBatchIsFull(t *testing.T) {
+	ms := mocks.NewMockIndexerStorage(t)
+	p := newTestPool(t, ms, 1)
+
+	ms.On("ExpireWork", mock.Anything, expireBatchSize).Return(int64(expireBatchSize), nil).Twice()
+	ms.On("ExpireWork", mock.Anything, expireBatchSize).Return(int64(3), nil).Once()
+	p.expire(t.Context())
+	ms.AssertNumberOfCalls(t, "ExpireWork", 3)
+}
+
+// A slow expiry runs in its own loop, so the pool still claims and settles work.
+func TestPool_SlowExpireDoesNotBlockClaims(t *testing.T) {
+	f := newFakeStore(t)
+	msgID := protocol.Bytes32{30}
+	expectNoMissingVerifiers(f, msgID)
+	expiring := make(chan struct{})
+	f.On("ExpireWork", mock.Anything, expireBatchSize).
+		Run(func(a mock.Arguments) {
+			select {
+			case expiring <- struct{}{}:
+			default:
+			}
+			<-a.Get(0).(context.Context).Done()
+		}).Return(int64(0), context.DeadlineExceeded).Maybe()
+
+	p := newTestPool(t, f, 1)
+	p.expireInterval = 10 * time.Millisecond
+	p.Start(t.Context())
+	t.Cleanup(p.Stop)
+
+	<-expiring
+	f.add(msgID, 1)
+	p.Wake()
+	s := waitSettled(t, f, msgID)
+	require.Equal(t, common.MessageSuccessful, s.Status)
 }

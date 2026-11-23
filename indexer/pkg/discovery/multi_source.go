@@ -4,58 +4,27 @@ import (
 	"context"
 	"errors"
 	"sync"
-	"time"
-
-	lru "github.com/hashicorp/golang-lru/v2/expirable"
 
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-)
-
-const (
-	// seenMessageIDTTL is how long we remember a messageID for deduplication.
-	seenMessageIDTTL = 24 * time.Hour
-	// seenCacheMaxSize is the maximum number of messageIDs to keep in the seen cache (LRU eviction when full).
-	seenCacheMaxSize = 1_000_000
 )
 
 var _ common.MessageDiscovery = (*MultiSourceMessageDiscovery)(nil)
 
-// MultiSourceMessageDiscovery merges multiple MessageDiscovery sources and deduplicates
-// by messageID (first discovery wins). It implements common.MessageDiscovery.
+// MultiSourceMessageDiscovery starts and stops several MessageDiscovery sources together.
+// Each source waits discoveryPriority*priorityStagger after its read before it persists, so the primary writes first.
+// The insert uses ON CONFLICT (message_id) DO NOTHING, so a message that more sources find makes one row.
 type MultiSourceMessageDiscovery struct {
-	logger          logger.Logger
-	sources         []common.MessageDiscovery
-	messageCh       chan common.VerifierResultWithMetadata
-	seen            *lru.LRU[protocol.Bytes32, struct{}]
-	mergeBufferSize int
-	once            sync.Once
-	wg              sync.WaitGroup
-	cancel          context.CancelFunc
+	logger  logger.Logger
+	sources []common.MessageDiscovery
+	once    sync.Once
 }
 
-// MultiSourceOption configures MultiSourceMessageDiscovery.
-type MultiSourceOption func(*MultiSourceMessageDiscovery)
-
-// WithMergeBufferSize sets the capacity of the internal channel that merges messages from all sources.
-// If <= 0, defaults to len(sources)*2. Increase under peak load if the indexer is slow relative to aggregators.
-func WithMergeBufferSize(size int) MultiSourceOption {
-	return func(m *MultiSourceMessageDiscovery) {
-		m.mergeBufferSize = size
-	}
-}
-
-// NewMultiSourceMessageDiscovery builds a MultiSourceMessageDiscovery from the given options.
-func NewMultiSourceMessageDiscovery(lggr logger.Logger, sources []common.MessageDiscovery, opts ...MultiSourceOption) (common.MessageDiscovery, error) {
+// NewMultiSourceMessageDiscovery builds a MultiSourceMessageDiscovery from the given sources.
+func NewMultiSourceMessageDiscovery(lggr logger.Logger, sources []common.MessageDiscovery) (common.MessageDiscovery, error) {
 	m := &MultiSourceMessageDiscovery{
-		logger:    lggr,
-		sources:   sources,
-		messageCh: make(chan common.VerifierResultWithMetadata),
-		seen:      lru.NewLRU[protocol.Bytes32, struct{}](seenCacheMaxSize, nil, seenMessageIDTTL),
-	}
-	for _, opt := range opts {
-		opt(m)
+		logger:  lggr,
+		sources: sources,
 	}
 	if err := m.validate(); err != nil {
 		return nil, err
@@ -78,104 +47,18 @@ func (m *MultiSourceMessageDiscovery) validate() error {
 	return nil
 }
 
-// Start starts all source discoveries and returns a single channel that emits deduplicated
-// VerifierResultWithMetadata (first discovery per messageID wins).
-func (m *MultiSourceMessageDiscovery) Start(ctx context.Context) chan common.VerifierResultWithMetadata {
+// Start starts all source discoveries.
+func (m *MultiSourceMessageDiscovery) Start(ctx context.Context) {
 	m.once.Do(func() {
-		childCtx, cancel := context.WithCancel(ctx)
-		m.cancel = cancel
-
-		chans := make([]<-chan common.VerifierResultWithMetadata, 0, len(m.sources))
 		for _, src := range m.sources {
-			chans = append(chans, src.Start(childCtx))
+			src.Start(ctx)
 		}
-
-		m.wg.Add(1)
-		go m.merge(childCtx, chans)
 		m.logger.Info("MultiSourceMessageDiscovery started")
 	})
-	return m.messageCh
 }
 
-// merge reads from all source channels and forwards to m.messageCh, deduplicating by messageID.
-func (m *MultiSourceMessageDiscovery) merge(ctx context.Context, chans []<-chan common.VerifierResultWithMetadata) {
-	defer m.wg.Done()
-	defer func() {
-		// Do not close messageCh to match AggregatorMessageDiscovery behavior (channel stays open).
-	}()
-
-	// Build select cases dynamically: we need to receive from N channels and ctx.Done().
-	// Use a single select with reflect.Select or run N goroutines that forward to a single channel.
-	// Simpler: spawn one goroutine per source that forwards to a shared channel, then one goroutine
-	// that reads from that shared channel and dedupes. That way we have one place that checks "seen".
-	type recv struct {
-		msg common.VerifierResultWithMetadata
-	}
-	bufferSize := m.mergeBufferSize
-	if bufferSize <= 0 {
-		bufferSize = len(chans) * 2
-	}
-	recvCh := make(chan recv, bufferSize)
-	perSourceWg := sync.WaitGroup{}
-	for _, ch := range chans {
-		perSourceWg.Go(func() {
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case msg, ok := <-ch:
-					if !ok {
-						m.logger.Warnw("one source message discovery channel closed", "source", ch)
-						return
-					}
-					select {
-					case <-ctx.Done():
-						return
-					case recvCh <- recv{msg: msg}:
-					}
-				}
-			}
-		})
-	}
-	// Wait for per-source readers to exit before merge returns. Defers run LIFO, so this runs
-	// before m.wg.Done(); thus Close()'s m.wg.Wait() only returns after no goroutine is still
-	// reading from source channels, and src.Close() is safe.
-	defer perSourceWg.Wait()
-
-	go func() {
-		perSourceWg.Wait()
-		close(recvCh)
-	}()
-	for {
-		select {
-		case <-ctx.Done():
-			m.logger.Info("MultiSourceMessageDiscovery merge stopped due to context cancellation")
-			return
-		case r, ok := <-recvCh:
-			if !ok {
-				m.logger.Warn("all source message discovery channels closed, stopping merge")
-				return
-			}
-			if _, found := m.seen.Get(r.msg.VerifierResult.MessageID); found {
-				m.logger.Debugw("messageID already discovered from different source, skipping", "messageID", r.msg.VerifierResult.MessageID)
-				continue
-			}
-			m.seen.Add(r.msg.VerifierResult.MessageID, struct{}{})
-			select {
-			case <-ctx.Done():
-				return
-			case m.messageCh <- r.msg:
-			}
-		}
-	}
-}
-
-// Close stops all source discoveries and the merge goroutine.
+// Close stops all source discoveries.
 func (m *MultiSourceMessageDiscovery) Close() error {
-	if m.cancel != nil {
-		m.cancel()
-	}
-	m.wg.Wait()
 	for i, src := range m.sources {
 		if err := src.Close(); err != nil {
 			m.logger.Warnw("source discovery Close returned error", "source", i, "error", err)

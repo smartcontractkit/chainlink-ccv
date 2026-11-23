@@ -1,16 +1,16 @@
 === EXPLAIN ANALYZE: backfill_retry_deadline ===
-Update on indexer.messages  (cost=106.75..2994.11 rows=0 width=0) (actual time=0.434..0.434 rows=0 loops=1)
+Update on indexer.messages  (cost=106.06..2991.17 rows=0 width=0) (actual time=0.488..0.488 rows=0 loops=1)
   Buffers: shared hit=115
-  ->  Bitmap Heap Scan on indexer.messages  (cost=106.75..2994.11 rows=6385 width=14) (actual time=0.434..0.434 rows=0 loops=1)
+  ->  Bitmap Heap Scan on indexer.messages  (cost=106.06..2991.17 rows=6262 width=14) (actual time=0.487..0.487 rows=0 loops=1)
         Output: ((ingestion_timestamp AT TIME ZONE 'UTC'::text) + '24:00:00'::interval), ctid
         Recheck Cond: (messages.status = 'PROCESSING'::text)
         Filter: (messages.retry_deadline IS NULL)
         Rows Removed by Filter: 6500
         Heap Blocks: exact=98
         Buffers: shared hit=115
-        ->  Bitmap Index Scan on idx_messages_processing_due  (cost=0.00..105.15 rows=6595 width=0) (actual time=0.056..0.056 rows=6500 loops=1)
+        ->  Bitmap Index Scan on idx_messages_processing_due  (cost=0.00..104.50 rows=6464 width=0) (actual time=0.061..0.061 rows=6500 loops=1)
               Buffers: shared hit=17
 Planning:
   Buffers: shared hit=3
-Planning Time: 0.022 ms
-Execution Time: 0.445 ms
+Planning Time: 0.042 ms
+Execution Time: 0.501 ms

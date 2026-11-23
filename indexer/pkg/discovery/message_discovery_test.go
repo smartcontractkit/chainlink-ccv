@@ -38,7 +38,38 @@ type testSetup struct {
 	mu                 sync.Mutex
 	capturedMessages   []common.MessageWithMetadata
 	capturedCCVData    []common.VerifierResultWithMetadata
+	capturedJobs       []queuedMessage
+	capturedBatchCount int
 	capturedSeqNumbers map[string]int
+}
+
+// queuedMessage is a persisted PROCESSING message, which the worker pool claims.
+type queuedMessage struct {
+	MessageID protocol.Bytes32
+}
+
+// CapturedJobs returns a copy of the messages passed to storage for the workers.
+func (ts *testSetup) CapturedJobs() []queuedMessage {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	result := make([]queuedMessage, len(ts.capturedJobs))
+	copy(result, ts.capturedJobs)
+	return result
+}
+
+// CapturedBatchCount returns how many times PersistDiscoveryBatch was called.
+func (ts *testSetup) CapturedBatchCount() int {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	return ts.capturedBatchCount
+}
+
+// waitForJobs waits until at least n worker jobs are captured, then returns them.
+func (ts *testSetup) waitForJobs(t *testing.T, n int, timeout time.Duration) []queuedMessage {
+	t.Helper()
+	require.Eventually(t, func() bool { return len(ts.CapturedJobs()) >= n }, timeout, 5*time.Millisecond,
+		"timeout waiting for %d worker jobs", n)
+	return ts.CapturedJobs()
 }
 
 // Cleanup stops the discovery and cancels the context.
@@ -80,6 +111,10 @@ func newMockStorage(t *testing.T, ts *testSetup) *mocks.MockIndexerStorage {
 			ts.mu.Lock()
 			ts.capturedMessages = append(ts.capturedMessages, batch.Messages...)
 			ts.capturedCCVData = append(ts.capturedCCVData, batch.Verifications...)
+			for _, m := range batch.Messages {
+				ts.capturedJobs = append(ts.capturedJobs, queuedMessage{MessageID: m.Message.MustMessageID()})
+			}
+			ts.capturedBatchCount++
 			if batch.SequenceNumber != common.SequenceNumberNotSupported {
 				ts.capturedSeqNumbers[batch.DiscoveryLocation] = batch.SequenceNumber
 			}
@@ -239,44 +274,28 @@ func TestNewAggregatorMessageDiscovery(t *testing.T) {
 	assert.Equal(t, store, aggDiscovery.storageSink)
 	assert.Equal(t, resilientReader, aggDiscovery.aggregatorReader)
 	assert.Equal(t, config, aggDiscovery.config)
-	assert.NotNil(t, aggDiscovery.messageCh)
 }
 
-// TestStart_ReturnsChannel tests that Start returns a message channel.
-func TestStart_ReturnsChannel(t *testing.T) {
-	ts := setupMessageDiscoveryTest(t)
-	defer ts.Cleanup()
-
-	messageCh := ts.Discovery.Start(ts.Context)
-
-	assert.NotNil(t, messageCh)
-	assert.Equal(t, ts.Discovery.messageCh, messageCh)
-}
-
-// TestStart_LaunchesGoroutine tests that Start launches a goroutine.
+// TestStart_LaunchesGoroutine tests that Start launches the polling goroutine.
 func TestStart_LaunchesGoroutine(t *testing.T) {
 	ts := setupMessageDiscoveryTest(t)
 	defer ts.Cleanup()
 
-	messageCh := ts.Discovery.Start(ts.Context)
+	ts.Discovery.Start(ts.Context)
 
-	// Give goroutine a moment to start
+	// Give goroutine a moment to start; the first poll tick (50ms) has not fired yet.
 	time.Sleep(10 * time.Millisecond)
+	assert.Empty(t, ts.CapturedJobs(), "unexpected worker job")
 
-	// Channel should be open and ready
-	select {
-	case <-messageCh:
-		t.Fatal("unexpected message received")
-	default:
-		// Expected - channel is open but no messages yet
-	}
+	// The goroutine polls the reader on the first tick.
+	require.Eventually(t, func() bool { return ts.MockReader.GetCallCount() > 0 }, time.Second, 5*time.Millisecond)
 }
 
 // TestClose_GracefullyStops tests that Close gracefully stops discovery.
 func TestClose_GracefullyStops(t *testing.T) {
 	ts := setupMessageDiscoveryTestNoTimeout(t, defaultTestConfig())
 
-	messageCh := ts.Discovery.Start(ts.Context)
+	ts.Discovery.Start(ts.Context)
 
 	// Give it a moment to start
 	time.Sleep(20 * time.Millisecond)
@@ -296,8 +315,10 @@ func TestClose_GracefullyStops(t *testing.T) {
 		t.Fatal("Close() did not complete within timeout")
 	}
 
-	_, ok := <-messageCh
-	assert.True(t, !ok)
+	// After Close the goroutine is stopped, so the reader is not called again.
+	calls := ts.MockReader.GetCallCount()
+	time.Sleep(150 * time.Millisecond)
+	assert.Equal(t, calls, ts.MockReader.GetCallCount(), "reader called after Close")
 }
 
 // TestStart_ContextCancellation tests that context cancellation stops discovery.
@@ -305,29 +326,24 @@ func TestStart_ContextCancellation(t *testing.T) {
 	ts := setupMessageDiscoveryTestNoTimeout(t, defaultTestConfig())
 	t.Cleanup(ts.Cleanup)
 
-	messageCh := ts.Discovery.Start(ts.Context)
+	ts.Discovery.Start(ts.Context)
 
 	// Give it a moment to start
 	time.Sleep(20 * time.Millisecond)
 
-	// Cancel context
 	ts.Cancel()
 
-	// Wait for ctx to be closed
 	select {
 	case <-ts.Context.Done():
-		// Expected - goroutine exited
 	case <-time.After(2 * time.Second):
 		t.Fatal("discovery did not stop after context cancellation")
 	}
 
-	// Verify messageCh is still open
-	select {
-	case <-messageCh:
-		t.Fatal("messageCh should not be closed")
-	default:
-		// Expected
-	}
+	// Polling stops after cancellation, so the reader call count does not change.
+	time.Sleep(20 * time.Millisecond)
+	calls := ts.MockReader.GetCallCount()
+	time.Sleep(150 * time.Millisecond)
+	assert.Equal(t, calls, ts.MockReader.GetCallCount(), "reader called after context cancellation")
 }
 
 // TestConsumeReader_ReturnsImmediatelyWhenContextAlreadyCancelled verifies consumeReader returns without blocking when ctx is already canceled.
@@ -364,7 +380,6 @@ func TestConsumeReader_ExitsWhenContextCancelledDuringLoop(t *testing.T) {
 	ts.Reader = readers.NewResilientReader(ts.MockReader, ts.Logger, readers.DefaultResilienceConfig())
 	ts.Discovery.aggregatorReader = ts.Reader
 	ts.Discovery.discoveryPriority = 0
-	ts.Discovery.messageCh = make(chan common.VerifierResultWithMetadata, 100)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -397,7 +412,6 @@ func TestConsumeReader_RespectsContextDuringPrioritySleep(t *testing.T) {
 	ts.Reader = readers.NewResilientReader(ts.MockReader, ts.Logger, readers.DefaultResilienceConfig())
 	ts.Discovery.aggregatorReader = ts.Reader
 	ts.Discovery.discoveryPriority = 1
-	ts.Discovery.messageCh = make(chan common.VerifierResultWithMetadata, 10)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 	defer cancel()
@@ -433,20 +447,11 @@ func TestMessageDiscovery_SingleMessage(t *testing.T) {
 	ts.Reader = readers.NewResilientReader(ts.MockReader, ts.Logger, readers.DefaultResilienceConfig())
 	ts.Discovery.aggregatorReader = ts.Reader
 
-	messageCh := ts.Discovery.Start(ts.Context)
+	ts.Discovery.Start(ts.Context)
 
-	var receivedMessage common.VerifierResultWithMetadata
-	select {
-	case msg := <-messageCh:
-		receivedMessage = msg
-	case <-time.After(200 * time.Millisecond):
-		t.Fatal("timeout waiting for message")
-	}
-
-	assert.Equal(t, ccvData.VerifierResult.Message.MustMessageID(), receivedMessage.VerifierResult.Message.MustMessageID())
-
-	// Allow async storage write to complete
-	time.Sleep(50 * time.Millisecond)
+	jobs := ts.waitForJobs(t, 1, 200*time.Millisecond)
+	require.Len(t, jobs, 1)
+	assert.Equal(t, ccvData.VerifierResult.Message.MustMessageID(), jobs[0].MessageID)
 
 	storedCCVData := ts.CapturedCCVData()
 	require.Len(t, storedCCVData, 1)
@@ -481,25 +486,13 @@ func TestMessageDiscovery_MultipleMessages(t *testing.T) {
 	ts.Reader = readers.NewResilientReader(ts.MockReader, ts.Logger, readers.DefaultResilienceConfig())
 	ts.Discovery.aggregatorReader = ts.Reader
 
-	messageCh := ts.Discovery.Start(ts.Context)
+	ts.Discovery.Start(ts.Context)
 
-	receivedMessages := make([]protocol.Message, 0, len(messages))
-	for i := range messages {
-		select {
-		case msg := <-messageCh:
-			receivedMessages = append(receivedMessages, msg.VerifierResult.Message)
-		case <-time.After(200 * time.Millisecond):
-			t.Fatalf("timeout waiting for message %d", i+1)
-		}
-	}
-
-	assert.Len(t, receivedMessages, len(messages))
+	jobs := ts.waitForJobs(t, len(messages), 200*time.Millisecond)
+	require.Len(t, jobs, len(messages))
 	for i, expected := range messages {
-		assert.Equal(t, expected.VerifierResult.Message, receivedMessages[i])
+		assert.Equal(t, expected.VerifierResult.Message.MustMessageID(), jobs[i].MessageID)
 	}
-
-	// Allow async storage writes to complete
-	time.Sleep(50 * time.Millisecond)
 
 	assert.Len(t, ts.CapturedCCVData(), len(messages))
 }
@@ -522,18 +515,14 @@ func TestMessageDiscovery_EmptyResponse(t *testing.T) {
 	ts.Reader = readers.NewResilientReader(ts.MockReader, ts.Logger, readers.DefaultResilienceConfig())
 	ts.Discovery.aggregatorReader = ts.Reader
 
-	messageCh := ts.Discovery.Start(ts.Context)
+	ts.Discovery.Start(ts.Context)
 
 	// Wait a bit to ensure polling happens multiple times
 	time.Sleep(150 * time.Millisecond)
 
-	// No messages should be received (already consumed)
-	select {
-	case msg := <-messageCh:
-		t.Fatalf("unexpected message received: %+v", msg)
-	default:
-		// Expected - no messages
-	}
+	// Nothing is persisted or queued (the message was already consumed).
+	assert.Zero(t, ts.CapturedBatchCount(), "PersistDiscoveryBatch must not be called")
+	assert.Empty(t, ts.CapturedJobs())
 }
 
 // TestMessageDiscovery_ContinuesAfterEmptyResponse tests that polling continues after empty response.
@@ -558,18 +547,11 @@ func TestMessageDiscovery_ContinuesAfterEmptyResponse(t *testing.T) {
 	ts.Reader = readers.NewResilientReader(ts.MockReader, ts.Logger, readers.DefaultResilienceConfig())
 	ts.Discovery.aggregatorReader = ts.Reader
 
-	messageCh := ts.Discovery.Start(ts.Context)
+	ts.Discovery.Start(ts.Context)
 
-	// Wait for message (polling should continue even after empty responses)
-	var receivedMessage common.VerifierResultWithMetadata
-	select {
-	case msg := <-messageCh:
-		receivedMessage = msg
-	case <-time.After(500 * time.Millisecond):
-		t.Fatal("timeout waiting for message after empty responses")
-	}
-
-	assert.NotNil(t, receivedMessage)
+	// Polling continues after empty responses, so a job is eventually queued.
+	jobs := ts.waitForJobs(t, 1, 500*time.Millisecond)
+	assert.NotEmpty(t, jobs)
 }
 
 // TestErrorHandling_ReaderError tests error handling when reader returns an error.
@@ -587,14 +569,7 @@ func TestErrorHandling_ReaderError(t *testing.T) {
 	ts.Reader = readers.NewResilientReader(ts.MockReader, ts.Logger, readers.DefaultResilienceConfig())
 	ts.Discovery.aggregatorReader = ts.Reader
 
-	messageCh := ts.Discovery.Start(ts.Context)
-
-	// Drain channel in background to prevent blocking
-	go func() {
-		for range messageCh {
-			// Drain any unexpected messages
-		}
-	}()
+	ts.Discovery.Start(ts.Context)
 
 	// Wait a bit for error to occur
 	time.Sleep(100 * time.Millisecond)
@@ -606,6 +581,7 @@ func TestErrorHandling_ReaderError(t *testing.T) {
 	default:
 		// Expected - discovery continues
 	}
+	assert.Zero(t, ts.CapturedBatchCount(), "PersistDiscoveryBatch must not be called on reader error")
 }
 
 // TestErrorHandling_CircuitBreakerOpen tests behavior when circuit breaker is open.
@@ -628,14 +604,7 @@ func TestErrorHandling_CircuitBreakerOpen(t *testing.T) {
 	ts.Reader = readers.NewResilientReader(ts.MockReader, ts.Logger, config)
 	ts.Discovery.aggregatorReader = ts.Reader
 
-	messageCh := ts.Discovery.Start(ts.Context)
-
-	// Drain channel in background to prevent blocking
-	go func() {
-		for range messageCh {
-			// Drain any unexpected messages
-		}
-	}()
+	ts.Discovery.Start(ts.Context)
 
 	// Wait for circuit breaker to open (but not long enough to transition to half-open)
 	// Poll interval is 50ms, so 150ms gives time for 2-3 polls which should trigger the failure
@@ -652,6 +621,7 @@ func TestErrorHandling_CircuitBreakerOpen(t *testing.T) {
 	default:
 		// Expected
 	}
+	assert.Zero(t, ts.CapturedBatchCount(), "PersistDiscoveryBatch must not be called while the circuit breaker is open")
 }
 
 // TestConsumeReader_MultipleBatches tests that consumeReader processes multiple batches.
@@ -674,26 +644,11 @@ func TestConsumeReader_MultipleBatches(t *testing.T) {
 	ts.Reader = readers.NewResilientReader(ts.MockReader, ts.Logger, readers.DefaultResilienceConfig())
 	ts.Discovery.aggregatorReader = ts.Reader
 
-	messageCh := ts.Discovery.Start(ts.Context)
+	ts.Discovery.Start(ts.Context)
 
-	// Collect messages - consumeReader should loop until no more data
-	receivedMessages := make([]common.VerifierResultWithMetadata, 0)
-	timeout := time.After(500 * time.Millisecond)
-	done := false
-	for !done {
-		select {
-		case msg := <-messageCh:
-			receivedMessages = append(receivedMessages, msg)
-			if len(receivedMessages) >= 6 {
-				done = true
-			}
-		case <-timeout:
-			done = true
-		}
-	}
-
-	// Should receive all 6 messages
-	assert.GreaterOrEqual(t, len(receivedMessages), 1, "should receive at least some messages")
+	// consumeReader loops until no more data, so jobs from several batches are queued.
+	jobs := ts.waitForJobs(t, 1, 500*time.Millisecond)
+	assert.GreaterOrEqual(t, len(jobs), 1, "should queue at least some jobs")
 	_ = callCount // Suppress unused variable
 }
 
@@ -747,7 +702,7 @@ func createTestCCVData(uniqueID int, timestamp int64, sourceChain, destChain pro
 }
 
 // TestMessageDiscovery_NewMessageEmittedAndSaved tests that when a new message is discovered,
-// it is both emitted to the channel AND saved to storage.
+// it is both queued as a worker job AND saved to storage.
 func TestMessageDiscovery_NewMessageEmittedAndSaved(t *testing.T) {
 	ts := setupMessageDiscoveryTest(t)
 	defer ts.Cleanup()
@@ -765,31 +720,21 @@ func TestMessageDiscovery_NewMessageEmittedAndSaved(t *testing.T) {
 	ts.Reader = readers.NewResilientReader(ts.MockReader, ts.Logger, readers.DefaultResilienceConfig())
 	ts.Discovery.aggregatorReader = ts.Reader
 
-	messageCh := ts.Discovery.Start(ts.Context)
+	ts.Discovery.Start(ts.Context)
 
-	var receivedMessage common.VerifierResultWithMetadata
-	select {
-	case msg := <-messageCh:
-		receivedMessage = msg
-	case <-time.After(200 * time.Millisecond):
-		t.Fatal("timeout waiting for message to be emitted to channel")
-	}
-
-	require.NotNil(t, receivedMessage, "message should be emitted to channel")
-	assert.Equal(t, ccvData.VerifierResult.Message.MustMessageID(), receivedMessage.VerifierResult.Message.MustMessageID())
-
-	// Allow async storage writes to complete
-	time.Sleep(50 * time.Millisecond)
+	jobs := ts.waitForJobs(t, 1, 200*time.Millisecond)
+	require.Len(t, jobs, 1, "message should be queued as a worker job")
+	assert.Equal(t, ccvData.VerifierResult.Message.MustMessageID(), jobs[0].MessageID)
 
 	storedCCVData := ts.CapturedCCVData()
 	storedMessages := ts.CapturedMessages()
 	require.Len(t, storedCCVData, 1, "exactly one CCV data should be stored")
-	assert.Equal(t, receivedMessage.VerifierResult.Message.MustMessageID(), storedCCVData[0].VerifierResult.Message.MustMessageID())
+	assert.Equal(t, jobs[0].MessageID, storedCCVData[0].VerifierResult.Message.MustMessageID())
 	require.Len(t, storedMessages, 1, "exactly one message should be stored")
 }
 
 // TestMessageDiscovery_DiscoveryOnlyNotPersisted tests that discovery-only verifications
-// (those with MessageDiscoveryVersion prefix in CCVData) are emitted and saved as messages,
+// (those with MessageDiscoveryVersion prefix in CCVData) are queued and saved as messages,
 // but NOT persisted as verifications.
 func TestMessageDiscovery_DiscoveryOnlyNotPersisted(t *testing.T) {
 	ts := setupMessageDiscoveryTest(t)
@@ -812,17 +757,11 @@ func TestMessageDiscovery_DiscoveryOnlyNotPersisted(t *testing.T) {
 	ts.Reader = readers.NewResilientReader(ts.MockReader, ts.Logger, readers.DefaultResilienceConfig())
 	ts.Discovery.aggregatorReader = ts.Reader
 
-	messageCh := ts.Discovery.Start(ts.Context)
+	ts.Discovery.Start(ts.Context)
 
-	select {
-	case msg := <-messageCh:
-		assert.Equal(t, discoveryOnlyData.VerifierResult.MessageID, msg.VerifierResult.MessageID)
-	case <-time.After(200 * time.Millisecond):
-		t.Fatal("timeout waiting for discovery-only message to be emitted")
-	}
-
-	// Allow async storage writes to complete
-	time.Sleep(50 * time.Millisecond)
+	jobs := ts.waitForJobs(t, 1, 200*time.Millisecond)
+	require.Len(t, jobs, 1)
+	assert.Equal(t, discoveryOnlyData.VerifierResult.MessageID, jobs[0].MessageID)
 
 	assert.Empty(t, ts.CapturedCCVData(), "discovery-only verification should not be persisted as CCVData")
 	storedMessages := ts.CapturedMessages()
@@ -966,7 +905,6 @@ func TestCallReader_PersistDiscoveryBatch(t *testing.T) {
 			require.NoError(t, err)
 
 			aggDisc := disc.(*AggregatorMessageDiscovery)
-			aggDisc.messageCh = make(chan common.VerifierResultWithMetadata, 10)
 
 			found, callErr := aggDisc.callReader(ctx)
 
@@ -1046,4 +984,68 @@ func TestPersistBatch_FiltersNonEncodableMessages_OnlyEncodablePassedToStorageSi
 	assert.Equal(t, messages[0], capturedBatch.Messages[0])
 	assert.Equal(t, messages[2], capturedBatch.Messages[1])
 	assert.Empty(t, capturedBatch.Verifications)
+}
+
+func TestPersistBatch_OneJobPerMessageIDAndNoJobForNonEncodable(t *testing.T) {
+	lggr := logger.Test(t)
+	store := mocks.NewMockIndexerStorage(t)
+
+	var capturedBatch common.DiscoveryBatch
+	store.EXPECT().PersistDiscoveryBatch(mock.Anything, mock.Anything).
+		Run(func(_ context.Context, batch common.DiscoveryBatch) {
+			capturedBatch = batch
+		}).Return(nil).Once()
+
+	mockReader := internal.NewMockReader(internal.MockReaderConfig{EmitEmptyResponses: true})
+	resilientReader := readers.NewResilientReader(mockReader, lggr, readers.DefaultResilienceConfig())
+	timeProvider := mocks.NewMockTimeProvider(t)
+	timeProvider.EXPECT().GetTime().Return(time.Now().UTC()).Maybe()
+
+	disc, err := NewAggregatorMessageDiscovery(
+		WithLogger(lggr),
+		WithRegistry(registry.NewVerifierRegistry()),
+		WithTimeProvider(timeProvider),
+		WithMetrics(monitoring.NewNoopIndexerMetricLabeler()),
+		WithStorage(store),
+		WithAggregator(resilientReader),
+		WithConfig(defaultTestConfig()),
+	)
+	require.NoError(t, err)
+	aggDisc := disc.(*AggregatorMessageDiscovery)
+
+	// Two verifications from different verifiers share one message.
+	verA := createTestCCVData(1, time.Now().UnixMilli(), 1, 2)
+	verB := createTestCCVData(1, time.Now().UnixMilli(), 1, 2)
+	verB.VerifierResult.VerifierSourceAddress = protocol.UnknownAddress{0x99}
+	sharedID := verA.VerifierResult.MessageID
+	require.Equal(t, sharedID, verB.VerifierResult.MessageID)
+
+	invalidMsg := testutil.CreateTestMessage(t, 2, 1, 100, 10, 200000)
+	invalidMsg.SenderLength = 99
+
+	now := time.Now()
+	messages := []common.MessageWithMetadata{
+		{Message: verA.VerifierResult.Message, Metadata: common.MessageMetadata{Status: common.MessageProcessing, IngestionTimestamp: now}},
+		{Message: verB.VerifierResult.Message, Metadata: common.MessageMetadata{Status: common.MessageProcessing, IngestionTimestamp: now}},
+		{Message: invalidMsg, Metadata: common.MessageMetadata{Status: common.MessageProcessing, IngestionTimestamp: now}},
+	}
+	err = aggDisc.persistBatch(context.Background(), messages, []common.VerifierResultWithMetadata{verA, verB}, false)
+	require.NoError(t, err)
+
+	require.Len(t, capturedBatch.Messages, 2, "the non-encodable message is filtered out")
+	assert.Len(t, capturedBatch.Verifications, 2)
+}
+
+func TestSetMessageTraceParents_UsesFirstTraceParentOfEachMessage(t *testing.T) {
+	verA := createTestCCVData(1, time.Now().UnixMilli(), 1, 2)
+	verB := createTestCCVData(1, time.Now().UnixMilli(), 1, 2)
+	verA.Metadata.TraceParent = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
+	verB.Metadata.TraceParent = "00-1af7651916cd43dd8448eb211c80319c-c7ad6b7169203331-01"
+	other := createTestCCVData(2, time.Now().UnixMilli(), 1, 2)
+	messages := []common.MessageWithMetadata{{Message: verA.VerifierResult.Message}, {Message: other.VerifierResult.Message}}
+
+	setMessageTraceParents(messages, []common.VerifierResultWithMetadata{verA, verB, other})
+
+	assert.Equal(t, verA.Metadata.TraceParent, messages[0].Metadata.TraceParent)
+	assert.Empty(t, messages[1].Metadata.TraceParent, "a message without a traceparent stays empty")
 }
