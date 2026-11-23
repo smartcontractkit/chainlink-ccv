@@ -368,6 +368,7 @@ func (c *Cfg) expandIndexers() error {
 			clone := &services.IndexerInput{
 				Image:                            idx.Image,
 				Port:                             nextPort,
+				Replicas:                         idx.Replicas,
 				SourceCodePath:                   idx.SourceCodePath,
 				RootPath:                         idx.RootPath,
 				CommitteeVerifierNameToQualifier: copyStringMap(idx.CommitteeVerifierNameToQualifier),
