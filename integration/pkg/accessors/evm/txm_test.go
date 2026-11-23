@@ -92,7 +92,7 @@ func TestNewTxmV2RejectsUnsupportedConfig(t *testing.T) {
 
 	dual := cfg.EVM().Transactions().TransactionManagerV2().DualBroadcast()
 	require.True(t, dual == nil || !*dual,
-		"newTxmV2 passes a nil error handler and rejects configs that enable dual broadcast")
+		"dual broadcast requires a different error handler and remains rejected")
 }
 
 func TestRetryBlockThreshold(t *testing.T) {

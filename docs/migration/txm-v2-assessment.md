@@ -23,8 +23,12 @@ state is transferred; this decision is about operation after cutover, not live s
   delay later transactions, cost additional gas, and is skipped if the startup nonce reads fail.
 - CCV currently mirrors the upstream v2 builder so it can retain the in-memory store for recovery.
   That local assembly can drift when chainlink-evm changes.
-- The standalone path does not support forwarders or dual broadcast, and it leaves `AutoPurge`
-  disabled. These are gaps wherever the production node relies on those features.
+- The standalone path does not support forwarders or dual broadcast. After an RPC-corroborated
+  deterministic first-broadcast gas rejection, the newest nonce is deleted and reused, while an older
+  nonce becomes purgeable for empty-transaction backfill. Immediately deleted transactions disappear
+  from in-memory status lookups rather than retaining a fatal record. AutoPurge remains optional
+  configuration for other stuck transactions. These remain gaps wherever the production node relies
+  on forwarders or dual broadcast.
 - Node-config conversion carries the node's chain-level settings, including `GasEstimator`,
   `NodePool`, `HeadTracker`, and `Transactions` tuning, over the chain defaults, except the few
   standalone fixes itself (see [EVM config conversion](../verifier/evm-standalone.md#evm-config-conversion)). Send-only nodes

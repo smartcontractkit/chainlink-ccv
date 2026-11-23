@@ -528,6 +528,86 @@
       "labels": []
     }
   ],
+  "executor_txm": [
+    {
+      "name": "executor_txm_discarded_transactions_total",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "Transactions discarded after a deterministic first-broadcast gas rejection",
+      "labels": [
+        "chainID"
+      ]
+    },
+    {
+      "name": "txm_num_broadcasted_transactions",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "",
+      "labels": []
+    },
+    {
+      "name": "txm_num_confirmed_transactions",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "",
+      "labels": []
+    },
+    {
+      "name": "txm_num_nonce_gaps",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "",
+      "labels": []
+    },
+    {
+      "name": "txm_reached_max_attempts",
+      "kind": "Int64Gauge",
+      "unit": "",
+      "description": "",
+      "labels": []
+    },
+    {
+      "name": "txm_rpc_nonce",
+      "kind": "Int64Gauge",
+      "unit": "",
+      "description": "",
+      "labels": []
+    },
+    {
+      "name": "txm_time_until_tx_confirmed",
+      "kind": "Float64Histogram",
+      "unit": "",
+      "description": "",
+      "buckets": [
+        0,
+        5,
+        10,
+        25,
+        50,
+        75,
+        100,
+        250,
+        500,
+        750,
+        1000,
+        2500,
+        5000,
+        7500,
+        10000
+      ],
+      "labels": []
+    },
+    {
+      "name": "txm_transaction_lifecycle_failure_total",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "",
+      "labels": [
+        "chainID",
+        "stage"
+      ]
+    }
+  ],
   "health": [
     {
       "name": "health",
