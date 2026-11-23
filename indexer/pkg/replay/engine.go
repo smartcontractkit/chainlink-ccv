@@ -23,6 +23,8 @@ type Storage interface {
 	UpsertMessages(ctx context.Context, messages []common.MessageWithMetadata, force bool) error
 	// GetMessage retrieves a message (including CCV addresses) from the messages table by ID.
 	GetMessage(ctx context.Context, messageID protocol.Bytes32) (common.MessageWithMetadata, error)
+	// RequeueMessages sets messages that are not SUCCESS back to PROCESSING with a new deadline of now + window.
+	RequeueMessages(ctx context.Context, messageIDs []protocol.Bytes32, window time.Duration) ([]protocol.Bytes32, error)
 }
 
 // AggregatorReaderFactory creates a new aggregator reader for replay.
@@ -37,9 +39,15 @@ type Engine struct {
 	aggregatorReaderFactory AggregatorReaderFactory
 	lggr                    logger.Logger
 	batchThrottleDelay      time.Duration
+	retryWindow             time.Duration
 }
 
 type EngineOption func(*Engine)
+
+// WithRetryWindow sets the new visibility window that a message replay gives to each message.
+func WithRetryWindow(d time.Duration) EngineOption {
+	return func(e *Engine) { e.retryWindow = d }
+}
 
 func WithBatchThrottleDelay(d time.Duration) EngineOption {
 	return func(e *Engine) { e.batchThrottleDelay = d }

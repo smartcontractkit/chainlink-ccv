@@ -1,0 +1,14 @@
+=== EXPLAIN ANALYZE: requeue ===
+Update on indexer.messages  (cost=0.42..41.04 rows=1 width=90) (actual time=0.028..0.060 rows=4 loops=1)
+  Output: message_id
+  Buffers: shared hit=76
+  ->  Index Scan using messages_pkey on indexer.messages  (cost=0.42..41.04 rows=1 width=90) (actual time=0.013..0.025 rows=4 loops=1)
+        Output: 'PROCESSING'::text, ''::text, CASE WHEN (status = 'PROCESSING'::text) THEN attempt_count ELSE (attempt_count + 1) END, CASE WHEN (status = 'PROCESSING'::text) THEN next_attempt_at ELSE NULL::timestamp with time zone END, (now() + '08:00:00'::interval), ctid
+        Index Cond: (messages.message_id = ANY ('{new-1,retry-1,leased-1,timeout-1,success-1}'::text[]))
+        Filter: (messages.status <> 'SUCCESS'::text)
+        Rows Removed by Filter: 1
+        Buffers: shared hit=24
+Planning:
+  Buffers: shared hit=4
+Planning Time: 0.060 ms
+Execution Time: 0.070 ms

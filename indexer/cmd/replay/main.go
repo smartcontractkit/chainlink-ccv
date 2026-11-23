@@ -368,7 +368,8 @@ func mustBuildEngine(ctx context.Context, needsDiscoveryReader bool) (*replay.En
 		}
 	}
 
-	engine := replay.NewEngine(replayStore, indexerStorage, verifierRegistry, aggFactory, lggr)
+	engine := replay.NewEngine(replayStore, indexerStorage, verifierRegistry, aggFactory, lggr,
+		replay.WithRetryWindow(time.Duration(cfg.Scheduler.VerificationVisibilityWindow)*time.Second))
 
 	cleanup := func() {
 		for _, c := range verifierCleanups {

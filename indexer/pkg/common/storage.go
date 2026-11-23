@@ -96,7 +96,7 @@ type DiscoveryLock interface {
 // ErrClaimLost means another worker claimed the message again, or the message is no longer PROCESSING.
 var ErrClaimLost = errors.New("worker claim lost")
 
-// WorkClaim is one leased message. Attempt is the claim token: ClaimWork increments it.
+// WorkClaim is one leased message. Attempt is the claim token: ClaimWork and a replay of a final message increment it.
 // SettleWork changes the row only if attempt_count is still Attempt, so a stale worker gets ErrClaimLost.
 type WorkClaim struct {
 	MessageID protocol.Bytes32
