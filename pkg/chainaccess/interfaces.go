@@ -151,6 +151,15 @@ type CCTPCodec interface {
 	DecodeAddress(address string) (protocol.UnknownAddress, error)
 }
 
+// CCIPAPIParser parses the chain-specific values in CCIP API results, such as fee token addresses.
+// A chain family implements it so callers never branch on the family. It is separate from CCTPCodec
+// as it is not a guarantee that a given chain family will support CCTP thereby not implementing CCTPCodec.
+type CCIPAPIParser interface {
+	// DecodeAddress parses an address string from a CCIP API result into the chain's native address bytes.
+	// It returns an error if the string is not a valid address for the chain.
+	DecodeAddress(address string) (protocol.UnknownAddress, error)
+}
+
 // FeeQuoterReader reads a chain's Fee Quoter contract.
 //
 // Thread-safety: All methods must be safe for concurrent calls.
@@ -197,6 +206,8 @@ type Accessor interface {
 	ContractTransmitter() (ContractTransmitter, error)
 	// CCTPCodec returns the CCTPCodec for this chain, or an error if not available.
 	CCTPCodec() (CCTPCodec, error)
+	// CCIPAPIParser returns the CCIPAPIParser for this chain, or an error if not available.
+	CCIPAPIParser() (CCIPAPIParser, error)
 	// FeeQuoterReader returns the FeeQuoterReader for this chain, or an error if not available.
 	FeeQuoterReader() (FeeQuoterReader, error)
 	// FeeQuoterWriter returns the FeeQuoterWriter for this chain, or an error if not available.
