@@ -27,8 +27,9 @@ type Task struct {
 	registry    *registry.VerifierRegistry
 	storage     common.IndexerStorage
 	tracing     commontracing.Tracing
-	traceParent string // discovery w3c traceparent
-	attempt     int    // 1-indexed
+	metrics     common.IndexerMetricLabeler // optional
+	traceParent string                      // discovery w3c traceparent
+	attempt     int                         // 1-indexed
 	runAt       time.Time
 	index       int // heap index
 	lastErr     error
@@ -178,6 +179,28 @@ func (t *Task) loadVerifierReaders(verifierAddresses []string) (readerList []ver
 		loadedReaders = append(loadedReaders, strings.ToLower(unknownAddress.String()))
 	}
 	return readerList, loadedReaders, missingReaders, unavailable
+}
+
+// recordUnavailableRetries counts one retry for each verifier in unavailable.
+func (t *Task) recordUnavailableRetries(ctx context.Context, unavailable []string) {
+	if t.metrics == nil {
+		return
+	}
+	for _, address := range unavailable {
+		t.metrics.IncrementUnavailableVerifierRetries(ctx, t.verifierLabel(address))
+	}
+}
+
+// verifierLabel returns the configured name of address, or address when it has no name.
+func (t *Task) verifierLabel(address string) string {
+	a, err := protocol.NewUnknownAddressFromHex(address)
+	if err != nil {
+		return address
+	}
+	if name := t.registry.GetVerifierNameFromAddress(a); name != "" {
+		return name
+	}
+	return address
 }
 
 func (t *Task) getMissingVerifiers(ctx context.Context) (missing []string, err error) {

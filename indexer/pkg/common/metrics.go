@@ -51,6 +51,10 @@ type IndexerMetricLabeler interface {
 	RecordIndexerMessageDiscoveryLatency(ctx context.Context, latency time.Duration)
 	// RecordTimeToIndex records the total time between aggregation and indexing.
 	RecordTimeToIndex(ctx context.Context, latency time.Duration, discoveryType string)
+	// RecordVerifierUnavailableGauge records 1 when a configured verifier has no started reader, else 0.
+	RecordVerifierUnavailableGauge(ctx context.Context, verifier string, unavailable bool)
+	// IncrementUnavailableVerifierRetries counts a message attempt that retries because the verifier has no started reader.
+	IncrementUnavailableVerifierRetries(ctx context.Context, verifier string)
 	// RecordCircuitBreakerStatus records the status of the circuit breaker.
 	RecordCircuitBreakerStatus(ctx context.Context, status bool)
 	// RecordGRPCPayloadSize records the gRPC wire-level payload size in bytes.

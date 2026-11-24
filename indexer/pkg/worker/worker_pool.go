@@ -25,8 +25,14 @@ type Pool struct {
 	scheduler        *Scheduler
 	registry         *registry.VerifierRegistry
 	storage          common.IndexerStorage
+	metrics          common.IndexerMetricLabeler
 	wg               sync.WaitGroup
 	cancelFunc       context.CancelFunc
+}
+
+// SetMetrics sets the labeler that tasks use to record metrics. Call it before Start.
+func (p *Pool) SetMetrics(m common.IndexerMetricLabeler) {
+	p.metrics = m
 }
 
 // NewWorkerPool creates a new WorkerPool with the given configuration.
@@ -113,6 +119,7 @@ func (p *Pool) Hydrate(ctx context.Context) error {
 				p.logger.Errorw("Failed to create task for processing message", "error", err)
 				continue
 			}
+			task.metrics = p.metrics
 			if err := p.scheduler.Enqueue(ctx, task); err != nil {
 				p.logger.Errorw("Failed to enqueue hydrated task", "error", err)
 			}
@@ -223,6 +230,7 @@ func (p *Pool) enqueueMessages(ctx context.Context) {
 				p.logger.Error("Unable to create Task. this shouldn't happen.", err)
 				continue
 			}
+			task.metrics = p.metrics
 			task.traceParent = message.Metadata.TraceParent
 
 			if err = p.scheduler.Enqueue(ctx, task); err != nil {

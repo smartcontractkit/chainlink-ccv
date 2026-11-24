@@ -11,6 +11,7 @@ import (
 	"github.com/BurntSushi/toml"
 
 	"github.com/smartcontractkit/chainlink-ccv/common"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	hmacutil "github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 )
 
@@ -437,6 +438,9 @@ func (c *Config) validate(withoutSecrets bool) error {
 		if err := v.Validate(i); err != nil {
 			return fmt.Errorf("verifier[%d] validation failed: %w", i, err)
 		}
+		if err := validateIssuerAddresses(v.IssuerAddresses); err != nil {
+			return fmt.Errorf("verifier[%d] validation failed: %w", i, err)
+		}
 	}
 
 	// Validate storage config
@@ -572,6 +576,22 @@ func (v *VerifierConfig) Validate(index int) error {
 		return errors.New("invalid verifier type")
 	}
 	return validateMaxResponseBytes(v.MaxResponseBytes, fmt.Sprintf("verifier %d", index))
+}
+
+// validateIssuerAddresses rejects an invalid or repeated address; HA may repeat it across verifiers.
+func validateIssuerAddresses(addresses []string) error {
+	seen := make(map[string]struct{}, len(addresses))
+	for _, address := range addresses {
+		a, err := protocol.NewUnknownAddressFromHex(address)
+		if err != nil {
+			return fmt.Errorf("invalid issuer address %q: %w", address, err)
+		}
+		if _, dup := seen[a.String()]; dup {
+			return fmt.Errorf("duplicate issuer address %q", address)
+		}
+		seen[a.String()] = struct{}{}
+	}
+	return nil
 }
 
 // Validate performs validation on the aggregator reader configuration.

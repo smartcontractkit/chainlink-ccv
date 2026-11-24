@@ -74,6 +74,8 @@ func Execute(ctx context.Context, task *Task) (*TaskResult, error) {
 		"collected", len(results),
 	)
 
+	task.recordUnavailableRetries(ctx, unstarted)
+
 	if len(results) > 0 {
 		err = task.storage.InsertVerifierResults(ctx, results)
 		if err != nil {

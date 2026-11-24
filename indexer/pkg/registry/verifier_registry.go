@@ -131,10 +131,13 @@ func (v *VerifierRegistry) GetVerifierNameFromAddress(address protocol.UnknownAd
 }
 
 // MarkUnavailable records a configured address whose reader did not start, so tasks retry it.
-func (v *VerifierRegistry) MarkUnavailable(address protocol.UnknownAddress) {
+func (v *VerifierRegistry) MarkUnavailable(address protocol.UnknownAddress, name string) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	v.unavailable[address.String()] = struct{}{}
+	if _, ok := v.addrToName[address.String()]; !ok {
+		v.addrToName[address.String()] = name
+	}
 }
 
 // IsUnavailable reports if address is configured but has no started reader.

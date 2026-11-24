@@ -299,7 +299,7 @@ func TestCollectVerifierResults(t *testing.T) {
 func TestLoadVerifierReaders_UnstartedReader(t *testing.T) {
 	reg := registry.NewVerifierRegistry()
 	addr := mustAddr(t, "0x5555555555555555555555555555555555555555")
-	reg.MarkUnavailable(addr)
+	reg.MarkUnavailable(addr, "down-verifier")
 	tsk := &Task{registry: reg, logger: logger.Test(t)}
 
 	readersList, loaded, missing, unstarted := tsk.loadVerifierReaders([]string{addr.String()})
@@ -308,4 +308,18 @@ func TestLoadVerifierReaders_UnstartedReader(t *testing.T) {
 	require.Empty(t, loaded)
 	require.Empty(t, missing)
 	require.Equal(t, []string{addr.String()}, unstarted)
+}
+
+// Each unstarted verifier counts one retry under its configured name.
+func TestRecordUnavailableRetries(t *testing.T) {
+	reg := registry.NewVerifierRegistry()
+	addr := mustAddr(t, "0x5555555555555555555555555555555555555555")
+	reg.MarkUnavailable(addr, "down-verifier")
+	m := mocks.NewMockIndexerMetricLabeler(t)
+	m.EXPECT().IncrementUnavailableVerifierRetries(mock.Anything, "down-verifier").Once()
+	tsk := &Task{registry: reg, logger: logger.Test(t), metrics: m}
+
+	tsk.recordUnavailableRetries(context.Background(), []string{addr.String()})
+
+	(&Task{registry: reg, logger: logger.Test(t)}).recordUnavailableRetries(context.Background(), []string{addr.String()})
 }

@@ -861,6 +861,15 @@
       ]
     },
     {
+      "name": "indexer_unavailable_verifier_retries_total",
+      "kind": "Int64Counter",
+      "unit": "",
+      "description": "Total number of message attempts that retry because a configured verifier has no started reader",
+      "labels": [
+        "verifier"
+      ]
+    },
+    {
       "name": "indexer_verification_record_channel_size",
       "kind": "Int64Gauge",
       "unit": "",
@@ -873,6 +882,15 @@
       "unit": "",
       "description": "Total number of verification records",
       "labels": []
+    },
+    {
+      "name": "indexer_verifier_unavailable",
+      "kind": "Int64Gauge",
+      "unit": "",
+      "description": "1 when a configured verifier has no started reader on this replica, else 0",
+      "labels": [
+        "verifier"
+      ]
     }
   ],
   "jd_lifecycle": [
