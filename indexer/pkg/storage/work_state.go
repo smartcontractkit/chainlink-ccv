@@ -12,6 +12,7 @@ import (
 )
 
 // The work state queries are constants so that the EXPLAIN test runs the same SQL.
+// The insert stamps retry_deadline; a row without one is never claimed and expires.
 const (
 	claimWorkSQL = `
 		UPDATE indexer.messages m
@@ -21,9 +22,9 @@ const (
 			SELECT message_id FROM indexer.messages
 			WHERE status = $1
 			  AND (next_attempt_at IS NULL OR next_attempt_at <= NOW())
-			  AND COALESCE(retry_deadline, (ingestion_timestamp AT TIME ZONE 'UTC') + make_interval(secs => $3)) > NOW()
+			  AND retry_deadline > NOW()
 			ORDER BY next_attempt_at ASC NULLS FIRST
-			LIMIT $4
+			LIMIT $3
 			FOR UPDATE SKIP LOCKED)
 		RETURNING m.message_id, m.attempt_count, COALESCE(m.trace_parent, '')`
 	settleFinalSQL = `
@@ -32,10 +33,10 @@ const (
 			RETURNING status`
 	settleRetrySQL = `
 			UPDATE indexer.messages
-			SET status = CASE WHEN NOW() + make_interval(secs => $1) >= COALESCE(retry_deadline, (ingestion_timestamp AT TIME ZONE 'UTC') + make_interval(secs => $2)) THEN $3 ELSE status END,
-			    lastErr = $4,
+			SET status = CASE WHEN retry_deadline IS NULL OR NOW() + make_interval(secs => $1) >= retry_deadline THEN $2 ELSE status END,
+			    lastErr = $3,
 			    next_attempt_at = NOW() + make_interval(secs => $1)
-			WHERE message_id = $5 AND status = $6 AND attempt_count = $7
+			WHERE message_id = $4 AND status = $5 AND attempt_count = $6
 			RETURNING status`
 	expireWorkSQL = `
 		UPDATE indexer.messages SET status = $1, lastErr = $2, next_attempt_at = NULL
@@ -43,20 +44,20 @@ const (
 			SELECT message_id FROM indexer.messages
 			WHERE status = $3
 			  AND (next_attempt_at IS NULL OR next_attempt_at <= NOW())
-			  AND COALESCE(retry_deadline, (ingestion_timestamp AT TIME ZONE 'UTC') + make_interval(secs => $4)) <= NOW()
-			LIMIT $5
+			  AND (retry_deadline IS NULL OR retry_deadline <= NOW())
+			LIMIT $4
 			FOR UPDATE SKIP LOCKED))`
 	countProcessingSQL = `SELECT COUNT(*) FROM indexer.messages WHERE status = $1`
 )
 
 // ClaimWork implements common.IndexerStorage.
 // It claims due PROCESSING messages inside their deadline and leases them until NOW() + lease.
-func (d *PostgresStorage) ClaimWork(ctx context.Context, limit int, lease, window time.Duration) ([]common.WorkClaim, error) {
+func (d *PostgresStorage) ClaimWork(ctx context.Context, limit int, lease time.Duration) ([]common.WorkClaim, error) {
 	if limit <= 0 {
 		return nil, nil
 	}
 	rows, err := d.ds.QueryContext(ctx, claimWorkSQL,
-		common.MessageProcessingString, lease.Seconds(), window.Seconds(), limit)
+		common.MessageProcessingString, lease.Seconds(), limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to claim messages: %w", err)
 	}
@@ -87,7 +88,7 @@ func (d *PostgresStorage) SettleWork(ctx context.Context, s common.WorkSettlemen
 			s.Status.String(), s.LastErr, s.MessageID.String(), common.MessageProcessingString, s.Attempt)
 	case common.MessageProcessing:
 		err = d.ds.GetContext(ctx, &status, settleRetrySQL,
-			s.RetryDelay.Seconds(), s.Window.Seconds(), common.MessageTimeout.String(), s.LastErr,
+			s.RetryDelay.Seconds(), common.MessageTimeout.String(), s.LastErr,
 			s.MessageID.String(), common.MessageProcessingString, s.Attempt)
 	default:
 		return common.MessageProcessing, fmt.Errorf("cannot settle with status %s", s.Status)
@@ -102,9 +103,9 @@ func (d *PostgresStorage) SettleWork(ctx context.Context, s common.WorkSettlemen
 }
 
 // ExpireWork implements common.IndexerStorage. It times out PROCESSING messages that are not leased and are past their deadline.
-func (d *PostgresStorage) ExpireWork(ctx context.Context, window time.Duration, limit int) (int64, error) {
+func (d *PostgresStorage) ExpireWork(ctx context.Context, limit int) (int64, error) {
 	res, err := d.ds.ExecContext(ctx, expireWorkSQL,
-		common.MessageTimeout.String(), "retry deadline passed", common.MessageProcessingString, window.Seconds(), limit)
+		common.MessageTimeout.String(), "retry deadline passed", common.MessageProcessingString, limit)
 	if err != nil {
 		return 0, fmt.Errorf("failed to expire messages: %w", err)
 	}

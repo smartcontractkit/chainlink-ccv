@@ -53,7 +53,21 @@ func newWorkStateStorage(t *testing.T) *PostgresStorage {
 	require.NoError(t, RunMigrationsContext(t.Context(), db))
 	s, err := NewPostgresStorage(t.Context(), logger.Test(t), monitoring.NewNoopIndexerMonitoring(), uri, pg.DriverPostgres, pg.DBConfig{MaxOpenConns: 5}, 0, 0)
 	require.NoError(t, err)
+	s.SetRetryWindow(testWindow)
 	return s
+}
+
+func setDeadline(t *testing.T, s *PostgresStorage, id protocol.Bytes32, deadline *time.Time) {
+	t.Helper()
+	_, err := s.ds.ExecContext(t.Context(), `UPDATE indexer.messages SET retry_deadline = $1 WHERE message_id = $2`, deadline, id.String())
+	require.NoError(t, err)
+}
+
+func deadlineOf(t *testing.T, s *PostgresStorage, id protocol.Bytes32) *time.Time {
+	t.Helper()
+	var d *time.Time
+	require.NoError(t, s.ds.GetContext(t.Context(), &d, `SELECT retry_deadline FROM indexer.messages WHERE message_id = $1`, id.String()))
+	return d
 }
 
 func insertMessages(t *testing.T, s *PostgresStorage, msgs ...common.MessageWithMetadata) []protocol.Bytes32 {
@@ -78,16 +92,16 @@ func TestClaimWork_LeasesUntilExpiry(t *testing.T) {
 	s := newWorkStateStorage(t)
 	ids := insertMessages(t, s, testMessage(1))
 
-	claims, err := s.ClaimWork(t.Context(), 10, time.Second, testWindow)
+	claims, err := s.ClaimWork(t.Context(), 10, time.Second)
 	require.NoError(t, err)
 	require.Equal(t, []common.WorkClaim{{MessageID: ids[0], Attempt: 1}}, claims)
 
-	claims, err = s.ClaimWork(t.Context(), 10, time.Second, testWindow)
+	claims, err = s.ClaimWork(t.Context(), 10, time.Second)
 	require.NoError(t, err)
 	require.Empty(t, claims, "a leased message is not claimed again")
 
 	require.Eventually(t, func() bool {
-		claims, err = s.ClaimWork(t.Context(), 10, time.Second, testWindow)
+		claims, err = s.ClaimWork(t.Context(), 10, time.Second)
 		require.NoError(t, err)
 		return len(claims) == 1
 	}, tests.WaitTimeout(t), 100*time.Millisecond)
@@ -98,18 +112,18 @@ func TestClaimWork_LeasesUntilExpiry(t *testing.T) {
 func TestSettleWork_RequiresCurrentClaim(t *testing.T) {
 	s := newWorkStateStorage(t)
 	ids := insertMessages(t, s, testMessage(2))
-	_, err := s.ClaimWork(t.Context(), 1, time.Millisecond, testWindow)
+	_, err := s.ClaimWork(t.Context(), 1, time.Millisecond)
 	require.NoError(t, err)
 	time.Sleep(10 * time.Millisecond)
-	claims, err := s.ClaimWork(t.Context(), 1, time.Minute, testWindow)
+	claims, err := s.ClaimWork(t.Context(), 1, time.Minute)
 	require.NoError(t, err)
 	require.Len(t, claims, 1)
 
-	_, err = s.SettleWork(t.Context(), common.WorkSettlement{MessageID: ids[0], Attempt: 1, Status: common.MessageTimeout, Window: testWindow})
+	_, err = s.SettleWork(t.Context(), common.WorkSettlement{MessageID: ids[0], Attempt: 1, Status: common.MessageTimeout})
 	require.ErrorIs(t, err, common.ErrClaimLost)
 	require.Equal(t, common.MessageProcessing, statusOf(t, s, ids[0]))
 
-	status, err := s.SettleWork(t.Context(), common.WorkSettlement{MessageID: ids[0], Attempt: 2, Status: common.MessageSuccessful, Window: testWindow})
+	status, err := s.SettleWork(t.Context(), common.WorkSettlement{MessageID: ids[0], Attempt: 2, Status: common.MessageSuccessful})
 	require.NoError(t, err)
 	require.Equal(t, common.MessageSuccessful, status)
 	require.Equal(t, common.MessageSuccessful, statusOf(t, s, ids[0]))
@@ -119,7 +133,7 @@ func TestSettleWork_RequiresCurrentClaim(t *testing.T) {
 func TestSettleWork_RetryOrTimeout(t *testing.T) {
 	s := newWorkStateStorage(t)
 	ids := insertMessages(t, s, testMessage(3), testMessage(4))
-	claims, err := s.ClaimWork(t.Context(), 10, time.Minute, testWindow)
+	claims, err := s.ClaimWork(t.Context(), 10, time.Minute)
 	require.NoError(t, err)
 	require.Len(t, claims, 2)
 	attempt := map[protocol.Bytes32]int{}
@@ -127,19 +141,19 @@ func TestSettleWork_RetryOrTimeout(t *testing.T) {
 		attempt[c.MessageID] = c.Attempt
 	}
 
-	status, err := s.SettleWork(t.Context(), common.WorkSettlement{MessageID: ids[0], Attempt: attempt[ids[0]], Status: common.MessageProcessing, RetryDelay: 500 * time.Millisecond, LastErr: "not yet", Window: testWindow})
+	status, err := s.SettleWork(t.Context(), common.WorkSettlement{MessageID: ids[0], Attempt: attempt[ids[0]], Status: common.MessageProcessing, RetryDelay: 500 * time.Millisecond, LastErr: "not yet"})
 	require.NoError(t, err)
 	require.Equal(t, common.MessageProcessing, status)
-	claims, err = s.ClaimWork(t.Context(), 10, time.Minute, testWindow)
+	claims, err = s.ClaimWork(t.Context(), 10, time.Minute)
 	require.NoError(t, err)
 	require.Empty(t, claims, "the retry waits for its delay")
 	require.Eventually(t, func() bool {
-		claims, err = s.ClaimWork(t.Context(), 10, time.Minute, testWindow)
+		claims, err = s.ClaimWork(t.Context(), 10, time.Minute)
 		require.NoError(t, err)
 		return len(claims) == 1
 	}, tests.WaitTimeout(t), 100*time.Millisecond)
 
-	status, err = s.SettleWork(t.Context(), common.WorkSettlement{MessageID: ids[1], Attempt: attempt[ids[1]], Status: common.MessageProcessing, RetryDelay: 2 * testWindow, Window: testWindow})
+	status, err = s.SettleWork(t.Context(), common.WorkSettlement{MessageID: ids[1], Attempt: attempt[ids[1]], Status: common.MessageProcessing, RetryDelay: 2 * testWindow})
 	require.NoError(t, err)
 	require.Equal(t, common.MessageTimeout, status)
 	require.Equal(t, common.MessageTimeout, statusOf(t, s, ids[1]))
@@ -148,20 +162,63 @@ func TestSettleWork_RetryOrTimeout(t *testing.T) {
 // A message past its deadline is not claimed. Expire times it out, unless a worker holds its lease.
 func TestExpireWork_TimesOutUnleasedMessagesPastDeadline(t *testing.T) {
 	s := newWorkStateStorage(t)
-	old, leased := testMessage(5), testMessage(6)
-	old.Metadata.IngestionTimestamp = time.Now().UTC().Add(-2 * testWindow)
-	ids := insertMessages(t, s, old, leased)
+	ids := insertMessages(t, s, testMessage(5), testMessage(6))
+	past := time.Now().Add(-time.Minute)
+	setDeadline(t, s, ids[0], &past)
 
-	claims, err := s.ClaimWork(t.Context(), 10, time.Minute, testWindow)
+	claims, err := s.ClaimWork(t.Context(), 10, time.Minute)
 	require.NoError(t, err)
 	require.Equal(t, []common.WorkClaim{{MessageID: ids[1], Attempt: 1}}, claims, "the old message is past its deadline")
 
 	// The leased message passes its deadline while a worker holds it.
-	n, err := s.ExpireWork(t.Context(), time.Nanosecond, 100)
+	setDeadline(t, s, ids[1], &past)
+	n, err := s.ExpireWork(t.Context(), 100)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, n)
 	require.Equal(t, common.MessageTimeout, statusOf(t, s, ids[0]))
 	require.Equal(t, common.MessageProcessing, statusOf(t, s, ids[1]))
+}
+
+// A row without a deadline is never claimed, and expire times it out.
+func TestExpireWork_NullDeadline(t *testing.T) {
+	s := newWorkStateStorage(t)
+	ids := insertMessages(t, s, testMessage(7))
+	setDeadline(t, s, ids[0], nil)
+
+	claims, err := s.ClaimWork(t.Context(), 10, time.Minute)
+	require.NoError(t, err)
+	require.Empty(t, claims)
+	n, err := s.ExpireWork(t.Context(), 100)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, n)
+	require.Equal(t, common.MessageTimeout, statusOf(t, s, ids[0]))
+}
+
+// The insert stamps NOW() + window; a later window change or a forced upsert does not move it.
+func TestUpsertMessages_StampsRetryDeadline(t *testing.T) {
+	s := newWorkStateStorage(t)
+	msg := testMessage(8)
+	before := time.Now()
+	ids := insertMessages(t, s, msg)
+	stamped := deadlineOf(t, s, ids[0])
+	require.NotNil(t, stamped)
+	require.WithinDuration(t, before.Add(testWindow), *stamped, 5*time.Second)
+
+	s.SetRetryWindow(3 * testWindow)
+	msg.Metadata.IngestionTimestamp = time.Now().UTC().Add(time.Hour)
+	require.NoError(t, s.UpsertMessages(t.Context(), []common.MessageWithMetadata{msg}, true))
+	require.True(t, stamped.Equal(*deadlineOf(t, s, ids[0])), "a forced upsert keeps the deadline")
+}
+
+// Without a window the insert uses the column default of 24 hours.
+func TestUpsertMessages_DefaultRetryDeadline(t *testing.T) {
+	s := newWorkStateStorage(t)
+	s.SetRetryWindow(0)
+	before := time.Now()
+	ids := insertMessages(t, s, testMessage(10))
+	d := deadlineOf(t, s, ids[0])
+	require.NotNil(t, d)
+	require.WithinDuration(t, before.Add(24*time.Hour), *d, 5*time.Second)
 }
 
 // The discovery traceparent is stored with the message and returned with each claim.
@@ -171,7 +228,7 @@ func TestClaimWork_ReturnsTraceParent(t *testing.T) {
 	msg.Metadata.TraceParent = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
 	ids := insertMessages(t, s, msg)
 
-	claims, err := s.ClaimWork(t.Context(), 1, time.Minute, testWindow)
+	claims, err := s.ClaimWork(t.Context(), 1, time.Minute)
 	require.NoError(t, err)
 	require.Equal(t, []common.WorkClaim{{MessageID: ids[0], Attempt: 1, TraceParent: msg.Metadata.TraceParent}}, claims)
 }

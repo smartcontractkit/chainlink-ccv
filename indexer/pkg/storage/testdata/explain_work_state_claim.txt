@@ -1,34 +1,34 @@
 === EXPLAIN ANALYZE: claim ===
-Update on indexer.messages m  (cost=243.31..665.64 rows=50 width=56) (actual time=0.207..0.732 rows=50 loops=1)
+Update on indexer.messages m  (cost=2776.22..3198.55 rows=50 width=56) (actual time=0.140..0.653 rows=50 loops=1)
   Output: m.message_id, m.attempt_count, COALESCE(m.trace_parent, ''::text)
-  Buffers: shared hit=920 dirtied=1 written=1
-  ->  Nested Loop  (cost=243.31..665.64 rows=50 width=56) (actual time=0.163..0.298 rows=50 loops=1)
+  Buffers: shared hit=927 dirtied=2 written=2
+  ->  Nested Loop  (cost=2776.22..3198.55 rows=50 width=56) (actual time=0.114..0.192 rows=50 loops=1)
         Output: (m.attempt_count + 1), (now() + '00:01:30'::interval), m.ctid, "ANY_subquery".*
         Inner Unique: true
         Buffers: shared hit=304
-        ->  HashAggregate  (cost=242.89..243.39 rows=50 width=52) (actual time=0.148..0.157 rows=50 loops=1)
+        ->  HashAggregate  (cost=2775.80..2776.30 rows=50 width=52) (actual time=0.107..0.111 rows=50 loops=1)
               Output: "ANY_subquery".*, "ANY_subquery".message_id
               Group Key: "ANY_subquery".message_id
               Batches: 1  Memory Usage: 24kB
               Buffers: shared hit=104
-              ->  Subquery Scan on "ANY_subquery"  (cost=0.28..242.76 rows=50 width=52) (actual time=0.097..0.139 rows=50 loops=1)
+              ->  Subquery Scan on "ANY_subquery"  (cost=0.28..2775.67 rows=50 width=52) (actual time=0.072..0.099 rows=50 loops=1)
                     Output: "ANY_subquery".*, "ANY_subquery".message_id
                     Buffers: shared hit=104
-                    ->  Limit  (cost=0.28..242.26 rows=50 width=28) (actual time=0.022..0.058 rows=50 loops=1)
+                    ->  Limit  (cost=0.28..2775.17 rows=50 width=28) (actual time=0.012..0.034 rows=50 loops=1)
                           Output: messages.message_id, messages.next_attempt_at, messages.ctid
                           Buffers: shared hit=104
-                          ->  LockRows  (cost=0.28..10449.00 rows=2159 width=28) (actual time=0.021..0.054 rows=50 loops=1)
+                          ->  LockRows  (cost=0.28..10489.37 rows=189 width=28) (actual time=0.011..0.031 rows=50 loops=1)
                                 Output: messages.message_id, messages.next_attempt_at, messages.ctid
                                 Buffers: shared hit=104
-                                ->  Index Scan using idx_messages_processing_due on indexer.messages  (cost=0.28..10427.41 rows=2159 width=28) (actual time=0.017..0.032 rows=50 loops=1)
+                                ->  Index Scan using idx_messages_processing_due on indexer.messages  (cost=0.28..10487.48 rows=189 width=28) (actual time=0.009..0.016 rows=50 loops=1)
                                       Output: messages.message_id, messages.next_attempt_at, messages.ctid
-                                      Filter: ((messages.status = 'PROCESSING'::text) AND ((messages.next_attempt_at IS NULL) OR (messages.next_attempt_at <= now())) AND (COALESCE(messages.retry_deadline, ((messages.ingestion_timestamp AT TIME ZONE 'UTC'::text) + '08:00:00'::interval)) > now()))
+                                      Filter: ((messages.status = 'PROCESSING'::text) AND ((messages.next_attempt_at IS NULL) OR (messages.next_attempt_at <= now())) AND (messages.retry_deadline > now()))
                                       Buffers: shared hit=4
-        ->  Index Scan using messages_pkey on indexer.messages m  (cost=0.42..8.44 rows=1 width=24) (actual time=0.002..0.002 rows=1 loops=50)
+        ->  Index Scan using messages_pkey on indexer.messages m  (cost=0.42..8.44 rows=1 width=24) (actual time=0.001..0.001 rows=1 loops=50)
               Output: m.attempt_count, m.ctid, m.message_id
               Index Cond: (m.message_id = "ANY_subquery".message_id)
               Buffers: shared hit=200
 Planning:
-  Buffers: shared hit=82
-Planning Time: 0.309 ms
-Execution Time: 0.852 ms
+  Buffers: shared hit=77
+Planning Time: 0.291 ms
+Execution Time: 0.693 ms

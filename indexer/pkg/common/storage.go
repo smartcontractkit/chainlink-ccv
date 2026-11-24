@@ -60,12 +60,12 @@ type MessageStorageReader interface {
 type MessageStorageWriter interface {
 	// UpdateMessageStatus updates the status of indexing to storage.
 	UpdateMessageStatus(ctx context.Context, messageID protocol.Bytes32, status MessageStatus, lastErr string) error
-	// ClaimWork leases up to limit due PROCESSING messages inside their deadline, and increments their attempt count.
-	ClaimWork(ctx context.Context, limit int, lease, window time.Duration) ([]WorkClaim, error)
+	// ClaimWork leases up to limit due PROCESSING messages inside their retry_deadline, and increments their attempt count.
+	ClaimWork(ctx context.Context, limit int, lease time.Duration) ([]WorkClaim, error)
 	// SettleWork ends one attempt while the claim is held; it returns ErrClaimLost when it is not.
 	SettleWork(ctx context.Context, s WorkSettlement) (MessageStatus, error)
 	// ExpireWork times out up to limit PROCESSING messages that are not leased and are past their deadline.
-	ExpireWork(ctx context.Context, window time.Duration, limit int) (int64, error)
+	ExpireWork(ctx context.Context, limit int) (int64, error)
 	// CountProcessingMessages returns the number of PROCESSING messages.
 	CountProcessingMessages(ctx context.Context) (int64, error)
 }
@@ -116,6 +116,4 @@ type WorkSettlement struct {
 	Status     MessageStatus
 	LastErr    string
 	RetryDelay time.Duration
-	// Window is the visibility window; it gives the deadline of a message that was not replayed.
-	Window time.Duration
 }

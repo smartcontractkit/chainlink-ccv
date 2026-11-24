@@ -158,9 +158,9 @@ func captureMetricsNoReturn(ctx context.Context, metrics common.IndexerMetricLab
 	return err
 }
 
-func (s *MetricsAwareStorage) ClaimWork(ctx context.Context, limit int, lease, window time.Duration) ([]common.WorkClaim, error) {
+func (s *MetricsAwareStorage) ClaimWork(ctx context.Context, limit int, lease time.Duration) ([]common.WorkClaim, error) {
 	return captureMetrics(ctx, s.m.Metrics(), s.l, s.slowQueryThreshold, opClaimWork, func() ([]common.WorkClaim, error) {
-		return s.inner.ClaimWork(ctx, limit, lease, window)
+		return s.inner.ClaimWork(ctx, limit, lease)
 	})
 }
 
@@ -170,9 +170,9 @@ func (s *MetricsAwareStorage) SettleWork(ctx context.Context, settlement common.
 	})
 }
 
-func (s *MetricsAwareStorage) ExpireWork(ctx context.Context, window time.Duration, limit int) (int64, error) {
+func (s *MetricsAwareStorage) ExpireWork(ctx context.Context, limit int) (int64, error) {
 	return captureMetrics(ctx, s.m.Metrics(), s.l, s.slowQueryThreshold, opExpireWork, func() (int64, error) {
-		return s.inner.ExpireWork(ctx, window, limit)
+		return s.inner.ExpireWork(ctx, limit)
 	})
 }
 

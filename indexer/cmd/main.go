@@ -406,11 +406,11 @@ func createDiscovery(ctx context.Context, lggr logger.Logger, cfg *config.Config
 
 // createStorage creates the storage backend connection based on the configuration.
 func createStorage(ctx context.Context, lggr logger.Logger, cfg *config.Config, indexerMonitoring common.IndexerMonitoring) (common.IndexerStorage, common.DiscoveryLocker) {
-	return createPostgresStorage(ctx, lggr, cfg.Storage.Single.Postgres, indexerMonitoring)
+	return createPostgresStorage(ctx, lggr, cfg.Storage.Single.Postgres, indexerMonitoring, time.Duration(cfg.Scheduler.VerificationVisibilityWindow)*time.Second)
 }
 
 // createPostgresStorage creates a PostgreSQL storage backend and the discovery lock on the same database.
-func createPostgresStorage(ctx context.Context, lggr logger.Logger, cfg *config.PostgresConfig, indexerMonitoring common.IndexerMonitoring) (common.IndexerStorage, common.DiscoveryLocker) {
+func createPostgresStorage(ctx context.Context, lggr logger.Logger, cfg *config.PostgresConfig, indexerMonitoring common.IndexerMonitoring, retryWindow time.Duration) (common.IndexerStorage, common.DiscoveryLocker) {
 	// Run migrations first
 	migrationsDB, err := sqlx.Open("postgres", cfg.URI)
 	if err != nil {
@@ -439,6 +439,7 @@ func createPostgresStorage(ctx context.Context, lggr logger.Logger, cfg *config.
 	if err != nil {
 		lggr.Fatalf("Failed to create postgres storage: %v", err)
 	}
+	dbStore.SetRetryWindow(retryWindow)
 
 	return storage.WrapWithMetrics(dbStore, indexerMonitoring, lggr), dbStore
 }

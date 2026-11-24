@@ -15,19 +15,20 @@ import (
 )
 
 const (
-	explainWindowSecs = 28800.0 // the default VerificationVisibilityWindow
-	explainLeaseSecs  = 90.0
+	explainLeaseSecs = 90.0
 )
 
 // seedWorkStateExplainData loads indexer.messages with a mix of final, due, leased and expired rows.
+// PROCESSING rows get retry_deadline = ingestion + 8 hours, as the insert stamps it.
 func seedWorkStateExplainData(t *testing.T, db *sqlx.DB) {
 	t.Helper()
 	insert := func(n int, prefix, status, ingestion, nextAttempt string) {
 		_, err := db.ExecContext(t.Context(), fmt.Sprintf(`
 			INSERT INTO indexer.messages (message_id, message, status, source_chain_selector, dest_chain_selector,
-			                              ingestion_timestamp, attempt_count, next_attempt_at)
-			SELECT '%[1]s-' || i, '{}'::jsonb, '%[2]s', 1, 2, (NOW() AT TIME ZONE 'UTC') - %[3]s, 1, %[4]s
-			FROM generate_series(1, %[5]d) AS i`, prefix, status, ingestion, nextAttempt, n))
+			                              ingestion_timestamp, attempt_count, next_attempt_at, retry_deadline)
+			SELECT '%[1]s-' || i, '{}'::jsonb, '%[2]s', 1, 2, (NOW() AT TIME ZONE 'UTC') - %[3]s, 1, %[4]s,
+			       CASE WHEN '%[2]s' = '%[6]s' THEN NOW() - %[3]s + interval '8 hours' END
+			FROM generate_series(1, %[5]d) AS i`, prefix, status, ingestion, nextAttempt, n, common.MessageProcessingString))
 		require.NoError(t, err, "seed %s", prefix)
 	}
 	// 200,000 final rows: the table is mostly SUCCESS, so the partial index must skip them.
@@ -66,12 +67,26 @@ func TestExplainWorkStateQueryPlans(t *testing.T) {
 
 	processing := common.MessageProcessingString
 
-	explainWorkState(t, db, "claim", claimWorkSQL, processing, explainLeaseSecs, explainWindowSecs, 50)
+	explainWorkState(t, db, "claim", claimWorkSQL, processing, explainLeaseSecs, 50)
 	explainWorkState(t, db, "settle_final", settleFinalSQL,
 		common.MessageSuccessfulString, "", "new-1", processing, 1)
 	explainWorkState(t, db, "settle_retry", settleRetrySQL,
-		4.0, explainWindowSecs, common.MessageTimeout.String(), "retry", "retry-1", processing, 1)
+		4.0, common.MessageTimeout.String(), "retry", "retry-1", processing, 1)
 	explainWorkState(t, db, "expire", expireWorkSQL,
-		common.MessageTimeout.String(), "retry deadline passed", processing, explainWindowSecs, 1000)
+		common.MessageTimeout.String(), "retry deadline passed", processing, 1000)
 	explainWorkState(t, db, "count_processing", countProcessingSQL, processing)
+	explainWorkState(t, db, "backfill_retry_deadline", retryDeadlineBackfillSQL(t))
+}
+
+// retryDeadlineBackfillSQL reads the backfill UPDATE from its migration, so the plan is of the deployed SQL.
+func retryDeadlineBackfillSQL(t *testing.T) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("..", "..", "migrations", "postgres", "20261123000002_messages_retry_deadline.sql"))
+	require.NoError(t, err)
+	sql := string(b)
+	start := strings.Index(sql, "UPDATE indexer.messages")
+	require.GreaterOrEqual(t, start, 0)
+	end := strings.Index(sql[start:], ";")
+	require.Positive(t, end)
+	return sql[start : start+end]
 }

@@ -24,9 +24,9 @@ func (_m *MockIndexerStorage) EXPECT() *MockIndexerStorage_Expecter {
 	return &MockIndexerStorage_Expecter{mock: &_m.Mock}
 }
 
-// ClaimWork provides a mock function with given fields: ctx, limit, lease, window
-func (_m *MockIndexerStorage) ClaimWork(ctx context.Context, limit int, lease time.Duration, window time.Duration) ([]common.WorkClaim, error) {
-	ret := _m.Called(ctx, limit, lease, window)
+// ClaimWork provides a mock function with given fields: ctx, limit, lease
+func (_m *MockIndexerStorage) ClaimWork(ctx context.Context, limit int, lease time.Duration) ([]common.WorkClaim, error) {
+	ret := _m.Called(ctx, limit, lease)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ClaimWork")
@@ -34,19 +34,19 @@ func (_m *MockIndexerStorage) ClaimWork(ctx context.Context, limit int, lease ti
 
 	var r0 []common.WorkClaim
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, int, time.Duration, time.Duration) ([]common.WorkClaim, error)); ok {
-		return rf(ctx, limit, lease, window)
+	if rf, ok := ret.Get(0).(func(context.Context, int, time.Duration) ([]common.WorkClaim, error)); ok {
+		return rf(ctx, limit, lease)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, int, time.Duration, time.Duration) []common.WorkClaim); ok {
-		r0 = rf(ctx, limit, lease, window)
+	if rf, ok := ret.Get(0).(func(context.Context, int, time.Duration) []common.WorkClaim); ok {
+		r0 = rf(ctx, limit, lease)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]common.WorkClaim)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, int, time.Duration, time.Duration) error); ok {
-		r1 = rf(ctx, limit, lease, window)
+	if rf, ok := ret.Get(1).(func(context.Context, int, time.Duration) error); ok {
+		r1 = rf(ctx, limit, lease)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -63,14 +63,13 @@ type MockIndexerStorage_ClaimWork_Call struct {
 //   - ctx context.Context
 //   - limit int
 //   - lease time.Duration
-//   - window time.Duration
-func (_e *MockIndexerStorage_Expecter) ClaimWork(ctx interface{}, limit interface{}, lease interface{}, window interface{}) *MockIndexerStorage_ClaimWork_Call {
-	return &MockIndexerStorage_ClaimWork_Call{Call: _e.mock.On("ClaimWork", ctx, limit, lease, window)}
+func (_e *MockIndexerStorage_Expecter) ClaimWork(ctx interface{}, limit interface{}, lease interface{}) *MockIndexerStorage_ClaimWork_Call {
+	return &MockIndexerStorage_ClaimWork_Call{Call: _e.mock.On("ClaimWork", ctx, limit, lease)}
 }
 
-func (_c *MockIndexerStorage_ClaimWork_Call) Run(run func(ctx context.Context, limit int, lease time.Duration, window time.Duration)) *MockIndexerStorage_ClaimWork_Call {
+func (_c *MockIndexerStorage_ClaimWork_Call) Run(run func(ctx context.Context, limit int, lease time.Duration)) *MockIndexerStorage_ClaimWork_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(int), args[2].(time.Duration), args[3].(time.Duration))
+		run(args[0].(context.Context), args[1].(int), args[2].(time.Duration))
 	})
 	return _c
 }
@@ -80,7 +79,7 @@ func (_c *MockIndexerStorage_ClaimWork_Call) Return(_a0 []common.WorkClaim, _a1 
 	return _c
 }
 
-func (_c *MockIndexerStorage_ClaimWork_Call) RunAndReturn(run func(context.Context, int, time.Duration, time.Duration) ([]common.WorkClaim, error)) *MockIndexerStorage_ClaimWork_Call {
+func (_c *MockIndexerStorage_ClaimWork_Call) RunAndReturn(run func(context.Context, int, time.Duration) ([]common.WorkClaim, error)) *MockIndexerStorage_ClaimWork_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -189,9 +188,9 @@ func (_c *MockIndexerStorage_CreateDiscoveryState_Call) RunAndReturn(run func(co
 	return _c
 }
 
-// ExpireWork provides a mock function with given fields: ctx, window, limit
-func (_m *MockIndexerStorage) ExpireWork(ctx context.Context, window time.Duration, limit int) (int64, error) {
-	ret := _m.Called(ctx, window, limit)
+// ExpireWork provides a mock function with given fields: ctx, limit
+func (_m *MockIndexerStorage) ExpireWork(ctx context.Context, limit int) (int64, error) {
+	ret := _m.Called(ctx, limit)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ExpireWork")
@@ -199,17 +198,17 @@ func (_m *MockIndexerStorage) ExpireWork(ctx context.Context, window time.Durati
 
 	var r0 int64
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, time.Duration, int) (int64, error)); ok {
-		return rf(ctx, window, limit)
+	if rf, ok := ret.Get(0).(func(context.Context, int) (int64, error)); ok {
+		return rf(ctx, limit)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, time.Duration, int) int64); ok {
-		r0 = rf(ctx, window, limit)
+	if rf, ok := ret.Get(0).(func(context.Context, int) int64); ok {
+		r0 = rf(ctx, limit)
 	} else {
 		r0 = ret.Get(0).(int64)
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, time.Duration, int) error); ok {
-		r1 = rf(ctx, window, limit)
+	if rf, ok := ret.Get(1).(func(context.Context, int) error); ok {
+		r1 = rf(ctx, limit)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -224,15 +223,14 @@ type MockIndexerStorage_ExpireWork_Call struct {
 
 // ExpireWork is a helper method to define mock.On call
 //   - ctx context.Context
-//   - window time.Duration
 //   - limit int
-func (_e *MockIndexerStorage_Expecter) ExpireWork(ctx interface{}, window interface{}, limit interface{}) *MockIndexerStorage_ExpireWork_Call {
-	return &MockIndexerStorage_ExpireWork_Call{Call: _e.mock.On("ExpireWork", ctx, window, limit)}
+func (_e *MockIndexerStorage_Expecter) ExpireWork(ctx interface{}, limit interface{}) *MockIndexerStorage_ExpireWork_Call {
+	return &MockIndexerStorage_ExpireWork_Call{Call: _e.mock.On("ExpireWork", ctx, limit)}
 }
 
-func (_c *MockIndexerStorage_ExpireWork_Call) Run(run func(ctx context.Context, window time.Duration, limit int)) *MockIndexerStorage_ExpireWork_Call {
+func (_c *MockIndexerStorage_ExpireWork_Call) Run(run func(ctx context.Context, limit int)) *MockIndexerStorage_ExpireWork_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(time.Duration), args[2].(int))
+		run(args[0].(context.Context), args[1].(int))
 	})
 	return _c
 }
@@ -242,7 +240,7 @@ func (_c *MockIndexerStorage_ExpireWork_Call) Return(_a0 int64, _a1 error) *Mock
 	return _c
 }
 
-func (_c *MockIndexerStorage_ExpireWork_Call) RunAndReturn(run func(context.Context, time.Duration, int) (int64, error)) *MockIndexerStorage_ExpireWork_Call {
+func (_c *MockIndexerStorage_ExpireWork_Call) RunAndReturn(run func(context.Context, int) (int64, error)) *MockIndexerStorage_ExpireWork_Call {
 	_c.Call.Return(run)
 	return _c
 }

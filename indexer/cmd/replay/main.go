@@ -333,6 +333,8 @@ func mustBuildEngine(ctx context.Context, needsDiscoveryReader bool) (*replay.En
 	if err != nil {
 		lggr.Fatalf("Failed to create indexer storage: %v", err)
 	}
+	// A discovery replay stamps new messages with the same window as the indexer.
+	indexerStorage.SetRetryWindow(time.Duration(cfg.Scheduler.VerificationVisibilityWindow) * time.Second)
 
 	verifierRegistry := registry.NewVerifierRegistry()
 	verifierCleanups := make([]func(), 0, len(cfg.Verifiers))
