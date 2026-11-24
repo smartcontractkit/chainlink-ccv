@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.7
+# syntax=docker/dockerfile:1.29
 FROM golang:1.26.11-alpine
 RUN go install github.com/air-verse/air@v1.62.0
 WORKDIR /app
