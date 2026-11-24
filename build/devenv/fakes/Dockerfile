@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.7
+# syntax=docker/dockerfile:1.29
 # Builder base is digest-pinned so image builds are reproducible and the base
 # is supply-chain verifiable; dependabot bumps the digest in its grouped weekly PR.
 FROM golang:1.26.11@sha256:4165ee6bf3b7811fd7b40373290405c83d0167dcb87ee5f29c427cdcef45ff8f AS builder
