@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 	"github.com/moby/moby/api/types/container"
@@ -93,6 +94,9 @@ type AggregatorInput struct {
 	// for this committee when Cfg.HighAvailability is true.
 	// 0 = no redundancy (default), 1 = one extra (total 2), etc.
 	RedundantAggregators int `toml:"redundant_aggregators"`
+	// Replicas is the number of aggregator containers that share one DB behind the nginx proxy.
+	// 0 or 1 runs a single container.
+	Replicas int `toml:"replicas"`
 	// ExposedHostPort is the port on the host machine that the gRPC server will be exposed on.
 	// If set, the gRPC port (50051) will be directly accessible on localhost.
 	// This is useful for testing without going through the nginx TLS proxy.
@@ -126,6 +130,8 @@ type AggregatorOutput struct {
 	// AggregatorContainerName is the container running the aggregator binary.
 	// Use this for docker exec CLI invocations (e.g. `aggregator message-disablement-rules list`).
 	AggregatorContainerName string `toml:"aggregator_container_name"`
+	// ReplicaContainerNames lists all aggregator containers; with one replica it holds AggregatorContainerName.
+	ReplicaContainerNames []string `toml:"replica_container_names"`
 	// NginxContainerName is the nginx TLS proxy container fronting the aggregator.
 	// Use this for chaos/HA tests that kill the proxy or for connectivity checks.
 	NginxContainerName string `toml:"nginx_container_name"`
@@ -392,7 +398,16 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 
 	// Generate nginx configuration for gRPC TLS termination
 	nginxConfPath := filepath.Join(confDir, fmt.Sprintf("nginx-%s.conf", instanceName))
-	nginxConf := generateNginxConfig(aggregatorContainerName, DefaultAggregatorGRPCPort)
+	// More replicas share the DB; the proxy then also takes the aggregator name, so callers keep their address.
+	replicas := max(in.Replicas, 1)
+	replicaNames := []string{aggregatorContainerName}
+	if replicas > 1 {
+		replicaNames = make([]string, 0, replicas)
+		for i := range replicas {
+			replicaNames = append(replicaNames, fmt.Sprintf("%s-replica-%d", aggregatorContainerName, i+1))
+		}
+	}
+	nginxConf := generateNginxConfig(replicaNames, DefaultAggregatorGRPCPort)
 	if err := os.WriteFile(nginxConfPath, []byte(nginxConf), 0o644); err != nil {
 		return nil, fmt.Errorf("failed to write nginx config: %w", err)
 	}
@@ -487,85 +502,45 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 	// Enable gRPC reflection in devenv for debugging
 	envVars["AGGREGATOR_GRPC_REFLECTION_ENABLED"] = "true"
 
-	// Start the aggregator container
-	req := testcontainers.ContainerRequest{
-		Image:    in.Image,
-		Name:     aggregatorContainerName,
-		Labels:   framework.DefaultTCLabels(),
-		Networks: []string{framework.DefaultNetworkName},
-		NetworkAliases: map[string][]string{
-			framework.DefaultNetworkName: {aggregatorContainerName},
-		},
-		Env: envVars,
-		// Aggregator listens on 50051 internally, nginx proxies TLS to it
-		ExposedPorts: []string{"50051/tcp", "8080/tcp"},
-		WaitingFor:   wait.ForHTTP("/health/ready").WithPort("8080/tcp"),
-	}
-
-	// If ExposedHostPort is set, expose the gRPC port directly to the host
-	if in.ExposedHostPort > 0 {
-		req.HostConfigModifier = func(h *container.HostConfig) {
-			h.ExtraHosts = append(h.ExtraHosts, HostGatewayExtraHost)
-			h.PortBindings = network.PortMap{
-				network.MustParsePort("50051/tcp"): []network.PortBinding{
-					{HostPort: strconv.Itoa(in.ExposedHostPort)},
-				},
+	var host string
+	for _, name := range replicaNames {
+		c, err := startAggregatorContainer(ctx, in, name, replicas == 1, envVars, aggregatorFiles{
+			configPath:          configFilePath,
+			generatedConfigPath: generatedConfigFilePath,
+			generatedConfigName: generatedConfigFileName,
+			secretsPath:         secretsFilePath,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if host == "" {
+			if host, err = c.Host(ctx); err != nil {
+				return nil, fmt.Errorf("failed to get container host: %w", err)
 			}
 		}
 	}
-
-	req.Files = []testcontainers.ContainerFile{
-		{
-			HostFilePath:      configFilePath,
-			ContainerFilePath: aggregator.DefaultConfigFile,
-			FileMode:          0o644,
-		},
-		{
-			HostFilePath:      generatedConfigFilePath,
-			ContainerFilePath: filepath.Join(filepath.Dir(aggregator.DefaultConfigFile), generatedConfigFileName),
-			FileMode:          0o644,
-		},
-		{
-			HostFilePath:      secretsFilePath,
-			ContainerFilePath: secrets.DefaultSecretsPath,
-			FileMode:          0o644,
-		},
-	}
-
-	// Note: identical code to verifier.go/executor.go -- will indexer be identical as well?
 	if in.SourceCodePath != "" {
-		req.Mounts = testcontainers.Mounts()
-		req.Mounts = append(req.Mounts, GoSourcePathMounts(in.RootPath, AppPathInsideContainer)...)
-		req.Mounts = append(req.Mounts, GoCacheMounts()...)
-
 		framework.L.Info().
 			Str("Service", aggregatorContainerName).
 			Str("Source", p).Msg("Using source code path, hot-reload mode")
 	}
 
-	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: req,
-		Started:          true,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to start container: %w", err)
-	}
-
-	host, err := c.Host(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get container host: %w", err)
-	}
-
 	// Start the nginx TLS termination sidecar
+	nginxAliases := []string{nginxContainerName}
+	nginxPorts := []string{DefaultNginxTLSPort}
+	if replicas > 1 {
+		nginxAliases = append(nginxAliases, aggregatorContainerName)
+		nginxPorts = append(nginxPorts, fmt.Sprintf("%d/tcp", DefaultAggregatorGRPCPort))
+	}
 	nginxReq := testcontainers.ContainerRequest{
 		Image:    DefaultNginxImage,
 		Name:     nginxContainerName,
 		Labels:   framework.DefaultTCLabels(),
 		Networks: []string{framework.DefaultNetworkName},
 		NetworkAliases: map[string][]string{
-			framework.DefaultNetworkName: {nginxContainerName},
+			framework.DefaultNetworkName: nginxAliases,
 		},
-		ExposedPorts: []string{DefaultNginxTLSPort},
+		ExposedPorts: nginxPorts,
 		HostConfigModifier: func(h *container.HostConfig) {
 			h.ExtraHosts = append(h.ExtraHosts, HostGatewayExtraHost)
 			h.PortBindings = network.PortMap{
@@ -603,7 +578,8 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 	}
 
 	in.Out = &AggregatorOutput{
-		AggregatorContainerName: aggregatorContainerName,
+		AggregatorContainerName: replicaNames[0],
+		ReplicaContainerNames:   replicaNames,
 		NginxContainerName:      nginxContainerName,
 		Address:                 fmt.Sprintf("%s:443", nginxContainerName),
 		ExternalHTTPUrl:         fmt.Sprintf("%s:%d", aggregatorContainerName, DefaultAggregatorGRPCPort),
@@ -615,7 +591,79 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 	return in.Out, nil
 }
 
-func generateNginxConfig(upstreamHost string, upstreamPort int) string {
+// aggregatorFiles are the host config files that every aggregator replica mounts.
+type aggregatorFiles struct {
+	configPath, generatedConfigPath, generatedConfigName, secretsPath string
+}
+
+// startAggregatorContainer starts one aggregator container; only a single replica binds ExposedHostPort.
+func startAggregatorContainer(ctx context.Context, in *AggregatorInput, name string, single bool, envVars map[string]string, f aggregatorFiles) (testcontainers.Container, error) {
+	req := testcontainers.ContainerRequest{
+		Image:    in.Image,
+		Name:     name,
+		Labels:   framework.DefaultTCLabels(),
+		Networks: []string{framework.DefaultNetworkName},
+		NetworkAliases: map[string][]string{
+			framework.DefaultNetworkName: {name},
+		},
+		Env: envVars,
+		// Aggregator listens on 50051 internally, nginx proxies TLS to it
+		ExposedPorts: []string{"50051/tcp", "8080/tcp"},
+		WaitingFor:   wait.ForHTTP("/health/ready").WithPort("8080/tcp"),
+		Files: []testcontainers.ContainerFile{
+			{HostFilePath: f.configPath, ContainerFilePath: aggregator.DefaultConfigFile, FileMode: 0o644},
+			{
+				HostFilePath:      f.generatedConfigPath,
+				ContainerFilePath: filepath.Join(filepath.Dir(aggregator.DefaultConfigFile), f.generatedConfigName),
+				FileMode:          0o644,
+			},
+			{HostFilePath: f.secretsPath, ContainerFilePath: secrets.DefaultSecretsPath, FileMode: 0o644},
+		},
+	}
+
+	if single && in.ExposedHostPort > 0 {
+		req.HostConfigModifier = func(h *container.HostConfig) {
+			h.ExtraHosts = append(h.ExtraHosts, HostGatewayExtraHost)
+			h.PortBindings = network.PortMap{
+				network.MustParsePort("50051/tcp"): []network.PortBinding{
+					{HostPort: strconv.Itoa(in.ExposedHostPort)},
+				},
+			}
+		}
+	}
+
+	if in.SourceCodePath != "" {
+		req.Mounts = testcontainers.Mounts()
+		req.Mounts = append(req.Mounts, GoSourcePathMounts(in.RootPath, AppPathInsideContainer)...)
+		req.Mounts = append(req.Mounts, GoCacheMounts()...)
+	}
+
+	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: req,
+		Started:          true,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to start aggregator container %q: %w", name, err)
+	}
+	return c, nil
+}
+
+// generateNginxConfig terminates TLS on 443 and balances gRPC across the replicas.
+// With more than one replica, it also serves plaintext gRPC on upstreamPort for callers that dial the aggregator name.
+func generateNginxConfig(upstreams []string, upstreamPort int) string {
+	var servers strings.Builder
+	for _, u := range upstreams {
+		fmt.Fprintf(&servers, "        server %s:%d resolve;\n", u, upstreamPort)
+	}
+	plaintext := ""
+	if len(upstreams) > 1 {
+		plaintext = fmt.Sprintf(`
+    server {
+        listen %d;
+        http2 on;
+%s    }
+`, upstreamPort, nginxGRPCLocations)
+	}
 	return fmt.Sprintf(`
 worker_processes auto;
 error_log /var/log/nginx/error.log warn;
@@ -630,17 +678,31 @@ http {
                     '$status $body_bytes_sent "$http_referer" '
                     '"$http_user_agent"';
     access_log /var/log/nginx/access.log main;
+    resolver 127.0.0.11 valid=5s ipv6=off;
+
+    upstream aggregator {
+        zone aggregator 64k;
+%s    }
 
     server {
-        listen 443 ssl http2;
+        listen 443 ssl;
+        http2 on;
 
         ssl_certificate /etc/nginx/ssl/server.crt;
         ssl_certificate_key /etc/nginx/ssl/server.key;
         ssl_protocols TLSv1.3;
         ssl_ciphers HIGH:!aNULL:!MD5;
+%s    }
+%s}
+`, servers.String(), nginxGRPCLocations, plaintext)
+}
 
+// nginxGRPCLocations proxies gRPC to the replicas, retries the next replica, and maps 502 to gRPC UNAVAILABLE.
+const nginxGRPCLocations = `
         location / {
-            grpc_pass grpc://%s:%d;
+            grpc_pass grpc://aggregator;
+            grpc_next_upstream error timeout http_502 http_503;
+            grpc_connect_timeout 2s;
             error_page 502 = /error502grpc;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         }
@@ -652,7 +714,4 @@ http {
             add_header grpc-message "unavailable";
             return 204;
         }
-    }
-}
-`, upstreamHost, upstreamPort)
-}
+`
