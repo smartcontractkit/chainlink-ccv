@@ -28,6 +28,8 @@ type MessageMetadata struct {
 	Status             MessageStatus `json:"status"`
 	IngestionTimestamp time.Time     `json:"ingestionTimestamp"`
 	LastErr            string        `json:"-"` // we want to exclude potentionally sensitive errors
+	// TraceParent is the w3c traceparent of the discovery span, so the worker span is its child.
+	TraceParent string `json:"-"`
 }
 
 const SequenceNumberNotSupported = -1

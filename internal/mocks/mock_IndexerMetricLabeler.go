@@ -742,6 +742,40 @@ func (_c *MockIndexerMetricLabeler_RecordVerifierUnavailableGauge_Call) RunAndRe
 	return _c
 }
 
+// RecordWorkerQueueSizeGauge provides a mock function with given fields: ctx, size
+func (_m *MockIndexerMetricLabeler) RecordWorkerQueueSizeGauge(ctx context.Context, size int64) {
+	_m.Called(ctx, size)
+}
+
+// MockIndexerMetricLabeler_RecordWorkerQueueSizeGauge_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RecordWorkerQueueSizeGauge'
+type MockIndexerMetricLabeler_RecordWorkerQueueSizeGauge_Call struct {
+	*mock.Call
+}
+
+// RecordWorkerQueueSizeGauge is a helper method to define mock.On call
+//   - ctx context.Context
+//   - size int64
+func (_e *MockIndexerMetricLabeler_Expecter) RecordWorkerQueueSizeGauge(ctx interface{}, size interface{}) *MockIndexerMetricLabeler_RecordWorkerQueueSizeGauge_Call {
+	return &MockIndexerMetricLabeler_RecordWorkerQueueSizeGauge_Call{Call: _e.mock.On("RecordWorkerQueueSizeGauge", ctx, size)}
+}
+
+func (_c *MockIndexerMetricLabeler_RecordWorkerQueueSizeGauge_Call) Run(run func(ctx context.Context, size int64)) *MockIndexerMetricLabeler_RecordWorkerQueueSizeGauge_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(int64))
+	})
+	return _c
+}
+
+func (_c *MockIndexerMetricLabeler_RecordWorkerQueueSizeGauge_Call) Return() *MockIndexerMetricLabeler_RecordWorkerQueueSizeGauge_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockIndexerMetricLabeler_RecordWorkerQueueSizeGauge_Call) RunAndReturn(run func(context.Context, int64)) *MockIndexerMetricLabeler_RecordWorkerQueueSizeGauge_Call {
+	_c.Run(run)
+	return _c
+}
+
 // With provides a mock function with given fields: keyValues
 func (_m *MockIndexerMetricLabeler) With(keyValues ...string) common.IndexerMetricLabeler {
 	_va := make([]interface{}, len(keyValues))

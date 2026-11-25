@@ -891,6 +891,13 @@
       "labels": [
         "verifier"
       ]
+    },
+    {
+      "name": "indexer_worker_queue_size",
+      "kind": "Int64Gauge",
+      "unit": "",
+      "description": "Number of PROCESSING messages that wait for verifications",
+      "labels": []
     }
   ],
   "jd_lifecycle": [

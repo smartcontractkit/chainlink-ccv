@@ -29,6 +29,7 @@ type IndexerMetrics struct {
 	// Scanner Metrics
 	scannerPollingErrorsCounter        metric.Int64Counter
 	verificationRecordChannelSizeGauge metric.Int64Gauge
+	workerQueueSizeGauge               metric.Int64Gauge
 	discoveryLeaderGauge               metric.Int64Gauge
 	discoveryLeaderChanges             metric.Int64Counter
 	discoveryLeaderErrors              metric.Int64Counter
@@ -111,6 +112,13 @@ func InitMetrics() (im *IndexerMetrics, err error) {
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to register verification record channel size gauge: %w", err)
+	}
+
+	im.workerQueueSizeGauge, err = beholder.GetMeter().Int64Gauge("indexer_worker_queue_size",
+		metric.WithDescription("Number of PROCESSING messages that wait for verifications"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register worker queue size gauge: %w", err)
 	}
 
 	im.discoveryLeaderGauge, err = beholder.GetMeter().Int64Gauge("indexer_discovery_leader",
@@ -313,6 +321,11 @@ func (c *IndexerMetricLabeler) RecordScannerPollingErrorsCounter(ctx context.Con
 func (c *IndexerMetricLabeler) RecordVerificationRecordChannelSizeGauge(ctx context.Context, size int64) {
 	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
 	c.im.verificationRecordChannelSizeGauge.Record(ctx, size, metric.WithAttributes(otelLabels...))
+}
+
+func (c *IndexerMetricLabeler) RecordWorkerQueueSizeGauge(ctx context.Context, size int64) {
+	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
+	c.im.workerQueueSizeGauge.Record(ctx, size, metric.WithAttributes(otelLabels...))
 }
 
 func (c *IndexerMetricLabeler) RecordDiscoveryLeaderGauge(ctx context.Context, isLeader bool) {

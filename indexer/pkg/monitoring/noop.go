@@ -35,6 +35,7 @@ func (n *NoopIndexerMetricLabeler) IncrementStorageError(_ context.Context, _ st
 func (n *NoopIndexerMetricLabeler) RecordScannerPollingErrorsCounter(ctx context.Context) {}
 func (n *NoopIndexerMetricLabeler) RecordVerificationRecordChannelSizeGauge(ctx context.Context, size int64) {
 }
+func (n *NoopIndexerMetricLabeler) RecordWorkerQueueSizeGauge(ctx context.Context, size int64)    {}
 func (n *NoopIndexerMetricLabeler) RecordActiveReadersGauge(ctx context.Context, count int64)     {}
 func (n *NoopIndexerMetricLabeler) RecordVerifierUnavailableGauge(context.Context, string, bool)  {}
 func (n *NoopIndexerMetricLabeler) IncrementUnavailableVerifierRetries(context.Context, string)   {}
