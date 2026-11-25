@@ -10,6 +10,7 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-ccv/deployment/inventory"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 	indexerconfig "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
@@ -27,10 +28,14 @@ type OffchainConfigs struct {
 	// from state for NOPs the Job Distributor does not manage (notably standalone
 	// verifiers, which register only a CSA bootstrap key with JD).
 	NOPSigners map[string]map[string]string `json:"nopSigners,omitempty"`
+	// AggregatorQualifiers maps aggregator service identifier -> the committee qualifier it serves.
+	AggregatorQualifiers map[string]string `json:"aggregatorQualifiers,omitempty"`
 }
 
 type CCVEnvMetadata struct {
 	OffchainConfigs *OffchainConfigs `json:"offchainConfigs,omitempty"`
+	// Inventory combines OffchainConfigs with the latest onchain snapshot on every write.
+	Inventory *inventory.Inventory `json:"inventory,omitempty"`
 }
 
 func SaveAggregatorConfig(ds datastore.MutableDataStore, serviceIdentifier string, cfg *model.Committee) error {
@@ -122,6 +127,77 @@ func GetAggregatorConfig(ds datastore.DataStore, serviceIdentifier string) (*mod
 	}
 
 	return cfg, nil
+}
+
+// SaveAggregatorQualifier records which committee an aggregator service serves.
+func SaveAggregatorQualifier(ds datastore.MutableDataStore, serviceIdentifier, qualifier string) error {
+	ccvMeta, err := loadOrCreateCCVEnvMetadata(ds)
+	if err != nil {
+		return err
+	}
+	if ccvMeta.OffchainConfigs == nil {
+		ccvMeta.OffchainConfigs = &OffchainConfigs{}
+	}
+	if ccvMeta.OffchainConfigs.AggregatorQualifiers == nil {
+		ccvMeta.OffchainConfigs.AggregatorQualifiers = make(map[string]string)
+	}
+	ccvMeta.OffchainConfigs.AggregatorQualifiers[serviceIdentifier] = qualifier
+	return persistCCVEnvMetadata(ds, ccvMeta)
+}
+
+// GetInventory returns the inventory derived from the persisted CCV metadata, or an empty one
+// when nothing is persisted yet.
+func GetInventory(ds datastore.DataStore) (*inventory.Inventory, error) {
+	ccvMeta, err := loadCCVEnvMetadata(ds)
+	if err != nil {
+		if errors.Is(err, datastore.ErrEnvMetadataNotSet) {
+			return inventory.Build(inventory.Inputs{}), nil
+		}
+		return nil, err
+	}
+	return deriveInventory(ccvMeta), nil
+}
+
+func deriveInventory(meta *CCVEnvMetadata) *inventory.Inventory {
+	inv := inventory.Build(inventoryInputs(meta.OffchainConfigs))
+	if meta.Inventory != nil {
+		inv.ReconcileOnchainCommittees(meta.Inventory.Committees)
+	}
+	return inv
+}
+
+// SaveInventory stores a built inventory without changing the offchain source records.
+func SaveInventory(ds datastore.MutableDataStore, inv *inventory.Inventory) error {
+	if inv == nil {
+		return errors.New("inventory is required")
+	}
+	existingMeta, err := loadExistingEnvMetadata(ds)
+	if err != nil {
+		return err
+	}
+	v, err := marshalToAny(inv)
+	if err != nil {
+		return fmt.Errorf("failed to convert inventory: %w", err)
+	}
+	existingMeta["inventory"] = v
+	return ds.EnvMetadata().Set(datastore.EnvMetadata{Metadata: existingMeta})
+}
+
+func inventoryInputs(oc *OffchainConfigs) inventory.Inputs {
+	if oc == nil {
+		return inventory.Inputs{}
+	}
+	nodes := make(map[string]inventory.NodeRecord, len(oc.JDNodes))
+	for id, n := range oc.JDNodes {
+		nodes[id] = inventory.NodeRecord{Name: n.Name, CSAKey: n.CSAKey, Labels: n.Labels}
+	}
+	return inventory.Inputs{
+		Aggregators:          oc.Aggregators,
+		AggregatorQualifiers: oc.AggregatorQualifiers,
+		Signers:              oc.NOPSigners,
+		Nodes:                nodes,
+		Jobs:                 oc.NOPJobs,
+	}
 }
 
 func SaveIndexerConfig(ds datastore.MutableDataStore, serviceIdentifier string, cfg *indexerconfig.GeneratedConfig) error {
@@ -454,8 +530,31 @@ func persistCCVEnvMetadata(ds datastore.MutableDataStore, ccvMeta *CCVEnvMetadat
 		}
 		existingMeta["offchainConfigs"] = existingOC
 	}
+	if err := refreshInventory(existingMeta); err != nil {
+		return err
+	}
 
 	return ds.EnvMetadata().Set(datastore.EnvMetadata{Metadata: existingMeta})
+}
+
+// refreshInventory re-derives offchain data and reconciles the latest onchain snapshot after
+// every CCV write, so no changeset has to remember a separate step.
+func refreshInventory(meta map[string]any) error {
+	merged, err := parseCCVEnvMetadata(meta)
+	if err != nil {
+		return fmt.Errorf("failed to read merged CCV metadata: %w", err)
+	}
+	in := inventoryInputs(merged.OffchainConfigs)
+	if in.Empty() && merged.Inventory == nil {
+		delete(meta, "inventory")
+		return nil
+	}
+	v, err := marshalToAny(deriveInventory(merged))
+	if err != nil {
+		return fmt.Errorf("failed to convert inventory: %w", err)
+	}
+	meta["inventory"] = v
+	return nil
 }
 
 // loadExistingEnvMetadata reads the current env metadata as a generic map so it can
@@ -504,6 +603,7 @@ func mergeOffchainConfigs(existingMeta map[string]any, oc *OffchainConfigs) (map
 		{"jdNodes", oc.JDNodes, "JD nodes"},
 		{"nopJobs", oc.NOPJobs, "NOP jobs"},
 		{"nopSigners", oc.NOPSigners, "NOP signers"},
+		{"aggregatorQualifiers", oc.AggregatorQualifiers, "aggregator qualifiers"},
 	}
 
 	for _, e := range entries {

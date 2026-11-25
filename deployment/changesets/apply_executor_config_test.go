@@ -220,7 +220,7 @@ func TestBuildExecutorJobSpecs_StandaloneUsesAppConfig(t *testing.T) {
 	assert.Contains(t, jobSpec, "appConfig = '''")
 	assert.NotContains(t, jobSpec, "executorConfig")
 
-	cfg, err := parseExecutorConfigFromSpec(jobSpec)
+	cfg, err := shared.ParseExecutorJobSpec(jobSpec)
 	require.NoError(t, err)
 	assert.Empty(t, cfg.SourceExecutorAddresses)
 	assert.NotContains(t, jobSpec, "source_executor_addresses")
@@ -258,7 +258,7 @@ func TestBuildExecutorJobSpecs_SourceAddressesDoNotRequireDestinationConfig(t *t
 	require.NoError(t, err)
 	require.Len(t, specs["nop1"], 1)
 	for _, jobSpec := range specs["nop1"] {
-		cfg, err := parseExecutorConfigFromSpec(jobSpec)
+		cfg, err := shared.ParseExecutorJobSpec(jobSpec)
 		require.NoError(t, err)
 		require.NoError(t, cfg.Validate())
 		assert.Equal(t, map[string]string{

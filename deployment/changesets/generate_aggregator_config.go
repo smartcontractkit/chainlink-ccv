@@ -99,6 +99,9 @@ func GenerateAggregatorConfig() deployment.ChangeSetV2[GenerateAggregatorConfigI
 		if err := save(outputDS, cfg.ServiceIdentifier, committee); err != nil {
 			return deployment.ChangesetOutput{}, fmt.Errorf("failed to save aggregator config: %w", err)
 		}
+		if err := ccvdeployment.SaveAggregatorQualifier(outputDS, cfg.ServiceIdentifier, cfg.CommitteeQualifier); err != nil {
+			return deployment.ChangesetOutput{}, fmt.Errorf("failed to save aggregator committee qualifier: %w", err)
+		}
 
 		return deployment.ChangesetOutput{DataStore: outputDS}, nil
 	}
