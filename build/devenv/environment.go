@@ -253,6 +253,7 @@ func (c *Cfg) expandAggregators() error {
 				Image:                              agg.Image,
 				Name:                               cloneName,
 				HostPort:                           nextHostPort,
+				Replicas:                           agg.Replicas,
 				SourceCodePath:                     agg.SourceCodePath,
 				RootPath:                           agg.RootPath,
 				CommitteeName:                      agg.CommitteeName,

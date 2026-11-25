@@ -256,12 +256,16 @@ func requireStaysRunning(t *testing.T, ctx context.Context, name string, d time.
 	}
 }
 
-// serviceProxies maps each aggregator container and each indexer replica to its nginx proxy container.
+// serviceProxies maps each aggregator and indexer replica container to its nginx proxy container.
 func serviceProxies(in *ccv.Cfg) map[string]string {
 	proxies := make(map[string]string)
 	for _, agg := range in.Aggregator {
-		if agg != nil && agg.Out != nil && agg.Out.NginxContainerName != "" {
-			proxies[agg.Out.AggregatorContainerName] = agg.Out.NginxContainerName
+		if agg == nil || agg.Out == nil || agg.Out.NginxContainerName == "" {
+			continue
+		}
+		proxies[agg.Out.AggregatorContainerName] = agg.Out.NginxContainerName
+		for _, replica := range agg.Out.ReplicaContainerNames {
+			proxies[replica] = agg.Out.NginxContainerName
 		}
 	}
 	for _, idx := range in.Indexer {
@@ -275,8 +279,8 @@ func serviceProxies(in *ccv.Cfg) map[string]string {
 	return proxies
 }
 
-// reloadProxy makes nginx resolve the upgraded host again, which can have a new IP. The aggregator proxy resolves
-// only at load; the indexer proxy re-resolves every 5s, and the reload removes that window.
+// reloadProxy makes nginx resolve the upgraded host again, which can have a new IP. Both proxies
+// re-resolve every 5s; the reload removes that window.
 func reloadProxy(t *testing.T, ctx context.Context, proxy string) {
 	t.Helper()
 	code, out, err := services.Exec(ctx, proxy, "nginx", "-s", "reload")
