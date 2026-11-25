@@ -79,16 +79,13 @@ type EVMTXGun struct {
 // CloseSentChannel closes the sent messages channel to signal no more messages will be sent.
 func (m *EVMTXGun) CloseSentChannel() {
 	m.closeOnce.Do(func() {
-		// close(shutdownCh) first: parked senders hold closeMu.RLock.
+		// close(shutdownCh) first: parked Call senders hold closeMu.RLock.
 		close(m.shutdownCh)
 		m.closeMu.Lock()
+		defer m.closeMu.Unlock()
 		m.closed = true
 		if m.fireAndForget {
 			close(m.pendingCh)
-		}
-		// Unlock before fafWg.Wait: workers need closeMu to finish their sends.
-		m.closeMu.Unlock()
-		if m.fireAndForget {
 			m.fafWg.Wait()
 		}
 		close(m.sentMsgCh)
@@ -107,11 +104,26 @@ func (m *EVMTXGun) sendPending(p pendingTx) {
 	}
 }
 
+// sendSent pushes from the Call path, dropping if the gun is closed or teardown is in progress.
 func (m *EVMTXGun) sendSent(msg load.SentMessage) {
 	m.closeMu.RLock()
 	defer m.closeMu.RUnlock()
 	if m.closed {
 		return
+	}
+	m.publishSent(msg)
+}
+
+// publishSent pushes from receipt workers without closeMu: sentMsgCh is closed
+// only after fafWg.Wait, so a worker send cannot race the close. The
+// non-blocking try must come first: once shutdownCh is closed, a plain select
+// would drop ~half of all publishes at random even with buffer space. The
+// second select bounds the park when the channel is full and has no consumer.
+func (m *EVMTXGun) publishSent(msg load.SentMessage) {
+	select {
+	case m.sentMsgCh <- msg:
+		return
+	default:
 	}
 	select {
 	case m.sentMsgCh <- msg:
@@ -642,7 +654,7 @@ func (g *EVMTXGun) processReceipt(p pendingTx) {
 			}
 
 			sentTime := evm.BlockTime(ctx, backend, receipt.BlockNumber)
-			g.sendSent(load.SentMessage{
+			g.publishSent(load.SentMessage{
 				SeqNo:     uint64(decodedMsg.SequenceNumber),
 				MessageID: event.MessageId,
 				SentTime:  sentTime,
@@ -659,7 +671,7 @@ func (g *EVMTXGun) processReceipt(p pendingTx) {
 
 // sendFailed pushes a SentMessage with Failed=true to the sentMsgCh.
 func (g *EVMTXGun) sendFailed(p pendingTx, sentTime time.Time) {
-	g.sendSent(load.SentMessage{
+	g.publishSent(load.SentMessage{
 		SeqNo:     0,
 		MessageID: ([32]byte)(p.txHash),
 		SentTime:  sentTime,

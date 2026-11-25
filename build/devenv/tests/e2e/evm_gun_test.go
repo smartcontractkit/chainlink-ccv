@@ -49,12 +49,10 @@ func TestEVMTXGun_FullBufferShutdown(t *testing.T) {
 		g.sendSent(load.SentMessage{SeqNo: 1})
 		var senders sync.WaitGroup
 		for range 8 {
-			senders.Add(1)
-			go func() {
-				defer senders.Done()
+			senders.Go(func() {
 				g.sendPending(pendingTx{txHash: [32]byte{2}})
 				g.sendSent(load.SentMessage{SeqNo: 2})
-			}()
+			})
 		}
 		// Give blocked senders time to park on the full channels.
 		time.Sleep(100 * time.Millisecond)
@@ -79,6 +77,38 @@ func TestEVMTXGun_FullBufferShutdown(t *testing.T) {
 	}
 }
 
+func TestEVMTXGun_WorkerPublishDuringShutdown(t *testing.T) {
+	// Regression: a receipt worker completing during teardown must still
+	// publish; only the Call path is gated by closed.
+	g := &EVMTXGun{
+		sentMsgCh:     make(chan load.SentMessage, 1),
+		pendingCh:     make(chan pendingTx, 1),
+		fireAndForget: true,
+		shutdownCh:    make(chan struct{}),
+	}
+	g.fafWg.Go(func() {
+		<-g.shutdownCh // block until teardown begins
+		g.publishSent(load.SentMessage{SeqNo: 1})
+	})
+
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		g.CloseSentChannel()
+	}()
+	select {
+	case <-finished:
+	case <-time.After(10 * time.Second):
+		t.Fatal("CloseSentChannel hung while a worker published during shutdown")
+	}
+
+	msg, ok := <-g.SentMessages()
+	require.True(t, ok)
+	require.Equal(t, uint64(1), msg.SeqNo)
+	_, ok = <-g.SentMessages()
+	require.False(t, ok)
+}
+
 func TestEVMTXGun_SendAfterClose(t *testing.T) {
 	for _, faf := range []bool{false, true} {
 		g := newTestEVMTXGun(faf)
@@ -98,15 +128,12 @@ func TestEVMTXGun_ConcurrentSendAndClose(t *testing.T) {
 		var wg sync.WaitGroup
 		go g.CloseSentChannel() // close first: maximize the race with senders
 		for range 200 {
-			wg.Add(2)
-			go func() {
-				defer wg.Done()
+			wg.Go(func() {
 				g.sendPending(pendingTx{txHash: [32]byte{2}})
-			}()
-			go func() {
-				defer wg.Done()
+			})
+			wg.Go(func() {
 				g.sendSent(load.SentMessage{SeqNo: 2})
-			}()
+			})
 		}
 		wg.Wait()
 		g.CloseSentChannel()
