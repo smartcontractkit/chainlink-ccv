@@ -306,7 +306,7 @@ func AddNOPOffchain() deployment.ChangeSetV2[AddNOPOffchainInput] {
 			return deployment.ChangesetOutput{}, fmt.Errorf("no dest chains found for committee %q", cfg.CommitteeQualifier)
 		}
 
-		committee, err := buildAggregatorCommittee(e, cfg.CommitteeQualifier, committeeChains, nil)
+		committee, _, err := buildAggregatorCommittee(e, cfg.CommitteeQualifier, committeeChains, nil)
 		if err != nil {
 			return deployment.ChangesetOutput{}, fmt.Errorf("failed to build aggregator config: %w", err)
 		}

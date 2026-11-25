@@ -15,11 +15,13 @@ package changesets
 import (
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 
+	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 )
 
@@ -156,6 +158,12 @@ func ApplyVerifierExecutorConfig() deployment.ChangeSetV2[ApplyVerifierExecutorC
 			}, fmt.Errorf("verifier flow succeeded but executor flow failed (no rollback, accepted verifier proposal left in place): %w", executorErr)
 		}
 
+		// Publish observed committees for the chains this run loaded, reusing the reads those
+		// flows already made rather than requiring a separate refresh action.
+		if err := ccvdeployment.RefreshInventoryChains(e, ds, loadedChains(cfg)); err != nil {
+			return deployment.ChangesetOutput{Reports: reports, DataStore: ds}, fmt.Errorf("failed to refresh inventory: %w", err)
+		}
+
 		return deployment.ChangesetOutput{
 			Reports:   reports,
 			DataStore: ds,
@@ -163,4 +171,17 @@ func ApplyVerifierExecutorConfig() deployment.ChangeSetV2[ApplyVerifierExecutorC
 	}
 
 	return deployment.CreateChangeSet(apply, validate)
+}
+
+// loadedChains returns the deduplicated union of chains the verifier and executor flows cover.
+func loadedChains(cfg ApplyVerifierExecutorConfigInput) []uint64 {
+	chains := make([]uint64, 0, len(cfg.Verifier.Committee.ChainConfigs)+len(cfg.Executor.Pool.ChainConfigs))
+	for sel := range cfg.Verifier.Committee.ChainConfigs {
+		chains = append(chains, sel)
+	}
+	for sel := range cfg.Executor.Pool.ChainConfigs {
+		chains = append(chains, sel)
+	}
+	slices.Sort(chains)
+	return slices.Compact(chains)
 }

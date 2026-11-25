@@ -178,6 +178,34 @@ func TestAddOnchainCommitteesClearsRemovedNativeVerifier(t *testing.T) {
 	}
 }
 
+func TestRefreshChainsScopedAndPreservesOnFailure(t *testing.T) {
+	adapter := &fakeCommitteeVerifierOnchain{
+		discovered: []uint64{uint64(canton)},
+		states: map[uint64][]*adapters.CommitteeState{uint64(canton): {{
+			Qualifier: "default", ChainSelector: uint64(canton), Address: "canton-verifier",
+			SignatureConfigs: []adapters.SignatureConfig{{SourceChainSelector: uint64(ethereum), Threshold: 2, Signers: []string{alphaAddr, betaAddr}}},
+		}}},
+	}
+	adapters.GetCommitteeVerifierOnchainRegistry().Register(chainsel.FamilyCanton, adapter)
+
+	inv := Build(Inputs{})
+	inv.AddOnchainCommittees(t.Context(), deployment.Environment{})
+	require.NotEmpty(t, committeeFor(t, inv, SourceOnchain, ethereum).Members)
+	first := refreshFor(t, inv, canton)
+
+	adapter.errs = map[uint64]error{uint64(canton): errors.New("rpc down")}
+	inv.RefreshChains(t.Context(), deployment.Environment{}, []uint64{uint64(canton)})
+	assert.NotEmpty(t, committeeFor(t, inv, SourceOnchain, ethereum).Members, "a failed scoped refresh keeps the snapshot")
+	stale := refreshFor(t, inv, canton)
+	assert.Equal(t, "rpc down", stale.LastError)
+	assert.Equal(t, first.LastSuccessAt, stale.LastSuccessAt)
+
+	adapter.errs = nil
+	inv.RefreshChains(t.Context(), deployment.Environment{}, nil)
+	assert.NotEmpty(t, committeeFor(t, inv, SourceOnchain, ethereum).Members, "unscanned chains keep their snapshot")
+	assert.Equal(t, stale.LastAttemptAt, refreshFor(t, inv, canton).LastAttemptAt, "unscanned chains get no new attempt")
+}
+
 func TestAddOnchainCommitteesDiscoversNativeChainsAndCarriesPubKeys(t *testing.T) {
 	// A synthetic NOP whose only signer identity is its EVM address: the key comes from the scan.
 	key, err := crypto.ToECDSA(bytes.Repeat([]byte{0x42}, 32))

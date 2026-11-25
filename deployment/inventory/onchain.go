@@ -19,49 +19,99 @@ import (
 // outcome is recorded so stale data is distinguishable from an actual removal.
 func (inv *Inventory) AddOnchainCommittees(ctx context.Context, env deployment.Environment) {
 	previous := onchainSnapshot(inv.Committees)
+	inv.refreshFromScans(previous, inv.scanChains(env, previous), liveScan(ctx, env))
+}
+
+// RefreshChains rescans only the given chains, e.g. the chains a changeset already loaded.
+// Every other chain's snapshot is kept without a new read attempt.
+func (inv *Inventory) RefreshChains(ctx context.Context, env deployment.Environment, chains []uint64) {
+	previous := onchainSnapshot(inv.Committees)
+	slices.Sort(chains)
+	inv.refreshFromScans(previous, slices.Compact(chains), liveScan(ctx, env))
+}
+
+// ApplyScannedCommitteeStates persists committee reads a changeset already made, replacing the
+// scanned chains' snapshots without another RPC pass. states must be the raw reads, before any
+// offchain threshold override. Unscanned chains keep their previous snapshots.
+func (inv *Inventory) ApplyScannedCommitteeStates(chains []uint64, states []*adapters.CommitteeState) {
+	previous := onchainSnapshot(inv.Committees)
+	byChain := make(map[uint64][]*adapters.CommitteeState, len(chains))
+	for _, state := range states {
+		if state != nil {
+			byChain[state.ChainSelector] = append(byChain[state.ChainSelector], state)
+		}
+	}
+	slices.Sort(chains)
+	inv.refreshFromScans(previous, slices.Compact(chains), func(chain uint64) ([]*adapters.CommitteeState, error) {
+		return byChain[chain], nil
+	})
+}
+
+func liveScan(ctx context.Context, env deployment.Environment) func(uint64) ([]*adapters.CommitteeState, error) {
+	return func(chain uint64) ([]*adapters.CommitteeState, error) {
+		adapter, err := adapters.GetCommitteeVerifierOnchainRegistry().Get(chain)
+		if err != nil {
+			return nil, err
+		}
+		return adapter.ScanCommitteeStates(ctx, env, chain)
+	}
+}
+
+// refreshFromScans rebuilds onchain rows and findings from scan results for the given chains.
+// Successful scans replace their chain's snapshot; failed scans keep it and record the failure;
+// chains outside the set keep their snapshot with no new refresh outcome.
+func (inv *Inventory) refreshFromScans(previous map[uint64][]Committee, chains []uint64, scan func(uint64) ([]*adapters.CommitteeState, error)) {
 	inv.clearOnchainState()
 	b := builderFor(inv)
 	r := buildResolver(inv.NOPs, inv.Nodes)
 	recorded := aggregatorSets(inv.Committees)
 	now := time.Now()
-
-	for _, chain := range inv.scanChains(env, previous) {
+	scanned := make(map[uint64]bool, len(chains))
+	for _, chain := range chains {
+		scanned[chain] = true
 		refresh := OnchainRefresh{Chain: ChainSelector(chain), LastAttemptAt: now}
-		adapter, err := adapters.GetCommitteeVerifierOnchainRegistry().Get(chain)
+		states, err := scan(chain)
 		if err == nil {
-			var states []*adapters.CommitteeState
-			states, err = adapter.ScanCommitteeStates(ctx, env, chain)
-			if err == nil {
-				for _, state := range states {
-					if state == nil {
-						continue
-					}
-					for _, sc := range state.SignatureConfigs {
-						c := Committee{
-							Source:          SourceOnchain,
-							VerifierChain:   ChainSelector(chain),
-							VerifierAddress: state.Address,
-							Qualifier:       state.Qualifier,
-							SourceChain:     ChainSelector(sc.SourceChainSelector),
-							Threshold:       sc.Threshold,
-						}
-						inv.recordOnchainCommittee(b, r, recorded, c, sc.Signers, sc.SignerPubKeys)
-					}
+			for _, state := range states {
+				if state == nil {
+					continue
 				}
-				refresh.LastSuccessAt = now
-				inv.setRefresh(refresh)
-				continue
+				for _, sc := range state.SignatureConfigs {
+					c := Committee{
+						Source:          SourceOnchain,
+						VerifierChain:   ChainSelector(chain),
+						VerifierAddress: state.Address,
+						Qualifier:       state.Qualifier,
+						SourceChain:     ChainSelector(sc.SourceChainSelector),
+						Threshold:       sc.Threshold,
+					}
+					inv.recordOnchainCommittee(b, r, recorded, c, sc.Signers, sc.SignerPubKeys)
+				}
 			}
+			refresh.LastSuccessAt = now
+			inv.setRefresh(refresh)
+			continue
 		}
 		refresh.LastError = err.Error()
 		b.issue(IssueOnchainReadFailed, chainLabel(chain), err.Error())
 		inv.setRefresh(refresh)
-		for _, c := range previous[chain] {
-			inv.recordOnchainCommittee(b, r, recorded, c, memberAddresses(c.Members), memberPubKeys(c.Members))
+		inv.recordSnapshot(b, r, recorded, previous[chain])
+	}
+	for chain, rows := range previous {
+		if !scanned[chain] {
+			inv.recordSnapshot(b, r, recorded, rows)
 		}
 	}
 	b.checkIdentities(r)
 	inv.normalize()
+}
+
+// recordSnapshot re-records previously observed rows so drift and identity findings track the
+// current aggregator configs and NOP tables even when the rows themselves are unchanged.
+func (inv *Inventory) recordSnapshot(b *builder, r *resolver, recorded map[committeeKey][]Committee, rows []Committee) {
+	for _, c := range rows {
+		inv.recordOnchainCommittee(b, r, recorded, c, memberAddresses(c.Members), memberPubKeys(c.Members))
+	}
 }
 
 // clearOnchainState drops onchain rows and every issue kind that is rebuilt from them, so a
@@ -138,7 +188,7 @@ func (inv *Inventory) ReconcileOnchainCommittees(snapshot []Committee, refreshes
 		if c.Source != SourceOnchain {
 			continue
 		}
-		inv.recordOnchainCommittee(b, r, recorded, c, memberAddresses(c.Members), memberPubKeys(c.Members))
+		inv.recordSnapshot(b, r, recorded, []Committee{c})
 	}
 	for _, refresh := range inv.Refreshes {
 		if refresh.LastError != "" {

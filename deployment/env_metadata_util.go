@@ -8,8 +8,10 @@ import (
 	"reflect"
 
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
+	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/inventory"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 	indexerconfig "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
@@ -181,6 +183,32 @@ func SaveInventory(ds datastore.MutableDataStore, inv *inventory.Inventory) erro
 	}
 	existingMeta["inventory"] = v
 	return ds.EnvMetadata().Set(datastore.EnvMetadata{Metadata: existingMeta})
+}
+
+// SaveScannedCommitteeStates persists raw committee reads into the stored onchain snapshot,
+// replacing the scanned chains' rows. Changesets that already scan verifiers publish fresh
+// inventory this way without a second RPC pass. states must be the raw reads, before any
+// offchain threshold override.
+func SaveScannedCommitteeStates(ds datastore.MutableDataStore, chains []uint64, states []*adapters.CommitteeState) error {
+	inv, err := GetInventory(ds.Seal())
+	if err != nil {
+		return fmt.Errorf("failed to load inventory: %w", err)
+	}
+	inv.ApplyScannedCommitteeStates(chains, states)
+	return SaveInventory(ds, inv)
+}
+
+// RefreshInventoryChains rescans the given chains through their registered family adapters and
+// saves the resulting inventory. Per-chain read failures keep the last successful snapshot.
+func RefreshInventoryChains(e deployment.Environment, ds datastore.MutableDataStore, chains []uint64) error {
+	inv, err := GetInventory(ds.Seal())
+	if err != nil {
+		return fmt.Errorf("failed to load inventory: %w", err)
+	}
+	refreshEnv := e
+	refreshEnv.DataStore = ds.Seal()
+	inv.RefreshChains(e.GetContext(), refreshEnv, chains)
+	return SaveInventory(ds, inv)
 }
 
 func inventoryInputs(oc *OffchainConfigs) inventory.Inputs {

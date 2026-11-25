@@ -85,7 +85,7 @@ func IncreaseThresholdOffchain() deployment.ChangeSetV2[IncreaseThresholdOffchai
 	}
 
 	apply := func(e deployment.Environment, cfg IncreaseThresholdOffchainInput) (deployment.ChangesetOutput, error) {
-		committee, err := buildAggregatorCommittee(e, cfg.CommitteeQualifier, cfg.ChainSelectors, &cfg.NewThreshold)
+		committee, _, err := buildAggregatorCommittee(e, cfg.CommitteeQualifier, cfg.ChainSelectors, &cfg.NewThreshold)
 		if err != nil {
 			return deployment.ChangesetOutput{}, fmt.Errorf("failed to build aggregator config: %w", err)
 		}

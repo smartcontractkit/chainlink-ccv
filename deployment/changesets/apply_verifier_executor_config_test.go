@@ -14,6 +14,7 @@ import (
 
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
+	"github.com/smartcontractkit/chainlink-ccv/deployment/inventory"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 )
 
@@ -242,6 +243,47 @@ func TestApplyVerifierExecutorConfigUsesPersistedJDNodeInventory(t *testing.T) {
 	jobs, err := ccvdeployment.GetAllJobs(out.DataStore.Seal())
 	require.NoError(t, err)
 	require.Len(t, jobs["nop1"], 2)
+}
+
+func TestApplyVerifierExecutorConfigPublishesObservedCommittees(t *testing.T) {
+	sel := chainsel.TEST_90000001.Selector
+	signer := "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf"
+	registerEVMChainTypeForIdentities()
+	registerFullEVMAdapters(&stubFullAdapter{
+		states: map[uint64][]*adapters.CommitteeState{sel: {{
+			Qualifier: "default", ChainSelector: sel, Address: "0xcommittee",
+			SignatureConfigs: []adapters.SignatureConfig{{SourceChainSelector: sel, Threshold: 2, Signers: []string{signer}}},
+		}}},
+		verifierAddrs: map[uint64]string{sel: "0xcommittee"},
+	})
+	env := newTestEnvForApply(t, "nop1", []uint64{sel})
+	env.GetContext = t.Context
+	addCCVTestEVMChainSupport(t, env, sel)
+	cfg := validCombinedVerifierExecutorInput(sel)
+	cfg.NOPs[0].SignerAddressByFamily = map[string]string{chainsel.FamilyEVM: signer}
+
+	out, err := ApplyVerifierExecutorConfig().Apply(env, cfg)
+	require.NoError(t, err)
+
+	inv, err := ccvdeployment.GetInventory(out.DataStore.Seal())
+	require.NoError(t, err)
+	var onchain []inventory.Committee
+	for _, c := range inv.Committees {
+		if c.Source == inventory.SourceOnchain {
+			onchain = append(onchain, c)
+		}
+	}
+	require.Len(t, onchain, 1, "a normal run publishes the observed committee on the first run")
+	assert.Equal(t, inventory.ChainSelector(sel), onchain[0].VerifierChain)
+	assert.Equal(t, inventory.ChainSelector(sel), onchain[0].SourceChain)
+	assert.Equal(t, uint8(2), onchain[0].Threshold)
+	require.Len(t, onchain[0].Members, 1)
+	assert.Equal(t, signer, onchain[0].Members[0].SignerAddress)
+	assert.Equal(t, "nop1", onchain[0].Members[0].NOPAlias)
+
+	require.Len(t, inv.Refreshes, 1)
+	assert.Empty(t, inv.Refreshes[0].LastError)
+	assert.False(t, inv.Refreshes[0].LastSuccessAt.IsZero())
 }
 
 func TestDeriveExecutorInput_MatchesHandBuiltStandaloneInput(t *testing.T) {
