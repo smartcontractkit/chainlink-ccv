@@ -10,18 +10,18 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/load"
 )
 
-func newTestEVMTXGun(fireAndForget bool) *EVMTXGun {
+func newTestEVMTXGun(fireAndForget bool, buf int) *EVMTXGun {
 	return &EVMTXGun{
-		sentMsgCh:     make(chan load.SentMessage, load.SentMessageChannelBufferSize),
+		sentMsgCh:     make(chan load.SentMessage, buf),
 		fireAndForget: fireAndForget,
-		pendingCh:     make(chan pendingTx, load.PendingMessageChannelBufferSize),
+		pendingCh:     make(chan pendingTx, buf),
 		shutdownCh:    make(chan struct{}),
 	}
 }
 
 func TestEVMTXGun_SendBeforeClose(t *testing.T) {
 	for _, faf := range []bool{false, true} {
-		g := newTestEVMTXGun(faf)
+		g := newTestEVMTXGun(faf, load.SentMessageChannelBufferSize)
 		g.sendPending(pendingTx{txHash: [32]byte{1}})
 		g.sendSent(load.SentMessage{SeqNo: 1})
 		require.Len(t, g.pendingCh, 1)
@@ -39,12 +39,7 @@ func TestEVMTXGun_SendBeforeClose(t *testing.T) {
 func TestEVMTXGun_FullBufferShutdown(t *testing.T) {
 	// Regression: the staging mesh test runs the gun with no consumer; teardown must not hang.
 	for _, faf := range []bool{false, true} {
-		g := &EVMTXGun{
-			sentMsgCh:     make(chan load.SentMessage, 1),
-			pendingCh:     make(chan pendingTx, 1),
-			fireAndForget: faf,
-			shutdownCh:    make(chan struct{}),
-		}
+		g := newTestEVMTXGun(faf, 1)
 		g.sendPending(pendingTx{txHash: [32]byte{1}})
 		g.sendSent(load.SentMessage{SeqNo: 1})
 		var senders sync.WaitGroup
@@ -78,14 +73,8 @@ func TestEVMTXGun_FullBufferShutdown(t *testing.T) {
 }
 
 func TestEVMTXGun_WorkerPublishDuringShutdown(t *testing.T) {
-	// Regression: a receipt worker completing during teardown must still
-	// publish; only the Call path is gated by closed.
-	g := &EVMTXGun{
-		sentMsgCh:     make(chan load.SentMessage, 1),
-		pendingCh:     make(chan pendingTx, 1),
-		fireAndForget: true,
-		shutdownCh:    make(chan struct{}),
-	}
+	// Regression: a worker completing during teardown must still publish.
+	g := newTestEVMTXGun(true, 1)
 	g.fafWg.Go(func() {
 		<-g.shutdownCh // block until teardown begins
 		g.publishSent(load.SentMessage{SeqNo: 1})
@@ -111,7 +100,7 @@ func TestEVMTXGun_WorkerPublishDuringShutdown(t *testing.T) {
 
 func TestEVMTXGun_SendAfterClose(t *testing.T) {
 	for _, faf := range []bool{false, true} {
-		g := newTestEVMTXGun(faf)
+		g := newTestEVMTXGun(faf, load.SentMessageChannelBufferSize)
 		g.CloseSentChannel()
 		// Straggler sends after close must be dropped
 		g.sendPending(pendingTx{txHash: [32]byte{1}})
@@ -124,7 +113,7 @@ func TestEVMTXGun_SendAfterClose(t *testing.T) {
 
 func TestEVMTXGun_ConcurrentSendAndClose(t *testing.T) {
 	for _, faf := range []bool{false, true} {
-		g := newTestEVMTXGun(faf)
+		g := newTestEVMTXGun(faf, load.SentMessageChannelBufferSize)
 		var wg sync.WaitGroup
 		go g.CloseSentChannel() // close first: maximize the race with senders
 		for range 200 {

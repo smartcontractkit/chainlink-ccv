@@ -93,32 +93,29 @@ func (m *EVMTXGun) CloseSentChannel() {
 }
 
 func (m *EVMTXGun) sendPending(p pendingTx) {
+	sendIfOpen(m, m.pendingCh, p)
+}
+
+func (m *EVMTXGun) sendSent(msg load.SentMessage) {
+	sendIfOpen(m, m.sentMsgCh, msg)
+}
+
+// closeMu is held through the send so the close cannot race it.
+func sendIfOpen[T any](m *EVMTXGun, ch chan T, v T) {
 	m.closeMu.RLock()
 	defer m.closeMu.RUnlock()
 	if m.closed {
 		return
 	}
 	select {
-	case m.pendingCh <- p:
+	case ch <- v:
 	case <-m.shutdownCh:
 	}
 }
 
-// sendSent pushes from the Call path, dropping if the gun is closed or teardown is in progress.
-func (m *EVMTXGun) sendSent(msg load.SentMessage) {
-	m.closeMu.RLock()
-	defer m.closeMu.RUnlock()
-	if m.closed {
-		return
-	}
-	m.publishSent(msg)
-}
-
-// publishSent pushes from receipt workers without closeMu: sentMsgCh is closed
-// only after fafWg.Wait, so a worker send cannot race the close. The
-// non-blocking try must come first: once shutdownCh is closed, a plain select
-// would drop ~half of all publishes at random even with buffer space. The
-// second select bounds the park when the channel is full and has no consumer.
+// No closeMu: sentMsgCh closes only after fafWg.Wait, so a worker send cannot
+// race the close. Try non-blocking first: once shutdownCh closes, a plain
+// select drops publishes at random even with buffer space.
 func (m *EVMTXGun) publishSent(msg load.SentMessage) {
 	select {
 	case m.sentMsgCh <- msg:
