@@ -43,18 +43,21 @@ type NonceKey struct {
 var _ load.LoadGun = (*EVMTXGun)(nil)
 
 type EVMTXGun struct {
-	cfg                 *ccv.Cfg
-	testConfig          *load.TestProfileConfig
-	e                   *deployment.Environment
-	selectors           []uint64
-	impl                map[uint64]cciptestinterfaces.CCIP17
-	sentMsgSet          map[load.SentMessage]struct{}
-	srcSelectors        []uint64
-	destSelectors       []uint64
-	seqNosMu            sync.Mutex
-	sentMsgCh           chan load.SentMessage // Channel for real-time message notifications
-	closeOnce           sync.Once             // Ensure channel is closed only once
-	nonce               sync.Map              // map[NonceKey]*uint64
+	cfg           *ccv.Cfg
+	testConfig    *load.TestProfileConfig
+	e             *deployment.Environment
+	selectors     []uint64
+	impl          map[uint64]cciptestinterfaces.CCIP17
+	sentMsgSet    map[load.SentMessage]struct{}
+	srcSelectors  []uint64
+	destSelectors []uint64
+	seqNosMu      sync.Mutex
+	sentMsgCh     chan load.SentMessage // Channel for real-time message notifications
+	closeOnce     sync.Once             // Ensure channel is closed only once
+	// closeMu guards CloseSentChannel: wasp abandons timed-out Call goroutines, so a straggler can reach a send after teardown.
+	closeMu             sync.RWMutex
+	closed              bool
+	nonce               sync.Map // map[NonceKey]*uint64
 	messageProfiles     []load.MessageProfileConfig
 	userSelector        map[uint64]func() *bind.TransactOpts
 	executorArgsParams  any // optional, passed to BuildV3ExtraArgs
@@ -75,6 +78,9 @@ type EVMTXGun struct {
 // CloseSentChannel closes the sent messages channel to signal no more messages will be sent.
 func (m *EVMTXGun) CloseSentChannel() {
 	m.closeOnce.Do(func() {
+		m.closeMu.Lock()
+		defer m.closeMu.Unlock()
+		m.closed = true
 		if m.fireAndForget {
 			// Close pendingCh first to signal no more work, then wait for workers
 			// to drain remaining items before closing sentMsgCh.
@@ -83,6 +89,24 @@ func (m *EVMTXGun) CloseSentChannel() {
 		}
 		close(m.sentMsgCh)
 	})
+}
+
+func (m *EVMTXGun) sendPending(p pendingTx) {
+	m.closeMu.RLock()
+	defer m.closeMu.RUnlock()
+	if m.closed {
+		return
+	}
+	m.pendingCh <- p
+}
+
+func (m *EVMTXGun) sendSent(msg load.SentMessage) {
+	m.closeMu.RLock()
+	defer m.closeMu.RUnlock()
+	if m.closed {
+		return
+	}
+	m.sentMsgCh <- msg
 }
 
 // SentMessages returns the sent message channel for the verification pipeline.
@@ -342,11 +366,11 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 		if err != nil {
 			return &wasp.Response{Error: fmt.Errorf("ccip send: %w", err).Error(), Failed: true}
 		}
-		m.pendingCh <- pendingTx{
+		m.sendPending(pendingTx{
 			txHash:       tx.Hash(),
 			srcSelector:  srcSelector,
 			destSelector: destSelector,
-		}
+		})
 		return &wasp.Response{Data: tx.Hash().Hex()}
 	}
 
@@ -365,7 +389,7 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 	m.seqNosMu.Unlock()
 
 	// Push to channel for verification
-	m.sentMsgCh <- load.SentMessage{SeqNo: uint64(sentEvent.Message.SequenceNumber), MessageID: sentEvent.MessageID, SentTime: sentTime, ChainPair: load.SrcDest{Src: srcSelector, Dest: destSelector}}
+	m.sendSent(load.SentMessage{SeqNo: uint64(sentEvent.Message.SequenceNumber), MessageID: sentEvent.MessageID, SentTime: sentTime, ChainPair: load.SrcDest{Src: srcSelector, Dest: destSelector}})
 
 	return &wasp.Response{Data: "ok"}
 }
