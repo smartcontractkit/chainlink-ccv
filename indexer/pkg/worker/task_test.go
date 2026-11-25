@@ -34,25 +34,25 @@ func TestNewTask_NilValidations(t *testing.T) {
 	ms := mocks.NewMockIndexerStorage(t)
 
 	t.Run("nil logger", func(t *testing.T) {
-		_, err := NewTask(nil, msg, reg, ms, time.Now().Add(time.Second))
+		_, err := NewTask(nil, msg, reg, ms)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "logger is required")
 	})
 
 	t.Run("nil registry", func(t *testing.T) {
-		_, err := NewTask(lggr, msg, nil, ms, time.Now().Add(time.Second))
+		_, err := NewTask(lggr, msg, nil, ms)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "registry is required")
 	})
 
 	t.Run("nil storage", func(t *testing.T) {
-		_, err := NewTask(lggr, msg, reg, nil, time.Now().Add(time.Second))
+		_, err := NewTask(lggr, msg, reg, nil)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "storage is required")
 	})
 
 	t.Run("all valid", func(t *testing.T) {
-		task, err := NewTask(lggr, msg, reg, ms, time.Now().Add(time.Second))
+		task, err := NewTask(lggr, msg, reg, ms)
 		require.NoError(t, err)
 		require.NotNil(t, task)
 	})
@@ -132,28 +132,14 @@ func TestTask_LoadVerifierReaders(t *testing.T) {
 	tsk := &Task{registry: reg, logger: lggr}
 
 	addrs := []string{addr1.String(), addr2.String()}
-	readersList, loaded, missing := tsk.loadVerifierReaders(addrs)
+	readersList, loaded, missing, unstarted := tsk.loadVerifierReaders(addrs)
 
 	require.Len(t, readersList, 1)
 	require.Len(t, loaded, 1)
 	require.Len(t, missing, 1)
+	require.Empty(t, unstarted)
 	require.Equal(t, addr1.String(), loaded[0])
 	require.Equal(t, addr2.String(), missing[0])
-}
-
-// TestTask_SetMessageStatus_DelegatesToStorage asserts that SetMessageStatus
-// correctly calls UpdateMessageStatus on the underlying storage.
-func TestTask_SetMessageStatus_DelegatesToStorage(t *testing.T) {
-	lggr := logger.Test(t)
-
-	ms := mocks.NewMockIndexerStorage(t)
-	msgID := protocol.Bytes32{}
-	// Expect UpdateMessageStatus to be called with the messageID and status
-	ms.On("UpdateMessageStatus", mock.Anything, msgID, common.MessageSuccessful, "").Return(nil)
-
-	tsk := &Task{storage: ms, messageID: msgID, logger: lggr}
-	err := tsk.SetMessageStatus(context.Background(), common.MessageSuccessful, "")
-	require.NoError(t, err)
 }
 
 // TestLoadVerifierReaders_InvalidAndLoaded ensures invalid hex addresses are
@@ -170,7 +156,7 @@ func TestLoadVerifierReaders_InvalidAndLoaded(t *testing.T) {
 	tsk := &Task{registry: reg, logger: lggr}
 
 	addrs := []string{"not-a-hex", addr.String()}
-	readersList, loaded, missing := tsk.loadVerifierReaders(addrs)
+	readersList, loaded, missing, _ := tsk.loadVerifierReaders(addrs)
 
 	require.Len(t, readersList, 1)
 	require.Len(t, loaded, 1)
@@ -231,7 +217,7 @@ func TestCollectVerifierResults(t *testing.T) {
 	lggr := logger.Test(t)
 	msg := protocol.VerifierResult{}
 	ms := mocks.NewMockIndexerStorage(t)
-	task, err := NewTask(lggr, msg, registry.NewVerifierRegistry(), ms, time.Now().Add(time.Second))
+	task, err := NewTask(lggr, msg, registry.NewVerifierRegistry(), ms)
 	require.NoError(t, err)
 
 	mid := task.messageID
@@ -257,7 +243,7 @@ func TestCollectVerifierResults(t *testing.T) {
 		require.NoError(t, reg.AddVerifier(addr, "test-verifier", r))
 
 		// create task with our registry
-		task2, err := NewTask(lggr, msg, reg, mocks.NewMockIndexerStorage(t), time.Now().Add(time.Second))
+		task2, err := NewTask(lggr, msg, reg, mocks.NewMockIndexerStorage(t))
 		require.NoError(t, err)
 
 		res := task2.collectVerifierResults(context.Background(), []verifierTarget{{reader: r, address: addr}})
@@ -286,11 +272,40 @@ func TestCollectVerifierResults(t *testing.T) {
 		addr3, aerr := protocol.NewUnknownAddressFromHex("0x03")
 		require.NoError(t, aerr)
 
-		task3, err := NewTask(lggr, msg, reg, mocks.NewMockIndexerStorage(t), time.Now().Add(time.Second))
+		task3, err := NewTask(lggr, msg, reg, mocks.NewMockIndexerStorage(t))
 		require.NoError(t, err)
 
 		res := task3.collectVerifierResults(context.Background(), []verifierTarget{{reader: r1, address: addr2}, {reader: r2, address: addr3}})
 		require.Len(t, res, 1)
 		require.Equal(t, "verifier-2", res[0].Metadata.VerifierName)
 	})
+}
+
+// A configured verifier whose reader did not start is unstarted, not unknown, so the job retries.
+func TestLoadVerifierReaders_UnstartedReader(t *testing.T) {
+	reg := registry.NewVerifierRegistry()
+	addr := mustAddr(t, "0x5555555555555555555555555555555555555555")
+	reg.MarkUnavailable(addr, "down-verifier")
+	tsk := &Task{registry: reg, logger: logger.Test(t)}
+
+	readersList, loaded, missing, unstarted := tsk.loadVerifierReaders([]string{addr.String()})
+
+	require.Empty(t, readersList)
+	require.Empty(t, loaded)
+	require.Empty(t, missing)
+	require.Equal(t, []string{addr.String()}, unstarted)
+}
+
+// Each unstarted verifier counts one retry under its configured name.
+func TestRecordUnavailableRetries(t *testing.T) {
+	reg := registry.NewVerifierRegistry()
+	addr := mustAddr(t, "0x5555555555555555555555555555555555555555")
+	reg.MarkUnavailable(addr, "down-verifier")
+	m := mocks.NewMockIndexerMetricLabeler(t)
+	m.EXPECT().IncrementUnavailableVerifierRetries(mock.Anything, "down-verifier").Once()
+	tsk := &Task{registry: reg, logger: logger.Test(t), metrics: m}
+
+	tsk.recordUnavailableRetries(context.Background(), []string{addr.String()})
+
+	(&Task{registry: reg, logger: logger.Test(t)}).recordUnavailableRetries(context.Background(), []string{addr.String()})
 }

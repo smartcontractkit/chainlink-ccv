@@ -64,20 +64,12 @@ func buildIsolatedDiscovery(
 	return disc.(*AggregatorMessageDiscovery)
 }
 
-// TestClose_DoesNotDeadlockWhenChannelHasNoConsumer is the end-to-end regression
-// test for the shutdown deadlock fix.
-//
-// The problematic sequence, before the fix:
-//  1. run() enters callReader, reads data, persists it, then tries to emit it
-//     to the unbuffered messageCh with a plain blocking send.
-//  2. The parent context is canceled, so enqueueMessages (the only consumer) exits.
-//  3. Nobody reads from messageCh — the blocking send in callReader hangs forever.
-//  4. run() never calls wg.Done(), so Close()'s wg.Wait() never returns.
-func TestClose_DoesNotDeadlockWhenChannelHasNoConsumer(t *testing.T) {
+// TestClose_CompletesWhileDiscoveryIsBusy checks that Close returns after the
+// context is canceled while the run goroutine keeps reading and persisting batches.
+func TestClose_CompletesWhileDiscoveryIsBusy(t *testing.T) {
 	cfg := config.DiscoveryConfig{PollInterval: 20, Timeout: 5000}
 	ts := setupMessageDiscoveryTestNoTimeout(t, cfg)
 
-	// Continuous supply of messages keeps callReader busy trying to send to messageCh.
 	ts.MockReader = internal.NewMockReader(internal.MockReaderConfig{
 		EmitEmptyResponses: false,
 		MaxMessages:        100,
@@ -88,14 +80,9 @@ func TestClose_DoesNotDeadlockWhenChannelHasNoConsumer(t *testing.T) {
 	ts.Reader = readers.NewResilientReader(ts.MockReader, ts.Logger, readers.DefaultResilienceConfig())
 	ts.Discovery.aggregatorReader = ts.Reader
 
-	// Start discovery but deliberately do NOT drain messageCh — this recreates
-	// the scenario where the worker-pool consumer has already exited.
-	_ = ts.Discovery.Start(ts.Context)
+	ts.Discovery.Start(ts.Context)
 
-	// Let the run goroutine reach the point where it blocks on messageCh.
 	time.Sleep(60 * time.Millisecond)
-
-	// Simulate system shutdown: cancel the context.
 	ts.Cancel()
 
 	closeDone := make(chan struct{})
@@ -106,33 +93,25 @@ func TestClose_DoesNotDeadlockWhenChannelHasNoConsumer(t *testing.T) {
 
 	select {
 	case <-closeDone:
-		// Pass: Close() returned cleanly.
 	case <-time.After(2 * time.Second):
-		t.Fatal("Close() deadlocked — run() is stuck writing to messageCh with no consumer")
+		t.Fatal("Close() did not return after context cancellation")
 	}
 }
 
-// TestCallReader_ContextAwareSendReturnsOnCancellation is the unit-level regression
-// test for the context-aware messageCh write.  It cancels the context precisely when
-// PersistDiscoveryBatch returns so that callReader is in the send phase — with a
-// canceled context and no consumer on messageCh — when it attempts the write.
-//
-// Without the fix the plain `a.messageCh <- msg` blocks forever.
-// With the fix the context-aware select exits immediately.
-func TestCallReader_ContextAwareSendReturnsOnCancellation(t *testing.T) {
+// TestCallReader_ReturnsWhenContextCanceledDuringPersist cancels the context inside
+// PersistDiscoveryBatch and checks that callReader returns and the batch carried the job.
+func TestCallReader_ReturnsWhenContextCanceledDuringPersist(t *testing.T) {
 	ctx, cancelCtx := context.WithCancel(context.Background())
 
 	lggr := logger.Test(t)
 	reg := registry.NewVerifierRegistry()
 
-	persistCalled := make(chan struct{}, 1)
+	batchCh := make(chan common.DiscoveryBatch, 1)
 	store := mocks.NewMockIndexerStorage(t)
 	store.EXPECT().PersistDiscoveryBatch(mock.Anything, mock.Anything).
-		Run(func(_ context.Context, _ common.DiscoveryBatch) {
-			// Cancel the context inside persist so that by the time callReader
-			// reaches the send loop the context is already done.
+		Run(func(_ context.Context, batch common.DiscoveryBatch) {
 			cancelCtx()
-			persistCalled <- struct{}{}
+			batchCh <- batch
 		}).Return(nil).Once()
 
 	mockRdr := internal.NewMockReader(internal.MockReaderConfig{
@@ -156,8 +135,6 @@ func TestCallReader_ContextAwareSendReturnsOnCancellation(t *testing.T) {
 
 	aggDisc := disc.(*AggregatorMessageDiscovery)
 	aggDisc.discoveryPriority = 0
-	// Unbuffered channel with no reader — the exact deadlock condition.
-	aggDisc.messageCh = make(chan common.VerifierResultWithMetadata)
 
 	callReaderDone := make(chan struct{})
 	go func() {
@@ -165,19 +142,17 @@ func TestCallReader_ContextAwareSendReturnsOnCancellation(t *testing.T) {
 		close(callReaderDone)
 	}()
 
-	// Wait until persist was called (and thus the context was canceled).
 	select {
-	case <-persistCalled:
+	case batch := <-batchCh:
+		require.Len(t, batch.Messages, 1)
 	case <-time.After(1 * time.Second):
 		t.Fatal("PersistDiscoveryBatch was never called")
 	}
 
-	// callReader must exit — without the fix it blocks on messageCh indefinitely.
 	select {
 	case <-callReaderDone:
-		// Pass: callReader returned without blocking.
 	case <-time.After(500 * time.Millisecond):
-		t.Fatal("callReader blocked writing to messageCh after context was canceled")
+		t.Fatal("callReader did not return after the context was canceled")
 	}
 }
 
@@ -267,8 +242,6 @@ func TestCallReader_PrimaryNotifiesAfterSuccessfulWrite(t *testing.T) {
 	notifier := NewPrimaryWriteNotifier()
 
 	aggDisc := buildIsolatedDiscovery(t, 0, notifier, 1)
-	// Buffered so the send in callReader doesn't block.
-	aggDisc.messageCh = make(chan common.VerifierResultWithMetadata, 10)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -323,7 +296,6 @@ func TestCallReader_PrimaryNotifiesAfterReadError(t *testing.T) {
 	)
 	require.NoError(t, err)
 	aggDisc := disc.(*AggregatorMessageDiscovery)
-	aggDisc.messageCh = make(chan common.VerifierResultWithMetadata, 10)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -382,7 +354,6 @@ func TestCallReader_PrimaryNotifiesAfterCircuitBreakerOpen(t *testing.T) {
 	)
 	require.NoError(t, err)
 	aggDisc := disc.(*AggregatorMessageDiscovery)
-	aggDisc.messageCh = make(chan common.VerifierResultWithMetadata, 10)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -424,7 +395,6 @@ func TestCallReader_SecondaryUnblocksEarlyWhenPrimarySignals(t *testing.T) {
 	notifier := NewPrimaryWriteNotifier()
 
 	aggDisc := buildIsolatedDiscovery(t, 1 /* priority */, notifier, 1 /* numMessages */)
-	aggDisc.messageCh = make(chan common.VerifierResultWithMetadata, 10)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -455,7 +425,6 @@ func TestCallReader_HigherPrioritySourceStaggersAfterPrimarySignals(t *testing.T
 	notifier := NewPrimaryWriteNotifier()
 
 	aggDisc := buildIsolatedDiscovery(t, 2 /* priority */, notifier, 1 /* numMessages */)
-	aggDisc.messageCh = make(chan common.VerifierResultWithMetadata, 10)
 
 	// Use a short stagger so the test completes quickly without sacrificing correctness.
 	const stagger = 100 * time.Millisecond
@@ -537,7 +506,6 @@ func TestPrimaryWriteNotifier_ConcurrentWaitChAndNotify(t *testing.T) {
 // exits the delay via context cancellation and does not block indefinitely.
 func TestCallReader_SecondaryExitsViaContextWithoutNotifier(t *testing.T) {
 	aggDisc := buildIsolatedDiscovery(t, 1 /* priority */, nil /* no notifier */, 1)
-	aggDisc.messageCh = make(chan common.VerifierResultWithMetadata, 10)
 
 	// Context times out at 100 ms — well before the 5 s priority delay.
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)

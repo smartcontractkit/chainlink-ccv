@@ -10,16 +10,19 @@ import (
 )
 
 const (
-	opGetCCVData            = "GetCCVData"
-	opQueryCCVData          = "QueryCCVData"
-	opInsertVerifierResults = "InsertVerifierResults"
-	opGetMessage            = "GetMessage"
-	opQueryMessages         = "QueryMessages"
-	opGetProcessingMessages = "GetProcessingMessages"
-	opUpdateMessageStatus   = "UpdateMessageStatus"
-	opCreateDiscoveryState  = "CreateDiscoveryState"
-	opGetDiscoverySequence  = "GetDiscoverySequenceNumber"
-	opPersistDiscoveryBatch = "PersistDiscoveryBatch"
+	opGetCCVData              = "GetCCVData"
+	opQueryCCVData            = "QueryCCVData"
+	opInsertVerifierResults   = "InsertVerifierResults"
+	opGetMessage              = "GetMessage"
+	opQueryMessages           = "QueryMessages"
+	opUpdateMessageStatus     = "UpdateMessageStatus"
+	opClaimWork               = "ClaimWork"
+	opSettleWork              = "SettleWork"
+	opExpireWork              = "ExpireWork"
+	opCountProcessingMessages = "CountProcessingMessages"
+	opCreateDiscoveryState    = "CreateDiscoveryState"
+	opGetDiscoverySequence    = "GetDiscoverySequenceNumber"
+	opPersistDiscoveryBatch   = "PersistDiscoveryBatch"
 
 	defaultSlowQueryThreshold = 500 * time.Millisecond
 )
@@ -99,12 +102,6 @@ func (s *MetricsAwareStorage) QueryMessages(ctx context.Context, start, end int6
 	})
 }
 
-func (s *MetricsAwareStorage) GetProcessingMessages(ctx context.Context, createdAfter time.Time, limit, offset uint64) ([]common.MessageWithMetadata, error) {
-	return captureMetrics(ctx, s.m.Metrics(), s.l, s.slowQueryThreshold, opGetProcessingMessages, func() ([]common.MessageWithMetadata, error) {
-		return s.inner.GetProcessingMessages(ctx, createdAfter, limit, offset)
-	})
-}
-
 func (s *MetricsAwareStorage) UpdateMessageStatus(ctx context.Context, messageID protocol.Bytes32, status common.MessageStatus, lastErr string) error {
 	return captureMetricsNoReturn(ctx, s.m.Metrics(), s.l, s.slowQueryThreshold, opUpdateMessageStatus, func() error {
 		return s.inner.UpdateMessageStatus(ctx, messageID, status, lastErr)
@@ -152,4 +149,28 @@ func captureMetricsNoReturn(ctx context.Context, metrics common.IndexerMetricLab
 		return struct{}{}, fn()
 	})
 	return err
+}
+
+func (s *MetricsAwareStorage) ClaimWork(ctx context.Context, limit int, lease time.Duration) ([]common.WorkClaim, error) {
+	return captureMetrics(ctx, s.m.Metrics(), s.l, s.slowQueryThreshold, opClaimWork, func() ([]common.WorkClaim, error) {
+		return s.inner.ClaimWork(ctx, limit, lease)
+	})
+}
+
+func (s *MetricsAwareStorage) SettleWork(ctx context.Context, settlement common.WorkSettlement) (common.MessageStatus, error) {
+	return captureMetrics(ctx, s.m.Metrics(), s.l, s.slowQueryThreshold, opSettleWork, func() (common.MessageStatus, error) {
+		return s.inner.SettleWork(ctx, settlement)
+	})
+}
+
+func (s *MetricsAwareStorage) ExpireWork(ctx context.Context, limit int) (int64, error) {
+	return captureMetrics(ctx, s.m.Metrics(), s.l, s.slowQueryThreshold, opExpireWork, func() (int64, error) {
+		return s.inner.ExpireWork(ctx, limit)
+	})
+}
+
+func (s *MetricsAwareStorage) CountProcessingMessages(ctx context.Context) (int64, error) {
+	return captureMetrics(ctx, s.m.Metrics(), s.l, s.slowQueryThreshold, opCountProcessingMessages, func() (int64, error) {
+		return s.inner.CountProcessingMessages(ctx)
+	})
 }

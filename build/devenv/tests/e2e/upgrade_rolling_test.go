@@ -112,7 +112,7 @@ func newUpgradeEnv(t *testing.T, onTo bool) *upgradeEnv {
 		lib:     lib,
 		src:     chains[0].ChainSelector(),
 		dest:    chains[1].ChainSelector(),
-		proxies: aggregatorProxies(in),
+		proxies: serviceProxies(in),
 	}
 	evmLib, err := ccv.NewLibFromCCVEnv(&ccv.Plog, GetSmokeTestConfig(), chain_selectors.FamilyEVM)
 	require.NoError(t, err)
@@ -256,8 +256,8 @@ func requireStaysRunning(t *testing.T, ctx context.Context, name string, d time.
 	}
 }
 
-// aggregatorProxies maps each aggregator replica container to its nginx TLS proxy container.
-func aggregatorProxies(in *ccv.Cfg) map[string]string {
+// serviceProxies maps each aggregator and indexer replica container to its nginx proxy container.
+func serviceProxies(in *ccv.Cfg) map[string]string {
 	proxies := make(map[string]string)
 	for _, agg := range in.Aggregator {
 		if agg == nil || agg.Out == nil || agg.Out.NginxContainerName == "" {
@@ -268,11 +268,19 @@ func aggregatorProxies(in *ccv.Cfg) map[string]string {
 			proxies[replica] = agg.Out.NginxContainerName
 		}
 	}
+	for _, idx := range in.Indexer {
+		if idx == nil || idx.Out == nil || idx.Out.ProxyContainerName == "" {
+			continue
+		}
+		for _, replica := range idx.Out.ReplicaContainerNames {
+			proxies[replica] = idx.Out.ProxyContainerName
+		}
+	}
 	return proxies
 }
 
-// reloadProxy makes nginx resolve the upgraded aggregator again, which can have a new IP. The proxy
-// re-resolves every 5s; the reload removes that window.
+// reloadProxy makes nginx resolve the upgraded host again, which can have a new IP. Both proxies
+// re-resolve every 5s; the reload removes that window.
 func reloadProxy(t *testing.T, ctx context.Context, proxy string) {
 	t.Helper()
 	code, out, err := services.Exec(ctx, proxy, "nginx", "-s", "reload")

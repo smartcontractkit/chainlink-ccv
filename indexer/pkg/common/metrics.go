@@ -38,7 +38,10 @@ type IndexerMetricLabeler interface {
 	// RecordScannerPollingErrorsCounter records the scanner polling errors counter.
 	RecordScannerPollingErrorsCounter(ctx context.Context)
 	// RecordVerificationRecordChannelSizeGauge records the verification record channel size gauge.
+	// Deprecated: the channel is replaced by the database claim; use RecordWorkerQueueSizeGauge.
 	RecordVerificationRecordChannelSizeGauge(ctx context.Context, size int64)
+	// RecordWorkerQueueSizeGauge records the number of PROCESSING messages.
+	RecordWorkerQueueSizeGauge(ctx context.Context, size int64)
 	// RecordDiscoveryLeaderGauge records if this replica is the discovery leader.
 	RecordDiscoveryLeaderGauge(ctx context.Context, isLeader bool)
 	// IncrementDiscoveryLeaderChanges increments the counter for times this replica became discovery leader.
@@ -51,6 +54,10 @@ type IndexerMetricLabeler interface {
 	RecordIndexerMessageDiscoveryLatency(ctx context.Context, latency time.Duration)
 	// RecordTimeToIndex records the total time between aggregation and indexing.
 	RecordTimeToIndex(ctx context.Context, latency time.Duration, discoveryType string)
+	// RecordVerifierUnavailableGauge records 1 when a configured verifier has no started reader, else 0.
+	RecordVerifierUnavailableGauge(ctx context.Context, verifier string, unavailable bool)
+	// IncrementUnavailableVerifierRetries counts a message attempt that retries because the verifier has no started reader.
+	IncrementUnavailableVerifierRetries(ctx context.Context, verifier string)
 	// RecordCircuitBreakerStatus records the status of the circuit breaker.
 	RecordCircuitBreakerStatus(ctx context.Context, status bool)
 	// RecordGRPCPayloadSize records the gRPC wire-level payload size in bytes.

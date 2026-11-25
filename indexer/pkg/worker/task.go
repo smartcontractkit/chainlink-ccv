@@ -21,18 +21,14 @@ import (
 )
 
 type Task struct {
-	logger      logger.Logger
-	messageID   protocol.Bytes32
-	message     protocol.VerifierResult
-	registry    *registry.VerifierRegistry
-	storage     common.IndexerStorage
-	tracing     commontracing.Tracing
-	traceParent string // discovery w3c traceparent
-	attempt     int    // 1-indexed
-	runAt       time.Time
-	index       int // heap index
-	lastErr     error
-	ttl         time.Time
+	logger    logger.Logger
+	messageID protocol.Bytes32
+	message   protocol.VerifierResult
+	registry  *registry.VerifierRegistry
+	storage   common.IndexerStorage
+	tracing   commontracing.Tracing
+	metrics   common.IndexerMetricLabeler // optional
+	attempt   int                         // 1-indexed
 }
 
 type TaskResult struct {
@@ -41,7 +37,7 @@ type TaskResult struct {
 	UnavailableCCVs         int
 }
 
-func NewTask(lggr logger.Logger, message protocol.VerifierResult, registry *registry.VerifierRegistry, storage common.IndexerStorage, ttl time.Time) (*Task, error) {
+func NewTask(lggr logger.Logger, message protocol.VerifierResult, registry *registry.VerifierRegistry, storage common.IndexerStorage) (*Task, error) {
 	if lggr == nil {
 		return nil, fmt.Errorf("logger is required")
 	}
@@ -58,9 +54,6 @@ func NewTask(lggr logger.Logger, message protocol.VerifierResult, registry *regi
 		registry:  registry,
 		storage:   storage,
 		tracing:   commontracing.NewTracing(beholder.GetTracer()),
-		attempt:   0,
-		lastErr:   nil,
-		ttl:       ttl,
 	}, nil
 }
 
@@ -151,7 +144,7 @@ func (t *Task) collectVerifierResults(ctx context.Context, targets []verifierTar
 	return results
 }
 
-func (t *Task) loadVerifierReaders(verifierAddresses []string) (readerList []verifierTarget, loadedReaders, missingReaders []string) {
+func (t *Task) loadVerifierReaders(verifierAddresses []string) (readerList []verifierTarget, loadedReaders, missingReaders, unavailable []string) {
 	for _, v := range verifierAddresses {
 		unknownAddress, err := protocol.NewUnknownAddressFromHex(v)
 		if err != nil {
@@ -163,7 +156,11 @@ func (t *Task) loadVerifierReaders(verifierAddresses []string) (readerList []ver
 		// multiple readers backed by different aggregators).
 		addrReaders := t.registry.GetVerifiers(unknownAddress)
 		if len(addrReaders) == 0 {
-			missingReaders = append(missingReaders, v)
+			if t.registry.IsUnavailable(unknownAddress) {
+				unavailable = append(unavailable, v)
+			} else {
+				missingReaders = append(missingReaders, v)
+			}
 			continue
 		}
 
@@ -173,7 +170,29 @@ func (t *Task) loadVerifierReaders(verifierAddresses []string) (readerList []ver
 		// normalize casing to lower-case hex strings to match getExistingVerifiers/getVerifiers
 		loadedReaders = append(loadedReaders, strings.ToLower(unknownAddress.String()))
 	}
-	return readerList, loadedReaders, missingReaders
+	return readerList, loadedReaders, missingReaders, unavailable
+}
+
+// recordUnavailableRetries counts one retry for each verifier in unavailable.
+func (t *Task) recordUnavailableRetries(ctx context.Context, unavailable []string) {
+	if t.metrics == nil {
+		return
+	}
+	for _, address := range unavailable {
+		t.metrics.IncrementUnavailableVerifierRetries(ctx, t.verifierLabel(address))
+	}
+}
+
+// verifierLabel returns the configured name of address, or address when it has no name.
+func (t *Task) verifierLabel(address string) string {
+	a, err := protocol.NewUnknownAddressFromHex(address)
+	if err != nil {
+		return address
+	}
+	if name := t.registry.GetVerifierNameFromAddress(a); name != "" {
+		return name
+	}
+	return address
 }
 
 func (t *Task) getMissingVerifiers(ctx context.Context) (missing []string, err error) {
@@ -219,10 +238,6 @@ func (t *Task) getVerifiers() []string {
 	}
 
 	return verifiers
-}
-
-func (t *Task) SetMessageStatus(ctx context.Context, messageStatus common.MessageStatus, lastErr string) error {
-	return t.storage.UpdateMessageStatus(ctx, t.messageID, messageStatus, lastErr)
 }
 
 // tracer returns t.tracing, falling back to a working default for Tasks built via

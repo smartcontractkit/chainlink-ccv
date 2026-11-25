@@ -129,7 +129,7 @@ func main() {
 	protocol.InitChainSelectorCache()
 
 	// Initialize the indexer storage
-	indexerStorage, discoveryLocker := createStorage(ctx, lggr, config, indexerMonitoring)
+	indexerStorage, dbStore := createStorage(ctx, lggr, config, indexerMonitoring)
 	verifierRegistry := createRegistry()
 	// Skipped readers/sources degrade the service on /health, which names each one.
 	// The factory fails below when none is usable.
@@ -140,13 +140,11 @@ func main() {
 	}
 
 	healthReporters := []protocol.HealthReporter{indexerStorage, startupSkips}
-	// pool is set below; the elector calls the callback only after Start.
-	var pool *worker.Pool
 	var leaderElector *discovery.LeaderElector
 	var leadership discovery.LeadershipGate
 	if config.LeaderElection.Enabled {
 		leaderElector, err = discovery.NewLeaderElector(
-			discoveryLocker,
+			dbStore,
 			discovery.LeaderElectorConfig{
 				LeaseTimeout:      time.Duration(config.LeaderElection.LeaseTimeout),
 				HeartbeatInterval: time.Duration(config.LeaderElection.HeartbeatInterval),
@@ -154,12 +152,6 @@ func main() {
 			},
 			lggr,
 			indexerMonitoring.Metrics(),
-			// Only the discovery leader resumes PROCESSING messages, so replicas do not all take the same work.
-			discovery.WithOnElected(func(ctx context.Context) {
-				if err := pool.Hydrate(ctx); err != nil {
-					lggr.Errorw("Failed to hydrate pending tasks from storage after election", "error", err)
-				}
-			}),
 		)
 		if err != nil {
 			lggr.Fatalf("Failed to initialize discovery leader elector: %v", err)
@@ -173,27 +165,23 @@ func main() {
 		lggr.Fatalf("Failed to initialize message discovery: %v", err)
 	}
 
-	scheduler, err := worker.NewScheduler(lggr, config.Scheduler)
-	if err != nil {
-		lggr.Fatalf("Failed to initalize scheduler: %v", err)
-	}
-	scheduler.Start(ctx)
-
-	discoveryCh := messageDiscovery.Start(ctx)
-	pool, err = worker.NewWorkerPool(lggr, config.Pool, discoveryCh, scheduler, verifierRegistry, indexerStorage)
+	// Every replica claims due messages from the database; only the discovery leader inserts them.
+	pool, err := worker.NewWorkerPool(lggr, config.Pool, config.Scheduler, verifierRegistry, indexerStorage)
 	if err != nil {
 		lggr.Fatalf("Failed to initalize worker pool: %v", err)
 	}
+	pool.SetMetrics(indexerMonitoring.Metrics())
+	pool.SetSizeRecorder(indexerMonitoring.Metrics().RecordWorkerQueueSizeGauge)
+	if leaderElector != nil {
+		pool.SetLeadership(leaderElector)
+	}
+	dbStore.SetOnMessagesPersisted(pool.Wake)
 	pool.Start(ctx)
+	healthReporters = append(healthReporters, pool)
+
+	messageDiscovery.Start(ctx)
 	if leaderElector != nil {
 		leaderElector.Start(ctx)
-	} else {
-		// Without leader election this replica owns all the PROCESSING messages, as before.
-		go func() {
-			if err := pool.Hydrate(ctx); err != nil {
-				lggr.Errorw("Failed to hydrate pending tasks from storage", "error", err)
-			}
-		}()
 	}
 
 	v1, healthManager := api.NewV1API(lggr, config, indexerStorage, indexerMonitoring, healthReporters)
@@ -230,8 +218,16 @@ func createAllVerifierReaders(ctx context.Context, lggr logger.Logger, verifierR
 		if err != nil {
 			lggr.Errorw("Skipping verifier, failed to create readers", "verifier", verifierConfig.Name, "error", err)
 			startupSkips.Skip(fmt.Sprintf("VerifierReader[%s]", verifierConfig.Name), err)
+			// Mark the addresses so tasks retry them; else this replica can set SUCCESS without this verifier.
+			for _, address := range verifierConfig.IssuerAddresses {
+				if a, parseErr := protocol.NewUnknownAddressFromHex(address); parseErr == nil {
+					verifierRegistry.MarkUnavailable(a, verifierConfig.Name)
+				}
+			}
+			indexerMonitoring.Metrics().RecordVerifierUnavailableGauge(ctx, verifierConfig.Name, true)
 			continue
 		}
+		indexerMonitoring.Metrics().RecordVerifierUnavailableGauge(ctx, verifierConfig.Name, false)
 		created++
 	}
 	if len(config.Verifiers) > 0 && created == 0 {
@@ -383,11 +379,7 @@ func createDiscovery(ctx context.Context, lggr logger.Logger, cfg *config.Config
 	if len(sources) == 1 {
 		return sources[0], nil
 	}
-	opts := []discovery.MultiSourceOption{}
-	if cfg.MergeBufferSize > 0 {
-		opts = append(opts, discovery.WithMergeBufferSize(cfg.MergeBufferSize))
-	}
-	multiDiscovery, err := discovery.NewMultiSourceMessageDiscovery(lggr, sources, opts...)
+	multiDiscovery, err := discovery.NewMultiSourceMessageDiscovery(lggr, sources)
 	if err != nil {
 		cleanupOnError()
 		return nil, err
@@ -396,12 +388,13 @@ func createDiscovery(ctx context.Context, lggr logger.Logger, cfg *config.Config
 }
 
 // createStorage creates the storage backend connection based on the configuration.
-func createStorage(ctx context.Context, lggr logger.Logger, cfg *config.Config, indexerMonitoring common.IndexerMonitoring) (common.IndexerStorage, common.DiscoveryLocker) {
-	return createPostgresStorage(ctx, lggr, cfg.Storage.Single.Postgres, indexerMonitoring)
+func createStorage(ctx context.Context, lggr logger.Logger, cfg *config.Config, indexerMonitoring common.IndexerMonitoring) (common.IndexerStorage, *storage.PostgresStorage) {
+	return createPostgresStorage(ctx, lggr, cfg, indexerMonitoring)
 }
 
-// createPostgresStorage creates a PostgreSQL storage backend and the discovery lock on the same database.
-func createPostgresStorage(ctx context.Context, lggr logger.Logger, cfg *config.PostgresConfig, indexerMonitoring common.IndexerMonitoring) (common.IndexerStorage, common.DiscoveryLocker) {
+// createPostgresStorage creates a PostgreSQL storage backend. The raw store is also the discovery lock.
+func createPostgresStorage(ctx context.Context, lggr logger.Logger, indexerCfg *config.Config, indexerMonitoring common.IndexerMonitoring) (common.IndexerStorage, *storage.PostgresStorage) {
+	cfg := indexerCfg.Storage.Single.Postgres
 	// Run migrations first
 	migrationsDB, err := sqlx.Open("postgres", cfg.URI)
 	if err != nil {
@@ -430,6 +423,7 @@ func createPostgresStorage(ctx context.Context, lggr logger.Logger, cfg *config.
 	if err != nil {
 		lggr.Fatalf("Failed to create postgres storage: %v", err)
 	}
+	dbStore.SetRetryWindow(time.Duration(indexerCfg.Scheduler.VerificationVisibilityWindow) * time.Second)
 
 	return storage.WrapWithMetrics(dbStore, indexerMonitoring, lggr), dbStore
 }

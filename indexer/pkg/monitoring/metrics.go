@@ -28,7 +28,8 @@ type IndexerMetrics struct {
 
 	// Scanner Metrics
 	scannerPollingErrorsCounter        metric.Int64Counter
-	verificationRecordChannelSizeGauge metric.Int64Gauge
+	verificationRecordChannelSizeGauge metric.Int64Gauge // Deprecated: no longer recorded; kept for dashboards.
+	workerQueueSizeGauge               metric.Int64Gauge
 	discoveryLeaderGauge               metric.Int64Gauge
 	discoveryLeaderChanges             metric.Int64Counter
 	discoveryLeaderErrors              metric.Int64Counter
@@ -36,6 +37,8 @@ type IndexerMetrics struct {
 	discoveryLatencySeconds            metric.Float64Histogram
 	timeToIndexSeconds                 metric.Float64Histogram
 	circuitBreakerStatus               metric.Int64Gauge
+	verifierUnavailableGauge           metric.Int64Gauge
+	unavailableVerifierRetries         metric.Int64Counter
 
 	// gRPC client transport metrics
 	grpcPayloadSizeBytes metric.Int64Histogram
@@ -111,6 +114,13 @@ func InitMetrics() (im *IndexerMetrics, err error) {
 		return nil, fmt.Errorf("failed to register verification record channel size gauge: %w", err)
 	}
 
+	im.workerQueueSizeGauge, err = beholder.GetMeter().Int64Gauge("indexer_worker_queue_size",
+		metric.WithDescription("Number of PROCESSING messages that wait for verifications"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register worker queue size gauge: %w", err)
+	}
+
 	im.discoveryLeaderGauge, err = beholder.GetMeter().Int64Gauge("indexer_discovery_leader",
 		metric.WithDescription("1 when this replica is the discovery leader, else 0"),
 	)
@@ -150,6 +160,20 @@ func InitMetrics() (im *IndexerMetrics, err error) {
 	im.circuitBreakerStatus, err = beholder.GetMeter().Int64Gauge("indexer_circuit_breaker_status_bool", metric.WithDescription("Circuit breaker status"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to register circuit breaker status gauge: %w", err)
+	}
+
+	im.verifierUnavailableGauge, err = beholder.GetMeter().Int64Gauge("indexer_verifier_unavailable",
+		metric.WithDescription("1 when a configured verifier has no started reader on this replica, else 0"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register verifier unavailable gauge: %w", err)
+	}
+
+	im.unavailableVerifierRetries, err = beholder.GetMeter().Int64Counter("indexer_unavailable_verifier_retries_total",
+		metric.WithDescription("Total number of message attempts that retry because a configured verifier has no started reader"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register unavailable verifier retries counter: %w", err)
 	}
 
 	im.grpcPayloadSizeBytes, err = beholder.GetMeter().Int64Histogram(
@@ -299,6 +323,11 @@ func (c *IndexerMetricLabeler) RecordVerificationRecordChannelSizeGauge(ctx cont
 	c.im.verificationRecordChannelSizeGauge.Record(ctx, size, metric.WithAttributes(otelLabels...))
 }
 
+func (c *IndexerMetricLabeler) RecordWorkerQueueSizeGauge(ctx context.Context, size int64) {
+	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
+	c.im.workerQueueSizeGauge.Record(ctx, size, metric.WithAttributes(otelLabels...))
+}
+
 func (c *IndexerMetricLabeler) RecordDiscoveryLeaderGauge(ctx context.Context, isLeader bool) {
 	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
 	var v int64
@@ -334,6 +363,22 @@ func (c *IndexerMetricLabeler) RecordTimeToIndex(ctx context.Context, latency ti
 	c.im.timeToIndexSeconds.Record(ctx, latency.Seconds(), metric.WithAttributes([]attribute.KeyValue{
 		attribute.String("query", discoveryType),
 	}...), metric.WithAttributes(otelLabels...))
+}
+
+func (c *IndexerMetricLabeler) RecordVerifierUnavailableGauge(ctx context.Context, verifier string, unavailable bool) {
+	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
+	otelLabels = append(otelLabels, attribute.String("verifier", verifier))
+	var gaugeValue int64
+	if unavailable {
+		gaugeValue = 1
+	}
+	c.im.verifierUnavailableGauge.Record(ctx, gaugeValue, metric.WithAttributes(otelLabels...))
+}
+
+func (c *IndexerMetricLabeler) IncrementUnavailableVerifierRetries(ctx context.Context, verifier string) {
+	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
+	otelLabels = append(otelLabels, attribute.String("verifier", verifier))
+	c.im.unavailableVerifierRetries.Add(ctx, 1, metric.WithAttributes(otelLabels...))
 }
 
 func (c *IndexerMetricLabeler) RecordCircuitBreakerStatus(ctx context.Context, status bool) {

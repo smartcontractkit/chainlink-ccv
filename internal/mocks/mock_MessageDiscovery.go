@@ -5,7 +5,6 @@ package mocks
 import (
 	context "context"
 
-	common "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	mock "github.com/stretchr/testify/mock"
 )
 
@@ -68,23 +67,8 @@ func (_c *MockMessageDiscovery_Close_Call) RunAndReturn(run func() error) *MockM
 }
 
 // Start provides a mock function with given fields: ctx
-func (_m *MockMessageDiscovery) Start(ctx context.Context) chan common.VerifierResultWithMetadata {
-	ret := _m.Called(ctx)
-
-	if len(ret) == 0 {
-		panic("no return value specified for Start")
-	}
-
-	var r0 chan common.VerifierResultWithMetadata
-	if rf, ok := ret.Get(0).(func(context.Context) chan common.VerifierResultWithMetadata); ok {
-		r0 = rf(ctx)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(chan common.VerifierResultWithMetadata)
-		}
-	}
-
-	return r0
+func (_m *MockMessageDiscovery) Start(ctx context.Context) {
+	_m.Called(ctx)
 }
 
 // MockMessageDiscovery_Start_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Start'
@@ -105,13 +89,13 @@ func (_c *MockMessageDiscovery_Start_Call) Run(run func(ctx context.Context)) *M
 	return _c
 }
 
-func (_c *MockMessageDiscovery_Start_Call) Return(_a0 chan common.VerifierResultWithMetadata) *MockMessageDiscovery_Start_Call {
-	_c.Call.Return(_a0)
+func (_c *MockMessageDiscovery_Start_Call) Return() *MockMessageDiscovery_Start_Call {
+	_c.Call.Return()
 	return _c
 }
 
-func (_c *MockMessageDiscovery_Start_Call) RunAndReturn(run func(context.Context) chan common.VerifierResultWithMetadata) *MockMessageDiscovery_Start_Call {
-	_c.Call.Return(run)
+func (_c *MockMessageDiscovery_Start_Call) RunAndReturn(run func(context.Context)) *MockMessageDiscovery_Start_Call {
+	_c.Run(run)
 	return _c
 }
 

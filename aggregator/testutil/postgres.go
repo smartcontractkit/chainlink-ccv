@@ -14,7 +14,8 @@ import (
 	_ "github.com/lib/pq" // PostgreSQL driver registration
 )
 
-func SetupTestPostgresDB(tb testing.TB) (*sqlx.DB, func()) {
+// SetupTestPostgresURI starts a Postgres container and returns its connection string.
+func SetupTestPostgresURI(tb testing.TB) (string, func()) {
 	tb.Helper()
 	if testing.Short() {
 		tb.Skip("skipping docker test in short mode")
@@ -34,14 +35,27 @@ func SetupTestPostgresDB(tb testing.TB) (*sqlx.DB, func()) {
 	if err != nil {
 		tb.Fatalf("failed to start postgres container: %v", err)
 	}
+	cleanup := func() {
+		if termErr := postgresContainer.Terminate(context.Background()); termErr != nil {
+			tb.Logf("failed to terminate postgres container: %v", termErr)
+		}
+	}
 
 	connStr, err := postgresContainer.ConnectionString(ctx, "sslmode=disable")
 	if err != nil {
+		cleanup()
 		tb.Fatalf("failed to get connection string: %v", err)
 	}
+	return connStr, cleanup
+}
+
+func SetupTestPostgresDB(tb testing.TB) (*sqlx.DB, func()) {
+	tb.Helper()
+	connStr, terminate := SetupTestPostgresURI(tb)
 
 	db, err := sql.Open("postgres", connStr)
 	if err != nil {
+		terminate()
 		tb.Fatalf("failed to open database: %v", err)
 	}
 
@@ -49,9 +63,7 @@ func SetupTestPostgresDB(tb testing.TB) (*sqlx.DB, func()) {
 
 	cleanup := func() {
 		_ = ds.Close()
-		if termErr := postgresContainer.Terminate(context.Background()); termErr != nil {
-			tb.Logf("failed to terminate postgres container: %v", termErr)
-		}
+		terminate()
 	}
 	return ds, cleanup
 }

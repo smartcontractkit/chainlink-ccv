@@ -228,6 +228,7 @@ func indexerConfigInstance() any {
 		Pool: indexer.PoolConfig{
 			ConcurrentWorkers:  100,
 			WorkerTimeout:      30,
+			PollInterval:       1000,
 			HydrationBatchSize: 100,
 		},
 		Verifiers: []indexer.VerifierConfig{

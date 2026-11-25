@@ -11,6 +11,7 @@ import (
 	"github.com/BurntSushi/toml"
 
 	"github.com/smartcontractkit/chainlink-ccv/common"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	hmacutil "github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 )
 
@@ -39,8 +40,8 @@ type Config struct {
 	PyroscopeURL string `toml:"pyroscope_url"`
 	// Discoveries is the list of discovery configs (aggregators) for message discovery.
 	Discoveries []DiscoveryConfig `toml:"Discoveries"`
-	// MergeBufferSize is the capacity of the channel that merges messages from multiple discovery sources.
-	// Only used when len(Discoveries) > 1. If 0, defaults to len(Discoveries)*2.
+	// MergeBufferSize is the capacity of the channel that merged messages from multiple discovery sources.
+	// Deprecated: discovery no longer buffers messages in memory; this field has no effect.
 	MergeBufferSize int `toml:"MergeBufferSize"`
 	// Scheduler is the configuration for the scheduling component inside the indexer.
 	Scheduler SchedulerConfig `toml:"Scheduler"`
@@ -147,8 +148,11 @@ func DefaultResilienceConfig() ResilienceConfig {
 	}
 }
 
+// SchedulerConfig sets the retry policy of the workers: the backoff between attempts and the deadline of a message.
+// The name is kept for config compatibility; the in-memory scheduler is replaced by the claim on indexer.messages.
 type SchedulerConfig struct {
-	// TickerInterval defines the number of milliseconds to wait before running the next scheduling loop.
+	// TickerInterval defined the number of milliseconds between scheduling loops.
+	// Deprecated: the database claim replaces the in-memory scheduler; this field has no effect.
 	TickerInterval int `toml:"TickerInterval"`
 	// VerificationVisibilityWindow defines the number of seconds before we will no longer attempt to retrieve verifications.
 	VerificationVisibilityWindow int `toml:"VerificationVisibilityWindow"`
@@ -156,9 +160,8 @@ type SchedulerConfig struct {
 	BaseDelay int `toml:"BaseDelay"`
 	// MaxDelay defines the maximum number of milliseconds to wait before retrying the message.
 	MaxDelay int `toml:"MaxDelay"`
-	// MaxHeapSize is the maximum number of delayed tasks the scheduler heap may hold at once.
-	// Schedule blocks until a slot is free; TrySchedule returns ErrSchedulerFull immediately.
-	// 0 means unbounded.
+	// MaxHeapSize was the maximum number of delayed tasks in the scheduler heap.
+	// Deprecated: the database claim replaces the in-memory scheduler; this field has no effect.
 	MaxHeapSize int `toml:"MaxHeapSize"`
 }
 
@@ -168,7 +171,10 @@ type PoolConfig struct {
 	// WorkerTimeout is the number of seconds a worker can attempt to retrieve verifications for
 	// Note: This value should always be higher then the maximum timeout on the slowest configured verifier.
 	WorkerTimeout int `toml:"WorkerTimeout"`
-	// HydrationBatchSize controls how many PROCESSING messages are loaded from storage per page during startup hydration.
+	// PollInterval is the number of milliseconds between two claims of due messages by one replica (default 1000).
+	PollInterval int `toml:"PollInterval"`
+	// HydrationBatchSize was the page size of the startup hydration.
+	// Deprecated: every replica claims PROCESSING messages from the database; this field has no effect.
 	HydrationBatchSize uint64 `toml:"HydrationBatchSize"`
 }
 
@@ -429,12 +435,16 @@ func (c *Config) validate(withoutSecrets bool) error {
 		}
 	}
 
+	// Deprecated field; the check stays until the field is removed.
 	if c.MergeBufferSize < 0 {
 		return fmt.Errorf("merge buffer size must be non-negative, got %d", c.MergeBufferSize)
 	}
 
 	for i, v := range c.Verifiers {
 		if err := v.Validate(i); err != nil {
+			return fmt.Errorf("verifier[%d] validation failed: %w", i, err)
+		}
+		if err := validateIssuerAddresses(v.IssuerAddresses); err != nil {
 			return fmt.Errorf("verifier[%d] validation failed: %w", i, err)
 		}
 	}
@@ -471,10 +481,6 @@ func (s *SchedulerConfig) Validate() error {
 
 	if s.MaxDelay <= s.BaseDelay {
 		return fmt.Errorf("max delay must be greater than base delay")
-	}
-
-	if s.TickerInterval <= 20 {
-		return fmt.Errorf("ticker interval must be greater than 20 milliseconds")
 	}
 
 	if s.VerificationVisibilityWindow <= (s.MaxDelay / 1000) {
@@ -572,6 +578,22 @@ func (v *VerifierConfig) Validate(index int) error {
 		return errors.New("invalid verifier type")
 	}
 	return validateMaxResponseBytes(v.MaxResponseBytes, fmt.Sprintf("verifier %d", index))
+}
+
+// validateIssuerAddresses rejects an invalid or repeated address; HA may repeat it across verifiers.
+func validateIssuerAddresses(addresses []string) error {
+	seen := make(map[string]struct{}, len(addresses))
+	for _, address := range addresses {
+		a, err := protocol.NewUnknownAddressFromHex(address)
+		if err != nil {
+			return fmt.Errorf("invalid issuer address %q: %w", address, err)
+		}
+		if _, dup := seen[a.String()]; dup {
+			return fmt.Errorf("duplicate issuer address %q", address)
+		}
+		seen[a.String()] = struct{}{}
+	}
+	return nil
 }
 
 // Validate performs validation on the aggregator reader configuration.
