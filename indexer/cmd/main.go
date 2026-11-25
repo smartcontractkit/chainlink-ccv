@@ -184,6 +184,7 @@ func main() {
 	if err != nil {
 		lggr.Fatalf("Failed to initalize worker pool: %v", err)
 	}
+	pool.SetMetrics(indexerMonitoring.Metrics())
 	pool.Start(ctx)
 	if leaderElector != nil {
 		leaderElector.Start(ctx)
@@ -230,8 +231,16 @@ func createAllVerifierReaders(ctx context.Context, lggr logger.Logger, verifierR
 		if err != nil {
 			lggr.Errorw("Skipping verifier, failed to create readers", "verifier", verifierConfig.Name, "error", err)
 			startupSkips.Skip(fmt.Sprintf("VerifierReader[%s]", verifierConfig.Name), err)
+			// Mark the addresses so tasks retry them; else this replica can set SUCCESS without this verifier.
+			for _, address := range verifierConfig.IssuerAddresses {
+				if a, parseErr := protocol.NewUnknownAddressFromHex(address); parseErr == nil {
+					verifierRegistry.MarkUnavailable(a, verifierConfig.Name)
+				}
+			}
+			indexerMonitoring.Metrics().RecordVerifierUnavailableGauge(ctx, verifierConfig.Name, true)
 			continue
 		}
+		indexerMonitoring.Metrics().RecordVerifierUnavailableGauge(ctx, verifierConfig.Name, false)
 		created++
 	}
 	if len(config.Verifiers) > 0 && created == 0 {

@@ -498,3 +498,29 @@ func TestConfig_Validate_LeaderElectionNeedsTwoConnections(t *testing.T) {
 	require.NoError(t, newCfg(true, 2).Validate())
 	require.NoError(t, newCfg(false, 1).Validate())
 }
+
+func TestValidateIssuerAddresses(t *testing.T) {
+	const a = "0x1234567890abcdef1234567890abcdef12345678"
+	tests := []struct {
+		name      string
+		addresses []string
+		errSub    string
+	}{
+		{"accepts empty", nil, ""},
+		{"accepts valid addresses", []string{a, "0xabcdef1234567890abcdef1234567890abcdef12"}, ""},
+		{"rejects invalid hex", []string{"0xzz"}, "invalid issuer address"},
+		{"rejects duplicate", []string{a, a}, "duplicate issuer address"},
+		{"rejects duplicate with other casing", []string{a, "0x1234567890ABCDEF1234567890ABCDEF12345678"}, "duplicate issuer address"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateIssuerAddresses(tt.addresses)
+			if tt.errSub == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.errSub)
+		})
+	}
+}

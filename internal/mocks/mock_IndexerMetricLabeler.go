@@ -258,6 +258,40 @@ func (_c *MockIndexerMetricLabeler_IncrementStorageError_Call) RunAndReturn(run 
 	return _c
 }
 
+// IncrementUnavailableVerifierRetries provides a mock function with given fields: ctx, verifier
+func (_m *MockIndexerMetricLabeler) IncrementUnavailableVerifierRetries(ctx context.Context, verifier string) {
+	_m.Called(ctx, verifier)
+}
+
+// MockIndexerMetricLabeler_IncrementUnavailableVerifierRetries_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IncrementUnavailableVerifierRetries'
+type MockIndexerMetricLabeler_IncrementUnavailableVerifierRetries_Call struct {
+	*mock.Call
+}
+
+// IncrementUnavailableVerifierRetries is a helper method to define mock.On call
+//   - ctx context.Context
+//   - verifier string
+func (_e *MockIndexerMetricLabeler_Expecter) IncrementUnavailableVerifierRetries(ctx interface{}, verifier interface{}) *MockIndexerMetricLabeler_IncrementUnavailableVerifierRetries_Call {
+	return &MockIndexerMetricLabeler_IncrementUnavailableVerifierRetries_Call{Call: _e.mock.On("IncrementUnavailableVerifierRetries", ctx, verifier)}
+}
+
+func (_c *MockIndexerMetricLabeler_IncrementUnavailableVerifierRetries_Call) Run(run func(ctx context.Context, verifier string)) *MockIndexerMetricLabeler_IncrementUnavailableVerifierRetries_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockIndexerMetricLabeler_IncrementUnavailableVerifierRetries_Call) Return() *MockIndexerMetricLabeler_IncrementUnavailableVerifierRetries_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockIndexerMetricLabeler_IncrementUnavailableVerifierRetries_Call) RunAndReturn(run func(context.Context, string)) *MockIndexerMetricLabeler_IncrementUnavailableVerifierRetries_Call {
+	_c.Run(run)
+	return _c
+}
+
 // IncrementVerificationRecordsCounter provides a mock function with given fields: ctx
 func (_m *MockIndexerMetricLabeler) IncrementVerificationRecordsCounter(ctx context.Context) {
 	_m.Called(ctx)
@@ -669,6 +703,41 @@ func (_c *MockIndexerMetricLabeler_RecordVerificationRecordChannelSizeGauge_Call
 }
 
 func (_c *MockIndexerMetricLabeler_RecordVerificationRecordChannelSizeGauge_Call) RunAndReturn(run func(context.Context, int64)) *MockIndexerMetricLabeler_RecordVerificationRecordChannelSizeGauge_Call {
+	_c.Run(run)
+	return _c
+}
+
+// RecordVerifierUnavailableGauge provides a mock function with given fields: ctx, verifier, unavailable
+func (_m *MockIndexerMetricLabeler) RecordVerifierUnavailableGauge(ctx context.Context, verifier string, unavailable bool) {
+	_m.Called(ctx, verifier, unavailable)
+}
+
+// MockIndexerMetricLabeler_RecordVerifierUnavailableGauge_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RecordVerifierUnavailableGauge'
+type MockIndexerMetricLabeler_RecordVerifierUnavailableGauge_Call struct {
+	*mock.Call
+}
+
+// RecordVerifierUnavailableGauge is a helper method to define mock.On call
+//   - ctx context.Context
+//   - verifier string
+//   - unavailable bool
+func (_e *MockIndexerMetricLabeler_Expecter) RecordVerifierUnavailableGauge(ctx interface{}, verifier interface{}, unavailable interface{}) *MockIndexerMetricLabeler_RecordVerifierUnavailableGauge_Call {
+	return &MockIndexerMetricLabeler_RecordVerifierUnavailableGauge_Call{Call: _e.mock.On("RecordVerifierUnavailableGauge", ctx, verifier, unavailable)}
+}
+
+func (_c *MockIndexerMetricLabeler_RecordVerifierUnavailableGauge_Call) Run(run func(ctx context.Context, verifier string, unavailable bool)) *MockIndexerMetricLabeler_RecordVerifierUnavailableGauge_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(bool))
+	})
+	return _c
+}
+
+func (_c *MockIndexerMetricLabeler_RecordVerifierUnavailableGauge_Call) Return() *MockIndexerMetricLabeler_RecordVerifierUnavailableGauge_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockIndexerMetricLabeler_RecordVerifierUnavailableGauge_Call) RunAndReturn(run func(context.Context, string, bool)) *MockIndexerMetricLabeler_RecordVerifierUnavailableGauge_Call {
 	_c.Run(run)
 	return _c
 }

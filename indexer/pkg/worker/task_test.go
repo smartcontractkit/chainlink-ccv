@@ -132,7 +132,7 @@ func TestTask_LoadVerifierReaders(t *testing.T) {
 	tsk := &Task{registry: reg, logger: lggr}
 
 	addrs := []string{addr1.String(), addr2.String()}
-	readersList, loaded, missing := tsk.loadVerifierReaders(addrs)
+	readersList, loaded, missing, _ := tsk.loadVerifierReaders(addrs)
 
 	require.Len(t, readersList, 1)
 	require.Len(t, loaded, 1)
@@ -170,7 +170,7 @@ func TestLoadVerifierReaders_InvalidAndLoaded(t *testing.T) {
 	tsk := &Task{registry: reg, logger: lggr}
 
 	addrs := []string{"not-a-hex", addr.String()}
-	readersList, loaded, missing := tsk.loadVerifierReaders(addrs)
+	readersList, loaded, missing, _ := tsk.loadVerifierReaders(addrs)
 
 	require.Len(t, readersList, 1)
 	require.Len(t, loaded, 1)
@@ -293,4 +293,33 @@ func TestCollectVerifierResults(t *testing.T) {
 		require.Len(t, res, 1)
 		require.Equal(t, "verifier-2", res[0].Metadata.VerifierName)
 	})
+}
+
+// A configured verifier whose reader did not start is unstarted, not unknown, so the job retries.
+func TestLoadVerifierReaders_UnstartedReader(t *testing.T) {
+	reg := registry.NewVerifierRegistry()
+	addr := mustAddr(t, "0x5555555555555555555555555555555555555555")
+	reg.MarkUnavailable(addr, "down-verifier")
+	tsk := &Task{registry: reg, logger: logger.Test(t)}
+
+	readersList, loaded, missing, unstarted := tsk.loadVerifierReaders([]string{addr.String()})
+
+	require.Empty(t, readersList)
+	require.Empty(t, loaded)
+	require.Empty(t, missing)
+	require.Equal(t, []string{addr.String()}, unstarted)
+}
+
+// Each unstarted verifier counts one retry under its configured name.
+func TestRecordUnavailableRetries(t *testing.T) {
+	reg := registry.NewVerifierRegistry()
+	addr := mustAddr(t, "0x5555555555555555555555555555555555555555")
+	reg.MarkUnavailable(addr, "down-verifier")
+	m := mocks.NewMockIndexerMetricLabeler(t)
+	m.EXPECT().IncrementUnavailableVerifierRetries(mock.Anything, "down-verifier").Once()
+	tsk := &Task{registry: reg, logger: logger.Test(t), metrics: m}
+
+	tsk.recordUnavailableRetries(context.Background(), []string{addr.String()})
+
+	(&Task{registry: reg, logger: logger.Test(t)}).recordUnavailableRetries(context.Background(), []string{addr.String()})
 }
