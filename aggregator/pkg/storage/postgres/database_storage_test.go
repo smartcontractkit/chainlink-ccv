@@ -2099,3 +2099,129 @@ func TestTryAcquireOrphanRecoveryLock(t *testing.T) {
 		require.Error(t, err)
 	})
 }
+
+// A poll between two out-of-order commits must not move the cursor past the uncommitted report.
+func TestQueryAggregatedReports_DoesNotSkipUncommittedReport(t *testing.T) {
+	storage, db, cleanup := setupTestDBWithDatabase(t)
+	defer cleanup()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	signer := newTestSigner(t)
+
+	seed := func(seqNum int) (*model.CommitAggregatedReport, int64) {
+		message := createTestProtocolMessage()
+		message.SequenceNumber = protocol.SequenceNumber(seqNum)
+		msgWithCCV := createTestMessageWithCCV(t, message, signer)
+		messageID := getMessageIDFromProto(t, msgWithCCV)
+		aggregationKey := protocol.ByteSlice(messageID).String()
+		record := createTestCommitVerificationRecord(t, msgWithCCV, signer)
+		require.NoError(t, storage.SaveCommitVerification(ctx, []model.CommitVerificationWrite{{Record: record, AggregationKey: aggregationKey}}))
+
+		var recordID int64
+		require.NoError(t, db.GetContext(ctx, &recordID,
+			`SELECT id FROM commit_verification_records WHERE message_id = $1 AND aggregation_key = $2`,
+			protocol.ByteSlice(messageID).String(), aggregationKey))
+		return &model.CommitAggregatedReport{
+			MessageID:      messageID,
+			AggregationKey: aggregationKey,
+			Verifications:  []*model.CommitVerificationRecord{record},
+		}, recordID
+	}
+	reportA, recordIDA := seed(1)
+	reportB, _ := seed(2)
+
+	// Hold A's verification row so that the junction-table FK check of A waits after seq_num allocation.
+	locker, err := db.BeginTxx(ctx, nil)
+	require.NoError(t, err)
+	defer func() { _ = locker.Rollback() }()
+	var lockerPID int
+	require.NoError(t, locker.GetContext(ctx, &lockerPID, `SELECT pg_backend_pid()`))
+	_, err = locker.ExecContext(ctx, `SELECT id FROM commit_verification_records WHERE id = $1 FOR UPDATE`, recordIDA)
+	require.NoError(t, err)
+
+	type submitResult struct {
+		inserted bool
+		err      error
+	}
+	submit := func(r *model.CommitAggregatedReport) <-chan submitResult {
+		ch := make(chan submitResult, 1)
+		go func() {
+			inserted, err := storage.SubmitAggregatedReport(ctx, r)
+			ch <- submitResult{inserted, err}
+		}()
+		return ch
+	}
+	blockedBy := func(blockerPID int) (int, bool) {
+		var pid int
+		err := db.GetContext(ctx, &pid,
+			`SELECT pid FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid)) LIMIT 1`, blockerPID)
+		return pid, err == nil
+	}
+
+	doneA := submit(reportA)
+	var pidA int
+	require.Eventually(t, func() bool {
+		var ok bool
+		pidA, ok = blockedBy(lockerPID)
+		return ok
+	}, 10*time.Second, 10*time.Millisecond, "submit A never waited on the verification row lock")
+
+	doneB := submit(reportB)
+	var resultB *submitResult
+	require.Eventually(t, func() bool {
+		select {
+		case r := <-doneB:
+			resultB = &r
+			return true
+		default:
+		}
+		_, ok := blockedBy(pidA)
+		return ok
+	}, 10*time.Second, 10*time.Millisecond, "submit B neither finished nor waited on submit A")
+
+	// Poll and advance the cursor with the same rule as the indexer AggregatorReader.
+	var cursor int64
+	var seen [][]byte
+	poll := func() int {
+		batch, err := storage.QueryAggregatedReports(ctx, cursor)
+		require.NoError(t, err)
+		for _, r := range batch.Reports {
+			if r.Sequence >= cursor {
+				cursor = r.Sequence + 1
+			}
+			seen = append(seen, r.MessageID)
+		}
+		return len(batch.Reports)
+	}
+	poll()
+
+	require.NoError(t, locker.Rollback())
+	ra := <-doneA
+	require.NoError(t, ra.err)
+	require.True(t, ra.inserted)
+	if resultB == nil {
+		rb := <-doneB
+		resultB = &rb
+	}
+	require.NoError(t, resultB.err)
+	require.True(t, resultB.inserted)
+
+	for poll() > 0 {
+	}
+
+	require.Equal(t, [][]byte{reportA.MessageID, reportB.MessageID}, seen)
+}
+
+func TestMigrations_AggregatedReportSeqNumUsesSerializedDefault(t *testing.T) {
+	_, db, cleanup := setupTestDBWithDatabase(t)
+	defer cleanup()
+
+	var def string
+	require.NoError(t, db.Get(&def, `
+		SELECT pg_get_expr(d.adbin, d.adrelid)
+		FROM pg_attrdef d
+		JOIN pg_attribute a ON a.attrelid = d.adrelid AND a.attnum = d.adnum
+		WHERE d.adrelid = 'commit_aggregated_reports'::regclass AND a.attname = 'seq_num'`))
+	require.Contains(t, def, "next_aggregated_report_seq_num()")
+}

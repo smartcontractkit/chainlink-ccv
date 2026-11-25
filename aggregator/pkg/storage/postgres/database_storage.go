@@ -744,6 +744,7 @@ func (d *DatabaseStorage) SubmitAggregatedReport(ctx context.Context, report *mo
 
 	slices.Sort(verificationRecordIDs)
 
+	// The seq_num default holds an advisory lock until commit; keep this a single short statement.
 	stmt := `
 	WITH new_report AS (
 		INSERT INTO commit_aggregated_reports (message_id, aggregation_key, verification_record_ids)
