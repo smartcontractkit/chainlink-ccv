@@ -1,12 +1,12 @@
 === EXPLAIN ANALYZE: count_processing ===
-Aggregate  (cost=224.89..224.90 rows=1 width=8) (actual time=0.469..0.469 rows=1 loops=1)
+Aggregate  (cost=222.27..222.28 rows=1 width=8) (actual time=0.520..0.520 rows=1 loops=1)
   Output: count(*)
   Buffers: shared hit=34
-  ->  Index Only Scan using idx_messages_processing_due on indexer.messages  (cost=0.28..208.41 rows=6595 width=0) (actual time=0.008..0.279 rows=6500 loops=1)
+  ->  Index Only Scan using idx_messages_processing_due on indexer.messages  (cost=0.28..206.11 rows=6464 width=0) (actual time=0.015..0.316 rows=6500 loops=1)
         Output: next_attempt_at
         Heap Fetches: 726
         Buffers: shared hit=34
 Planning:
   Buffers: shared hit=6
-Planning Time: 0.032 ms
-Execution Time: 0.477 ms
+Planning Time: 0.072 ms
+Execution Time: 0.532 ms

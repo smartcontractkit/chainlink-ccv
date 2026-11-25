@@ -21,19 +21,14 @@ import (
 )
 
 type Task struct {
-	logger      logger.Logger
-	messageID   protocol.Bytes32
-	message     protocol.VerifierResult
-	registry    *registry.VerifierRegistry
-	storage     common.IndexerStorage
-	tracing     commontracing.Tracing
-	metrics     common.IndexerMetricLabeler // optional
-	traceParent string                      // discovery w3c traceparent
-	attempt     int                         // 1-indexed
-	runAt       time.Time
-	index       int // heap index
-	lastErr     error
-	ttl         time.Time
+	logger    logger.Logger
+	messageID protocol.Bytes32
+	message   protocol.VerifierResult
+	registry  *registry.VerifierRegistry
+	storage   common.IndexerStorage
+	tracing   commontracing.Tracing
+	metrics   common.IndexerMetricLabeler // optional
+	attempt   int                         // 1-indexed
 }
 
 type TaskResult struct {
@@ -42,7 +37,7 @@ type TaskResult struct {
 	UnavailableCCVs         int
 }
 
-func NewTask(lggr logger.Logger, message protocol.VerifierResult, registry *registry.VerifierRegistry, storage common.IndexerStorage, ttl time.Time) (*Task, error) {
+func NewTask(lggr logger.Logger, message protocol.VerifierResult, registry *registry.VerifierRegistry, storage common.IndexerStorage) (*Task, error) {
 	if lggr == nil {
 		return nil, fmt.Errorf("logger is required")
 	}
@@ -59,9 +54,6 @@ func NewTask(lggr logger.Logger, message protocol.VerifierResult, registry *regi
 		registry:  registry,
 		storage:   storage,
 		tracing:   commontracing.NewTracing(beholder.GetTracer()),
-		attempt:   0,
-		lastErr:   nil,
-		ttl:       ttl,
 	}, nil
 }
 
@@ -246,10 +238,6 @@ func (t *Task) getVerifiers() []string {
 	}
 
 	return verifiers
-}
-
-func (t *Task) SetMessageStatus(ctx context.Context, messageStatus common.MessageStatus, lastErr string) error {
-	return t.storage.UpdateMessageStatus(ctx, t.messageID, messageStatus, lastErr)
 }
 
 // tracer returns t.tracing, falling back to a working default for Tasks built via

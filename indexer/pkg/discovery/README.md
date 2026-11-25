@@ -8,7 +8,7 @@ The discovery module provides components for discovering CCV messages and off-ch
 
 `MessageDiscovery` is a critical part of the indexer, it's goal is to find new CCIP messages to start processing. To avoid potentional attack vectors we use a trusted discovery source.
 
-It polls the discovery source at a configurable interval (`PollInterval`) to retrieve new messages and emits discovered messages via a buffered channel for downstream consumption.
+It polls the discovery source at a configurable interval (`PollInterval`) to retrieve new messages. It persists each batch with each new message in the `PROCESSING` status. The worker pool on every replica claims due `PROCESSING` messages from the database.
 
 As `MessageDiscovery` uses the `ResilientReader` if the upstream discovery source is down the circuit breaker will trip and reconnect once the discovery source is back up.
 
@@ -18,7 +18,6 @@ As `MessageDiscovery` uses the `ResilientReader` if the upstream discovery sourc
 
 - `PollInterval`: How often to poll the aggregator
 - `Timeout`: Maximum duration for a single polling operation
-- `MessageChannelSize`: Buffer size for the message channel
 
 ### Usage
 
@@ -31,11 +30,7 @@ discovery, err := NewAggregatorMessageDiscovery(
     WithConfig(config),
 )
 
-messageCh := discovery.Start(ctx)
+discovery.Start(ctx) // persists messages for the worker pool
 defer discovery.Close()
-
-for msg := range messageCh {
-    // Process discovered message...
-}
 ```
 

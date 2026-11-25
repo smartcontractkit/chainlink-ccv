@@ -29,7 +29,7 @@ func (Config) DocComments() map[string]commentparsing.FieldDoc {
 		"GeneratedConfigPath": {Comment: "GeneratedConfigPath is the path to the auto-generated configuration file.\nIf relative, it is resolved relative to the main config file location."},
 		"LeaderElection":      {Comment: "LeaderElection configures the database lock that allows one replica at a time to run discovery."},
 		"LogLevel":            {Comment: "LogLevel is the logging level (e.g. debug, info, warn, error)."},
-		"MergeBufferSize":     {Comment: "MergeBufferSize is the capacity of the channel that merges messages from multiple discovery sources.\nOnly used when len(Discoveries) > 1. If 0, defaults to len(Discoveries)*2."},
+		"MergeBufferSize":     {Comment: "MergeBufferSize is the capacity of the channel that merged messages from multiple discovery sources.\nDeprecated: discovery no longer buffers messages in memory; this field has no effect."},
 		"Monitoring":          {Comment: "Monitoring is the configuration for the monitoring system inside the indexer."},
 		"Pool":                {Comment: "Pool is the configuration for the worker pool within the indexer."},
 		"PyroscopeURL":        {Comment: "PyroscopeURL is the Pyroscope server URL for continuous profiling; empty disables it."},
@@ -69,7 +69,8 @@ func (LeaderElectionConfig) DocComments() map[string]commentparsing.FieldDoc {
 func (PoolConfig) DocComments() map[string]commentparsing.FieldDoc {
 	return map[string]commentparsing.FieldDoc{
 		"ConcurrentWorkers":  {Comment: "ConcurrentWorkers is the maximum number of concurrent workers, equates to maximum number of concurrent messages being indexed."},
-		"HydrationBatchSize": {Comment: "HydrationBatchSize controls how many PROCESSING messages are loaded from storage per page during startup hydration."},
+		"HydrationBatchSize": {Comment: "HydrationBatchSize was the page size of the startup hydration.\nDeprecated: every replica claims PROCESSING messages from the database; this field has no effect."},
+		"PollInterval":       {Comment: "PollInterval is the number of milliseconds between two claims of due messages by one replica (default 1000)."},
 		"WorkerTimeout":      {Comment: "WorkerTimeout is the number of seconds a worker can attempt to retrieve verifications for\nNote: This value should always be higher then the maximum timeout on the slowest configured verifier."},
 	}
 }
@@ -123,8 +124,8 @@ func (SchedulerConfig) DocComments() map[string]commentparsing.FieldDoc {
 	return map[string]commentparsing.FieldDoc{
 		"BaseDelay":                    {Comment: "BaseDelay defines the minimum number of milliseconds to wait before retrying the message."},
 		"MaxDelay":                     {Comment: "MaxDelay defines the maximum number of milliseconds to wait before retrying the message."},
-		"MaxHeapSize":                  {Comment: "MaxHeapSize is the maximum number of delayed tasks the scheduler heap may hold at once.\nSchedule blocks until a slot is free; TrySchedule returns ErrSchedulerFull immediately.\n0 means unbounded."},
-		"TickerInterval":               {Comment: "TickerInterval defines the number of milliseconds to wait before running the next scheduling loop."},
+		"MaxHeapSize":                  {Comment: "MaxHeapSize was the maximum number of delayed tasks in the scheduler heap.\nDeprecated: the database claim replaces the in-memory scheduler; this field has no effect."},
+		"TickerInterval":               {Comment: "TickerInterval defined the number of milliseconds between scheduling loops.\nDeprecated: the database claim replaces the in-memory scheduler; this field has no effect."},
 		"VerificationVisibilityWindow": {Comment: "VerificationVisibilityWindow defines the number of seconds before we will no longer attempt to retrieve verifications."},
 	}
 }
