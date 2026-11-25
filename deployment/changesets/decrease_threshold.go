@@ -5,10 +5,8 @@ import (
 	"fmt"
 
 	mcmsutil "github.com/smartcontractkit/chainlink-ccip/deployment/utils/mcms"
-	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 
-	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 )
 
@@ -155,21 +153,14 @@ func DecreaseThresholdOffchain() deployment.ChangeSetV2[DecreaseThresholdOffchai
 	}
 
 	apply := func(e deployment.Environment, cfg DecreaseThresholdOffchainInput) (deployment.ChangesetOutput, error) {
-		committee, err := buildAggregatorCommittee(e, cfg.CommitteeQualifier, cfg.ChainSelectors, &cfg.ExpectedThreshold)
+		committee, states, err := buildAggregatorCommittee(e, cfg.CommitteeQualifier, cfg.ChainSelectors, &cfg.ExpectedThreshold)
 		if err != nil {
 			return deployment.ChangesetOutput{}, fmt.Errorf("failed to build aggregator config: %w", err)
 		}
 
-		outputDS := datastore.NewMemoryDataStore()
-		if e.DataStore != nil {
-			if err := outputDS.Merge(e.DataStore); err != nil {
-				return deployment.ChangesetOutput{}, fmt.Errorf("failed to merge datastore: %w", err)
-			}
-		}
-		for _, svcID := range cfg.ServiceIdentifiers {
-			if err := ccvdeployment.SaveAggregatorConfig(outputDS, svcID, committee); err != nil {
-				return deployment.ChangesetOutput{}, fmt.Errorf("failed to save aggregator config for %q: %w", svcID, err)
-			}
+		outputDS, err := saveAggregatorRun(e, cfg.ServiceIdentifiers, committee, cfg.CommitteeQualifier, cfg.ChainSelectors, states)
+		if err != nil {
+			return deployment.ChangesetOutput{}, err
 		}
 
 		return deployment.ChangesetOutput{DataStore: outputDS}, nil

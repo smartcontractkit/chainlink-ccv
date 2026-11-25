@@ -78,7 +78,7 @@ func GenerateAggregatorConfig() deployment.ChangeSetV2[GenerateAggregatorConfigI
 	}
 
 	apply := func(e deployment.Environment, cfg GenerateAggregatorConfigInput) (deployment.ChangesetOutput, error) {
-		committee, err := buildAggregatorCommittee(e, cfg.CommitteeQualifier, cfg.ChainSelectors, cfg.ThresholdOverride)
+		committee, states, err := buildAggregatorCommittee(e, cfg.CommitteeQualifier, cfg.ChainSelectors, cfg.ThresholdOverride)
 		if err != nil {
 			return deployment.ChangesetOutput{}, fmt.Errorf("failed to build aggregator config: %w", err)
 		}
@@ -99,6 +99,14 @@ func GenerateAggregatorConfig() deployment.ChangeSetV2[GenerateAggregatorConfigI
 		if err := save(outputDS, cfg.ServiceIdentifier, committee); err != nil {
 			return deployment.ChangesetOutput{}, fmt.Errorf("failed to save aggregator config: %w", err)
 		}
+		if err := ccvdeployment.SaveAggregatorQualifier(outputDS, cfg.ServiceIdentifier, cfg.CommitteeQualifier); err != nil {
+			return deployment.ChangesetOutput{}, fmt.Errorf("failed to save aggregator committee qualifier: %w", err)
+		}
+		// Persist the raw reads too: the observed signer sets and quorum reach the published
+		// inventory in the same output, with no second scan and no threshold override applied.
+		if err := ccvdeployment.SaveScannedCommitteeStates(outputDS, cfg.ChainSelectors, states); err != nil {
+			return deployment.ChangesetOutput{}, fmt.Errorf("failed to save scanned committee states: %w", err)
+		}
 
 		return deployment.ChangesetOutput{DataStore: outputDS}, nil
 	}
@@ -106,12 +114,14 @@ func GenerateAggregatorConfig() deployment.ChangeSetV2[GenerateAggregatorConfigI
 	return deployment.CreateChangeSet(apply, validate)
 }
 
+// buildAggregatorCommittee scans the chains and returns both the generated config and the raw
+// committee reads (before thresholdOverride), so callers can persist the observed state too.
 func buildAggregatorCommittee(
 	e deployment.Environment,
 	committeeQualifier string,
 	chainSelectors []uint64,
 	thresholdOverride *uint8,
-) (*model.Committee, error) {
+) (*model.Committee, []*adapters.CommitteeState, error) {
 	ctx := context.Background()
 
 	type chainQualifier struct {
@@ -120,51 +130,53 @@ func buildAggregatorCommittee(
 	}
 	seen := make(map[chainQualifier]bool)
 	allCommittees := make(map[string][]*adapters.CommitteeState)
+	var scannedStates []*adapters.CommitteeState
 	for _, sel := range chainSelectors {
 		if _, err := adapters.GetAggregatorRegistry().Get(sel); err != nil {
-			return nil, fmt.Errorf("no aggregator config adapter registered for chain %d: %w", sel, err)
+			return nil, nil, fmt.Errorf("no aggregator config adapter registered for chain %d: %w", sel, err)
 		}
 		onchain, err := adapters.GetCommitteeVerifierOnchainRegistry().Get(sel)
 		if err != nil {
-			return nil, fmt.Errorf("no CommitteeVerifierOnchain adapter registered for chain %d: %w", sel, err)
+			return nil, nil, fmt.Errorf("no CommitteeVerifierOnchain adapter registered for chain %d: %w", sel, err)
 		}
 
 		states, err := onchain.ScanCommitteeStates(ctx, e, sel)
 		if err != nil {
-			return nil, fmt.Errorf("failed to scan committee states on chain %d: %w", sel, err)
+			return nil, nil, fmt.Errorf("failed to scan committee states on chain %d: %w", sel, err)
 		}
 		for _, state := range states {
 			key := chainQualifier{chainSelector: sel, qualifier: state.Qualifier}
 			if seen[key] {
-				return nil, fmt.Errorf(
+				return nil, nil, fmt.Errorf(
 					"chain %d has multiple committee verifiers with qualifier %q",
 					sel, state.Qualifier,
 				)
 			}
 			seen[key] = true
 			allCommittees[state.Qualifier] = append(allCommittees[state.Qualifier], state)
+			scannedStates = append(scannedStates, state)
 		}
 	}
 
 	committeeStates, ok := allCommittees[committeeQualifier]
 	if !ok || len(committeeStates) == 0 {
-		return nil, fmt.Errorf("committee %q not found in deployed verifier state", committeeQualifier)
+		return nil, nil, fmt.Errorf("committee %q not found in deployed verifier state", committeeQualifier)
 	}
 
 	quorumConfigs, err := buildQuorumConfigs(e.DataStore, committeeStates, committeeQualifier, chainSelectors, thresholdOverride)
 	if err != nil {
-		return nil, fmt.Errorf("failed to build quorum configs: %w", err)
+		return nil, nil, fmt.Errorf("failed to build quorum configs: %w", err)
 	}
 
 	destVerifiers, err := buildDestinationVerifiers(e.DataStore, committeeQualifier, chainSelectors)
 	if err != nil {
-		return nil, fmt.Errorf("failed to build destination verifiers: %w", err)
+		return nil, nil, fmt.Errorf("failed to build destination verifiers: %w", err)
 	}
 
 	return &model.Committee{
 		QuorumConfigs:        quorumConfigs,
 		DestinationVerifiers: destVerifiers,
-	}, nil
+	}, scannedStates, nil
 }
 
 func buildQuorumConfigs(
@@ -260,6 +272,38 @@ func validateSignatureConfigConsistency(
 	}
 
 	return nil
+}
+
+// saveAggregatorRun persists a generated committee for every service identifier and the raw
+// committee reads that produced it, returning the datastore carrying both. The reads are the
+// observed signer sets and quorum, before any offchain threshold override. The qualifier is
+// saved per service too, so attribution and drift checks never fall back to legacy matching.
+func saveAggregatorRun(
+	e deployment.Environment,
+	serviceIdentifiers []string,
+	committee *model.Committee,
+	qualifier string,
+	chains []uint64,
+	states []*adapters.CommitteeState,
+) (datastore.MutableDataStore, error) {
+	outputDS := datastore.NewMemoryDataStore()
+	if e.DataStore != nil {
+		if err := outputDS.Merge(e.DataStore); err != nil {
+			return nil, fmt.Errorf("failed to merge datastore: %w", err)
+		}
+	}
+	for _, svcID := range serviceIdentifiers {
+		if err := ccvdeployment.SaveAggregatorConfig(outputDS, svcID, committee); err != nil {
+			return nil, fmt.Errorf("failed to save aggregator config for %q: %w", svcID, err)
+		}
+		if err := ccvdeployment.SaveAggregatorQualifier(outputDS, svcID, qualifier); err != nil {
+			return nil, fmt.Errorf("failed to save aggregator committee qualifier for %q: %w", svcID, err)
+		}
+	}
+	if err := ccvdeployment.SaveScannedCommitteeStates(outputDS, chains, states); err != nil {
+		return nil, fmt.Errorf("failed to save scanned committee states: %w", err)
+	}
+	return outputDS, nil
 }
 
 func buildDestinationVerifiers(

@@ -9,8 +9,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/BurntSushi/toml"
-
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 
 	"github.com/smartcontractkit/chainlink-ccv/executor"
@@ -21,7 +19,7 @@ import (
 
 // executorJobType is the job spec type emitted for executor jobs (see
 // buildExecutorJobSpecs); parsed specs are validated against it.
-const executorJobType = "ccvexecutor"
+const executorJobType = shared.ExecutorJobType
 
 // ExecutorConnExtras carries the executor connection settings recovered alongside
 // the pool from persisted job specs: these are not part of ExecutorPoolInput but
@@ -76,7 +74,7 @@ func ExecutorPoolInputFromState(ds datastore.DataStore, qualifier string) (Execu
 			if !scope.IsJobInScope(jobID) {
 				continue
 			}
-			cfg, err := parseExecutorConfigFromSpec(info.Spec)
+			cfg, err := shared.ParseExecutorJobSpec(info.Spec)
 			if err != nil {
 				return pool, extras, fmt.Errorf("executor pool %q: job %q: %w", qualifier, jobID, err)
 			}
@@ -188,48 +186,6 @@ func sortedStrings(in []string) []string {
 	out := append([]string(nil), in...)
 	sort.Strings(out)
 	return out
-}
-
-// parseExecutorConfigFromSpec extracts the embedded executor.Configuration from a
-// ccvexecutor job spec. The spec is a TOML wrapper whose executorConfig field
-// holds the inner config as a multi-line string (Standalone specs use appConfig;
-// CL specs use executorConfig); both are parsed with the same library buildExecutorJobSpecs
-// used to emit them, so the round-trip is lossless.
-func parseExecutorConfigFromSpec(spec string) (executor.Configuration, error) {
-	inner, err := executorInnerConfigFromSpec(spec)
-	if err != nil {
-		return executor.Configuration{}, err
-	}
-
-	var cfg executor.Configuration
-	if _, err := toml.Decode(inner, &cfg); err != nil {
-		return executor.Configuration{}, fmt.Errorf("failed to parse executor config: %w", err)
-	}
-	return cfg, nil
-}
-
-func executorInnerConfigFromSpec(spec string) (string, error) {
-	var wrapper struct {
-		Type           string `toml:"type"`
-		AppConfig      string `toml:"appConfig"`
-		ExecutorConfig string `toml:"executorConfig"`
-	}
-	if _, err := toml.Decode(spec, &wrapper); err != nil {
-		return "", fmt.Errorf("failed to parse job spec wrapper: %w", err)
-	}
-	if wrapper.Type != executorJobType {
-		return "", fmt.Errorf("unexpected job spec type %q (want %q)", wrapper.Type, executorJobType)
-	}
-	if wrapper.AppConfig != "" && wrapper.ExecutorConfig != "" {
-		return "", fmt.Errorf("job spec must set exactly one of appConfig and executorConfig")
-	}
-	if wrapper.AppConfig != "" {
-		return wrapper.AppConfig, nil
-	}
-	if wrapper.ExecutorConfig != "" {
-		return wrapper.ExecutorConfig, nil
-	}
-	return "", fmt.Errorf("job spec missing appConfig and executorConfig")
 }
 
 // ExecutorConfigFromStateOptions carries the few executor inputs that are not
