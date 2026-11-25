@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/lib/pq"
+
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
@@ -48,6 +50,14 @@ const (
 			LIMIT $4
 			FOR UPDATE SKIP LOCKED))`
 	countProcessingSQL = `SELECT COUNT(*) FROM indexer.messages WHERE status = $1`
+	requeueMessagesSQL = `
+			UPDATE indexer.messages
+			SET next_attempt_at = CASE WHEN status = $1 THEN next_attempt_at ELSE NULL END,
+			    attempt_count = CASE WHEN status = $1 THEN attempt_count ELSE attempt_count + 1 END,
+			    status = $1, lastErr = '',
+			    retry_deadline = NOW() + make_interval(secs => $2)
+			WHERE message_id = ANY($3) AND status <> $4
+			RETURNING message_id`
 )
 
 // ClaimWork implements common.IndexerStorage.
@@ -117,4 +127,34 @@ func (d *PostgresStorage) CountProcessingMessages(ctx context.Context) (int64, e
 	var n int64
 	err := d.ds.GetContext(ctx, &n, countProcessingSQL, common.MessageProcessingString)
 	return n, err
+}
+
+// RequeueMessages sets each given message that is not SUCCESS back to PROCESSING with a new deadline of NOW() + window.
+// A PROCESSING message keeps its lease and claim token. A final message gets a new token, so an old claim cannot settle it.
+func (d *PostgresStorage) RequeueMessages(ctx context.Context, messageIDs []protocol.Bytes32, window time.Duration) ([]protocol.Bytes32, error) {
+	if len(messageIDs) == 0 {
+		return nil, nil
+	}
+	ids := make([]string, len(messageIDs))
+	for i, id := range messageIDs {
+		ids[i] = id.String()
+	}
+	var out []string
+	err := d.ds.SelectContext(ctx, &out, requeueMessagesSQL,
+		common.MessageProcessingString, window.Seconds(), pq.Array(ids), common.MessageSuccessfulString)
+	if err != nil {
+		return nil, fmt.Errorf("failed to requeue messages: %w", err)
+	}
+	requeued := make([]protocol.Bytes32, 0, len(out))
+	for _, id := range out {
+		b, err := protocol.NewBytes32FromString(id)
+		if err != nil {
+			return nil, err
+		}
+		requeued = append(requeued, b)
+	}
+	if len(requeued) > 0 && d.onMessagesPersisted != nil {
+		d.onMessagesPersisted()
+	}
+	return requeued, nil
 }

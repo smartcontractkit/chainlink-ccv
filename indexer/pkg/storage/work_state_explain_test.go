@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
@@ -15,7 +16,8 @@ import (
 )
 
 const (
-	explainLeaseSecs = 90.0
+	explainLeaseSecs         = 90.0
+	explainRequeueWindowSecs = 28800.0 // the devenv VerificationVisibilityWindow
 )
 
 // seedWorkStateExplainData loads indexer.messages with a mix of final, due, leased and expired rows.
@@ -65,6 +67,7 @@ func TestExplainWorkStateQueryPlans(t *testing.T) {
 	require.NoError(t, RunMigrationsContext(t.Context(), db))
 	seedWorkStateExplainData(t, db)
 
+	ids := []string{"new-1", "retry-1", "leased-1", "timeout-1", "success-1"}
 	processing := common.MessageProcessingString
 
 	explainWorkState(t, db, "claim", claimWorkSQL, processing, explainLeaseSecs, 50)
@@ -75,6 +78,8 @@ func TestExplainWorkStateQueryPlans(t *testing.T) {
 	explainWorkState(t, db, "expire", expireWorkSQL,
 		common.MessageTimeout.String(), "retry deadline passed", processing, 1000)
 	explainWorkState(t, db, "count_processing", countProcessingSQL, processing)
+	explainWorkState(t, db, "requeue", requeueMessagesSQL,
+		processing, explainRequeueWindowSecs, pq.Array(ids), common.MessageSuccessfulString)
 	explainWorkState(t, db, "backfill_retry_deadline", retryDeadlineBackfillSQL(t))
 }
 
