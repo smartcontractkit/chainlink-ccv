@@ -117,6 +117,65 @@ func TestAddOnchainCommitteesFailedScanKeepsSnapshot(t *testing.T) {
 	removed := refreshFor(t, inv, canton)
 	assert.Empty(t, removed.LastError)
 	assert.True(t, removed.LastSuccessAt.After(first.LastSuccessAt) || removed.LastSuccessAt.Equal(first.LastSuccessAt))
+	assert.NotContains(t, inv.Issues, Issue{Kind: IssueOnchainReadFailed, Subject: "canton-mainnet", Detail: "ledger unavailable"},
+		"a recovered chain loses its stale read-failure alert")
+}
+
+func TestAddOnchainCommitteesRebuildsDriftFromFinalRows(t *testing.T) {
+	adapter := &fakeCommitteeVerifierOnchain{}
+	adapters.GetCommitteeVerifierOnchainRegistry().Register(chainsel.FamilyCanton, adapter)
+	drift := Issue{
+		Kind: IssueOnchainDrift, Subject: "canton-mainnet verifier, source ethereum-mainnet",
+		Detail: "threshold 2 onchain, 2 in aggregator config; missing onchain: [" + gammaAddr + "]; only onchain: []",
+	}
+	inv := Build(fixtureInputs())
+	scan := func(signers ...string) {
+		adapter.states = map[uint64][]*adapters.CommitteeState{uint64(canton): {{
+			Qualifier: "default", ChainSelector: uint64(canton), Address: "canton-verifier",
+			SignatureConfigs: []adapters.SignatureConfig{{SourceChainSelector: uint64(ethereum), Threshold: 2, Signers: signers}},
+		}}}
+		inv.AddOnchainCommittees(t.Context(), deployment.Environment{})
+	}
+
+	scan(alphaAddr, betaAddr, gammaAddr)
+	assert.NotContains(t, inv.Issues, drift, "onchain matching the aggregator has no drift")
+
+	scan(alphaAddr, betaAddr)
+	assert.Contains(t, inv.Issues, drift, "the previous matching snapshot cannot mask new drift")
+
+	scan(alphaAddr, betaAddr, gammaAddr)
+	assert.NotContains(t, inv.Issues, drift, "a resolved drift alert does not survive the next refresh")
+}
+
+func TestAddOnchainCommitteesClearsRemovedNativeVerifier(t *testing.T) {
+	adapter := &fakeCommitteeVerifierOnchain{
+		discovered: []uint64{uint64(canton)},
+		states: map[uint64][]*adapters.CommitteeState{uint64(canton): {{
+			Qualifier: "default", ChainSelector: uint64(canton), Address: "canton-verifier",
+			SignatureConfigs: []adapters.SignatureConfig{{SourceChainSelector: uint64(ethereum), Threshold: 1, Signers: []string{alphaAddr}}},
+		}}},
+	}
+	adapters.GetCommitteeVerifierOnchainRegistry().Register(chainsel.FamilyCanton, adapter)
+
+	// No aggregator config mentions any verifier: discovery alone finds the chain.
+	inv := Build(Inputs{})
+	inv.AddOnchainCommittees(t.Context(), deployment.Environment{})
+	require.NotEmpty(t, committeeFor(t, inv, SourceOnchain, ethereum).Members)
+
+	// The last native ref disappears: the previously scanned chain is still scanned, finds
+	// nothing, and its old snapshot is cleared as a removal instead of lingering.
+	adapter.discovered = nil
+	adapter.states = nil
+	inv.AddOnchainCommittees(t.Context(), deployment.Environment{})
+
+	for _, c := range inv.Committees {
+		assert.NotEqual(t, SourceOnchain, c.Source, "a chain whose refs were removed loses its old snapshot")
+	}
+	removed := refreshFor(t, inv, canton)
+	assert.Empty(t, removed.LastError, "an empty scan after removal is a success, not a read failure")
+	for _, issue := range inv.Issues {
+		assert.NotEqual(t, IssueOnchainDrift, issue.Kind, "removed rows leave no drift alerts")
+	}
 }
 
 func TestAddOnchainCommitteesDiscoversNativeChainsAndCarriesPubKeys(t *testing.T) {

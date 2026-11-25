@@ -13,62 +13,94 @@ import (
 )
 
 // AddOnchainCommittees scans every chain a family adapter discovers CommitteeVerifier refs on,
-// plus the chains aggregator configs point at, through the CommitteeVerifierOnchainAdapter its
-// family registers. Each chain's rows are replaced only when its scan succeeds; a failed scan
-// keeps the last successful snapshot and records the failure in Refreshes and the issues.
+// plus the chains aggregator configs point at and chains scanned before. Fresh rows replace a
+// chain's snapshot only when its scan succeeds; a failed scan re-records the last successful
+// snapshot. Drift and identity issues are rebuilt from the final rows, and each chain's refresh
+// outcome is recorded so stale data is distinguishable from an actual removal.
 func (inv *Inventory) AddOnchainCommittees(ctx context.Context, env deployment.Environment) {
+	previous := onchainSnapshot(inv.Committees)
+	inv.clearOnchainState()
 	b := builderFor(inv)
 	r := buildResolver(inv.NOPs, inv.Nodes)
 	recorded := aggregatorSets(inv.Committees)
 	now := time.Now()
 
-	for _, chain := range scanChains(inv, env) {
+	for _, chain := range inv.scanChains(env, previous) {
 		refresh := OnchainRefresh{Chain: ChainSelector(chain), LastAttemptAt: now}
 		adapter, err := adapters.GetCommitteeVerifierOnchainRegistry().Get(chain)
-		if err != nil {
-			refresh.LastError = err.Error()
-			b.issue(IssueOnchainReadFailed, chainLabel(chain), err.Error())
-			inv.setRefresh(refresh)
-			continue
-		}
-		states, err := adapter.ScanCommitteeStates(ctx, env, chain)
-		if err != nil {
-			refresh.LastError = err.Error()
-			b.issue(IssueOnchainReadFailed, chainLabel(chain), err.Error())
-			inv.setRefresh(refresh)
-			continue
-		}
-		inv.Committees = slices.DeleteFunc(inv.Committees, func(c Committee) bool {
-			return c.Source == SourceOnchain && c.VerifierChain == ChainSelector(chain)
-		})
-		for _, state := range states {
-			if state == nil {
+		if err == nil {
+			var states []*adapters.CommitteeState
+			states, err = adapter.ScanCommitteeStates(ctx, env, chain)
+			if err == nil {
+				for _, state := range states {
+					if state == nil {
+						continue
+					}
+					for _, sc := range state.SignatureConfigs {
+						c := Committee{
+							Source:          SourceOnchain,
+							VerifierChain:   ChainSelector(chain),
+							VerifierAddress: state.Address,
+							Qualifier:       state.Qualifier,
+							SourceChain:     ChainSelector(sc.SourceChainSelector),
+							Threshold:       sc.Threshold,
+						}
+						inv.recordOnchainCommittee(b, r, recorded, c, sc.Signers, sc.SignerPubKeys)
+					}
+				}
+				refresh.LastSuccessAt = now
+				inv.setRefresh(refresh)
 				continue
 			}
-			for _, sc := range state.SignatureConfigs {
-				c := Committee{
-					Source:          SourceOnchain,
-					VerifierChain:   ChainSelector(chain),
-					VerifierAddress: state.Address,
-					Qualifier:       state.Qualifier,
-					SourceChain:     ChainSelector(sc.SourceChainSelector),
-					Threshold:       sc.Threshold,
-				}
-				inv.recordOnchainCommittee(b, r, recorded, c, sc.Signers, sc.SignerPubKeys)
-			}
 		}
-		refresh.LastSuccessAt = now
+		refresh.LastError = err.Error()
+		b.issue(IssueOnchainReadFailed, chainLabel(chain), err.Error())
 		inv.setRefresh(refresh)
+		for _, c := range previous[chain] {
+			inv.recordOnchainCommittee(b, r, recorded, c, memberAddresses(c.Members), memberPubKeys(c.Members))
+		}
 	}
-	b.reportIdentityGaps()
+	b.checkIdentities(r)
 	inv.normalize()
 }
 
-// scanChains lists the chains to scan: aggregator-configured destinations plus every chain where
-// a registered family adapter discovers native CommitteeVerifier refs, so a deployed verifier is
-// scanned even when no aggregator config lists it.
-func scanChains(inv *Inventory, env deployment.Environment) []uint64 {
+// clearOnchainState drops onchain rows and every issue kind that is rebuilt from them, so a
+// refresh never carries drift or identity findings calculated from an older snapshot.
+func (inv *Inventory) clearOnchainState() {
+	inv.Committees = slices.DeleteFunc(inv.Committees, func(c Committee) bool { return c.Source == SourceOnchain })
+	inv.Issues = slices.DeleteFunc(inv.Issues, func(i Issue) bool {
+		switch i.Kind {
+		case IssueOnchainDrift, IssueOnchainReadFailed, IssueUnresolvedSigner,
+			IssueMissingNode, IssueAmbiguousNode, IssueVerifierScopeConflict:
+			return true
+		}
+		return false
+	})
+}
+
+// onchainSnapshot groups the previously observed onchain rows by their verifier chain.
+func onchainSnapshot(committees []Committee) map[uint64][]Committee {
+	out := make(map[uint64][]Committee)
+	for _, c := range committees {
+		if c.Source == SourceOnchain {
+			out[uint64(c.VerifierChain)] = append(out[uint64(c.VerifierChain)], c)
+		}
+	}
+	return out
+}
+
+// scanChains lists the chains to scan: aggregator-configured destinations, chains where a family
+// adapter discovers native refs, and chains scanned before. The last group covers removal: a
+// chain whose refs are gone scans empty, so its old snapshot is cleared with a success status
+// rather than lingering with no removal signal.
+func (inv *Inventory) scanChains(env deployment.Environment, previous map[uint64][]Committee) []uint64 {
 	chains := verifierChains(inv.Verifiers)
+	for chain := range previous {
+		chains = append(chains, chain)
+	}
+	for _, refresh := range inv.Refreshes {
+		chains = append(chains, uint64(refresh.Chain))
+	}
 	adapters.GetCommitteeVerifierOnchainRegistry().ForEach(func(_ string, a adapters.CommitteeVerifierOnchainAdapter) {
 		if d, ok := a.(adapters.CommitteeVerifierChainDiscovery); ok {
 			chains = append(chains, d.DeployedCommitteeVerifierChains(env.DataStore)...)
@@ -93,10 +125,11 @@ func (inv *Inventory) setRefresh(refresh OnchainRefresh) {
 	inv.Refreshes = append(inv.Refreshes, refresh)
 }
 
-// ReconcileOnchainCommittees restores a stored onchain snapshot and its refresh outcomes, and
-// resolves the snapshot's members against the current NOP and node tables.
+// ReconcileOnchainCommittees restores a stored onchain snapshot and its refresh outcomes,
+// resolving members against the current NOP and node tables and rebuilding drift and identity
+// issues from the restored rows. Persisted read failures resurface as issues from Refreshes.
 func (inv *Inventory) ReconcileOnchainCommittees(snapshot []Committee, refreshes []OnchainRefresh) {
-	inv.Committees = slices.DeleteFunc(inv.Committees, func(c Committee) bool { return c.Source == SourceOnchain })
+	inv.clearOnchainState()
 	inv.Refreshes = slices.Clone(refreshes)
 	b := builderFor(inv)
 	r := buildResolver(inv.NOPs, inv.Nodes)
@@ -107,13 +140,23 @@ func (inv *Inventory) ReconcileOnchainCommittees(snapshot []Committee, refreshes
 		}
 		inv.recordOnchainCommittee(b, r, recorded, c, memberAddresses(c.Members), memberPubKeys(c.Members))
 	}
-	b.reportIdentityGaps()
+	for _, refresh := range inv.Refreshes {
+		if refresh.LastError != "" {
+			b.issue(IssueOnchainReadFailed, chainLabel(uint64(refresh.Chain)), refresh.LastError)
+		}
+	}
+	b.checkIdentities(r)
 	inv.normalize()
 }
 
+// aggregatorSets indexes aggregator-recorded committees only: onchain rows are observations,
+// never intent, so a previous snapshot cannot mask drift between the chain and the configs.
 func aggregatorSets(committees []Committee) map[committeeKey][]Committee {
 	recorded := make(map[committeeKey][]Committee)
 	for _, c := range committees {
+		if c.Source != SourceAggregator {
+			continue
+		}
 		k := committeeKey{uint64(c.SourceChain), c.Qualifier}
 		recorded[k] = append(recorded[k], c)
 	}

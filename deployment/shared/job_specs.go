@@ -2,6 +2,8 @@ package shared
 
 import (
 	"fmt"
+	"slices"
+	"strconv"
 
 	"github.com/BurntSushi/toml"
 
@@ -62,4 +64,44 @@ func executorInnerConfigFromSpec(spec string) (string, error) {
 		return wrapper.ExecutorConfig, nil
 	}
 	return "", fmt.Errorf("job spec missing appConfig and executorConfig")
+}
+
+// VerifierSourceChains returns the source chain selectors a ccvcommitteeverifier job is
+// configured to verify, taken from its committee verifier address map. A spec without an
+// embedded config returns nil: no recorded scope, so any committee is eligible.
+func VerifierSourceChains(spec string) ([]uint64, error) {
+	var wrapper struct {
+		Type                    string `toml:"type"`
+		AppConfig               string `toml:"appConfig"`
+		CommitteeVerifierConfig string `toml:"committeeVerifierConfig"`
+	}
+	if _, err := toml.Decode(spec, &wrapper); err != nil {
+		return nil, fmt.Errorf("failed to parse job spec wrapper: %w", err)
+	}
+	if wrapper.Type != VerifierJobType {
+		return nil, fmt.Errorf("unexpected job spec type %q (want %q)", wrapper.Type, VerifierJobType)
+	}
+	inner := wrapper.AppConfig
+	if inner == "" {
+		inner = wrapper.CommitteeVerifierConfig
+	}
+	if inner == "" {
+		return nil, nil
+	}
+	var cfg struct {
+		CommitteeVerifierAddresses map[string]string `toml:"committee_verifier_addresses"`
+	}
+	if _, err := toml.Decode(inner, &cfg); err != nil {
+		return nil, fmt.Errorf("failed to parse verifier config: %w", err)
+	}
+	chains := make([]uint64, 0, len(cfg.CommitteeVerifierAddresses))
+	for key := range cfg.CommitteeVerifierAddresses {
+		chain, err := strconv.ParseUint(key, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid chain selector %q in verifier config: %w", key, err)
+		}
+		chains = append(chains, chain)
+	}
+	slices.Sort(chains)
+	return chains, nil
 }

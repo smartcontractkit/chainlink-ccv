@@ -119,40 +119,68 @@ func buildResolver(nops []NOP, nodes []Node) *resolver {
 	return r
 }
 
-// verifierFor returns the exact node signing for alias in committee qualifier. ambiguous reports
-// several candidates with no exact match; the caller records an issue instead of guessing.
-func (r *resolver) verifierFor(alias, qualifier string) (node *Node, ambiguous bool) {
-	scoped := r.scopedNode[verifierKey{alias, qualifier}]
-	if len(scoped) == 1 {
-		return scoped[0], false
+// nodeResolution says why a committee member's signing node could or could not be resolved.
+type nodeResolution int
+
+const (
+	nodeResolved  nodeResolution = iota
+	nodeNone                     // the NOP has no verifier node at all
+	nodeConflict                 // recorded node scopes exclude this committee or source chain
+	nodeAmbiguous                // several eligible nodes, no exact match
+)
+
+// verifierFor returns the exact node signing for alias in committee qualifier for source.
+// Scoped nodes must cover the source chain; only nodes with no recorded qualifier scope are
+// eligible as fallbacks, so a node scoped to another committee is never assigned by default.
+func (r *resolver) verifierFor(alias, qualifier string, source uint64) (*Node, nodeResolution) {
+	if eligible := sourceEligible(r.scopedNode[verifierKey{alias, qualifier}], source); len(eligible) == 1 {
+		return eligible[0], nodeResolved
+	} else if len(eligible) > 1 {
+		return nil, nodeAmbiguous
 	}
-	if len(scoped) > 1 {
-		return nil, true
+	var unscoped []*Node
+	for _, node := range r.verifierNode[alias] {
+		if len(node.VerifierQualifiers) == 0 {
+			unscoped = append(unscoped, node)
+		}
 	}
-	if candidates := r.verifierNode[alias]; len(candidates) == 1 {
-		return candidates[0], false
-	} else if len(candidates) > 1 {
-		return nil, true
+	if eligible := sourceEligible(unscoped, source); len(eligible) == 1 {
+		return eligible[0], nodeResolved
+	} else if len(eligible) > 1 {
+		return nil, nodeAmbiguous
 	}
-	return nil, false
+	if len(r.verifierNode[alias]) > 0 {
+		return nil, nodeConflict
+	}
+	return nil, nodeNone
+}
+
+// sourceEligible keeps nodes with no recorded chain scope or whose scope covers source.
+func sourceEligible(nodes []*Node, source uint64) []*Node {
+	out := make([]*Node, 0, len(nodes))
+	for _, node := range nodes {
+		if len(node.VerifierSourceChains) == 0 || slices.Contains(node.VerifierSourceChains, ChainSelector(source)) {
+			out = append(out, node)
+		}
+	}
+	return out
 }
 
 // member resolves one signer, as its verifier chain's family stores it, to a committee member.
-// The returned node backs role promotion; it is nil when the member is unresolved or ambiguous.
-func (r *resolver) member(family, signer, qualifier string) (Member, *Node, bool) {
+// The returned node backs role promotion; it is nil unless the resolution is exact.
+func (r *resolver) member(family, signer, qualifier string, source uint64) (Member, *Node) {
 	addr := canonicalSigner(family, signer)
 	if addr == "" {
-		return Member{SignerAddress: strings.ToLower(strings.TrimSpace(signer))}, nil, false
+		return Member{SignerAddress: strings.ToLower(strings.TrimSpace(signer))}, nil
 	}
 	m := Member{SignerAddress: addr, SignerPubKey: r.pubKeys[addr]}
 	if aliases := r.aliases[addr]; len(aliases) == 1 {
 		m.NOPAlias = aliases[0]
-		node, ambiguous := r.verifierFor(m.NOPAlias, qualifier)
-		if node != nil {
+		if node, status := r.verifierFor(m.NOPAlias, qualifier, source); status == nodeResolved {
 			m.NodeID = node.ID
 			m.CSAKey = node.CSAKey
+			return m, node
 		}
-		return m, node, ambiguous
 	}
-	return m, nil, false
+	return m, nil
 }

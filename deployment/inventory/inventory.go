@@ -92,8 +92,11 @@ type Node struct {
 	Roles    []Role `json:"roles,omitempty"`
 	// VerifierQualifiers are the committee qualifiers this node's verifier jobs are scoped to.
 	// They bind a committee signer to the exact node that signs for that committee.
-	VerifierQualifiers []string          `json:"verifierQualifiers,omitempty"`
-	Labels             map[string]string `json:"labels,omitempty"`
+	VerifierQualifiers []string `json:"verifierQualifiers,omitempty"`
+	// VerifierSourceChains are the source chain selectors this node's verifier jobs are
+	// configured to verify. Empty means no recorded chain scope, so any source is eligible.
+	VerifierSourceChains []ChainSelector   `json:"verifierSourceChains,omitempty"`
+	Labels               map[string]string `json:"labels,omitempty"`
 }
 
 // Where a committee's signer set was read from.
@@ -158,6 +161,7 @@ const (
 	IssueUnresolvedSigner         = "unresolved-signer"
 	IssueMissingNode              = "missing-node"
 	IssueAmbiguousNode            = "ambiguous-node"
+	IssueVerifierScopeConflict    = "verifier-scope-conflict"
 	IssueAggregatorDrift          = "aggregator-drift"
 	IssueExecutorPoolDrift        = "executor-pool-drift"
 	IssueUnsupportedExecutorChain = "unsupported-executor-chain"

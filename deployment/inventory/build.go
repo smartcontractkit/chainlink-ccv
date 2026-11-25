@@ -45,7 +45,7 @@ func Build(in Inputs) *Inventory {
 	b.reportAmbiguousSigners(r)
 	b.addCommittees(in.Aggregators, in.AggregatorQualifiers, r)
 	b.addExecutorPools(in.Jobs, r)
-	b.reportIdentityGaps()
+	b.checkIdentities(r)
 	b.inv.normalize()
 	return b.inv
 }
@@ -103,6 +103,7 @@ func (b *builder) addNodes(jdNodes map[string]NodeRecord, jobs shared.NOPJobs, q
 	nodeAlias := make(map[string]string)
 	nodeRoles := make(map[string]map[Role]struct{})
 	nodeQualifiers := make(map[string]map[string]struct{})
+	nodeChains := make(map[string]map[ChainSelector]struct{})
 	for _, alias := range sortedKeys(jobs) {
 		for _, jobID := range sortedKeys(jobs[alias]) {
 			job := jobs[alias][jobID]
@@ -124,12 +125,7 @@ func (b *builder) addNodes(jdNodes map[string]NodeRecord, jobs shared.NOPJobs, q
 				nodeRoles[job.NodeID][role] = struct{}{}
 			}
 			if role == RoleVerifier {
-				if q := jobCommitteeQualifier(jobID, qualifiers); q != "" {
-					if nodeQualifiers[job.NodeID] == nil {
-						nodeQualifiers[job.NodeID] = make(map[string]struct{})
-					}
-					nodeQualifiers[job.NodeID][q] = struct{}{}
-				}
+				b.recordVerifierScope(job, jobID, qualifiers, nodeQualifiers, nodeChains)
 			}
 		}
 	}
@@ -150,6 +146,7 @@ func (b *builder) addNodes(jdNodes map[string]NodeRecord, jobs shared.NOPJobs, q
 		}
 		node.Roles = sortedKeys(nodeRoles[id])
 		node.VerifierQualifiers = sortedKeys(nodeQualifiers[id])
+		node.VerifierSourceChains = sortedKeys(nodeChains[id])
 		if i, ok := nopIndex[node.NOPAlias]; ok {
 			b.inv.NOPs[i].NodeIDs = append(b.inv.NOPs[i].NodeIDs, id)
 		}
@@ -169,6 +166,31 @@ func jobRole(spec string) (Role, error) {
 		return RoleExecutor, nil
 	default:
 		return "", nil
+	}
+}
+
+// recordVerifierScope records a verifier job's committee qualifier and source-chain coverage
+// for its node, so committee members can be bound to the exact signing node.
+func (b *builder) recordVerifierScope(job shared.JobInfo, jobID shared.JobID, qualifiers []string, nodeQualifiers map[string]map[string]struct{}, nodeChains map[string]map[ChainSelector]struct{}) {
+	if q := jobCommitteeQualifier(jobID, qualifiers); q != "" {
+		if nodeQualifiers[job.NodeID] == nil {
+			nodeQualifiers[job.NodeID] = make(map[string]struct{})
+		}
+		nodeQualifiers[job.NodeID][q] = struct{}{}
+	}
+	chains, err := shared.VerifierSourceChains(job.Spec)
+	if err != nil {
+		b.issue(IssueUnreadableJob, string(jobID), err.Error())
+		return
+	}
+	if len(chains) == 0 {
+		return
+	}
+	if nodeChains[job.NodeID] == nil {
+		nodeChains[job.NodeID] = make(map[ChainSelector]struct{})
+	}
+	for _, chain := range chains {
+		nodeChains[job.NodeID][ChainSelector(chain)] = struct{}{}
 	}
 }
 
@@ -280,29 +302,16 @@ func (b *builder) addCommittees(aggregators map[string]*model.Committee, qualifi
 	}
 }
 
-// members resolves signers as family stores them, marks signing nodes as verifiers, and records
-// signers no NOP claims, NOPs with no node, and NOPs whose exact signing node is ambiguous.
+// members resolves signers as family stores them and marks signing nodes as verifiers.
+// Identity gaps are reported by checkIdentities over the final committee rows.
 func (b *builder) members(r *resolver, family string, signers []string, source uint64, qualifier string, pubKeys map[string]string) []Member {
 	out := make([]Member, 0, len(signers))
 	for _, signer := range signers {
-		m, node, ambiguous := r.member(family, signer, qualifier)
+		m, node := r.member(family, signer, qualifier, source)
 		if m.SignerPubKey == "" {
 			m.SignerPubKey = onchainPubKey(pubKeys, signer, m.SignerAddress)
 		}
-		switch {
-		case m.NOPAlias == "" && len(r.aliases[m.SignerAddress]) > 1:
-			// Already reported as an ambiguous signer.
-		case m.NOPAlias == "":
-			if b.unresolved[m.SignerAddress] == nil {
-				b.unresolved[m.SignerAddress] = make(map[uint64]struct{})
-			}
-			b.unresolved[m.SignerAddress][source] = struct{}{}
-		case ambiguous:
-			b.issue(IssueAmbiguousNode, m.NOPAlias,
-				fmt.Sprintf("several verifier nodes could sign for committee %q; node left unresolved", qualifier))
-		case node == nil:
-			b.nodeless[m.NOPAlias] = struct{}{}
-		case !slices.Contains(node.Roles, RoleVerifier):
+		if node != nil && !slices.Contains(node.Roles, RoleVerifier) {
 			node.Roles = append(node.Roles, RoleVerifier)
 		}
 		out = append(out, m)
@@ -321,6 +330,38 @@ func onchainPubKey(pubKeys map[string]string, signer, addr string) string {
 		return normalized
 	}
 	return ""
+}
+
+// checkIdentities rebuilds unresolved-signer, missing-node, ambiguous-node and scope-conflict
+// issues from the final committee rows, so a removed row cannot leave a stale alert behind.
+func (b *builder) checkIdentities(r *resolver) {
+	for _, c := range b.inv.Committees {
+		for _, m := range c.Members {
+			if m.NOPAlias == "" {
+				if len(r.aliases[m.SignerAddress]) > 1 {
+					continue // Already reported as an ambiguous signer.
+				}
+				if b.unresolved[m.SignerAddress] == nil {
+					b.unresolved[m.SignerAddress] = make(map[uint64]struct{})
+				}
+				b.unresolved[m.SignerAddress][uint64(c.SourceChain)] = struct{}{}
+				continue
+			}
+			_, status := r.verifierFor(m.NOPAlias, c.Qualifier, uint64(c.SourceChain))
+			switch status {
+			case nodeAmbiguous:
+				b.issue(IssueAmbiguousNode, m.NOPAlias,
+					fmt.Sprintf("several verifier nodes could sign for committee %q; node left unresolved", c.Qualifier))
+			case nodeConflict:
+				b.issue(IssueVerifierScopeConflict, m.NOPAlias, fmt.Sprintf(
+					"recorded verifier scope does not cover committee %q, source %s; node left unresolved",
+					c.Qualifier, chainLabel(uint64(c.SourceChain))))
+			case nodeNone:
+				b.nodeless[m.NOPAlias] = struct{}{}
+			}
+		}
+	}
+	b.reportIdentityGaps()
 }
 
 func (b *builder) reportIdentityGaps() {

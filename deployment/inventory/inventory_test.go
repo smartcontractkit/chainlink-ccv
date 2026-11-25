@@ -231,6 +231,101 @@ func assertAmbiguousMember(t *testing.T, inv *Inventory) {
 	})
 }
 
+func TestBuild_ScopeConflictLeavesNodeUnresolved(t *testing.T) {
+	t.Parallel()
+
+	// The NOP's only verifier node is scoped to default (a known qualifier); one committee
+	// is secondary, which that node does not cover.
+	quorum := func() *model.Committee {
+		return &model.Committee{QuorumConfigs: map[model.SourceSelector]*model.QuorumConfig{
+			fmt.Sprint(ethereum): {Signers: []model.Signer{{Address: alphaAddr}}, Threshold: 1},
+		}}
+	}
+	in := Inputs{
+		Aggregators:          map[string]*model.Committee{"aggregator-1": quorum(), "aggregator-2": quorum()},
+		AggregatorQualifiers: map[string]string{"aggregator-1": "secondary", "aggregator-2": "default"},
+		Signers:              map[string]map[string]string{"nop": {"evm": alphaAddr}},
+		Nodes:                map[string]NodeRecord{"node-default": {Name: "verifier-default", CSAKey: "csa-default"}},
+		Jobs: shared.NOPJobs{"nop": {
+			"nop-default-verifier": {JobID: "nop-default-verifier", NOPAlias: "nop", NodeID: "node-default", Spec: verifierSpec()},
+		}},
+	}
+	inv := Build(in)
+	sets := committeesFor(inv, ethereum)
+	require.Len(t, sets, 2)
+	for _, c := range sets {
+		m := memberFor(t, c, alphaAddr)
+		assert.Equal(t, "nop", m.NOPAlias)
+		if c.Qualifier == "default" {
+			assert.Equal(t, "node-default", m.NodeID, "the matching committee resolves the node")
+			assert.Equal(t, "csa-default", m.CSAKey)
+		} else {
+			assert.Empty(t, m.NodeID, "a node scoped to another committee is never assigned by fallback")
+			assert.Empty(t, m.CSAKey)
+		}
+	}
+	assert.Contains(t, inv.Issues, Issue{
+		Kind: IssueVerifierScopeConflict, Subject: "nop",
+		Detail: `recorded verifier scope does not cover committee "secondary", source ethereum-mainnet; node left unresolved`,
+	})
+}
+
+func TestBuild_SourceChainScopesResolution(t *testing.T) {
+	t.Parallel()
+
+	// Two verifier jobs in the default committee, each covering a different source chain.
+	jobs := shared.NOPJobs{"nop": {
+		"nop-default-verifier": {
+			JobID: "nop-default-verifier", NOPAlias: "nop", NodeID: "node-eth",
+			Spec: verifierSpecWithChains(uint64(ethereum)),
+		},
+		"nop-aggregator-1-default-verifier": {
+			JobID: "nop-aggregator-1-default-verifier", NOPAlias: "nop", NodeID: "node-base",
+			Spec: verifierSpecWithChains(uint64(base)),
+		},
+	}}
+	in := Inputs{
+		Aggregators: map[string]*model.Committee{"aggregator-1": {QuorumConfigs: map[model.SourceSelector]*model.QuorumConfig{
+			fmt.Sprint(ethereum): {Signers: []model.Signer{{Address: alphaAddr}}, Threshold: 1},
+			fmt.Sprint(base):     {Signers: []model.Signer{{Address: alphaAddr}}, Threshold: 1},
+			fmt.Sprint(canton):   {Signers: []model.Signer{{Address: alphaAddr}}, Threshold: 1},
+		}}},
+		AggregatorQualifiers: map[string]string{"aggregator-1": "default"},
+		Signers:              map[string]map[string]string{"nop": {"evm": alphaAddr}},
+		Nodes: map[string]NodeRecord{
+			"node-eth":  {Name: "verifier-eth", CSAKey: "csa-eth"},
+			"node-base": {Name: "verifier-base", CSAKey: "csa-base"},
+		},
+		Jobs: jobs,
+	}
+	inv := Build(in)
+
+	eth := memberFor(t, committeeFor(t, inv, SourceAggregator, ethereum), alphaAddr)
+	assert.Equal(t, "node-eth", eth.NodeID)
+	assert.Equal(t, "csa-eth", eth.CSAKey)
+	baseMember := memberFor(t, committeeFor(t, inv, SourceAggregator, base), alphaAddr)
+	assert.Equal(t, "node-base", baseMember.NodeID)
+	assert.Equal(t, "csa-base", baseMember.CSAKey)
+
+	cantonMember := memberFor(t, committeeFor(t, inv, SourceAggregator, canton), alphaAddr)
+	assert.Empty(t, cantonMember.NodeID, "no recorded job covers canton, so no node is guessed")
+	assert.Contains(t, inv.Issues, Issue{
+		Kind: IssueVerifierScopeConflict, Subject: "nop",
+		Detail: `recorded verifier scope does not cover committee "default", source canton-mainnet; node left unresolved`,
+	})
+}
+
+// verifierSpecWithChains renders a ccvcommitteeverifier spec whose config covers the given
+// source chains through its committee verifier address map.
+func verifierSpecWithChains(chains ...uint64) string {
+	entries := make([]string, 0, len(chains))
+	for _, chain := range chains {
+		entries = append(entries, fmt.Sprintf(`"%d" = "0x1000000000000000000000000000000000000002"`, chain))
+	}
+	return fmt.Sprintf("schemaVersion = 1\ntype = \"ccvcommitteeverifier\"\ncommitteeVerifierConfig = '''\ncommittee_verifier_addresses = {%s}\n'''\n",
+		strings.Join(entries, ", "))
+}
+
 func TestBuild_EmptyInputs(t *testing.T) {
 	t.Parallel()
 
