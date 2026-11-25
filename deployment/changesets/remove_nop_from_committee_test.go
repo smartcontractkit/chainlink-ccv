@@ -409,7 +409,17 @@ func TestRemoveNOPOffchain_Apply_PublishesObservedCommittee(t *testing.T) {
 	}
 	require.Len(t, onchain, 1, "the removal run itself publishes the observed committee")
 	assert.Equal(t, uint8(2), onchain[0].Threshold)
+	assert.Equal(t, qualifier, onchain[0].Qualifier, "the qualifier is persisted in the same output, not left to legacy fallback")
 	assert.Len(t, onchain[0].Members, 2, "the removed signer is gone from the inventory in the same run, not after another scan")
+
+	var aggregatorCommittees int
+	for _, c := range inv.Committees {
+		if c.Source == inventory.SourceAggregator {
+			aggregatorCommittees++
+			assert.Equal(t, qualifier, c.Qualifier, "drift and attribution use the saved qualifier")
+		}
+	}
+	assert.Positive(t, aggregatorCommittees)
 }
 
 func TestRemoveNOPOffchain_Apply_UsesAllDiscoveredDestChains(t *testing.T) {

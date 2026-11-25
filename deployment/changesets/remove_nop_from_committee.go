@@ -169,7 +169,7 @@ func RemoveNOPOffchain() deployment.ChangeSetV2[RemoveNOPOffchainInput] {
 
 		// The post-removal reads are the current signer set: publish them with the config so a
 		// removed NOP leaves the inventory in the same run instead of after another scan.
-		outputDS, err := saveAggregatorRun(e, cfg.ServiceIdentifiers, committee, committeeChains, states)
+		outputDS, err := saveAggregatorRun(e, cfg.ServiceIdentifiers, committee, cfg.CommitteeQualifier, committeeChains, states)
 		if err != nil {
 			return deployment.ChangesetOutput{}, err
 		}
