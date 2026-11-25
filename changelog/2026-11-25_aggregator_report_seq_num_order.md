@@ -23,7 +23,7 @@ None.
 
 - **New function:** `next_aggregated_report_seq_num()` calls `pg_advisory_xact_lock(5323499729184835101)`, then `nextval('commit_aggregated_reports_seq_num_seq')`. The key is the crc64 ECMA checksum of `aggregated_report_seq_num`. It is different from the migration lock key.
 - **New default:** `commit_aggregated_reports.seq_num` uses the new function. The lock holds until the transaction ends. The next writer waits until then.
-- **Sequence:** `commit_aggregated_reports_seq_num_seq` keeps `CACHE 1`.
+- **Sequence:** The migration sets `CACHE 1` on `commit_aggregated_reports_seq_num_seq`. It does this after the `ALTER TABLE`, so it never waits on a live insert.
 - **Duplicates:** The default runs before the `ON CONFLICT` check. A duplicate submit also takes the lock and uses one number. Gaps in `seq_num` are still possible. Clients must not expect gapless numbers.
 - **Unchanged:** `commit_verification_records_seq_num_seq` is not read as a cursor and keeps `nextval()`.
 

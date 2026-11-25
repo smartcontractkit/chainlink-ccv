@@ -2225,3 +2225,14 @@ func TestMigrations_AggregatedReportSeqNumUsesSerializedDefault(t *testing.T) {
 		WHERE d.adrelid = 'commit_aggregated_reports'::regclass AND a.attname = 'seq_num'`))
 	require.Contains(t, def, "next_aggregated_report_seq_num()")
 }
+
+// A cache above 1 lets each session allocate seq_num values ahead of the advisory lock order.
+func TestMigrations_AggregatedReportSeqNumSequenceUsesCacheOne(t *testing.T) {
+	_, db, cleanup := setupTestDBWithDatabase(t)
+	defer cleanup()
+
+	var cacheSize int64
+	require.NoError(t, db.Get(&cacheSize,
+		`SELECT cache_size FROM pg_sequences WHERE sequencename = 'commit_aggregated_reports_seq_num_seq'`))
+	require.Equal(t, int64(1), cacheSize)
+}

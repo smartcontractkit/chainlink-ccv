@@ -13,10 +13,11 @@ END;
 $$;
 -- +goose StatementEnd
 
-ALTER SEQUENCE commit_aggregated_reports_seq_num_seq CACHE 1;
-
 ALTER TABLE commit_aggregated_reports
     ALTER COLUMN seq_num SET DEFAULT next_aggregated_report_seq_num();
+
+-- Must come after ALTER TABLE: the table lock stops inserts before the sequence is locked.
+ALTER SEQUENCE commit_aggregated_reports_seq_num_seq CACHE 1;
 
 -- +goose Down
 SET LOCAL lock_timeout = '5s';
