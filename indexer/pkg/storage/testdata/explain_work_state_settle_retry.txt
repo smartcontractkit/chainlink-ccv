@@ -1,0 +1,11 @@
+=== EXPLAIN ANALYZE: settle_retry ===
+Update on indexer.messages  (cost=0.42..8.46 rows=1 width=78) (actual time=0.047..0.049 rows=1 loops=1)
+  Output: status
+  Buffers: shared hit=17
+  ->  Index Scan using messages_pkey on indexer.messages  (cost=0.42..8.46 rows=1 width=78) (actual time=0.017..0.018 rows=1 loops=1)
+        Output: CASE WHEN ((retry_deadline IS NULL) OR ((now() + '00:00:04'::interval) >= retry_deadline)) THEN 'TIMEOUT'::text ELSE status END, 'retry'::text, (now() + '00:00:04'::interval), ctid
+        Index Cond: (messages.message_id = 'retry-1'::text)
+        Filter: ((messages.status = 'PROCESSING'::text) AND (messages.attempt_count = 1))
+        Buffers: shared hit=4
+Planning Time: 0.075 ms
+Execution Time: 0.066 ms

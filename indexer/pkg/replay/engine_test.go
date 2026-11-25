@@ -25,6 +25,7 @@ type mockReplayStorage struct {
 	upsertMsgErr   error
 	upsertCCVErr   error
 	forceUsed      bool
+	requeued       []protocol.Bytes32
 }
 
 func newMockReplayStorage() *mockReplayStorage {
@@ -62,6 +63,13 @@ func (m *mockReplayStorage) GetMessage(ctx context.Context, messageID protocol.B
 		return m.getMessageFunc(ctx, messageID)
 	}
 	return common.MessageWithMetadata{}, fmt.Errorf("message not found")
+}
+
+func (m *mockReplayStorage) RequeueMessages(_ context.Context, ids []protocol.Bytes32, _ time.Duration) ([]protocol.Bytes32, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.requeued = append(m.requeued, ids...)
+	return ids, nil
 }
 
 func (m *mockReplayStorage) capturedMessages() []common.MessageWithMetadata {
@@ -429,7 +437,8 @@ func TestRunMessageReplay_EmptyMessageIDs(t *testing.T) {
 	assert.Contains(t, err.Error(), "at least one message ID")
 }
 
-func TestRunMessageReplay_NilRegistry(t *testing.T) {
+// Force replay calls the verifiers itself, so it needs the registry.
+func TestRunMessageReplay_ForceNeedsRegistry(t *testing.T) {
 	lggr := logger.Test(t)
 
 	engine := &Engine{
@@ -437,10 +446,11 @@ func TestRunMessageReplay_NilRegistry(t *testing.T) {
 	}
 
 	job := &Job{
-		ID:         "test-nil-reg",
-		Type:       TypeMessages,
-		Status:     StatusRunning,
-		MessageIDs: []string{"0x1234"},
+		ID:             "test-nil-reg",
+		Type:           TypeMessages,
+		Status:         StatusRunning,
+		MessageIDs:     []string{"0x1234"},
+		ForceOverwrite: true,
 	}
 
 	err := engine.runMessageReplay(context.Background(), job)

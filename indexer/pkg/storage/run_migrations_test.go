@@ -5,7 +5,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/require"
+
+	"github.com/smartcontractkit/chainlink-ccv/indexer/testutil"
 )
 
 // A caller whose context expires while another migration holds the gate must
@@ -19,4 +22,25 @@ func TestRunMigrationsContext_GateHonorsContext(t *testing.T) {
 
 	err := RunMigrationsContext(ctx, nil)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
+}
+
+// Replicas that start at the same time must all migrate successfully.
+func TestRunMigrationsContext_ConcurrentProcesses(t *testing.T) {
+	uri, cleanup := testutil.SetupTestPostgresURI(t)
+	defer cleanup()
+
+	const replicas = 3
+	errs := make(chan error, replicas)
+	for range replicas {
+		db, err := sqlx.Open("postgres", uri)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = db.Close() })
+		go func() {
+			// Use the internal runner per goroutine: the in-process gate would hide the race.
+			errs <- runLockedMigrations(t.Context(), db)
+		}()
+	}
+	for range replicas {
+		require.NoError(t, <-errs)
+	}
 }

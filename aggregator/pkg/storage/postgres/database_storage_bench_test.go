@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"encoding/hex"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,33 +20,7 @@ func BenchmarkSubmitAggregatedReport(b *testing.B) {
 	defer cleanup()
 
 	ctx := b.Context()
-	signer1 := newTestSigner(b)
-	signer2 := newTestSigner(b)
-
-	reports := make([]*model.CommitAggregatedReport, 0, numSeedReports)
-	for i := range numSeedReports {
-		message := createTestProtocolMessage()
-		message.SequenceNumber = protocol.SequenceNumber(i)
-		msgWithCCV1 := createTestMessageWithCCV(b, message, signer1)
-		messageID := getMessageIDFromProto(b, msgWithCCV1)
-		aggKey := hex.EncodeToString(messageID)
-		r1 := createTestCommitVerificationRecord(b, msgWithCCV1, signer1)
-		r1.MessageID = messageID
-		if err := storage.SaveCommitVerification(ctx, []model.CommitVerificationWrite{{Record: r1, AggregationKey: aggKey}}); err != nil {
-			b.Fatalf("save verification 1: %v", err)
-		}
-		msgWithCCV2 := createTestMessageWithCCV(b, message, signer2)
-		r2 := createTestCommitVerificationRecord(b, msgWithCCV2, signer2)
-		r2.MessageID = messageID
-		if err := storage.SaveCommitVerification(ctx, []model.CommitVerificationWrite{{Record: r2, AggregationKey: aggKey}}); err != nil {
-			b.Fatalf("save verification 2: %v", err)
-		}
-		reports = append(reports, &model.CommitAggregatedReport{
-			MessageID:      messageID,
-			AggregationKey: aggKey,
-			Verifications:  []*model.CommitVerificationRecord{r1, r2},
-		})
-	}
+	reports := seedAggregatedReports(b, storage, numSeedReports, 0)
 
 	for b.Loop() {
 		start := time.Now()
@@ -191,4 +166,96 @@ func setupTestDBForBench(b *testing.B) (*DatabaseStorage, func()) {
 	b.Helper()
 	storage, _, cleanup := setupTestDBWithDatabase(b)
 	return storage, cleanup
+}
+
+// seedAggregatedReports saves two verifications per message and returns the reports, not yet submitted.
+func seedAggregatedReports(b *testing.B, storage *DatabaseStorage, n, firstSeq int) []*model.CommitAggregatedReport {
+	b.Helper()
+	ctx := b.Context()
+	signer1 := newTestSigner(b)
+	signer2 := newTestSigner(b)
+
+	reports := make([]*model.CommitAggregatedReport, 0, n)
+	for i := range n {
+		message := createTestProtocolMessage()
+		message.SequenceNumber = protocol.SequenceNumber(firstSeq + i)
+		msgWithCCV1 := createTestMessageWithCCV(b, message, signer1)
+		messageID := getMessageIDFromProto(b, msgWithCCV1)
+		aggKey := hex.EncodeToString(messageID)
+		r1 := createTestCommitVerificationRecord(b, msgWithCCV1, signer1)
+		r1.MessageID = messageID
+		if err := storage.SaveCommitVerification(ctx, []model.CommitVerificationWrite{{Record: r1, AggregationKey: aggKey}}); err != nil {
+			b.Fatalf("save verification 1: %v", err)
+		}
+		msgWithCCV2 := createTestMessageWithCCV(b, message, signer2)
+		r2 := createTestCommitVerificationRecord(b, msgWithCCV2, signer2)
+		r2.MessageID = messageID
+		if err := storage.SaveCommitVerification(ctx, []model.CommitVerificationWrite{{Record: r2, AggregationKey: aggKey}}); err != nil {
+			b.Fatalf("save verification 2: %v", err)
+		}
+		reports = append(reports, &model.CommitAggregatedReport{
+			MessageID:      messageID,
+			AggregationKey: aggKey,
+			Verifications:  []*model.CommitVerificationRecord{r1, r2},
+		})
+	}
+	return reports
+}
+
+// submitConcurrently submits all reports with a fixed number of workers and reports the throughput.
+func submitConcurrently(b *testing.B, storage *DatabaseStorage, reports []*model.CommitAggregatedReport, workers int) {
+	b.Helper()
+	ctx := b.Context()
+	work := make(chan *model.CommitAggregatedReport)
+	var wg sync.WaitGroup
+	start := time.Now()
+	for range workers {
+		wg.Go(func() {
+			for r := range work {
+				if _, err := storage.SubmitAggregatedReport(ctx, r); err != nil {
+					b.Errorf("submit aggregated report: %v", err)
+				}
+			}
+		})
+	}
+	for _, r := range reports {
+		work <- r
+	}
+	close(work)
+	wg.Wait()
+	elapsed := time.Since(start)
+	b.ReportMetric(float64(len(reports))/elapsed.Seconds(), "reports/sec")
+}
+
+func BenchmarkSubmitAggregatedReport_Concurrent(b *testing.B) {
+	if testing.Short() {
+		b.Skip("skipping benchmark in short mode")
+	}
+	const (
+		workers   = 4
+		batchSize = 2_000
+	)
+
+	b.Run("new", func(b *testing.B) {
+		storage, cleanup := setupTestDBForBench(b)
+		defer cleanup()
+		firstSeq := 0
+		for b.Loop() {
+			b.StopTimer()
+			reports := seedAggregatedReports(b, storage, batchSize, firstSeq)
+			firstSeq += batchSize
+			b.StartTimer()
+			submitConcurrently(b, storage, reports, workers)
+		}
+	})
+
+	b.Run("duplicate", func(b *testing.B) {
+		storage, cleanup := setupTestDBForBench(b)
+		defer cleanup()
+		reports := seedAggregatedReports(b, storage, batchSize, 0)
+		submitConcurrently(b, storage, reports, workers)
+		for b.Loop() {
+			submitConcurrently(b, storage, reports, workers)
+		}
+	})
 }

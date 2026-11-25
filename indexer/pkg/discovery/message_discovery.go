@@ -72,7 +72,6 @@ type AggregatorMessageDiscovery struct {
 	metrics           common.IndexerMetricLabeler
 	tracing           commontracing.Tracing
 	timeProvider      ccvcommon.TimeProvider
-	messageCh         chan common.VerifierResultWithMetadata
 	doneCh            chan struct{}
 	wg                sync.WaitGroup
 	cancelFunc        context.CancelFunc
@@ -170,8 +169,7 @@ func WithLeadershipGate(gate LeadershipGate) Option {
 
 func NewAggregatorMessageDiscovery(opts ...Option) (common.MessageDiscovery, error) {
 	a := &AggregatorMessageDiscovery{
-		messageCh: make(chan common.VerifierResultWithMetadata),
-		doneCh:    make(chan struct{}),
+		doneCh: make(chan struct{}),
 	}
 
 	// Apply all options
@@ -228,20 +226,16 @@ func (a *AggregatorMessageDiscovery) validate() error {
 	return nil
 }
 
-func (a *AggregatorMessageDiscovery) Start(ctx context.Context) chan common.VerifierResultWithMetadata {
+func (a *AggregatorMessageDiscovery) Start(ctx context.Context) {
 	childCtx, cancelFunc := context.WithCancel(ctx)
 	a.wg.Add(1)
 	go a.run(childCtx)
 	a.cancelFunc = cancelFunc
 	a.logger.Info("MessageDiscovery Started")
-
-	// Return a channel that emits all messages discovered from the aggregator
-	return a.messageCh
 }
 
 func (a *AggregatorMessageDiscovery) Close() error {
 	a.cancelFunc()
-	defer close(a.messageCh)
 	close(a.doneCh)
 	a.wg.Wait()
 	a.logger.Info("MessageDiscovery Stopped")
@@ -255,10 +249,6 @@ func (a *AggregatorMessageDiscovery) run(ctx context.Context) {
 	ticker := time.NewTicker(time.Duration(a.config.PollInterval) * time.Millisecond)
 	defer ticker.Stop()
 
-	// Ticker to sample the discovery message channel size periodically
-	sampleTicker := time.NewTicker(time.Second)
-	defer sampleTicker.Stop()
-
 	// loadedElectionCount is the election for which the cursor was last loaded from storage.
 	var loadedElectionCount uint64
 
@@ -267,10 +257,6 @@ func (a *AggregatorMessageDiscovery) run(ctx context.Context) {
 		case <-ctx.Done():
 			a.logger.Info("MessageDiscovery stopped due to context cancellation")
 			return
-		case <-sampleTicker.C:
-			// Use background or provided ctx; keep it tied to lifecycle so metrics shutdown works with parent.
-			a.metrics.RecordVerificationRecordChannelSizeGauge(ctx, int64(len(a.messageCh)))
-
 		case <-ticker.C:
 			var leaderCtx context.Context
 			if a.leadership != nil {
@@ -399,7 +385,7 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 
 	// We use a discovery priority for the multi-source scenario where we want to ensure data
 	// consistency.  The delay is applied after reading so the aggregator is queried immediately,
-	// but persisting and channel emission are deferred, giving higher-priority sources time to
+	// but persisting is deferred, giving higher-priority sources time to
 	// persist first.
 	delay := time.Duration(a.discoveryPriority) * a.priorityStagger
 	if err := a.waitForPrioritySlot(ctx, delay); err != nil {
@@ -407,16 +393,7 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 		return false, err
 	}
 
-	if len(messages) > 0 || len(persistedVerifications) > 0 {
-		if err := a.persistBatch(ctx, messages, persistedVerifications, ableToSetSinceValue); err != nil {
-			a.logger.Warnw("Unable to persist discovery batch, will retry", "error", err)
-			resetSinceValue()
-			return false, err
-		}
-	}
-
-	// Open one discovery span per message in this batch, capturing its traceparent so the
-	// worker's process span can become a real child of it.
+	// Open one discovery span per verification.
 	spans := make([]oteltrace.Span, 0, len(allVerifications))
 	defer func() {
 		for _, span := range spans {
@@ -434,19 +411,20 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 		otel.GetTextMapPropagator().Inject(spanCtx, carrier)
 		item.Metadata.TraceParent = carrier.Get("traceparent")
 	}
+	setMessageTraceParents(messages, allVerifications)
 
-	for _, verifierResultWithMetadata := range allVerifications {
-		// Use a context-aware send so that if the context is canceled while
-		// enqueueMessages has already exited (leaving messageCh with no reader), we return
-		// cleanly instead of blocking forever and preventing wg.Done() from being called.
-		select {
-		case <-ctx.Done():
-			return false, ctx.Err()
-		case a.messageCh <- verifierResultWithMetadata:
+	if len(messages) > 0 || len(persistedVerifications) > 0 {
+		if err := a.persistBatch(ctx, messages, persistedVerifications, ableToSetSinceValue); err != nil {
+			a.logger.Warnw("Unable to persist discovery batch, will retry", "error", err)
+			resetSinceValue()
+			return false, err
 		}
-		// Record the channel size after send so the metric reflects the current backlog.
-		a.metrics.RecordVerificationRecordChannelSizeGauge(ctx, int64(len(a.messageCh)))
-		a.metrics.RecordTimeToIndex(ctx, time.Since(verifierResultWithMetadata.Metadata.AttestationTimestamp), "aggregator")
+	}
+
+	for _, v := range allVerifications {
+		// PER-MESSAGE LOG (status): once per verification (not per message).
+		a.logger.Infow("Enqueueing verification", protocol.LogTypeKey, protocol.LogTypeMessageStatus, protocol.LogKeyMessageID, v.VerifierResult.MessageID.String(), "verifierSourceAddress", v.VerifierResult.VerifierSourceAddress)
+		a.metrics.RecordTimeToIndex(ctx, time.Since(v.Metadata.AttestationTimestamp), "aggregator")
 	}
 
 	// Return true if we processed any data, false if the slice was empty
@@ -551,4 +529,19 @@ func (a *AggregatorMessageDiscovery) persistBatch(
 
 func (a *AggregatorMessageDiscovery) isCircuitBreakerOpen() bool {
 	return a.aggregatorReader.GetDiscoveryCircuitBreakerState() == circuitbreaker.OpenState
+}
+
+// setMessageTraceParents stores the first discovery traceparent of each message on it, so the worker span is its child.
+func setMessageTraceParents(messages []common.MessageWithMetadata, verifications []common.VerifierResultWithMetadata) {
+	traceParents := make(map[protocol.Bytes32]string, len(verifications))
+	for _, v := range verifications {
+		if _, ok := traceParents[v.VerifierResult.MessageID]; !ok && v.Metadata.TraceParent != "" {
+			traceParents[v.VerifierResult.MessageID] = v.Metadata.TraceParent
+		}
+	}
+	for i := range messages {
+		if id, err := messages[i].Message.MessageID(); err == nil {
+			messages[i].Metadata.TraceParent = traceParents[id]
+		}
+	}
 }

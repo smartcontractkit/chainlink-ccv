@@ -33,14 +33,20 @@ The `--since` flag takes an aggregator sequence number (unsigned integer). All m
 
 Without `--force` the replay backfills only — existing messages and CCV records are left untouched (`ON CONFLICT DO NOTHING`). With `--force`, existing records are overwritten (`ON CONFLICT DO UPDATE`).
 
+A new message is written as `PROCESSING`. The live indexer workers claim it and fetch the missing CCV records.
+
 ### Message Replay
 
-Fetches CCV records from all configured verifiers for a specific set of message IDs. Does not re-run discovery.
+Puts a specific set of message IDs back in the `PROCESSING` status for the live indexer workers. Does not re-run discovery. Use it to reprocess messages that timed out.
 
 ```
 indexer-replay messages --ids "0xabc123,0xdef456"
 indexer-replay messages --ids "0xabc123,0xdef456" --force
 ```
+
+Each message that is not `SUCCESS` gets the status `PROCESSING` and a new deadline of now + `VerificationVisibilityWindow`. The live indexer workers then fetch the missing CCV records, retry with backoff until the deadline, and set the final status. A message that is already `SUCCESS` is left unchanged. A message that a worker processes at that time keeps its current attempt, and only its deadline changes.
+
+With `--force` the replay first fetches the CCV records from all configured verifiers and overwrites the stored records, then requeues the message as above.
 
 ### Job Management
 
@@ -108,10 +114,10 @@ With `restartPolicy: OnFailure` the pod is automatically restarted after a crash
 ┌─────────────────────────────────┐     ┌──────────────────────────────────┐
 │      Live Indexer Process       │     │    Replay CLI Process            │
 │                                 │     │                                  │
-│  Discovery ──► Worker Pool      │     │  CLI ──► Engine                  │
-│                 │               │     │            ├── DiscoveryReplayer │
+│  Discovery ──► messages table   │     │  CLI ──► Engine                  │
+│                 │  (Postgres)   │     │            ├── DiscoveryReplayer │
 │                 ▼               │     │            └── MessageReplayer   │
-│             Scheduler           │     │                                  │
+│             Worker Pool         │     │                                  │
 └────────┬────────────────────────┘     └───────┬──────────────────────────┘
          │                                      │
          │      ┌────────────────────┐          │

@@ -74,15 +74,14 @@ func TestNewLeaderElector_RejectsHeartbeatNotLessThanLease(t *testing.T) {
 
 func TestLeaderElector_FollowerWhenLockIsHeld(t *testing.T) {
 	locker := &fakeLocker{} // not free
-	var elected atomic.Bool
-	e := newTestElector(t, locker, time.Second, 100*time.Millisecond, 20*time.Millisecond,
-		WithOnElected(func(context.Context) { elected.Store(true) }))
+	e := newTestElector(t, locker, time.Second, 100*time.Millisecond, 20*time.Millisecond)
 	e.Start(t.Context())
 	defer e.Close()
 
 	time.Sleep(200 * time.Millisecond)
 	require.False(t, e.IsLeader())
-	require.False(t, elected.Load())
+	_, electionCount, _ := e.LeaderContext()
+	require.Zero(t, electionCount, "a follower is never elected")
 	require.NoError(t, e.Ready(), "a follower is healthy")
 }
 
@@ -104,28 +103,23 @@ func TestLeaderElector_UnhealthyAfterRepeatedAcquireErrors(t *testing.T) {
 func TestLeaderElector_DemotedOnHeartbeatErrorThenElectedAgain(t *testing.T) {
 	locker := &fakeLocker{}
 	locker.free.Store(true)
-	var elections atomic.Int32
-	callbackCtxs := make(chan context.Context, 10)
-	e := newTestElector(t, locker, time.Second, 20*time.Millisecond, 20*time.Millisecond,
-		WithOnElected(func(ctx context.Context) {
-			elections.Add(1)
-			callbackCtxs <- ctx
-		}))
+	e := newTestElector(t, locker, time.Second, 20*time.Millisecond, 20*time.Millisecond)
 	e.Start(t.Context())
 	defer e.Close()
 
 	require.Eventually(t, e.IsLeader, tests.WaitTimeout(t), 5*time.Millisecond)
-	leaderCtx, _, ok := e.LeaderContext()
+	leaderCtx, firstElection, ok := e.LeaderContext()
 	require.True(t, ok)
-	firstCallbackCtx := <-callbackCtxs
 
 	locker.failHeartbeat.Store(true)
 	require.Eventually(t, func() bool { return leaderCtx.Err() != nil }, tests.WaitTimeout(t), 5*time.Millisecond, "leader context must be cancelled on heartbeat failure")
-	require.Error(t, firstCallbackCtx.Err(), "callback context must be cancelled on demotion")
 	require.Eventually(t, func() bool { return locker.releases.Load() >= 1 }, tests.WaitTimeout(t), 5*time.Millisecond)
 
 	locker.failHeartbeat.Store(false)
-	require.Eventually(t, func() bool { return elections.Load() >= 2 && e.IsLeader() }, tests.WaitTimeout(t), 5*time.Millisecond)
+	require.Eventually(t, func() bool {
+		_, electionCount, isLeader := e.LeaderContext()
+		return isLeader && electionCount > firstElection
+	}, tests.WaitTimeout(t), 5*time.Millisecond, "the replica must be elected again")
 }
 
 func TestLeaderElector_CloseReleasesLock(t *testing.T) {

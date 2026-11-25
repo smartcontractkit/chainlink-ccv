@@ -14,8 +14,11 @@ func (e *Engine) runMessageReplay(ctx context.Context, job *Job) error {
 	if len(job.MessageIDs) == 0 {
 		return fmt.Errorf("message replay requires at least one message ID")
 	}
-	if e.registry == nil {
+	if job.ForceOverwrite && e.registry == nil {
 		return fmt.Errorf("verifier registry not configured")
+	}
+	if e.retryWindow <= 0 {
+		return fmt.Errorf("retry window not configured")
 	}
 
 	startIdx := int(job.ProgressCursor)
@@ -40,12 +43,24 @@ func (e *Engine) runMessageReplay(ctx context.Context, job *Job) error {
 
 		e.lggr.Infow("Replaying message", "jobID", job.ID, "messageID", msgIDHex, "index", i, "total", len(job.MessageIDs))
 
-		if err := e.gatherAllVerifications(ctx, job, msgID); err != nil {
-			e.lggr.Warnw("Error gathering verifications for message",
-				"jobID", job.ID,
-				"messageID", msgIDHex,
-				"error", err,
-			)
+		// Force overwrites the stored verifications; the worker only fetches missing ones.
+		if job.ForceOverwrite {
+			if err := e.gatherAllVerifications(ctx, job, msgID); err != nil {
+				e.lggr.Warnw("Error gathering verifications for message",
+					"jobID", job.ID,
+					"messageID", msgIDHex,
+					"error", err,
+				)
+			}
+		}
+
+		// The worker fetches missing verifications, retries, and sets the final status.
+		requeued, err := e.storage.RequeueMessages(ctx, []protocol.Bytes32{msgID}, e.retryWindow)
+		if err != nil {
+			return fmt.Errorf("failed to requeue message %s: %w", msgIDHex, err)
+		}
+		if len(requeued) == 0 {
+			e.lggr.Infow("Message not requeued: already successful or not found", "jobID", job.ID, "messageID", msgIDHex)
 		}
 
 		if err := e.checkpointMessage(ctx, job, i+1); err != nil {

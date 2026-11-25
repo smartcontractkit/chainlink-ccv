@@ -253,6 +253,7 @@ func (c *Cfg) expandAggregators() error {
 				Image:                              agg.Image,
 				Name:                               cloneName,
 				HostPort:                           nextHostPort,
+				Replicas:                           agg.Replicas,
 				SourceCodePath:                     agg.SourceCodePath,
 				RootPath:                           agg.RootPath,
 				CommitteeName:                      agg.CommitteeName,
@@ -368,6 +369,7 @@ func (c *Cfg) expandIndexers() error {
 			clone := &services.IndexerInput{
 				Image:                            idx.Image,
 				Port:                             nextPort,
+				Replicas:                         idx.Replicas,
 				SourceCodePath:                   idx.SourceCodePath,
 				RootPath:                         idx.RootPath,
 				CommitteeVerifierNameToQualifier: copyStringMap(idx.CommitteeVerifierNameToQualifier),

@@ -10,8 +10,8 @@ import (
 
 // MessageDiscovery defines the interface for discovering messages from a trusted discovery source.
 type MessageDiscovery interface {
-	// Start MessageDiscovery and listen to new CCIP Messages.
-	Start(ctx context.Context) chan VerifierResultWithMetadata
+	// Start MessageDiscovery; discovered messages are persisted as PROCESSING for the worker pool.
+	Start(ctx context.Context)
 	// Close gracefully stops MessageDiscovery.
 	Close() error
 }

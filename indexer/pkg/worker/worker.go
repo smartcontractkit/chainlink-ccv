@@ -46,7 +46,8 @@ func Execute(ctx context.Context, task *Task) (*TaskResult, error) {
 	// Verifiers the indexer does not have context of are returned in unknownCCVs
 	// These can then be handled by discovery hooks to acquire the readers
 	// for further tasks. However for this task they will be excluded.
-	verifierReaders, attemptingToRetrieve, unknownCCVs := task.loadVerifierReaders(missing)
+	// A configured verifier whose reader did not start counts as unavailable, so the job retries.
+	verifierReaders, attemptingToRetrieve, unknownCCVs, unstarted := task.loadVerifierReaders(missing)
 
 	// Process all verifier calls concurrently and collect successful results.
 	// Each verifier reader returns a channel that will emit one result when ready.
@@ -69,8 +70,11 @@ func Execute(ctx context.Context, task *Task) (*TaskResult, error) {
 		"missing", len(missing),
 		"attempting", len(attemptingToRetrieve),
 		"unknown", len(unknownCCVs),
+		"unstarted", len(unstarted),
 		"collected", len(results),
 	)
+
+	task.recordUnavailableRetries(ctx, unstarted)
 
 	if len(results) > 0 {
 		err = task.storage.InsertVerifierResults(ctx, results)
@@ -86,6 +90,6 @@ func Execute(ctx context.Context, task *Task) (*TaskResult, error) {
 	return &TaskResult{
 		UnknownCCVs:             len(unknownCCVs),
 		SuccessfulVerifications: len(results),
-		UnavailableCCVs:         len(verifierReaders) - len(results),
+		UnavailableCCVs:         len(verifierReaders) - len(results) + len(unstarted),
 	}, nil
 }

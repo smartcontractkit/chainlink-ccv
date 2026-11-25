@@ -44,7 +44,8 @@ func openIndexerDB(t *testing.T, in *ccv.Cfg) (*sql.DB, string) {
 
 	dbURL := in.Indexer[0].Out.DBURL
 	require.NotEmpty(t, dbURL, "indexer DB URL must be set")
-	dbUser := containerName
+	// The DB credentials use the indexer name; with replicas, containerName is a replica.
+	dbUser := in.Indexer[0].ContainerName
 	dbConnStr := fmt.Sprintf("postgresql://%s:%s@%s/%s?sslmode=disable",
 		dbUser, dbUser, dbURL, dbUser)
 

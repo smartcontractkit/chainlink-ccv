@@ -32,7 +32,7 @@ const (
 	maxBatchSizeCCVData = 5000
 
 	// maxBatchSizeMessages is the maximum number of message rows that can be inserted in a single query
-	// to avoid Postgres bind parameter overflow (65535 limit). With 7 parameters per row, 5000 rows = 35000 parameters.
+	// to avoid Postgres bind parameter overflow (65535 limit). With 9 parameters per row, 5000 rows = 45000 parameters.
 	maxBatchSizeMessages = 5000
 
 	ccvDataConflictInsert = ` ON CONFLICT (message_id, verifier_source_address, verifier_dest_address) DO NOTHING`
@@ -67,6 +67,20 @@ type PostgresStorage struct {
 	ds         DataSource
 	lggr       logger.Logger
 	monitoring common.IndexerMonitoring
+	// onMessagesPersisted wakes the local worker pool after a discovery commit.
+	onMessagesPersisted func()
+	// retryWindow stamps retry_deadline = NOW() + retryWindow on insert; zero uses the column default.
+	retryWindow time.Duration
+}
+
+// SetRetryWindow sets the window that a new message gets to collect its verifications. Call it before use.
+func (d *PostgresStorage) SetRetryWindow(window time.Duration) {
+	d.retryWindow = window
+}
+
+// SetOnMessagesPersisted sets a callback that runs after a discovery batch with messages commits.
+func (d *PostgresStorage) SetOnMessagesPersisted(fn func()) {
+	d.onMessagesPersisted = fn
 }
 
 func NewPostgresStorage(ctx context.Context, lggr logger.Logger, monitoring common.IndexerMonitoring, uri, driverName string, config pg.DBConfig, connMaxLifetime, connMaxIdleTime time.Duration) (*PostgresStorage, error) {
@@ -376,13 +390,13 @@ func (d *PostgresStorage) UpsertMessages(ctx context.Context, messages []common.
 	if len(messages) == 0 {
 		return nil
 	}
-	buildFn := buildBatchInsertMessagesQuery
+	conflict := messagesConflictInsert
 	if force {
-		buildFn = buildBatchUpsertMessagesQuery
+		conflict = messagesConflictUpsert
 	}
 	for i := 0; i < len(messages); i += maxBatchSizeMessages {
 		end := min(i+maxBatchSizeMessages, len(messages))
-		query, args, err := buildFn(messages[i:end])
+		query, args, err := buildBatchMessagesQuery(messages[i:end], conflict, d.retryWindow)
 		if err != nil {
 			return err
 		}
@@ -393,7 +407,7 @@ func (d *PostgresStorage) UpsertMessages(ctx context.Context, messages []common.
 	return nil
 }
 
-func buildBatchMessagesQuery(messages []common.MessageWithMetadata, conflictClause string) (string, []any, error) {
+func buildBatchMessagesQuery(messages []common.MessageWithMetadata, conflictClause string, retryWindow time.Duration) (string, []any, error) {
 	var query strings.Builder
 	query.WriteString(`
 		INSERT INTO indexer.messages (
@@ -404,11 +418,18 @@ func buildBatchMessagesQuery(messages []common.MessageWithMetadata, conflictClau
 			source_chain_selector,
 			dest_chain_selector,
 			ingestion_timestamp,
-			message_ccv_addresses
+			message_ccv_addresses,
+			trace_parent,
+			retry_deadline
 		) VALUES `)
 
-	const colsPerRow = 8
-	args := make([]any, 0, len(messages)*colsPerRow)
+	const colsPerRow = 9
+	args := make([]any, 0, len(messages)*colsPerRow+1)
+	// All rows share one deadline parameter, after the row parameters.
+	deadline := "DEFAULT"
+	if retryWindow > 0 {
+		deadline = fmt.Sprintf("NOW() + make_interval(secs => $%d)", len(messages)*colsPerRow+1)
+	}
 	valueClauses := make([]string, 0, len(messages))
 
 	baseIdx := 0
@@ -427,8 +448,8 @@ func buildBatchMessagesQuery(messages []common.MessageWithMetadata, conflictClau
 			ccvAddressesHex[j] = addr.String()
 		}
 
-		valueClause := fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
-			baseIdx+1, baseIdx+2, baseIdx+3, baseIdx+4, baseIdx+5, baseIdx+6, baseIdx+7, baseIdx+8)
+		valueClause := fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, NULLIF($%d, ''), %s)",
+			baseIdx+1, baseIdx+2, baseIdx+3, baseIdx+4, baseIdx+5, baseIdx+6, baseIdx+7, baseIdx+8, baseIdx+9, deadline)
 		valueClauses = append(valueClauses, valueClause)
 
 		args = append(args,
@@ -440,9 +461,14 @@ func buildBatchMessagesQuery(messages []common.MessageWithMetadata, conflictClau
 			msg.Message.DestChainSelector,
 			msg.Metadata.IngestionTimestamp,
 			pq.Array(ccvAddressesHex),
+			msg.Metadata.TraceParent,
 		)
 
 		baseIdx += colsPerRow
+	}
+
+	if retryWindow > 0 {
+		args = append(args, retryWindow.Seconds())
 	}
 
 	for i, vc := range valueClauses {
@@ -454,16 +480,6 @@ func buildBatchMessagesQuery(messages []common.MessageWithMetadata, conflictClau
 	query.WriteString(conflictClause)
 
 	return query.String(), args, nil
-}
-
-func buildBatchInsertMessagesQuery(messages []common.MessageWithMetadata) (string, []any, error) {
-	return buildBatchMessagesQuery(messages, messagesConflictInsert)
-}
-
-// buildBatchUpsertMessagesQuery builds an INSERT ... ON CONFLICT DO UPDATE query
-// for force-mode replay that overwrites existing messages.
-func buildBatchUpsertMessagesQuery(messages []common.MessageWithMetadata) (string, []any, error) {
-	return buildBatchMessagesQuery(messages, messagesConflictUpsert)
 }
 
 // GetMessage performs a lookup by messageID in the database.
@@ -538,52 +554,6 @@ func (d *PostgresStorage) QueryMessages(
 	if err != nil {
 		d.lggr.Errorw("Failed to query messages", "error", err)
 		return nil, fmt.Errorf("failed to query messages: %w", err)
-	}
-	defer func() {
-		if cerr := rows.Close(); cerr != nil {
-			d.lggr.Errorw("Failed to close rows", "error", cerr)
-		}
-	}()
-
-	var results []common.MessageWithMetadata
-	for rows.Next() {
-		message, err := d.scanMessage(rows)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan message: %w", err)
-		}
-		results = append(results, message)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating over rows: %w", err)
-	}
-	return results, nil
-}
-
-// GetProcessingMessages returns a page of messages with PROCESSING status whose
-// ingestion_timestamp is after createdAfter.
-func (d *PostgresStorage) GetProcessingMessages(ctx context.Context, createdAfter time.Time, limit, offset uint64) ([]common.MessageWithMetadata, error) {
-	query := `
-		SELECT
-			message_id,
-			message,
-			status,
-			lastErr,
-			source_chain_selector,
-			dest_chain_selector,
-			ingestion_timestamp,
-			message_ccv_addresses
-		FROM indexer.messages
-		WHERE status = $1
-		  AND ingestion_timestamp > $2
-		ORDER BY ingestion_timestamp ASC
-		LIMIT $3 OFFSET $4
-	`
-
-	rows, err := d.queryContext(ctx, query, common.MessageProcessingString, createdAfter, limit, offset)
-	if err != nil {
-		d.lggr.Errorw("Failed to query processing messages", "error", err)
-		return nil, fmt.Errorf("failed to query processing messages: %w", err)
 	}
 	defer func() {
 		if cerr := rows.Close(); cerr != nil {
@@ -687,7 +657,7 @@ func (d *PostgresStorage) PersistDiscoveryBatch(ctx context.Context, batch commo
 				end := min(i+maxBatchSizeMessages, len(batch.Messages))
 				chunk := batch.Messages[i:end]
 
-				query, args, err := buildBatchInsertMessagesQuery(chunk)
+				query, args, err := buildBatchMessagesQuery(chunk, messagesConflictInsert, d.retryWindow)
 				if err != nil {
 					return err
 				}
@@ -728,6 +698,10 @@ func (d *PostgresStorage) PersistDiscoveryBatch(ctx context.Context, batch commo
 	if err != nil {
 		d.lggr.Errorw("Failed to persist discovery batch", "error", err)
 		return err
+	}
+
+	if len(batch.Messages) > 0 && d.onMessagesPersisted != nil {
+		d.onMessagesPersisted()
 	}
 
 	if len(batch.Verifications) > 0 {

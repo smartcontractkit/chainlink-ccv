@@ -10,6 +10,7 @@ import (
 
 	mcmstypes "github.com/smartcontractkit/mcms/types"
 
+	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/committee_verifier"
 	cv "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v2_0_0/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/finality"
@@ -83,6 +84,31 @@ func (a *EVMCCVCommitteeVerifierOnchainAdapter) ScanCommitteeStates(
 	}
 
 	return states, nil
+}
+
+// DeployedCommitteeVerifierChains lists EVM chains holding any CommitteeVerifier address ref,
+// regardless of qualifier or version, so scans do not depend on aggregator configs.
+func (a *EVMCCVCommitteeVerifierOnchainAdapter) DeployedCommitteeVerifierChains(ds datastore.DataStore) []uint64 {
+	if ds == nil {
+		return nil
+	}
+	refs := ds.Addresses().Filter(
+		datastore.AddressRefByType(datastore.ContractType(committee_verifier.ContractType)),
+	)
+	seen := make(map[uint64]struct{}, len(refs))
+	chains := make([]uint64, 0, len(refs))
+	for _, ref := range refs {
+		if _, exists := seen[ref.ChainSelector]; exists {
+			continue
+		}
+		family, err := chainsel.GetSelectorFamily(ref.ChainSelector)
+		if err != nil || family != chainsel.FamilyEVM {
+			continue
+		}
+		seen[ref.ChainSelector] = struct{}{}
+		chains = append(chains, ref.ChainSelector)
+	}
+	return chains
 }
 
 func (a *EVMCCVCommitteeVerifierOnchainAdapter) ApplySignatureConfigs(
