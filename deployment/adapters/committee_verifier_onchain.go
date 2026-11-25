@@ -5,8 +5,16 @@ import (
 
 	mcmstypes "github.com/smartcontractkit/mcms/types"
 
+	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 )
+
+// CommitteeVerifierChainDiscovery is an optional extension of CommitteeVerifierOnchainAdapter.
+// It lists every chain holding a CommitteeVerifier address ref, regardless of qualifier or
+// aggregator config, so inventory scans cannot silently skip a deployed verifier.
+type CommitteeVerifierChainDiscovery interface {
+	DeployedCommitteeVerifierChains(ds datastore.DataStore) []uint64
+}
 
 // SignatureConfigChange describes an update to a CommitteeVerifier's signature configs.
 type SignatureConfigChange struct {

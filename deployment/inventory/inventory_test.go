@@ -159,6 +159,78 @@ func TestBuild_AggregatorDriftIsPerCommittee(t *testing.T) {
 	}
 }
 
+func TestBuild_CommitteeScopedVerifierNodes(t *testing.T) {
+	t.Parallel()
+
+	inv := Build(twoVerifierNodeInputs("nop-default-verifier", "nop-secondary-verifier", map[string]string{
+		"aggregator-1": "default", "aggregator-2": "secondary",
+	}))
+	sets := committeesFor(inv, ethereum)
+	require.Len(t, sets, 2, "the same signer set under two qualifiers is two committees")
+	for _, c := range sets {
+		m := memberFor(t, c, alphaAddr)
+		assert.Equal(t, "node-"+c.Qualifier, m.NodeID, "committee %s resolves its own scoped node", c.Qualifier)
+		assert.Equal(t, "csa-"+c.Qualifier, m.CSAKey)
+	}
+}
+
+func TestBuild_AmbiguousVerifierNodeIsNotGuessed(t *testing.T) {
+	t.Parallel()
+
+	t.Run("two nodes scoped to the same committee", func(t *testing.T) {
+		inv := Build(twoVerifierNodeInputs("nop-default-verifier", "nop-aggregator-1-default-verifier", map[string]string{
+			"aggregator-1": "default", "aggregator-2": "default",
+		}))
+		assertAmbiguousMember(t, inv)
+	})
+
+	t.Run("no node scoped to the committee", func(t *testing.T) {
+		inv := Build(twoVerifierNodeInputs("nop-alpha-verifier", "nop-beta-verifier", map[string]string{
+			"aggregator-1": "default", "aggregator-2": "default",
+		}))
+		assertAmbiguousMember(t, inv)
+	})
+}
+
+// twoVerifierNodeInputs builds one NOP running two verifier jobs (jobA on node-default,
+// jobB on node-secondary) and one ethereum committee per aggregator qualifier.
+func twoVerifierNodeInputs(jobA, jobB string, qualifiers map[string]string) Inputs {
+	jobs := shared.NOPJobs{"nop": {}}
+	for jobID, nodeID := range map[string]string{jobA: "node-default", jobB: "node-secondary"} {
+		jobs["nop"][shared.JobID(jobID)] = shared.JobInfo{
+			JobID: shared.JobID(jobID), NOPAlias: "nop", NodeID: nodeID, Spec: verifierSpec(),
+		}
+	}
+	aggregators := make(map[string]*model.Committee, len(qualifiers))
+	for name := range qualifiers {
+		aggregators[name] = &model.Committee{QuorumConfigs: map[model.SourceSelector]*model.QuorumConfig{
+			fmt.Sprint(ethereum): {Signers: []model.Signer{{Address: alphaAddr}}, Threshold: 1},
+		}}
+	}
+	return Inputs{
+		Aggregators:          aggregators,
+		AggregatorQualifiers: qualifiers,
+		Signers:              map[string]map[string]string{"nop": {"evm": alphaAddr}},
+		Nodes: map[string]NodeRecord{
+			"node-default":   {Name: "verifier-default", CSAKey: "csa-default"},
+			"node-secondary": {Name: "verifier-secondary", CSAKey: "csa-secondary"},
+		},
+		Jobs: jobs,
+	}
+}
+
+func assertAmbiguousMember(t *testing.T, inv *Inventory) {
+	t.Helper()
+	m := memberFor(t, committeeFor(t, inv, SourceAggregator, ethereum), alphaAddr)
+	assert.Equal(t, "nop", m.NOPAlias)
+	assert.Empty(t, m.NodeID, "an ambiguous signer keeps no node rather than a guessed one")
+	assert.Empty(t, m.CSAKey)
+	assert.Contains(t, inv.Issues, Issue{
+		Kind: IssueAmbiguousNode, Subject: "nop",
+		Detail: `several verifier nodes could sign for committee "default"; node left unresolved`,
+	})
+}
+
 func TestBuild_EmptyInputs(t *testing.T) {
 	t.Parallel()
 

@@ -6,6 +6,7 @@ package inventory
 import (
 	"fmt"
 	"strconv"
+	"time"
 )
 
 // SchemaVersion changes whenever the JSON shape of Inventory changes incompatibly.
@@ -30,14 +31,25 @@ func (s *ChainSelector) UnmarshalText(text []byte) error {
 
 // Inventory holds normalized tables; ByNOP, ByChain and Rows derive the common slices from them.
 type Inventory struct {
-	SchemaVersion int            `json:"schemaVersion"`
-	Chains        []Chain        `json:"chains"`
-	NOPs          []NOP          `json:"nops"`
-	Nodes         []Node         `json:"nodes"`
-	Committees    []Committee    `json:"committees"`
-	Verifiers     []Verifier     `json:"verifiers"`
-	ExecutorPools []ExecutorPool `json:"executorPools"`
-	Issues        []Issue        `json:"issues,omitempty"`
+	SchemaVersion int              `json:"schemaVersion"`
+	Chains        []Chain          `json:"chains"`
+	NOPs          []NOP            `json:"nops"`
+	Nodes         []Node           `json:"nodes"`
+	Committees    []Committee      `json:"committees"`
+	Verifiers     []Verifier       `json:"verifiers"`
+	ExecutorPools []ExecutorPool   `json:"executorPools"`
+	Refreshes     []OnchainRefresh `json:"onchainRefreshes,omitempty"`
+	Issues        []Issue          `json:"issues,omitempty"`
+}
+
+// OnchainRefresh is the last scan outcome for one verifier chain. A failed attempt keeps the
+// previous successful scan's committees: LastError then marks that retained data as stale,
+// while an empty result from a successful scan means the committee was actually removed.
+type OnchainRefresh struct {
+	Chain         ChainSelector `json:"chainSelector"`
+	LastSuccessAt time.Time     `json:"lastSuccessAt,omitzero"`
+	LastAttemptAt time.Time     `json:"lastAttemptAt,omitzero"`
+	LastError     string        `json:"lastError,omitempty"`
 }
 
 // Chain identifies a chain by selector, with its chain-selectors name and family.
@@ -73,12 +85,15 @@ const (
 
 // Node is a Job Distributor node and the CCV roles it runs.
 type Node struct {
-	ID       string            `json:"id"`
-	Name     string            `json:"name"`
-	CSAKey   string            `json:"csaKey"`
-	NOPAlias string            `json:"nopAlias,omitempty"`
-	Roles    []Role            `json:"roles,omitempty"`
-	Labels   map[string]string `json:"labels,omitempty"`
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	CSAKey   string `json:"csaKey"`
+	NOPAlias string `json:"nopAlias,omitempty"`
+	Roles    []Role `json:"roles,omitempty"`
+	// VerifierQualifiers are the committee qualifiers this node's verifier jobs are scoped to.
+	// They bind a committee signer to the exact node that signs for that committee.
+	VerifierQualifiers []string          `json:"verifierQualifiers,omitempty"`
+	Labels             map[string]string `json:"labels,omitempty"`
 }
 
 // Where a committee's signer set was read from.
@@ -142,6 +157,7 @@ const (
 	IssueAmbiguousSigner          = "ambiguous-signer"
 	IssueUnresolvedSigner         = "unresolved-signer"
 	IssueMissingNode              = "missing-node"
+	IssueAmbiguousNode            = "ambiguous-node"
 	IssueAggregatorDrift          = "aggregator-drift"
 	IssueExecutorPoolDrift        = "executor-pool-drift"
 	IssueUnsupportedExecutorChain = "unsupported-executor-chain"

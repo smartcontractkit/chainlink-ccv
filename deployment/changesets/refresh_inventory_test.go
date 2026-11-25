@@ -81,4 +81,9 @@ func assertOnchainMember(t *testing.T, ds datastore.DataStore, csaKey string) {
 	assert.Equal(t, inventory.Member{
 		SignerAddress: refreshSigner, NOPAlias: "nop-a", NodeID: "node-a", CSAKey: csaKey,
 	}, onchain[0].Members[0])
+
+	require.Len(t, inv.Refreshes, 1, "the refresh outcome survives later CCV metadata writes")
+	assert.Equal(t, inventory.ChainSelector(refreshCantonSelector), inv.Refreshes[0].Chain)
+	assert.False(t, inv.Refreshes[0].LastSuccessAt.IsZero())
+	assert.Empty(t, inv.Refreshes[0].LastError)
 }

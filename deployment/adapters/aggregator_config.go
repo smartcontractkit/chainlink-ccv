@@ -14,7 +14,10 @@ type CommitteeState struct {
 type SignatureConfig struct {
 	SourceChainSelector uint64
 	Signers             []string
-	Threshold           uint8
+	// SignerPubKeys optionally maps each entry of Signers to its 65-byte uncompressed
+	// secp256k1 public key, for families whose onchain form stores keys (Canton). Nil otherwise.
+	SignerPubKeys map[string]string
+	Threshold     uint8
 }
 
 // AggregatorConfigAdapter provides chain-family-specific offchain logic for populating

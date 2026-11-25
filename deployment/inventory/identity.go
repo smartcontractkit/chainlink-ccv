@@ -59,15 +59,23 @@ func decodeHex(s string) ([]byte, bool) {
 type resolver struct {
 	aliases      map[string][]string // canonical address -> NOP aliases claiming it
 	pubKeys      map[string]string   // canonical address -> uncompressed key from a NOP identity
-	verifierNode map[string]*Node
+	verifierNode map[string][]*Node  // NOP alias -> nodes that could sign
+	scopedNode   map[verifierKey][]*Node
 	executorNode map[string]*Node
+}
+
+// verifierKey binds a NOP's verifier node to the exact committee it signs for.
+type verifierKey struct {
+	alias     string
+	qualifier string
 }
 
 func buildResolver(nops []NOP, nodes []Node) *resolver {
 	r := &resolver{
 		aliases:      make(map[string][]string),
 		pubKeys:      make(map[string]string),
-		verifierNode: make(map[string]*Node),
+		verifierNode: make(map[string][]*Node),
+		scopedNode:   make(map[verifierKey][]*Node),
 		executorNode: make(map[string]*Node),
 	}
 	for _, nop := range nops {
@@ -83,7 +91,7 @@ func buildResolver(nops []NOP, nodes []Node) *resolver {
 			}
 		}
 	}
-	// Nodes are sorted by ID, so the first match wins deterministically.
+	// Nodes are sorted by ID, so candidate order is deterministic.
 	for i := range nodes {
 		node := &nodes[i]
 		if node.NOPAlias == "" {
@@ -92,34 +100,59 @@ func buildResolver(nops []NOP, nodes []Node) *resolver {
 		if slices.Contains(node.Roles, RoleExecutor) && r.executorNode[node.NOPAlias] == nil {
 			r.executorNode[node.NOPAlias] = node
 		}
-		if slices.Contains(node.Roles, RoleVerifier) && r.verifierNode[node.NOPAlias] == nil {
-			r.verifierNode[node.NOPAlias] = node
+		if slices.Contains(node.Roles, RoleVerifier) {
+			r.verifierNode[node.NOPAlias] = append(r.verifierNode[node.NOPAlias], node)
+			for _, q := range node.VerifierQualifiers {
+				k := verifierKey{node.NOPAlias, q}
+				r.scopedNode[k] = append(r.scopedNode[k], node)
+			}
 		}
 	}
 	// With no verifier job on record (hand-proposed jobs), a role-less node named after the alias signs.
 	for i := range nodes {
 		node := &nodes[i]
-		if node.NOPAlias != "" && len(node.Roles) == 0 && r.verifierNode[node.NOPAlias] == nil &&
+		if node.NOPAlias != "" && len(node.Roles) == 0 && len(r.verifierNode[node.NOPAlias]) == 0 &&
 			strings.EqualFold(node.Name, node.NOPAlias) {
-			r.verifierNode[node.NOPAlias] = node
+			r.verifierNode[node.NOPAlias] = []*Node{node}
 		}
 	}
 	return r
 }
 
+// verifierFor returns the exact node signing for alias in committee qualifier. ambiguous reports
+// several candidates with no exact match; the caller records an issue instead of guessing.
+func (r *resolver) verifierFor(alias, qualifier string) (node *Node, ambiguous bool) {
+	scoped := r.scopedNode[verifierKey{alias, qualifier}]
+	if len(scoped) == 1 {
+		return scoped[0], false
+	}
+	if len(scoped) > 1 {
+		return nil, true
+	}
+	if candidates := r.verifierNode[alias]; len(candidates) == 1 {
+		return candidates[0], false
+	} else if len(candidates) > 1 {
+		return nil, true
+	}
+	return nil, false
+}
+
 // member resolves one signer, as its verifier chain's family stores it, to a committee member.
-func (r *resolver) member(family, signer string) Member {
+// The returned node backs role promotion; it is nil when the member is unresolved or ambiguous.
+func (r *resolver) member(family, signer, qualifier string) (Member, *Node, bool) {
 	addr := canonicalSigner(family, signer)
 	if addr == "" {
-		return Member{SignerAddress: strings.ToLower(strings.TrimSpace(signer))}
+		return Member{SignerAddress: strings.ToLower(strings.TrimSpace(signer))}, nil, false
 	}
 	m := Member{SignerAddress: addr, SignerPubKey: r.pubKeys[addr]}
 	if aliases := r.aliases[addr]; len(aliases) == 1 {
 		m.NOPAlias = aliases[0]
-		if node := r.verifierNode[m.NOPAlias]; node != nil {
+		node, ambiguous := r.verifierFor(m.NOPAlias, qualifier)
+		if node != nil {
 			m.NodeID = node.ID
 			m.CSAKey = node.CSAKey
 		}
+		return m, node, ambiguous
 	}
-	return m
+	return m, nil, false
 }

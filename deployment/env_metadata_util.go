@@ -161,7 +161,7 @@ func GetInventory(ds datastore.DataStore) (*inventory.Inventory, error) {
 func deriveInventory(meta *CCVEnvMetadata) *inventory.Inventory {
 	inv := inventory.Build(inventoryInputs(meta.OffchainConfigs))
 	if meta.Inventory != nil {
-		inv.ReconcileOnchainCommittees(meta.Inventory.Committees)
+		inv.ReconcileOnchainCommittees(meta.Inventory.Committees, meta.Inventory.Refreshes)
 	}
 	return inv
 }

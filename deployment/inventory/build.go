@@ -40,7 +40,7 @@ func (in Inputs) Empty() bool {
 func Build(in Inputs) *Inventory {
 	b := builderFor(&Inventory{SchemaVersion: SchemaVersion})
 	b.addNOPs(in.Signers, in.Jobs)
-	b.addNodes(in.Nodes, in.Jobs)
+	b.addNodes(in.Nodes, in.Jobs, qualifierValues(in.AggregatorQualifiers))
 	r := buildResolver(b.inv.NOPs, b.inv.Nodes)
 	b.reportAmbiguousSigners(r)
 	b.addCommittees(in.Aggregators, in.AggregatorQualifiers, r)
@@ -99,9 +99,10 @@ func (b *builder) addNOPs(signers map[string]map[string]string, jobs shared.NOPJ
 	}
 }
 
-func (b *builder) addNodes(jdNodes map[string]NodeRecord, jobs shared.NOPJobs) {
+func (b *builder) addNodes(jdNodes map[string]NodeRecord, jobs shared.NOPJobs, qualifiers []string) {
 	nodeAlias := make(map[string]string)
 	nodeRoles := make(map[string]map[Role]struct{})
+	nodeQualifiers := make(map[string]map[string]struct{})
 	for _, alias := range sortedKeys(jobs) {
 		for _, jobID := range sortedKeys(jobs[alias]) {
 			job := jobs[alias][jobID]
@@ -122,6 +123,14 @@ func (b *builder) addNodes(jdNodes map[string]NodeRecord, jobs shared.NOPJobs) {
 				}
 				nodeRoles[job.NodeID][role] = struct{}{}
 			}
+			if role == RoleVerifier {
+				if q := jobCommitteeQualifier(jobID, qualifiers); q != "" {
+					if nodeQualifiers[job.NodeID] == nil {
+						nodeQualifiers[job.NodeID] = make(map[string]struct{})
+					}
+					nodeQualifiers[job.NodeID][q] = struct{}{}
+				}
+			}
 		}
 	}
 
@@ -140,6 +149,7 @@ func (b *builder) addNodes(jdNodes map[string]NodeRecord, jobs shared.NOPJobs) {
 			node.NOPAlias = aliasByLowerName[strings.ToLower(jdNode.Name)]
 		}
 		node.Roles = sortedKeys(nodeRoles[id])
+		node.VerifierQualifiers = sortedKeys(nodeQualifiers[id])
 		if i, ok := nopIndex[node.NOPAlias]; ok {
 			b.inv.NOPs[i].NodeIDs = append(b.inv.NOPs[i].NodeIDs, id)
 		}
@@ -160,6 +170,32 @@ func jobRole(spec string) (Role, error) {
 	default:
 		return "", nil
 	}
+}
+
+// jobCommitteeQualifier returns the known committee qualifier a verifier job is scoped to, or ""
+// when none matches. The longest match wins so one qualifier being a suffix of another stays exact.
+func jobCommitteeQualifier(jobID shared.JobID, qualifiers []string) string {
+	best := ""
+	for _, q := range qualifiers {
+		if len(q) <= len(best) {
+			continue
+		}
+		if (shared.VerifierJobScope{CommitteeQualifier: q}).IsJobInScope(jobID) {
+			best = q
+		}
+	}
+	return best
+}
+
+// qualifierValues lists the distinct committee qualifiers aggregators are recorded as serving.
+func qualifierValues(qualifiers map[string]string) []string {
+	set := make(map[string]struct{}, len(qualifiers))
+	for _, q := range qualifiers {
+		if q != "" {
+			set[q] = struct{}{}
+		}
+	}
+	return sortedKeys(set)
 }
 
 func (b *builder) reportAmbiguousSigners(r *resolver) {
@@ -207,7 +243,7 @@ func (b *builder) addCommittees(aggregators map[string]*model.Committee, qualifi
 				Source: SourceAggregator, Qualifier: qualifier, SourceChain: ChainSelector(source),
 				SourceVerifier: qc.SourceVerifierAddress, Threshold: qc.Threshold,
 			}
-			c.Members = b.members(r, familyOf(source), signerValues(qc.Signers), source)
+			c.Members = b.members(r, familyOf(source), signerValues(qc.Signers), source, qualifier, nil)
 			k := committeeKey{source, qualifier}
 			sets[k] = mergeCommittee(sets[k], c, name)
 		}
@@ -245,12 +281,15 @@ func (b *builder) addCommittees(aggregators map[string]*model.Committee, qualifi
 }
 
 // members resolves signers as family stores them, marks signing nodes as verifiers, and records
-// signers no NOP claims or whose NOP has no node.
-func (b *builder) members(r *resolver, family string, signers []string, source uint64) []Member {
+// signers no NOP claims, NOPs with no node, and NOPs whose exact signing node is ambiguous.
+func (b *builder) members(r *resolver, family string, signers []string, source uint64, qualifier string, pubKeys map[string]string) []Member {
 	out := make([]Member, 0, len(signers))
 	for _, signer := range signers {
-		m := r.member(family, signer)
-		switch node := r.verifierNode[m.NOPAlias]; {
+		m, node, ambiguous := r.member(family, signer, qualifier)
+		if m.SignerPubKey == "" {
+			m.SignerPubKey = onchainPubKey(pubKeys, signer, m.SignerAddress)
+		}
+		switch {
 		case m.NOPAlias == "" && len(r.aliases[m.SignerAddress]) > 1:
 			// Already reported as an ambiguous signer.
 		case m.NOPAlias == "":
@@ -258,6 +297,9 @@ func (b *builder) members(r *resolver, family string, signers []string, source u
 				b.unresolved[m.SignerAddress] = make(map[uint64]struct{})
 			}
 			b.unresolved[m.SignerAddress][source] = struct{}{}
+		case ambiguous:
+			b.issue(IssueAmbiguousNode, m.NOPAlias,
+				fmt.Sprintf("several verifier nodes could sign for committee %q; node left unresolved", qualifier))
 		case node == nil:
 			b.nodeless[m.NOPAlias] = struct{}{}
 		case !slices.Contains(node.Roles, RoleVerifier):
@@ -267,6 +309,18 @@ func (b *builder) members(r *resolver, family string, signers []string, source u
 	}
 	slices.SortFunc(out, func(x, y Member) int { return cmp.Compare(x.SignerAddress, y.SignerAddress) })
 	return out
+}
+
+// onchainPubKey validates a scanned public key for signer, also accepting a canonical-address key.
+func onchainPubKey(pubKeys map[string]string, signer, addr string) string {
+	key, ok := pubKeys[signer]
+	if !ok {
+		key = pubKeys[addr]
+	}
+	if normalized, ok := uncompressedKey(key); ok {
+		return normalized
+	}
+	return ""
 }
 
 func (b *builder) reportIdentityGaps() {
@@ -302,6 +356,20 @@ func memberAddresses(members []Member) []string {
 		out = append(out, m.SignerAddress)
 	}
 	slices.Sort(out)
+	return out
+}
+
+// memberPubKeys carries stored signer public keys across reconciliation, keyed by signer address.
+func memberPubKeys(members []Member) map[string]string {
+	var out map[string]string
+	for _, m := range members {
+		if m.SignerPubKey != "" {
+			if out == nil {
+				out = make(map[string]string, len(members))
+			}
+			out[m.SignerAddress] = m.SignerPubKey
+		}
+	}
 	return out
 }
 
@@ -434,6 +502,7 @@ func (inv *Inventory) normalize() {
 		return cmp.Or(cmp.Compare(a.Kind, b.Kind), cmp.Compare(a.Subject, b.Subject), cmp.Compare(a.Detail, b.Detail))
 	})
 	inv.Issues = slices.Compact(inv.Issues)
+	slices.SortFunc(inv.Refreshes, func(a, b OnchainRefresh) int { return cmp.Compare(a.Chain, b.Chain) })
 }
 
 func familyOf(selector uint64) string {
