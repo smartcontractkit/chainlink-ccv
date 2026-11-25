@@ -57,7 +57,8 @@ type EVMTXGun struct {
 	// closeMu guards CloseSentChannel: wasp abandons timed-out Call goroutines, so a straggler can reach a send after teardown.
 	closeMu             sync.RWMutex
 	closed              bool
-	nonce               sync.Map // map[NonceKey]*uint64
+	shutdownCh          chan struct{} // wakes senders parked on full channels during teardown
+	nonce               sync.Map      // map[NonceKey]*uint64
 	messageProfiles     []load.MessageProfileConfig
 	userSelector        map[uint64]func() *bind.TransactOpts
 	executorArgsParams  any // optional, passed to BuildV3ExtraArgs
@@ -78,13 +79,16 @@ type EVMTXGun struct {
 // CloseSentChannel closes the sent messages channel to signal no more messages will be sent.
 func (m *EVMTXGun) CloseSentChannel() {
 	m.closeOnce.Do(func() {
+		// close(shutdownCh) first: parked senders hold closeMu.RLock.
+		close(m.shutdownCh)
 		m.closeMu.Lock()
-		defer m.closeMu.Unlock()
 		m.closed = true
 		if m.fireAndForget {
-			// Close pendingCh first to signal no more work, then wait for workers
-			// to drain remaining items before closing sentMsgCh.
 			close(m.pendingCh)
+		}
+		// Unlock before fafWg.Wait: workers need closeMu to finish their sends.
+		m.closeMu.Unlock()
+		if m.fireAndForget {
 			m.fafWg.Wait()
 		}
 		close(m.sentMsgCh)
@@ -97,7 +101,10 @@ func (m *EVMTXGun) sendPending(p pendingTx) {
 	if m.closed {
 		return
 	}
-	m.pendingCh <- p
+	select {
+	case m.pendingCh <- p:
+	case <-m.shutdownCh:
+	}
 }
 
 func (m *EVMTXGun) sendSent(msg load.SentMessage) {
@@ -106,7 +113,11 @@ func (m *EVMTXGun) sendSent(msg load.SentMessage) {
 	if m.closed {
 		return
 	}
-	m.sentMsgCh <- msg
+	select {
+	case m.sentMsgCh <- msg:
+	case <-m.shutdownCh:
+		// drop: wasp already counted the timeout.
+	}
 }
 
 // SentMessages returns the sent message channel for the verification pipeline.
@@ -130,6 +141,7 @@ func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, selectors []u
 		impl:          impls,
 		sentMsgSet:    make(map[load.SentMessage]struct{}),
 		sentMsgCh:     make(chan load.SentMessage, load.SentMessageChannelBufferSize),
+		shutdownCh:    make(chan struct{}),
 		srcSelectors:  srcSelectors,
 		destSelectors: destSelectors,
 		userSelector:  userSelector,
@@ -202,6 +214,7 @@ func NewEVMTransactionGunFromTestConfig(cfg *ccv.Cfg, testProfile *load.TestProf
 		impl:            impls,
 		sentMsgSet:      make(map[load.SentMessage]struct{}),
 		sentMsgCh:       make(chan load.SentMessage, load.SentMessageChannelBufferSize),
+		shutdownCh:      make(chan struct{}),
 		srcSelectors:    srcSelectors,
 		destSelectors:   destSelectors,
 		messageProfiles: messageProfiles,
@@ -229,6 +242,7 @@ func (g *EVMTXGun) initFireAndForget(e *deployment.Environment, srcSelectors []u
 	g.onRampFilter = make(map[uint64]*onramp.OnRampFilterer, len(srcSelectors))
 	g.evmBackend = make(map[uint64]evmChainBackend, len(srcSelectors))
 	g.pendingCh = make(chan pendingTx, load.PendingMessageChannelBufferSize)
+	g.shutdownCh = make(chan struct{})
 	g.ccipSentTopic = onramp.OnRampCCIPMessageSent{}.Topic()
 
 	for _, selector := range srcSelectors {
@@ -628,12 +642,12 @@ func (g *EVMTXGun) processReceipt(p pendingTx) {
 			}
 
 			sentTime := evm.BlockTime(ctx, backend, receipt.BlockNumber)
-			g.sentMsgCh <- load.SentMessage{
+			g.sendSent(load.SentMessage{
 				SeqNo:     uint64(decodedMsg.SequenceNumber),
 				MessageID: event.MessageId,
 				SentTime:  sentTime,
 				ChainPair: load.SrcDest{Src: p.srcSelector, Dest: p.destSelector},
-			}
+			})
 			return
 		}
 
@@ -645,11 +659,11 @@ func (g *EVMTXGun) processReceipt(p pendingTx) {
 
 // sendFailed pushes a SentMessage with Failed=true to the sentMsgCh.
 func (g *EVMTXGun) sendFailed(p pendingTx, sentTime time.Time) {
-	g.sentMsgCh <- load.SentMessage{
+	g.sendSent(load.SentMessage{
 		SeqNo:     0,
 		MessageID: ([32]byte)(p.txHash),
 		SentTime:  sentTime,
 		ChainPair: load.SrcDest{Src: p.srcSelector, Dest: p.destSelector},
 		Failed:    true,
-	}
+	})
 }

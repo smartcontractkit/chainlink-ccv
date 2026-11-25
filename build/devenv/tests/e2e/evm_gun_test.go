@@ -3,6 +3,7 @@ package e2e
 import (
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -14,6 +15,7 @@ func newTestEVMTXGun(fireAndForget bool) *EVMTXGun {
 		sentMsgCh:     make(chan load.SentMessage, load.SentMessageChannelBufferSize),
 		fireAndForget: fireAndForget,
 		pendingCh:     make(chan pendingTx, load.PendingMessageChannelBufferSize),
+		shutdownCh:    make(chan struct{}),
 	}
 }
 
@@ -26,7 +28,49 @@ func TestEVMTXGun_SendBeforeClose(t *testing.T) {
 		require.Len(t, g.sentMsgCh, 1)
 
 		g.CloseSentChannel()
-		// Buffered sends must still be delivered to the consumer before close.
+		msg, ok := <-g.SentMessages()
+		require.True(t, ok)
+		require.Equal(t, uint64(1), msg.SeqNo)
+		_, ok = <-g.SentMessages()
+		require.False(t, ok)
+	}
+}
+
+func TestEVMTXGun_FullBufferShutdown(t *testing.T) {
+	// Regression: the staging mesh test runs the gun with no consumer; teardown must not hang.
+	for _, faf := range []bool{false, true} {
+		g := &EVMTXGun{
+			sentMsgCh:     make(chan load.SentMessage, 1),
+			pendingCh:     make(chan pendingTx, 1),
+			fireAndForget: faf,
+			shutdownCh:    make(chan struct{}),
+		}
+		g.sendPending(pendingTx{txHash: [32]byte{1}})
+		g.sendSent(load.SentMessage{SeqNo: 1})
+		var senders sync.WaitGroup
+		for range 8 {
+			senders.Add(1)
+			go func() {
+				defer senders.Done()
+				g.sendPending(pendingTx{txHash: [32]byte{2}})
+				g.sendSent(load.SentMessage{SeqNo: 2})
+			}()
+		}
+		// Give blocked senders time to park on the full channels.
+		time.Sleep(100 * time.Millisecond)
+
+		finished := make(chan struct{})
+		go func() {
+			defer close(finished)
+			g.CloseSentChannel()
+		}()
+		select {
+		case <-finished:
+		case <-time.After(10 * time.Second):
+			t.Fatal("CloseSentChannel hung with full buffers and no consumer")
+		}
+		senders.Wait()
+
 		msg, ok := <-g.SentMessages()
 		require.True(t, ok)
 		require.Equal(t, uint64(1), msg.SeqNo)
@@ -53,7 +97,7 @@ func TestEVMTXGun_ConcurrentSendAndClose(t *testing.T) {
 		g := newTestEVMTXGun(faf)
 		var wg sync.WaitGroup
 		go g.CloseSentChannel() // close first: maximize the race with senders
-		for i := 0; i < 200; i++ {
+		for range 200 {
 			wg.Add(2)
 			go func() {
 				defer wg.Done()
