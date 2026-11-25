@@ -13,6 +13,7 @@ import (
 // It lists every chain holding a CommitteeVerifier address ref, regardless of qualifier or
 // aggregator config, so inventory scans cannot silently skip a deployed verifier.
 type CommitteeVerifierChainDiscovery interface {
+	// DeployedCommitteeVerifierChains returns every chain with a CommitteeVerifier address ref.
 	DeployedCommitteeVerifierChains(ds datastore.DataStore) []uint64
 }
 
