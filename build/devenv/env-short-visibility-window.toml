@@ -1,0 +1,126 @@
+# Overlay with a short indexer verification window so a message reaches TIMEOUT during a CI run.
+# The whole [[indexer]] array is restated because an overlay replaces an array of tables.
+# A change to the indexer in env.toml must be made here too.
+
+[[indexer]]
+  image = "indexer:latest"
+  port = 8104
+  # will spawn additional indexers IF high_availability is set to true
+  redundant_indexers = 1
+  # indexer containers that share one DB behind an nginx proxy (multi-replica mode)
+  replicas = 2
+  source_code_path = "../indexer"
+  root_path = "../../"
+  storage_connection_url = "postgresql://indexer:indexer@indexer-db:5432/indexer?sslmode=disable"
+  [indexer.db]
+    image = "postgres:16-alpine"
+  # Optional: full DB connection string (container-to-container). When set, used for storage config and output.
+
+[indexer.indexer_config]
+LogLevel = 'debug'
+
+[indexer.indexer_config.Monitoring]
+LogLevel = 'debug'
+
+[indexer.indexer_config.Monitoring.Pyroscope]
+Enabled = false
+URL = ''
+
+[indexer.indexer_config.Monitoring.Beholder]
+Enabled = true
+InsecureConnection = true
+CACertFile = ''
+OtelExporterGRPCEndpoint = ''
+OtelExporterHTTPEndpoint = 'host.docker.internal:4318'
+LogStreamingEnabled = true
+MetricReaderInterval = 5
+TraceSampleRatio = 1.0
+TraceBatchTimeout = 10
+[indexer.indexer_config.Monitoring.Beholder.TelemetryAttributes]
+ccip_env = "devenv"
+
+[[indexer.indexer_config.Discoveries]]
+Address = "default-aggregator:50051"
+Since = 0
+PollInterval = 500
+Timeout = 5000
+NtpServer = "time.google.com"
+
+[[indexer.indexer_config.Discoveries]]
+Address = "secondary-aggregator:50051"
+Since = 0
+PollInterval = 500
+Timeout = 5000
+NtpServer = "time.google.com"
+
+[indexer.indexer_config.Scheduler]
+TickerInterval = 50
+VerificationVisibilityWindow = 30
+BaseDelay = 100
+MaxDelay = 10_000
+
+[indexer.indexer_config.Pool]
+ConcurrentWorkers = 1000
+WorkerTimeout = 300
+
+[[indexer.indexer_config.Verifier]]
+Type = "aggregator"
+Name = "CommiteeVerifier (Primary)"
+Address = "default-aggregator:50051"
+InsecureConnection = true
+BatchSize = 100
+MaxBatchWaitTime = 50
+Since = 0
+
+[[indexer.indexer_config.Verifier]]
+Type = "aggregator"
+Name = "CommiteeVerifier (Secondary)"
+Address = "secondary-aggregator:50051"
+InsecureConnection = true
+BatchSize = 100
+MaxBatchWaitTime = 50
+Since = 0
+
+[[indexer.indexer_config.Verifier]]
+Type = "aggregator"
+Name = "CommiteeVerifier (Tertiary)"
+Address = "tertiary-aggregator:50051"
+InsecureConnection = true
+BatchSize = 100
+MaxBatchWaitTime = 50
+Since = 0
+
+[[indexer.indexer_config.Verifier]]
+Type = "rest"
+Name = "Token Verifier (Primary)"
+BaseURL = "http://token-verifier-1:8100/v1"
+BatchSize = 10
+MaxBatchWaitTime = 100
+Since = 0
+
+[indexer.committee_verifier_name_to_qualifier]
+"CommiteeVerifier (Primary)" = "default"
+"CommiteeVerifier (Secondary)" = "secondary"
+"CommiteeVerifier (Tertiary)" = "tertiary"
+
+[indexer.cctp_verifier_name_to_qualifier]
+"Token Verifier (Primary)" = ""
+
+[indexer.lombard_verifier_name_to_qualifier]
+"Token Verifier (Primary)" = "LombardVerifierResolver"
+
+[indexer.indexer_config.Storage]
+Strategy = "single"
+
+[indexer.indexer_config.Storage.Single]
+Type = "postgres"
+
+[indexer.indexer_config.Storage.Single.Postgres]
+MaxOpenConnections = 20
+MaxIdleConnections = 5
+IdleInTxSessionTimeout = 60
+LockTimeout = 30
+
+[indexer.secrets.Storage.Single.Postgres]
+# Host must be the DB container name (indexer-db), not the indexer service (indexer).
+URI = "postgresql://indexer:indexer@indexer-db:5432/indexer?sslmode=disable"
