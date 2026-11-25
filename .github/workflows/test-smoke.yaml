@@ -155,6 +155,10 @@ jobs:
             pattern: TestE2ESmoke_Replay
             profile: standard.profile
             timeout: 10m
+          - name: TestE2ESmoke_TimeoutReplay
+            pattern: TestE2ESmoke_TimeoutReplay
+            profile: standard.short-timeout.profile
+            timeout: 15m
           - name: TestE2EReorg
             pattern: TestE2EReorg
             profile: standard.src-auto-mine.profile
