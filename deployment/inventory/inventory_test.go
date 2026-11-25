@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 )
@@ -326,6 +327,54 @@ func verifierSpecWithChains(chains ...uint64) string {
 		strings.Join(entries, ", "))
 }
 
+func TestBuild_QualifierAndSourceChainStayPairedPerJob(t *testing.T) {
+	t.Parallel()
+
+	solana := ChainSelector(chainsel.SOLANA_MAINNET.Selector)
+	// One node with default on ethereum and secondary on solana: no job has default on solana.
+	jobs := shared.NOPJobs{"nop": {
+		"nop-default-verifier": {
+			JobID: "nop-default-verifier", NOPAlias: "nop", NodeID: "node-multi",
+			Spec: verifierSpecWithChains(uint64(ethereum)),
+		},
+		"nop-secondary-verifier": {
+			JobID: "nop-secondary-verifier", NOPAlias: "nop", NodeID: "node-multi",
+			Spec: verifierSpecWithChains(uint64(solana)),
+		},
+	}}
+	in := Inputs{
+		Aggregators: map[string]*model.Committee{
+			"aggregator-1": {QuorumConfigs: map[model.SourceSelector]*model.QuorumConfig{
+				fmt.Sprint(ethereum): {Signers: []model.Signer{{Address: alphaAddr}}, Threshold: 1},
+				fmt.Sprint(solana):   {Signers: []model.Signer{{Address: alphaAddr}}, Threshold: 1},
+			}},
+			"aggregator-2": {QuorumConfigs: map[model.SourceSelector]*model.QuorumConfig{
+				fmt.Sprint(solana): {Signers: []model.Signer{{Address: alphaAddr}}, Threshold: 1},
+			}},
+		},
+		AggregatorQualifiers: map[string]string{"aggregator-1": "default", "aggregator-2": "secondary"},
+		Signers:              map[string]map[string]string{"nop": {"evm": alphaAddr}},
+		Nodes:                map[string]NodeRecord{"node-multi": {Name: "verifier-multi", CSAKey: "csa-multi"}},
+		Jobs:                 jobs,
+	}
+	inv := Build(in)
+
+	eth := memberFor(t, committeeFor(t, inv, SourceAggregator, ethereum), alphaAddr)
+	assert.Equal(t, "node-multi", eth.NodeID, "default on ethereum is a real job pair")
+
+	solDefault := memberFor(t, committeeForQualifier(t, inv, SourceAggregator, solana, "default"), alphaAddr)
+	assert.Empty(t, solDefault.NodeID, "default on solana is not a real job pair: no CSA is supplied")
+	assert.Empty(t, solDefault.CSAKey)
+	assert.Contains(t, inv.Issues, Issue{
+		Kind: IssueVerifierScopeConflict, Subject: "nop",
+		Detail: `recorded verifier scope does not cover committee "default", source solana-mainnet; node left unresolved`,
+	})
+
+	solSecondary := memberFor(t, committeeForQualifier(t, inv, SourceAggregator, solana, "secondary"), alphaAddr)
+	assert.Equal(t, "node-multi", solSecondary.NodeID, "secondary on solana is a real job pair")
+	assert.Equal(t, "csa-multi", solSecondary.CSAKey)
+}
+
 func TestBuild_EmptyInputs(t *testing.T) {
 	t.Parallel()
 
@@ -457,6 +506,15 @@ func committeeFor(t *testing.T, inv *Inventory, source string, chain ChainSelect
 	t.Helper()
 	i := slices.IndexFunc(inv.Committees, func(c Committee) bool { return c.Source == source && c.SourceChain == chain })
 	require.GreaterOrEqual(t, i, 0, "no %s committee for %d", source, chain)
+	return inv.Committees[i]
+}
+
+func committeeForQualifier(t *testing.T, inv *Inventory, source string, chain ChainSelector, qualifier string) Committee {
+	t.Helper()
+	i := slices.IndexFunc(inv.Committees, func(c Committee) bool {
+		return c.Source == source && c.SourceChain == chain && c.Qualifier == qualifier
+	})
+	require.GreaterOrEqual(t, i, 0, "no %s committee for %d (%s)", source, chain, qualifier)
 	return inv.Committees[i]
 }
 

@@ -102,8 +102,7 @@ func (b *builder) addNOPs(signers map[string]map[string]string, jobs shared.NOPJ
 func (b *builder) addNodes(jdNodes map[string]NodeRecord, jobs shared.NOPJobs, qualifiers []string) {
 	nodeAlias := make(map[string]string)
 	nodeRoles := make(map[string]map[Role]struct{})
-	nodeQualifiers := make(map[string]map[string]struct{})
-	nodeChains := make(map[string]map[ChainSelector]struct{})
+	nodeScopes := make(map[string][]VerifierScope)
 	for _, alias := range sortedKeys(jobs) {
 		for _, jobID := range sortedKeys(jobs[alias]) {
 			job := jobs[alias][jobID]
@@ -125,7 +124,7 @@ func (b *builder) addNodes(jdNodes map[string]NodeRecord, jobs shared.NOPJobs, q
 				nodeRoles[job.NodeID][role] = struct{}{}
 			}
 			if role == RoleVerifier {
-				b.recordVerifierScope(job, jobID, qualifiers, nodeQualifiers, nodeChains)
+				nodeScopes[job.NodeID] = append(nodeScopes[job.NodeID], b.verifierScope(job, jobID, qualifiers))
 			}
 		}
 	}
@@ -145,8 +144,7 @@ func (b *builder) addNodes(jdNodes map[string]NodeRecord, jobs shared.NOPJobs, q
 			node.NOPAlias = aliasByLowerName[strings.ToLower(jdNode.Name)]
 		}
 		node.Roles = sortedKeys(nodeRoles[id])
-		node.VerifierQualifiers = sortedKeys(nodeQualifiers[id])
-		node.VerifierSourceChains = sortedKeys(nodeChains[id])
+		node.VerifierScopes = nodeScopes[id]
 		if i, ok := nopIndex[node.NOPAlias]; ok {
 			b.inv.NOPs[i].NodeIDs = append(b.inv.NOPs[i].NodeIDs, id)
 		}
@@ -169,29 +167,19 @@ func jobRole(spec string) (Role, error) {
 	}
 }
 
-// recordVerifierScope records a verifier job's committee qualifier and source-chain coverage
-// for its node, so committee members can be bound to the exact signing node.
-func (b *builder) recordVerifierScope(job shared.JobInfo, jobID shared.JobID, qualifiers []string, nodeQualifiers map[string]map[string]struct{}, nodeChains map[string]map[ChainSelector]struct{}) {
-	if q := jobCommitteeQualifier(jobID, qualifiers); q != "" {
-		if nodeQualifiers[job.NodeID] == nil {
-			nodeQualifiers[job.NodeID] = make(map[string]struct{})
-		}
-		nodeQualifiers[job.NodeID][q] = struct{}{}
-	}
+// verifierScope pairs a verifier job's committee qualifier with its source-chain coverage, so
+// the two dimensions are never matched across different jobs on the same node.
+func (b *builder) verifierScope(job shared.JobInfo, jobID shared.JobID, qualifiers []string) VerifierScope {
+	scope := VerifierScope{Qualifier: jobCommitteeQualifier(jobID, qualifiers)}
 	chains, err := shared.VerifierSourceChains(job.Spec)
 	if err != nil {
 		b.issue(IssueUnreadableJob, string(jobID), err.Error())
-		return
-	}
-	if len(chains) == 0 {
-		return
-	}
-	if nodeChains[job.NodeID] == nil {
-		nodeChains[job.NodeID] = make(map[ChainSelector]struct{})
+		return scope
 	}
 	for _, chain := range chains {
-		nodeChains[job.NodeID][ChainSelector(chain)] = struct{}{}
+		scope.SourceChains = append(scope.SourceChains, ChainSelector(chain))
 	}
+	return scope
 }
 
 // jobCommitteeQualifier returns the known committee qualifier a verifier job is scoped to, or ""

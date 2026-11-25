@@ -16,6 +16,7 @@ import (
 
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
+	"github.com/smartcontractkit/chainlink-ccv/deployment/inventory"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 )
 
@@ -365,6 +366,50 @@ func TestRemoveNOPOffchain_Apply_WritesUpdatedAggregatorConfig(t *testing.T) {
 	require.NoError(t, err)
 	signers := cfg.QuorumConfigs[fmt.Sprintf("%d", sel1)].Signers
 	require.Len(t, signers, 2, "two signers remain after removal")
+}
+
+func TestRemoveNOPOffchain_Apply_PublishesObservedCommittee(t *testing.T) {
+	sel1 := chainsel.TEST_90000001.Selector
+	qualifier := testQualifier
+	verifierAddr := testVerifierAddr
+
+	adapter := &stubFullAdapter{
+		states: map[uint64][]*adapters.CommitteeState{
+			sel1: {{
+				Qualifier: qualifier, ChainSelector: sel1, Address: verifierAddr,
+				SignatureConfigs: []adapters.SignatureConfig{
+					{SourceChainSelector: sel1, Signers: []string{"0xBBB", "0xCCC"}, Threshold: 2},
+				},
+			}},
+		},
+		verifierAddrs: map[uint64]string{sel1: verifierAddr},
+	}
+	registerFullEVMAdapters(adapter)
+	env := deployment.Environment{
+		Logger:      logger.Test(t),
+		BlockChains: newTestBlockChains([]uint64{sel1}),
+		DataStore:   datastore.NewMemoryDataStore().Seal(),
+	}
+
+	out, err := RemoveNOPOffchain().Apply(env, RemoveNOPOffchainInput{
+		CommitteeQualifier:   qualifier,
+		SourceChainSelectors: []uint64{sel1},
+		ServiceIdentifiers:   []string{"my-aggregator"},
+		NOPAlias:             shared.NOPAlias(testNOPAlias),
+	})
+	require.NoError(t, err)
+
+	inv, err := ccvdeployment.GetInventory(out.DataStore.Seal())
+	require.NoError(t, err)
+	var onchain []inventory.Committee
+	for _, c := range inv.Committees {
+		if c.Source == inventory.SourceOnchain {
+			onchain = append(onchain, c)
+		}
+	}
+	require.Len(t, onchain, 1, "the removal run itself publishes the observed committee")
+	assert.Equal(t, uint8(2), onchain[0].Threshold)
+	assert.Len(t, onchain[0].Members, 2, "the removed signer is gone from the inventory in the same run, not after another scan")
 }
 
 func TestRemoveNOPOffchain_Apply_UsesAllDiscoveredDestChains(t *testing.T) {

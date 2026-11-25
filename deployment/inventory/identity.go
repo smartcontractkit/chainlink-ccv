@@ -60,14 +60,7 @@ type resolver struct {
 	aliases      map[string][]string // canonical address -> NOP aliases claiming it
 	pubKeys      map[string]string   // canonical address -> uncompressed key from a NOP identity
 	verifierNode map[string][]*Node  // NOP alias -> nodes that could sign
-	scopedNode   map[verifierKey][]*Node
 	executorNode map[string]*Node
-}
-
-// verifierKey binds a NOP's verifier node to the exact committee it signs for.
-type verifierKey struct {
-	alias     string
-	qualifier string
 }
 
 func buildResolver(nops []NOP, nodes []Node) *resolver {
@@ -75,7 +68,6 @@ func buildResolver(nops []NOP, nodes []Node) *resolver {
 		aliases:      make(map[string][]string),
 		pubKeys:      make(map[string]string),
 		verifierNode: make(map[string][]*Node),
-		scopedNode:   make(map[verifierKey][]*Node),
 		executorNode: make(map[string]*Node),
 	}
 	for _, nop := range nops {
@@ -102,10 +94,6 @@ func buildResolver(nops []NOP, nodes []Node) *resolver {
 		}
 		if slices.Contains(node.Roles, RoleVerifier) {
 			r.verifierNode[node.NOPAlias] = append(r.verifierNode[node.NOPAlias], node)
-			for _, q := range node.VerifierQualifiers {
-				k := verifierKey{node.NOPAlias, q}
-				r.scopedNode[k] = append(r.scopedNode[k], node)
-			}
 		}
 	}
 	// With no verifier job on record (hand-proposed jobs), a role-less node named after the alias signs.
@@ -130,23 +118,30 @@ const (
 )
 
 // verifierFor returns the exact node signing for alias in committee qualifier for source.
-// Scoped nodes must cover the source chain; only nodes with no recorded qualifier scope are
-// eligible as fallbacks, so a node scoped to another committee is never assigned by default.
+// A node is eligible only when one of its jobs pairs this qualifier with this source chain;
+// fallback nodes (no known-qualifier scope) are used only when no scoped match exists, and a
+// node scoped to another committee is never assigned by default.
 func (r *resolver) verifierFor(alias, qualifier string, source uint64) (*Node, nodeResolution) {
-	if eligible := sourceEligible(r.scopedNode[verifierKey{alias, qualifier}], source); len(eligible) == 1 {
-		return eligible[0], nodeResolved
-	} else if len(eligible) > 1 {
-		return nil, nodeAmbiguous
-	}
-	var unscoped []*Node
+	var scoped, fallback []*Node
 	for _, node := range r.verifierNode[alias] {
-		if len(node.VerifierQualifiers) == 0 {
-			unscoped = append(unscoped, node)
+		if scopeMatch(node, qualifier, source) {
+			scoped = append(scoped, node)
+			continue
+		}
+		if fallbackEligible(node, source) {
+			fallback = append(fallback, node)
 		}
 	}
-	if eligible := sourceEligible(unscoped, source); len(eligible) == 1 {
-		return eligible[0], nodeResolved
-	} else if len(eligible) > 1 {
+	if len(scoped) == 1 {
+		return scoped[0], nodeResolved
+	}
+	if len(scoped) > 1 {
+		return nil, nodeAmbiguous
+	}
+	if len(fallback) == 1 {
+		return fallback[0], nodeResolved
+	}
+	if len(fallback) > 1 {
 		return nil, nodeAmbiguous
 	}
 	if len(r.verifierNode[alias]) > 0 {
@@ -155,15 +150,40 @@ func (r *resolver) verifierFor(alias, qualifier string, source uint64) (*Node, n
 	return nil, nodeNone
 }
 
-// sourceEligible keeps nodes with no recorded chain scope or whose scope covers source.
-func sourceEligible(nodes []*Node, source uint64) []*Node {
-	out := make([]*Node, 0, len(nodes))
-	for _, node := range nodes {
-		if len(node.VerifierSourceChains) == 0 || slices.Contains(node.VerifierSourceChains, ChainSelector(source)) {
-			out = append(out, node)
+// scopeMatch reports whether one of the node's jobs covers exactly this qualifier and source.
+func scopeMatch(node *Node, qualifier string, source uint64) bool {
+	if qualifier == "" {
+		return false
+	}
+	for _, scope := range node.VerifierScopes {
+		if scope.Qualifier == qualifier && chainsCover(scope.SourceChains, source) {
+			return true
 		}
 	}
-	return out
+	return false
+}
+
+// fallbackEligible reports whether a node with no known-qualifier scope can sign for source.
+// A node with any known-qualifier scope is never a fallback: its recorded scope decides instead.
+func fallbackEligible(node *Node, source uint64) bool {
+	for _, scope := range node.VerifierScopes {
+		if scope.Qualifier != "" {
+			return false
+		}
+	}
+	if len(node.VerifierScopes) == 0 {
+		return true
+	}
+	for _, scope := range node.VerifierScopes {
+		if chainsCover(scope.SourceChains, source) {
+			return true
+		}
+	}
+	return false
+}
+
+func chainsCover(chains []ChainSelector, source uint64) bool {
+	return len(chains) == 0 || slices.Contains(chains, ChainSelector(source))
 }
 
 // member resolves one signer, as its verifier chain's family stores it, to a committee member.

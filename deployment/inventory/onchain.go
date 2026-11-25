@@ -93,13 +93,19 @@ func (inv *Inventory) refreshFromScans(previous map[uint64][]Committee, chains [
 			continue
 		}
 		refresh.LastError = err.Error()
-		b.issue(IssueOnchainReadFailed, chainLabel(chain), err.Error())
 		inv.setRefresh(refresh)
 		inv.recordSnapshot(b, r, recorded, previous[chain])
 	}
 	for chain, rows := range previous {
 		if !scanned[chain] {
 			inv.recordSnapshot(b, r, recorded, rows)
+		}
+	}
+	// Read-failure alerts track the final refresh records, so a chain outside this refresh
+	// keeps its alert for as long as its last attempt failed, and only that.
+	for _, refresh := range inv.Refreshes {
+		if refresh.LastError != "" {
+			b.issue(IssueOnchainReadFailed, chainLabel(uint64(refresh.Chain)), refresh.LastError)
 		}
 	}
 	b.checkIdentities(r)

@@ -162,21 +162,16 @@ func RemoveNOPOffchain() deployment.ChangeSetV2[RemoveNOPOffchainInput] {
 			return deployment.ChangesetOutput{}, fmt.Errorf("no dest chains found for committee %q", cfg.CommitteeQualifier)
 		}
 
-		committee, _, err := buildAggregatorCommittee(e, cfg.CommitteeQualifier, committeeChains, nil)
+		committee, states, err := buildAggregatorCommittee(e, cfg.CommitteeQualifier, committeeChains, nil)
 		if err != nil {
 			return deployment.ChangesetOutput{}, fmt.Errorf("failed to build aggregator config: %w", err)
 		}
 
-		outputDS := datastore.NewMemoryDataStore()
-		if e.DataStore != nil {
-			if err := outputDS.Merge(e.DataStore); err != nil {
-				return deployment.ChangesetOutput{}, fmt.Errorf("failed to merge datastore: %w", err)
-			}
-		}
-		for _, svcID := range cfg.ServiceIdentifiers {
-			if err := ccvdeployment.SaveAggregatorConfig(outputDS, svcID, committee); err != nil {
-				return deployment.ChangesetOutput{}, fmt.Errorf("failed to save aggregator config for %q: %w", svcID, err)
-			}
+		// The post-removal reads are the current signer set: publish them with the config so a
+		// removed NOP leaves the inventory in the same run instead of after another scan.
+		outputDS, err := saveAggregatorRun(e, cfg.ServiceIdentifiers, committee, committeeChains, states)
+		if err != nil {
+			return deployment.ChangesetOutput{}, err
 		}
 
 		if err := revokeVerifierJobsForNOP(e, cfg.NOPAlias, cfg.CommitteeQualifier, outputDS); err != nil {

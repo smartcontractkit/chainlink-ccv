@@ -274,6 +274,33 @@ func validateSignatureConfigConsistency(
 	return nil
 }
 
+// saveAggregatorRun persists a generated committee for every service identifier and the raw
+// committee reads that produced it, returning the datastore carrying both. The reads are the
+// observed signer sets and quorum, before any offchain threshold override.
+func saveAggregatorRun(
+	e deployment.Environment,
+	serviceIdentifiers []string,
+	committee *model.Committee,
+	chains []uint64,
+	states []*adapters.CommitteeState,
+) (datastore.MutableDataStore, error) {
+	outputDS := datastore.NewMemoryDataStore()
+	if e.DataStore != nil {
+		if err := outputDS.Merge(e.DataStore); err != nil {
+			return nil, fmt.Errorf("failed to merge datastore: %w", err)
+		}
+	}
+	for _, svcID := range serviceIdentifiers {
+		if err := ccvdeployment.SaveAggregatorConfig(outputDS, svcID, committee); err != nil {
+			return nil, fmt.Errorf("failed to save aggregator config for %q: %w", svcID, err)
+		}
+	}
+	if err := ccvdeployment.SaveScannedCommitteeStates(outputDS, chains, states); err != nil {
+		return nil, fmt.Errorf("failed to save scanned committee states: %w", err)
+	}
+	return outputDS, nil
+}
+
 func buildDestinationVerifiers(
 	ds datastore.DataStore,
 	committeeQualifier string,

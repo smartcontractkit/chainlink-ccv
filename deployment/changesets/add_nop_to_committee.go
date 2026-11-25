@@ -40,7 +40,6 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 
-	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/operations/fetch_signing_keys"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/sequences"
@@ -306,21 +305,14 @@ func AddNOPOffchain() deployment.ChangeSetV2[AddNOPOffchainInput] {
 			return deployment.ChangesetOutput{}, fmt.Errorf("no dest chains found for committee %q", cfg.CommitteeQualifier)
 		}
 
-		committee, _, err := buildAggregatorCommittee(e, cfg.CommitteeQualifier, committeeChains, nil)
+		committee, states, err := buildAggregatorCommittee(e, cfg.CommitteeQualifier, committeeChains, nil)
 		if err != nil {
 			return deployment.ChangesetOutput{}, fmt.Errorf("failed to build aggregator config: %w", err)
 		}
 
-		outputDS := datastore.NewMemoryDataStore()
-		if e.DataStore != nil {
-			if err := outputDS.Merge(e.DataStore); err != nil {
-				return deployment.ChangesetOutput{}, fmt.Errorf("failed to merge datastore: %w", err)
-			}
-		}
-		for _, svcID := range cfg.ServiceIdentifiers {
-			if err := ccvdeployment.SaveAggregatorConfig(outputDS, svcID, committee); err != nil {
-				return deployment.ChangesetOutput{}, fmt.Errorf("failed to save aggregator config for %q: %w", svcID, err)
-			}
+		outputDS, err := saveAggregatorRun(e, cfg.ServiceIdentifiers, committee, committeeChains, states)
+		if err != nil {
+			return deployment.ChangesetOutput{}, err
 		}
 
 		manageDS, reports, err := provisionVerifierJobForNOP(e, cfg, committeeChains, outputDS.Seal())

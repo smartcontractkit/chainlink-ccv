@@ -83,6 +83,14 @@ const (
 	RoleExecutor Role = "executor"
 )
 
+// VerifierScope is one verifier job's scope: its committee qualifier and the source chains it
+// covers. Qualifier is empty when no known qualifier matches the job. Scopes stay per job so a
+// node is only eligible for a qualifier+source combination one of its jobs actually has.
+type VerifierScope struct {
+	Qualifier    string          `json:"qualifier,omitempty"`
+	SourceChains []ChainSelector `json:"sourceChains,omitempty"`
+}
+
 // Node is a Job Distributor node and the CCV roles it runs.
 type Node struct {
 	ID       string `json:"id"`
@@ -90,13 +98,9 @@ type Node struct {
 	CSAKey   string `json:"csaKey"`
 	NOPAlias string `json:"nopAlias,omitempty"`
 	Roles    []Role `json:"roles,omitempty"`
-	// VerifierQualifiers are the committee qualifiers this node's verifier jobs are scoped to.
-	// They bind a committee signer to the exact node that signs for that committee.
-	VerifierQualifiers []string `json:"verifierQualifiers,omitempty"`
-	// VerifierSourceChains are the source chain selectors this node's verifier jobs are
-	// configured to verify. Empty means no recorded chain scope, so any source is eligible.
-	VerifierSourceChains []ChainSelector   `json:"verifierSourceChains,omitempty"`
-	Labels               map[string]string `json:"labels,omitempty"`
+	// VerifierScopes are this node's verifier jobs' committee and source-chain scopes.
+	VerifierScopes []VerifierScope   `json:"verifierScopes,omitempty"`
+	Labels         map[string]string `json:"labels,omitempty"`
 }
 
 // Where a committee's signer set was read from.
