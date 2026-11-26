@@ -17,6 +17,7 @@ package changesets
 import (
 	"fmt"
 
+	ccipchangesets "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
@@ -55,8 +56,8 @@ func OnboardChain() deployment.ChangeSetV2[OnboardChainInput] {
 		ds := datastore.NewMemoryDataStore()
 		var allReports []operations.Report[any, any]
 
-		// Phase 1: deploy protocol contracts.
-		reports, err := deployProtocolContractsOnChains(e, cfg.ProtocolContracts, ds)
+		// Phase 1: deploy protocol contracts and hand them to the timelock.
+		reports, batchOps, err := deployProtocolContractsOnChains(e, cfg.ProtocolContracts, ds)
 		allReports = append(allReports, reports...)
 		if err != nil {
 			return deployment.ChangesetOutput{Reports: allReports, DataStore: ds},
@@ -77,14 +78,21 @@ func OnboardChain() deployment.ChangeSetV2[OnboardChainInput] {
 		}
 		ccvEnv.DataStore = merged.Seal()
 
-		reports, err = deployCommitteeVerifiersOnChains(ccvEnv, cfg.CommitteeVerifiers, ds)
+		reports, cvBatchOps, err := deployCommitteeVerifiersOnChains(ccvEnv, cfg.CommitteeVerifiers, ds)
 		allReports = append(allReports, reports...)
 		if err != nil {
 			return deployment.ChangesetOutput{Reports: allReports, DataStore: ds},
 				fmt.Errorf("committee verifiers: %w", err)
 		}
+		batchOps = append(batchOps, cvBatchOps...)
 
-		return deployment.ChangesetOutput{Reports: allReports, DataStore: ds}, nil
+		// One proposal carries the ownership handover and every write the
+		// adapters deferred to MCMS. It is configured by ProtocolContracts.MCMS.
+		return ccipchangesets.NewOutputBuilder(e, ccipchangesets.GetRegistry()).
+			WithReports(allReports).
+			WithBatchOps(batchOps).
+			WithDataStore(ds).
+			Build(cfg.ProtocolContracts.mcmsInput())
 	}
 
 	return deployment.CreateChangeSet(apply, validate)

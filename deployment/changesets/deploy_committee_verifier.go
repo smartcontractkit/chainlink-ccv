@@ -65,7 +65,9 @@ func DeployCommitteeVerifier() deployment.ChangeSetV2[DeployCommitteeVerifierInp
 
 	apply := func(e deployment.Environment, cfg DeployCommitteeVerifierInput) (deployment.ChangesetOutput, error) {
 		ds := datastore.NewMemoryDataStore()
-		reports, err := deployCommitteeVerifiersOnChains(e, cfg, ds)
+		// Batch ops are not packaged here yet: this changeset has no MCMS input
+		// (CCIP-11432). OnboardChain does put them in its proposal.
+		reports, _, err := deployCommitteeVerifiersOnChains(e, cfg, ds)
 		return deployment.ChangesetOutput{Reports: reports, DataStore: ds}, err
 	}
 

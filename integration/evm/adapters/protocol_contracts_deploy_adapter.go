@@ -105,9 +105,10 @@ var evmDeployProtocolContracts = cldfops.NewSequence(
 		}
 
 		return ccvdeploymentadapters.ProtocolContractsDeployOutput{
-			Addresses:               report.Output.Addresses,
-			BatchOps:                report.Output.BatchOps,
-			RefsToTransferOwnership: report.Output.RefsToTransferOwnership,
+			Addresses:                  report.Output.Addresses,
+			BatchOps:                   report.Output.BatchOps,
+			RefsToTransferOwnership:    report.Output.RefsToTransferOwnership,
+			RefsToTransferOwnershipRMN: report.Output.RefsToTransferOwnershipRMN,
 		}, nil
 	},
 )

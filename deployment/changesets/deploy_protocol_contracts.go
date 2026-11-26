@@ -5,12 +5,22 @@ import (
 	"fmt"
 	"slices"
 
+	mcmstypes "github.com/smartcontractkit/mcms/types"
+
+	"github.com/smartcontractkit/chainlink-ccip/deployment/deploy"
+	ccipcommon "github.com/smartcontractkit/chainlink-ccip/deployment/utils"
+	ccipchangesets "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
+	ccipmcms "github.com/smartcontractkit/chainlink-ccip/deployment/utils/mcms"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 
 	"github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 )
+
+// transferToTimelock hands deployed contracts to a timelock. It is a variable so
+// tests can observe the handover without a real chain.
+var transferToTimelock = deploy.TransferToTimelock
 
 // DeployProtocolContractsPerChainCfg carries the per-chain configuration for
 // deploying CCIP protocol contracts (RMN, OnRamp, OffRamp, FeeQuoter, Router,
@@ -23,7 +33,10 @@ type DeployProtocolContractsPerChainCfg struct {
 	// Executors lists executor instances to deploy.
 	Executors []adapters.ExecutorDeployParams
 	// DeployerKeyOwned when true means deployed contracts remain owned by the
-	// deployer key. When false, ownership is transferred to the RBAC timelock.
+	// deployer key. When false (the default), the changeset transfers ownership
+	// to the RBAC timelock (and RMN contracts to the RMN timelock) and returns
+	// the acceptance as an MCMS proposal; DeployProtocolContractsInput.MCMS is
+	// then required.
 	DeployerKeyOwned bool
 	// FamilyExtras carries chain-family-specific deploy parameters.
 	FamilyExtras map[string]any
@@ -39,6 +52,17 @@ type DeployProtocolContractsInput struct {
 	DefaultCfg DeployProtocolContractsPerChainCfg
 	// ChainCfgs overrides DefaultCfg for specific chains.
 	ChainCfgs map[uint64]DeployProtocolContractsPerChainCfg
+	// MCMS configures the timelock proposal that carries the ownership handover
+	// and any writes the adapter deferred to MCMS. Required when any chain has
+	// DeployerKeyOwned false.
+	MCMS *ccipmcms.Input
+}
+
+func (c DeployProtocolContractsInput) mcmsInput() ccipmcms.Input {
+	if c.MCMS == nil {
+		return ccipmcms.Input{}
+	}
+	return *c.MCMS
 }
 
 func (c DeployProtocolContractsInput) resolveChainCfg(sel uint64) DeployProtocolContractsPerChainCfg {
@@ -61,8 +85,15 @@ func DeployProtocolContracts() deployment.ChangeSetV2[DeployProtocolContractsInp
 
 	apply := func(e deployment.Environment, cfg DeployProtocolContractsInput) (deployment.ChangesetOutput, error) {
 		ds := datastore.NewMemoryDataStore()
-		reports, err := deployProtocolContractsOnChains(e, cfg, ds)
-		return deployment.ChangesetOutput{Reports: reports, DataStore: ds}, err
+		reports, batchOps, err := deployProtocolContractsOnChains(e, cfg, ds)
+		if err != nil {
+			return deployment.ChangesetOutput{Reports: reports, DataStore: ds}, err
+		}
+		return ccipchangesets.NewOutputBuilder(e, ccipchangesets.GetRegistry()).
+			WithReports(reports).
+			WithBatchOps(batchOps).
+			WithDataStore(ds).
+			Build(cfg.mcmsInput())
 	}
 
 	return deployment.CreateChangeSet(apply, validate)
@@ -84,8 +115,12 @@ func validateProtocolContractsDeploy(e deployment.Environment, cfg DeployProtoco
 		if !slices.Contains(envSelectors, sel) {
 			return fmt.Errorf("chain selector %d is not available in environment", sel)
 		}
-		if cfg.resolveChainCfg(sel).DeployerContract == "" {
+		chainCfg := cfg.resolveChainCfg(sel)
+		if chainCfg.DeployerContract == "" {
 			return fmt.Errorf("DeployerContract is required for chain %d", sel)
+		}
+		if !chainCfg.DeployerKeyOwned && cfg.MCMS == nil {
+			return fmt.Errorf("MCMS input is required for chain %d: ownership is transferred to the timelock unless DeployerKeyOwned is set", sel)
 		}
 		if _, err := adapters.GetProtocolContractsDeployRegistry().Get(sel); err != nil {
 			return fmt.Errorf("chain %d: %w", sel, err)
@@ -102,21 +137,25 @@ func validateProtocolContractsDeploy(e deployment.Environment, cfg DeployProtoco
 }
 
 // deployProtocolContractsOnChains deploys protocol contracts on every chain in
-// cfg and writes deployed addresses to ds. This is the shared core used by
-// both DeployProtocolContracts and OnboardChain.
+// cfg, hands them to the timelock unless DeployerKeyOwned is set, and writes
+// deployed addresses to ds. It returns the batch operations the caller must
+// put in an MCMS proposal: the writes the adapter deferred to MCMS plus the
+// ownership transfer and acceptance. This is the shared core used by both
+// DeployProtocolContracts and OnboardChain.
 func deployProtocolContractsOnChains(
 	e deployment.Environment,
 	cfg DeployProtocolContractsInput,
 	ds datastore.MutableDataStore,
-) ([]operations.Report[any, any], error) {
+) ([]operations.Report[any, any], []mcmstypes.BatchOperation, error) {
 	var allReports []operations.Report[any, any]
+	var allBatchOps []mcmstypes.BatchOperation
 
 	for _, sel := range cfg.ChainSelectors {
 		chainCfg := cfg.resolveChainCfg(sel)
 
 		deployer, err := adapters.GetProtocolContractsDeployRegistry().Get(sel)
 		if err != nil {
-			return allReports, fmt.Errorf("chain %d: %w", sel, err)
+			return allReports, nil, fmt.Errorf("chain %d: %w", sel, err)
 		}
 
 		existingAddresses := e.DataStore.Addresses().Filter(
@@ -147,35 +186,81 @@ func deployProtocolContractsOnChains(
 		)
 		allReports = append(allReports, report.ExecutionReports...)
 		if err != nil {
-			return allReports, fmt.Errorf("chain %d: deploy failed: %w", sel, err)
+			return allReports, nil, fmt.Errorf("chain %d: deploy failed: %w", sel, err)
+		}
+		allBatchOps = append(allBatchOps, report.Output.BatchOps...)
+
+		if !chainCfg.DeployerKeyOwned {
+			ownershipOps, ownershipReports, transferErr := transferProtocolContractsToTimelocks(e, sel, cfg.mcmsInput(), report.Output)
+			allReports = append(allReports, ownershipReports...)
+			if transferErr != nil {
+				return allReports, nil, fmt.Errorf("chain %d: %w", sel, transferErr)
+			}
+			allBatchOps = append(allBatchOps, ownershipOps...)
 		}
 
 		for _, ref := range report.Output.Addresses {
 			if addErr := ds.Addresses().Add(ref); addErr != nil &&
 				!errors.Is(addErr, datastore.ErrAddressRefExists) {
-				return allReports, fmt.Errorf("chain %d: failed to add %s %s at %s to datastore: %w",
+				return allReports, nil, fmt.Errorf("chain %d: failed to add %s %s at %s to datastore: %w",
 					sel, ref.Type, ref.Version, ref.Address, addErr)
 			}
 		}
 	}
 
-	return allReports, nil
+	return allReports, allBatchOps, nil
+}
+
+// transferProtocolContractsToTimelocks transfers the refs the adapter returned to
+// the RBAC timelock, and the RMN refs to the RMN timelock, returning the batch
+// operations that complete the handover.
+func transferProtocolContractsToTimelocks(
+	e deployment.Environment,
+	sel uint64,
+	mcmsInput ccipmcms.Input,
+	out adapters.ProtocolContractsDeployOutput,
+) ([]mcmstypes.BatchOperation, []operations.Report[any, any], error) {
+	var batchOps []mcmstypes.BatchOperation
+	var reports []operations.Report[any, any]
+	if len(out.RefsToTransferOwnership) > 0 {
+		ops, reps, err := transferToTimelock(sel, e, mcmsInput, out.RefsToTransferOwnership,
+			ccipchangesets.GetRegistry(), deploy.GetTransferOwnershipRegistry())
+		reports = append(reports, reps...)
+		if err != nil {
+			return nil, reports, fmt.Errorf("failed to transfer ownership to timelock: %w", err)
+		}
+		batchOps = append(batchOps, ops...)
+	}
+	if len(out.RefsToTransferOwnershipRMN) > 0 {
+		rmnInput := mcmsInput
+		rmnInput.Qualifier = ccipcommon.RMNTimelockQualifier
+		ops, reps, err := transferToTimelock(sel, e, rmnInput, out.RefsToTransferOwnershipRMN,
+			ccipchangesets.GetRegistry(), deploy.GetTransferOwnershipRegistry())
+		reports = append(reports, reps...)
+		if err != nil {
+			return nil, reports, fmt.Errorf("failed to transfer ownership to RMN timelock: %w", err)
+		}
+		batchOps = append(batchOps, ops...)
+	}
+	return batchOps, reports, nil
 }
 
 // deployCommitteeVerifiersOnChains deploys committee verifiers on every chain
-// in cfg and writes deployed addresses to ds. This is the shared core used by
-// both DeployCommitteeVerifier and OnboardChain.
+// in cfg and writes deployed addresses to ds. It returns the batch operations
+// the adapters deferred to MCMS. This is the shared core used by both
+// DeployCommitteeVerifier and OnboardChain.
 func deployCommitteeVerifiersOnChains(
 	e deployment.Environment,
 	cfg DeployCommitteeVerifierInput,
 	ds datastore.MutableDataStore,
-) ([]operations.Report[any, any], error) {
+) ([]operations.Report[any, any], []mcmstypes.BatchOperation, error) {
 	var allReports []operations.Report[any, any]
+	var allBatchOps []mcmstypes.BatchOperation
 
 	for _, sel := range cfg.ChainSelectors {
 		deployer, err := adapters.GetCommitteeVerifierDeployRegistry().Get(sel)
 		if err != nil {
-			return allReports, fmt.Errorf("chain %d: %w", sel, err)
+			return allReports, nil, fmt.Errorf("chain %d: %w", sel, err)
 		}
 
 		existingAddresses := e.DataStore.Addresses().Filter(
@@ -203,13 +288,14 @@ func deployCommitteeVerifiersOnChains(
 			)
 			allReports = append(allReports, report.ExecutionReports...)
 			if err != nil {
-				return allReports, fmt.Errorf("chain %d committee %q: deploy failed: %w", sel, committee.Qualifier, err)
+				return allReports, nil, fmt.Errorf("chain %d committee %q: deploy failed: %w", sel, committee.Qualifier, err)
 			}
+			allBatchOps = append(allBatchOps, report.Output.BatchOps...)
 
 			for _, ref := range report.Output.Addresses {
 				if addErr := ds.Addresses().Add(ref); addErr != nil &&
 					!errors.Is(addErr, datastore.ErrAddressRefExists) {
-					return allReports, fmt.Errorf("chain %d committee %q: failed to add %s %s at %s to datastore: %w",
+					return allReports, nil, fmt.Errorf("chain %d committee %q: failed to add %s %s at %s to datastore: %w",
 						sel, committee.Qualifier, ref.Type, ref.Version, ref.Address, addErr)
 				}
 				existingAddresses = append(existingAddresses, ref)
@@ -217,5 +303,5 @@ func deployCommitteeVerifiersOnChains(
 		}
 	}
 
-	return allReports, nil
+	return allReports, allBatchOps, nil
 }
