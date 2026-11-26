@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.9.0](https://github.com/smartcontractkit/chainlink-ccv/compare/build/devenv/v0.8.0...build/devenv/v0.9.0) (2026-11-26)
+
+
+### Features
+
+* add job and transmitter visibility to admin console ([#1595](https://github.com/smartcontractkit/chainlink-ccv/issues/1595)) ([00c4ddd](https://github.com/smartcontractkit/chainlink-ccv/commit/00c4ddd0a959b063ab143f060d0dcee801092760))
+* **aggregator:** replace aggregation channels with a durable job queue ([#1592](https://github.com/smartcontractkit/chainlink-ccv/issues/1592)) ([13afa02](https://github.com/smartcontractkit/chainlink-ccv/commit/13afa020dbd8c3cf117c2f1520c04d065461a87b))
+* **deployment:** persist JD node inventory for o11y ([#1600](https://github.com/smartcontractkit/chainlink-ccv/issues/1600)) ([817c8fb](https://github.com/smartcontractkit/chainlink-ccv/commit/817c8fb69ae89351e5a45a1ce2234ef3c158c625))
+* **devenv:** run the indexer as 2 replicas behind a proxy ([#1632](https://github.com/smartcontractkit/chainlink-ccv/issues/1632)) ([169f412](https://github.com/smartcontractkit/chainlink-ccv/commit/169f412d95c753e95b6347a6f4f50fbd0d362a49))
+* **executor:** enable EVM transmitter balance monitoring ([#1609](https://github.com/smartcontractkit/chainlink-ccv/issues/1609)) ([b4708b1](https://github.com/smartcontractkit/chainlink-ccv/commit/b4708b1409334534ae43649dae424015c749ad04))
+* Indexer discovery leader election ([#1567](https://github.com/smartcontractkit/chainlink-ccv/issues/1567)) ([1e8fde4](https://github.com/smartcontractkit/chainlink-ccv/commit/1e8fde43ee33f979ab63a3e669de056e3fce1033))
+* inject build version and commit into images ([#1597](https://github.com/smartcontractkit/chainlink-ccv/issues/1597)) ([3ceff9f](https://github.com/smartcontractkit/chainlink-ccv/commit/3ceff9fefbe741b5fcdfdcf711484fc1474480f9))
+* **MTTP:** add MTTP smoke tests ([#1607](https://github.com/smartcontractkit/chainlink-ccv/issues/1607)) ([b3b10dc](https://github.com/smartcontractkit/chainlink-ccv/commit/b3b10dc7f73d5daf848385e35823ca0570f6350c))
+
+
+### Bug Fixes
+
+* **deployment:** route executor jobs and trim proposal metadata ([#1590](https://github.com/smartcontractkit/chainlink-ccv/issues/1590)) ([5a40feb](https://github.com/smartcontractkit/chainlink-ccv/commit/5a40febe67bda34397afa03d8fb1fa48f9c903a3))
+* **deps:** bump chain-selectors ([#1645](https://github.com/smartcontractkit/chainlink-ccv/issues/1645)) ([4e53d83](https://github.com/smartcontractkit/chainlink-ccv/commit/4e53d832e3093d09d5689361530944003d952c05))
+* **devenv:** bump loki to v3.7.9 and register hmac codec as CodecV2 ([#1579](https://github.com/smartcontractkit/chainlink-ccv/issues/1579)) ([1cb714e](https://github.com/smartcontractkit/chainlink-ccv/commit/1cb714e6b1bfbf8ea2f31fbf7776b11ce2064849))
+* **executor:** decouple source addresses from destination config ([#1619](https://github.com/smartcontractkit/chainlink-ccv/issues/1619)) ([4c6d6b9](https://github.com/smartcontractkit/chainlink-ccv/commit/4c6d6b93b954fb1a1e35e01ca694212440ff9148))
+
 ## [0.8.0](https://github.com/smartcontractkit/chainlink-ccv/compare/build/devenv/v0.7.0...build/devenv/v0.8.0) (2026-11-02)
 
 
