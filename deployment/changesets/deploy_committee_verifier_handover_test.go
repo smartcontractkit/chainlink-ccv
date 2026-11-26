@@ -155,3 +155,53 @@ func TestOnboardChain_Apply_OneProposalForBothPhases(t *testing.T) {
 		[]string{handoverDeferredAddr, handoverTransferAddr, handoverTransferAddr, handoverDeferredAddr, handoverTransferAddr},
 		proposalTargets(t, out))
 }
+
+// Environments without MCMS keep the deployer as owner and need no MCMS input.
+func TestDeployCommitteeVerifier_DeployerKeyOwnedWithoutMCMS(t *testing.T) {
+	sel := chainsel.TEST_90000001.Selector
+	deployOut := verifierDeployOutput(sel)
+	deployOut.BatchOps = nil
+	deployOut.RefsToTransferOwnership = nil
+	adapter := registerOutputCommitteeVerifierAdapter(t, deployOut)
+	calls := stubTransferToTimelock(t, nil)
+
+	input := validInput([]uint64{sel})
+	input.DefaultCfg.DeployerKeyOwned = true
+	input.MCMS = nil
+	require.NoError(t, DeployCommitteeVerifier().VerifyPreconditions(newDeployTestEnv([]uint64{sel}), input))
+
+	out, err := DeployCommitteeVerifier().Apply(newTestEnvForApply(t, "nop", []uint64{sel}), input)
+	require.NoError(t, err)
+	require.True(t, *adapter.deployerKeyOwned)
+	require.Empty(t, *calls)
+	require.Empty(t, out.MCMSTimelockProposals)
+	refs, err := out.DataStore.Addresses().Fetch()
+	require.NoError(t, err)
+	require.Len(t, refs, 1)
+}
+
+func TestOnboardChain_DeployerKeyOwnedWithoutMCMS(t *testing.T) {
+	sel := chainsel.TEST_90000001.Selector
+	protocolOut := handoverDeployOutput(sel)
+	protocolOut.BatchOps = nil
+	registerOutputAdapter(t, protocolOut)
+	cvOut := verifierDeployOutput(sel)
+	cvOut.BatchOps = nil
+	registerOutputCommitteeVerifierAdapter(t, cvOut)
+	calls := stubTransferToTimelock(t, nil)
+
+	protocol := validProtocolDeployInput([]uint64{sel})
+	protocol.DefaultCfg.DeployerKeyOwned = true
+	protocol.MCMS = nil
+	cv := validInput([]uint64{sel})
+	cv.DefaultCfg.DeployerKeyOwned = true
+	cv.MCMS = nil
+	input := OnboardChainInput{ProtocolContracts: protocol, CommitteeVerifiers: cv}
+
+	env := newTestEnvForApply(t, "nop", []uint64{sel})
+	require.NoError(t, OnboardChain().VerifyPreconditions(env, input))
+	out, err := OnboardChain().Apply(env, input)
+	require.NoError(t, err)
+	require.Empty(t, *calls, "refs returned by the adapter are ignored when the deployer keeps ownership")
+	require.Empty(t, out.MCMSTimelockProposals)
+}
