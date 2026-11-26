@@ -4,10 +4,13 @@ name: E2E Upgrade Test
 # one at a time, and sends a message after each step. The rollback job then goes back to the first images.
 # On a PR: from the target branch commit to the PR code. The label upgrade-breaking-change skips the PR jobs.
 # On the Release Please PR of the services: from the latest release tag to the PR code, which becomes the release.
+# In the merge queue of the services Release Please PR: only the upgrade-then-rollback test, for all services,
+# from the latest release tag to the merge queue commit.
 # On a release tag vX.Y.Z: from the previous release tag to the new tag.
 # On a manual run: from the `from` input to the `to` input.
 run-name: ${{ inputs.from && format('E2E Upgrade Test {0} -> {1}', inputs.from, inputs.to || github.ref_name) || '' }}
 on:
+  merge_group:
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled]
   push:
@@ -40,7 +43,9 @@ concurrency:
 jobs:
   e2e-upgrade:
     name: ${{ matrix.test }}
-    if: github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'upgrade-breaking-change')
+    if: >-
+      github.event_name != 'merge_group' &&
+      (github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'upgrade-breaking-change'))
     strategy:
       fail-fast: false
       matrix:
@@ -53,7 +58,7 @@ jobs:
       id-token: write
       contents: read
     runs-on: runs-on=${{ github.run_id }}/family=c6i/cpu=32+48/ram=64+96/spot=false/image=ubuntu24-full-x64/extras=s3-cache+tmpfs
-    steps:
+    steps: &upgrade-test-steps
       - name: Enable S3 Cache for Self-Hosted Runners
         uses: runs-on/action@cd2b598b0515d39d78c38a02d529db87d2196d1e # v2.0.3
 
@@ -83,7 +88,8 @@ jobs:
           # Highest vX.Y.Z tag: the latest release of the services.
           latest_release() { git tag --list 'v[0-9]*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1; }
           # The services release PR; module release PRs use release-please--branches--main--components--<module>.
-          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ] && [ "${PR_HEAD_REF}" = "release-please--branches--main" ]; then
+          # The merge queue runs only for the services release PR (see release-pr), so it compares to the latest release too.
+          if [ "${GITHUB_EVENT_NAME}" = "merge_group" ] || { [ "${GITHUB_EVENT_NAME}" = "pull_request" ] && [ "${PR_HEAD_REF}" = "release-please--branches--main" ]; }; then
             prev="$(latest_release)"
             if [ -z "${prev}" ]; then
               echo "No release tag found" >&2
@@ -171,7 +177,7 @@ jobs:
           DOCKER_BUILDKIT: 1
           JD_IMAGE: ${{ secrets.JD_IMAGE }}
           CCV_UPGRADE_SERVICES: ${{ inputs.services }}
-        run: just ${{ matrix.recipe }} "${{ steps.refs.outputs.from }}" "${{ steps.refs.outputs.to }}" standard.profile 30m
+        run: just ${{ matrix.recipe }} "${{ steps.refs.outputs.from }}" "${{ steps.refs.outputs.to }}" standard.profile ${{ matrix.timeout || '30m' }}
 
       - name: Dump logs
         if: always()
@@ -188,3 +194,43 @@ jobs:
           name: container-logs-${{ matrix.test }}
           path: build/devenv/tests/e2e/logs
           retention-days: 1
+
+  # Finds the services Release Please PR in the merge queue by its title, "chore: release  X.Y.Z (#N)".
+  # Module release PRs have the module name before the version, so they do not match.
+  release-pr:
+    name: Detect services release PR
+    if: github.event_name == 'merge_group'
+    runs-on: ubuntu-latest
+    outputs:
+      is-release: ${{ steps.detect.outputs.is-release }}
+    steps:
+      - name: Detect services release PR
+        id: detect
+        working-directory: .
+        env:
+          TITLE: ${{ github.event.merge_group.head_commit.message }}
+        run: |
+          if [[ "${TITLE%%$'\n'*}" =~ ^chore:\ release\ +v?[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            echo "is-release=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  # The upgrade-then-rollback test runs, for all services, in the merge queue of the services Release Please PR.
+  # It also runs on a manual run, for example a dispatch from chainlink-ccv-deploy for an image bump.
+  e2e-upgrade-then-rollback:
+    name: ${{ matrix.test }}
+    needs: release-pr
+    if: >-
+      !cancelled() &&
+      (github.event_name == 'workflow_dispatch' || needs.release-pr.outputs.is-release == 'true')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - test: TestE2EUpgradeThenRollback_HappyPath
+            recipe: upgrade-rollback-test
+            timeout: 45m
+    permissions:
+      id-token: write
+      contents: read
+    runs-on: runs-on=${{ github.run_id }}/family=c6i/cpu=32+48/ram=64+96/spot=false/image=ubuntu24-full-x64/extras=s3-cache+tmpfs
+    steps: *upgrade-test-steps

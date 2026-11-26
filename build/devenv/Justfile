@@ -117,6 +117,10 @@ upgrade-test from to="HEAD" profile="standard.profile" timeout="30m":
 rollback-test from to="HEAD" profile="standard.profile" timeout="30m":
     just _swap-test TestE2ERollback_HappyPath upgrade-to "{{ from }}" "{{ to }}" {{ profile }} {{ timeout }}
 
+# Rolling upgrade then rollback test: start devenv on the images of `from`, upgrade each service to `to`, then roll back.
+upgrade-rollback-test from to="HEAD" profile="standard.profile" timeout="45m":
+    just _swap-test TestE2EUpgradeThenRollback_HappyPath upgrade-from "{{ from }}" "{{ to }}" {{ profile }} {{ timeout }}
+
 # Rebuild CLI
 cli:
     cd cmd/ccv && go install -ldflags="-X main.Version=1.0.0" . && cd ../..
