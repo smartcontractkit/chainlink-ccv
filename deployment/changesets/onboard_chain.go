@@ -15,6 +15,7 @@ package changesets
 // for offchain setup.
 
 import (
+	"errors"
 	"fmt"
 
 	ccipchangesets "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
@@ -29,8 +30,20 @@ type OnboardChainInput struct {
 	// (RMN, OnRamp, OffRamp, FeeQuoter, Router, Executors).
 	ProtocolContracts DeployProtocolContractsInput
 	// CommitteeVerifiers configures the committee verifier deployment.
-	// ChainSelectors must match ProtocolContracts.ChainSelectors.
+	// ChainSelectors must match ProtocolContracts.ChainSelectors. Leave its MCMS
+	// unset: ProtocolContracts.MCMS configures the one proposal for both phases.
 	CommitteeVerifiers DeployCommitteeVerifierInput
+}
+
+// committeeVerifiersInput returns the committee verifier input with the shared
+// MCMS input, rejecting a separate one.
+func (c OnboardChainInput) committeeVerifiersInput() (DeployCommitteeVerifierInput, error) {
+	if c.CommitteeVerifiers.MCMS != nil {
+		return DeployCommitteeVerifierInput{}, errors.New("set ProtocolContracts.MCMS, not CommitteeVerifiers.MCMS: OnboardChain builds one proposal")
+	}
+	cv := c.CommitteeVerifiers
+	cv.MCMS = c.ProtocolContracts.MCMS
+	return cv, nil
 }
 
 // OnboardChain deploys both protocol contracts and committee verifiers on the
@@ -46,7 +59,11 @@ func OnboardChain() deployment.ChangeSetV2[OnboardChainInput] {
 		if err := validateProtocolContractsDeploy(e, cfg.ProtocolContracts); err != nil {
 			return fmt.Errorf("protocol contracts: %w", err)
 		}
-		if err := validateCommitteeVerifierDeploy(e, cfg.CommitteeVerifiers); err != nil {
+		cvCfg, err := cfg.committeeVerifiersInput()
+		if err != nil {
+			return err
+		}
+		if err := validateCommitteeVerifierDeploy(e, cvCfg); err != nil {
 			return fmt.Errorf("committee verifiers: %w", err)
 		}
 		return nil
@@ -57,8 +74,8 @@ func OnboardChain() deployment.ChangeSetV2[OnboardChainInput] {
 		var allReports []operations.Report[any, any]
 
 		// Phase 1: deploy protocol contracts and hand them to the timelock.
-		reports, batchOps, err := deployProtocolContractsOnChains(e, cfg.ProtocolContracts, ds)
-		allReports = append(allReports, reports...)
+		protocol, err := deployProtocolContractsOnChains(e, cfg.ProtocolContracts, ds)
+		allReports = append(allReports, protocol.Reports...)
 		if err != nil {
 			return deployment.ChangesetOutput{Reports: allReports, DataStore: ds},
 				fmt.Errorf("protocol contracts: %w", err)
@@ -78,17 +95,22 @@ func OnboardChain() deployment.ChangeSetV2[OnboardChainInput] {
 		}
 		ccvEnv.DataStore = merged.Seal()
 
-		reports, cvBatchOps, err := deployCommitteeVerifiersOnChains(ccvEnv, cfg.CommitteeVerifiers, ds)
-		allReports = append(allReports, reports...)
+		cvCfg, err := cfg.committeeVerifiersInput()
+		if err != nil {
+			return deployment.ChangesetOutput{Reports: allReports, DataStore: ds}, err
+		}
+		verifiers, err := deployCommitteeVerifiersOnChains(ccvEnv, cvCfg, ds)
+		allReports = append(allReports, verifiers.Reports...)
 		if err != nil {
 			return deployment.ChangesetOutput{Reports: allReports, DataStore: ds},
 				fmt.Errorf("committee verifiers: %w", err)
 		}
-		batchOps = append(batchOps, cvBatchOps...)
 
-		// One proposal carries the ownership handover and every write the
-		// adapters deferred to MCMS. It is configured by ProtocolContracts.MCMS.
-		return ccipchangesets.NewOutputBuilder(e, ccipchangesets.GetRegistry()).
+		batchOps := append(protocol.BatchOps, verifiers.BatchOps...)
+		if err := requireMCMSForBatchOps(batchOps, cfg.ProtocolContracts.MCMS); err != nil {
+			return deployment.ChangesetOutput{Reports: allReports, DataStore: ds}, err
+		}
+		return ccipchangesets.NewOutputBuilder(e, mcmsReaders()).
 			WithReports(allReports).
 			WithBatchOps(batchOps).
 			WithDataStore(ds).

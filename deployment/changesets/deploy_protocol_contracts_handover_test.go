@@ -84,9 +84,17 @@ func handoverBatchOps(sel uint64, to string) []mcmstypes.BatchOperation {
 // MCMS reader resolve stub timelock and MCM addresses.
 func registerOutputAdapter(t *testing.T, out adapters.ProtocolContractsDeployOutput) {
 	t.Helper()
+	registerProtocolContractsDeployAdapter()
 	adapters.GetProtocolContractsDeployRegistry().Register(chainsel.FamilyEVM, &outputProtocolContractsDeployAdapter{out: out})
 	t.Cleanup(registerProtocolContractsDeployAdapter)
-	ccipchangesets.GetRegistry().RegisterMCMSReader(chainsel.FamilyEVM, stubMCMSReader{})
+}
+
+// missingTimelockMCMSReader behaves like the EVM and Solana readers in an
+// environment without MCMS: an empty ref and no error.
+type missingTimelockMCMSReader struct{ stubMCMSReader }
+
+func (missingTimelockMCMSReader) GetTimelockRef(_ deployment.Environment, _ uint64, _ mcmsutil.Input) (datastore.AddressRef, error) {
+	return datastore.AddressRef{}, nil
 }
 
 func handoverDeployOutput(sel uint64) adapters.ProtocolContractsDeployOutput {
@@ -150,6 +158,29 @@ func TestDeployProtocolContracts_Validation_PerChainTimelockOwnedRequiresMCMS(t 
 	require.ErrorContains(t, err, "MCMS input is required")
 }
 
+func TestDeployProtocolContracts_Validation_MissingTimelock(t *testing.T) {
+	sel := chainsel.TEST_90000001.Selector
+	registerProtocolContractsDeployAdapter()
+	readers := ccipchangesets.NewMCMSReaderRegistry()
+	readers.RegisterMCMSReader(chainsel.FamilyEVM, missingTimelockMCMSReader{})
+	prev := mcmsReaders
+	mcmsReaders = func() *ccipchangesets.MCMSReaderRegistry { return readers }
+	t.Cleanup(func() { mcmsReaders = prev })
+
+	err := DeployProtocolContracts().VerifyPreconditions(newProtocolDeployTestEnv([]uint64{sel}), timelockOwnedDeployInput(sel))
+	require.ErrorContains(t, err, `no timelock for MCMS qualifier "CLLCCIP"`)
+	require.ErrorContains(t, err, "mcms.qualifier")
+}
+
+func TestDeployProtocolContracts_Validation_InvalidMCMSInput(t *testing.T) {
+	sel := chainsel.TEST_90000001.Selector
+	registerProtocolContractsDeployAdapter()
+	input := timelockOwnedDeployInput(sel)
+	input.MCMS.TimelockAction = "unknown"
+	err := DeployProtocolContracts().VerifyPreconditions(newProtocolDeployTestEnv([]uint64{sel}), input)
+	require.ErrorContains(t, err, "invalid timelock action")
+}
+
 func TestDeployProtocolContracts_Apply_TransfersOwnershipToTimelocks(t *testing.T) {
 	sel := chainsel.TEST_90000001.Selector
 	registerOutputAdapter(t, handoverDeployOutput(sel))
@@ -164,9 +195,10 @@ func TestDeployProtocolContracts_Apply_TransfersOwnershipToTimelocks(t *testing.
 	require.Equal(t, ccipcommon.RMNTimelockQualifier, (*calls)[1].qualifier)
 	require.Equal(t, handoverRMNAddr, (*calls)[1].refs[0].Address)
 
-	targets := proposalTargets(t, out)
-	require.Contains(t, targets, handoverDeferredAddr, "writes the adapter deferred to MCMS are proposed")
-	require.Contains(t, targets, handoverTransferAddr, "the ownership handover is proposed")
+	require.ElementsMatch(t,
+		[]string{handoverDeferredAddr, handoverTransferAddr, handoverTransferAddr},
+		proposalTargets(t, out),
+		"the proposal holds the deferred write and both handovers, nothing else")
 
 	refs, err := out.DataStore.Addresses().Fetch()
 	require.NoError(t, err)
@@ -189,12 +221,33 @@ func TestDeployProtocolContracts_Apply_DeployerKeyOwnedSkipsHandover(t *testing.
 	require.Empty(t, out.MCMSTimelockProposals)
 }
 
-func TestDeployProtocolContracts_Apply_HandoverFailureFailsRun(t *testing.T) {
+func TestDeployProtocolContracts_Apply_HandoverFailureKeepsDeployedRefs(t *testing.T) {
 	sel := chainsel.TEST_90000001.Selector
 	registerOutputAdapter(t, handoverDeployOutput(sel))
 	stubTransferToTimelock(t, errors.New("timelock not found"))
 
-	_, err := DeployProtocolContracts().Apply(newTestEnvForApply(t, "nop", []uint64{sel}), timelockOwnedDeployInput(sel))
+	out, err := DeployProtocolContracts().Apply(newTestEnvForApply(t, "nop", []uint64{sel}), timelockOwnedDeployInput(sel))
 	require.ErrorContains(t, err, "failed to transfer ownership to timelock")
 	require.ErrorContains(t, err, "timelock not found")
+
+	refs, err := out.DataStore.Addresses().Fetch()
+	require.NoError(t, err)
+	require.Len(t, refs, 2, "a retry must find the deployed contracts instead of redeploying them")
+}
+
+// TestDeployProtocolContracts_Apply_RunTwiceProposesNothing models the second run after the
+// proposal executed: the adapter finds every contract and returns no refs to hand over.
+func TestDeployProtocolContracts_Apply_RunTwiceProposesNothing(t *testing.T) {
+	sel := chainsel.TEST_90000001.Selector
+	deployOut := handoverDeployOutput(sel)
+	deployOut.BatchOps = nil
+	deployOut.RefsToTransferOwnership = nil
+	deployOut.RefsToTransferOwnershipRMN = nil
+	registerOutputAdapter(t, deployOut)
+	calls := stubTransferToTimelock(t, nil)
+
+	out, err := DeployProtocolContracts().Apply(newTestEnvForApply(t, "nop", []uint64{sel}), timelockOwnedDeployInput(sel))
+	require.NoError(t, err)
+	require.Empty(t, *calls)
+	require.Empty(t, out.MCMSTimelockProposals)
 }

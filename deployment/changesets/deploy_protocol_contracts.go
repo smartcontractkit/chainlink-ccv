@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 
+	chainsel "github.com/smartcontractkit/chain-selectors"
 	mcmstypes "github.com/smartcontractkit/mcms/types"
 
 	"github.com/smartcontractkit/chainlink-ccip/deployment/deploy"
@@ -18,9 +19,17 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 )
 
-// transferToTimelock hands deployed contracts to a timelock. It is a variable so
-// tests can observe the handover without a real chain.
-var transferToTimelock = deploy.TransferToTimelock
+// Variables so tests can stub the on-chain handover and the timelock lookup.
+var (
+	transferToTimelock = deploy.TransferToTimelock
+	mcmsReaders        = ccipchangesets.GetRegistry
+)
+
+// deployResult carries what a deploy helper produced, including on error.
+type deployResult struct {
+	Reports  []operations.Report[any, any]
+	BatchOps []mcmstypes.BatchOperation
+}
 
 // DeployProtocolContractsPerChainCfg carries the per-chain configuration for
 // deploying CCIP protocol contracts (RMN, OnRamp, OffRamp, FeeQuoter, Router,
@@ -78,6 +87,14 @@ func (c DeployProtocolContractsInput) resolveChainCfg(sel uint64) DeployProtocol
 //
 // Committee verifiers are NOT deployed by this changeset — use
 // DeployCommitteeVerifier for that, or OnboardChain for both in one pass.
+//
+// For a chain with DeployerKeyOwned false, the timelock for MCMS.Qualifier must
+// be in the datastore, plus the RMNMCMS timelock if the family adapter returns
+// RMN refs. The output is the deployed address refs and one timelock proposal
+// with the ownership acceptance and the writes the adapter deferred to MCMS.
+// Once that proposal executes, a re-run proposes nothing: adapters only return
+// refs the timelock does not own yet. Rollback: deploy.TransferOwnershipChangeset
+// executed by the timelock.
 func DeployProtocolContracts() deployment.ChangeSetV2[DeployProtocolContractsInput] {
 	validate := func(e deployment.Environment, cfg DeployProtocolContractsInput) error {
 		return validateProtocolContractsDeploy(e, cfg)
@@ -85,13 +102,16 @@ func DeployProtocolContracts() deployment.ChangeSetV2[DeployProtocolContractsInp
 
 	apply := func(e deployment.Environment, cfg DeployProtocolContractsInput) (deployment.ChangesetOutput, error) {
 		ds := datastore.NewMemoryDataStore()
-		reports, batchOps, err := deployProtocolContractsOnChains(e, cfg, ds)
-		if err != nil {
-			return deployment.ChangesetOutput{Reports: reports, DataStore: ds}, err
+		res, err := deployProtocolContractsOnChains(e, cfg, ds)
+		if err == nil {
+			err = requireMCMSForBatchOps(res.BatchOps, cfg.MCMS)
 		}
-		return ccipchangesets.NewOutputBuilder(e, ccipchangesets.GetRegistry()).
-			WithReports(reports).
-			WithBatchOps(batchOps).
+		if err != nil {
+			return deployment.ChangesetOutput{Reports: res.Reports, DataStore: ds}, err
+		}
+		return ccipchangesets.NewOutputBuilder(e, mcmsReaders()).
+			WithReports(res.Reports).
+			WithBatchOps(res.BatchOps).
 			WithDataStore(ds).
 			Build(cfg.mcmsInput())
 	}
@@ -119,8 +139,10 @@ func validateProtocolContractsDeploy(e deployment.Environment, cfg DeployProtoco
 		if chainCfg.DeployerContract == "" {
 			return fmt.Errorf("DeployerContract is required for chain %d", sel)
 		}
-		if !chainCfg.DeployerKeyOwned && cfg.MCMS == nil {
-			return fmt.Errorf("MCMS input is required for chain %d: ownership is transferred to the timelock unless DeployerKeyOwned is set", sel)
+		if !chainCfg.DeployerKeyOwned {
+			if err := validateTimelockHandover(e, sel, cfg.MCMS); err != nil {
+				return err
+			}
 		}
 		if _, err := adapters.GetProtocolContractsDeployRegistry().Get(sel); err != nil {
 			return fmt.Errorf("chain %d: %w", sel, err)
@@ -136,26 +158,70 @@ func validateProtocolContractsDeploy(e deployment.Environment, cfg DeployProtoco
 	return nil
 }
 
+// requireMCMSForBatchOps fails a run whose adapters deferred writes to MCMS
+// when there is no MCMS input to propose them with.
+func requireMCMSForBatchOps(batchOps []mcmstypes.BatchOperation, mcmsInput *ccipmcms.Input) error {
+	if len(batchOps) > 0 && mcmsInput == nil {
+		return fmt.Errorf("adapters returned %d MCMS batch operations but no MCMS input is set", len(batchOps))
+	}
+	return nil
+}
+
+// validateTimelockHandover checks, before anything is deployed, that the
+// proposal input is valid and the timelock receiving ownership exists.
+func validateTimelockHandover(e deployment.Environment, sel uint64, mcmsInput *ccipmcms.Input) error {
+	if mcmsInput == nil {
+		return fmt.Errorf("MCMS input is required for chain %d: ownership is transferred to the timelock unless DeployerKeyOwned is set", sel)
+	}
+	proposal := *mcmsInput
+	if err := proposal.PopulateDefaults(); err != nil {
+		return fmt.Errorf("chain %d: %w", sel, err)
+	}
+	if err := proposal.Validate(); err != nil {
+		return fmt.Errorf("chain %d: %w", sel, err)
+	}
+	family, err := chainsel.GetSelectorFamily(sel)
+	if err != nil {
+		return fmt.Errorf("chain %d: %w", sel, err)
+	}
+	reader, ok := mcmsReaders().GetMCMSReader(family)
+	if !ok {
+		return fmt.Errorf("chain %d: no MCMS reader registered for family %s", sel, family)
+	}
+	// Readers default an empty qualifier to CLLCCIP and return an empty ref, not an
+	// error, when the timelock is missing.
+	qualifier := proposal.Qualifier
+	if qualifier == "" {
+		qualifier = ccipcommon.CLLQualifier
+	}
+	timelock, err := reader.GetTimelockRef(e, sel, proposal)
+	if err != nil {
+		return fmt.Errorf("chain %d: resolve timelock for MCMS qualifier %q: %w", sel, qualifier, err)
+	}
+	if timelock.Address == "" {
+		return fmt.Errorf("chain %d: no timelock for MCMS qualifier %q (deploy MCMS first, or check mcms.qualifier)", sel, qualifier)
+	}
+	return nil
+}
+
 // deployProtocolContractsOnChains deploys protocol contracts on every chain in
-// cfg, hands them to the timelock unless DeployerKeyOwned is set, and writes
-// deployed addresses to ds. It returns the batch operations the caller must
-// put in an MCMS proposal: the writes the adapter deferred to MCMS plus the
-// ownership transfer and acceptance. This is the shared core used by both
-// DeployProtocolContracts and OnboardChain.
+// cfg, writes deployed addresses to ds and hands the contracts to the timelock
+// unless DeployerKeyOwned is set. The returned batch ops belong in one MCMS
+// proposal. This is the shared core used by both DeployProtocolContracts and
+// OnboardChain.
 func deployProtocolContractsOnChains(
 	e deployment.Environment,
 	cfg DeployProtocolContractsInput,
 	ds datastore.MutableDataStore,
-) ([]operations.Report[any, any], []mcmstypes.BatchOperation, error) {
-	var allReports []operations.Report[any, any]
-	var allBatchOps []mcmstypes.BatchOperation
+) (deployResult, error) {
+	var res deployResult
 
 	for _, sel := range cfg.ChainSelectors {
 		chainCfg := cfg.resolveChainCfg(sel)
 
 		deployer, err := adapters.GetProtocolContractsDeployRegistry().Get(sel)
 		if err != nil {
-			return allReports, nil, fmt.Errorf("chain %d: %w", sel, err)
+			return res, fmt.Errorf("chain %d: %w", sel, err)
 		}
 
 		existingAddresses := e.DataStore.Addresses().Filter(
@@ -184,95 +250,101 @@ func deployProtocolContractsOnChains(
 			e.BlockChains,
 			input,
 		)
-		allReports = append(allReports, report.ExecutionReports...)
+		res.Reports = append(res.Reports, report.ExecutionReports...)
 		if err != nil {
-			return allReports, nil, fmt.Errorf("chain %d: deploy failed: %w", sel, err)
+			return res, fmt.Errorf("chain %d: deploy failed: %w", sel, err)
 		}
-		allBatchOps = append(allBatchOps, report.Output.BatchOps...)
+		res.BatchOps = append(res.BatchOps, report.Output.BatchOps...)
 
-		if !chainCfg.DeployerKeyOwned {
-			ownershipOps, ownershipReports, transferErr := transferProtocolContractsToTimelocks(e, sel, cfg.mcmsInput(), report.Output)
-			allReports = append(allReports, ownershipReports...)
-			if transferErr != nil {
-				return allReports, nil, fmt.Errorf("chain %d: %w", sel, transferErr)
-			}
-			allBatchOps = append(allBatchOps, ownershipOps...)
-		}
-
+		// Record the deployed refs before the handover so a failed handover can be retried
+		// without redeploying.
 		for _, ref := range report.Output.Addresses {
 			if addErr := ds.Addresses().Add(ref); addErr != nil &&
 				!errors.Is(addErr, datastore.ErrAddressRefExists) {
-				return allReports, nil, fmt.Errorf("chain %d: failed to add %s %s at %s to datastore: %w",
+				return res, fmt.Errorf("chain %d: failed to add %s %s at %s to datastore: %w",
 					sel, ref.Type, ref.Version, ref.Address, addErr)
 			}
 		}
+
+		if !chainCfg.DeployerKeyOwned {
+			handover, transferErr := transferToTimelocks(e, sel, cfg.mcmsInput(),
+				report.Output.RefsToTransferOwnership, report.Output.RefsToTransferOwnershipRMN)
+			res.Reports = append(res.Reports, handover.Reports...)
+			if transferErr != nil {
+				return res, fmt.Errorf("chain %d: %w", sel, transferErr)
+			}
+			res.BatchOps = append(res.BatchOps, handover.BatchOps...)
+		}
 	}
 
-	return allReports, allBatchOps, nil
+	return res, nil
 }
 
-// transferProtocolContractsToTimelocks transfers the refs the adapter returned to
-// the RBAC timelock, and the RMN refs to the RMN timelock, returning the batch
-// operations that complete the handover.
-func transferProtocolContractsToTimelocks(
+// transferToTimelocks transfers refs to the RBAC timelock and rmnRefs to the RMN
+// timelock.
+func transferToTimelocks(
 	e deployment.Environment,
 	sel uint64,
 	mcmsInput ccipmcms.Input,
-	out adapters.ProtocolContractsDeployOutput,
-) ([]mcmstypes.BatchOperation, []operations.Report[any, any], error) {
-	var batchOps []mcmstypes.BatchOperation
-	var reports []operations.Report[any, any]
-	if len(out.RefsToTransferOwnership) > 0 {
-		ops, reps, err := transferToTimelock(sel, e, mcmsInput, out.RefsToTransferOwnership,
-			ccipchangesets.GetRegistry(), deploy.GetTransferOwnershipRegistry())
-		reports = append(reports, reps...)
-		if err != nil {
-			return nil, reports, fmt.Errorf("failed to transfer ownership to timelock: %w", err)
-		}
-		batchOps = append(batchOps, ops...)
+	refs, rmnRefs []datastore.AddressRef,
+) (deployResult, error) {
+	rmnInput := mcmsInput
+	rmnInput.Qualifier = ccipcommon.RMNTimelockQualifier
+	handovers := []struct {
+		name  string
+		input ccipmcms.Input
+		refs  []datastore.AddressRef
+	}{
+		{name: "timelock", input: mcmsInput, refs: refs},
+		{name: "RMN timelock", input: rmnInput, refs: rmnRefs},
 	}
-	if len(out.RefsToTransferOwnershipRMN) > 0 {
-		rmnInput := mcmsInput
-		rmnInput.Qualifier = ccipcommon.RMNTimelockQualifier
-		ops, reps, err := transferToTimelock(sel, e, rmnInput, out.RefsToTransferOwnershipRMN,
-			ccipchangesets.GetRegistry(), deploy.GetTransferOwnershipRegistry())
-		reports = append(reports, reps...)
-		if err != nil {
-			return nil, reports, fmt.Errorf("failed to transfer ownership to RMN timelock: %w", err)
+
+	var res deployResult
+	for _, h := range handovers {
+		if len(h.refs) == 0 {
+			continue
 		}
-		batchOps = append(batchOps, ops...)
+		ops, reports, err := transferToTimelock(sel, e, h.input, h.refs,
+			mcmsReaders(), deploy.GetTransferOwnershipRegistry())
+		res.Reports = append(res.Reports, reports...)
+		if err != nil {
+			return res, fmt.Errorf("failed to transfer ownership to %s: %w", h.name, err)
+		}
+		res.BatchOps = append(res.BatchOps, ops...)
 	}
-	return batchOps, reports, nil
+	return res, nil
 }
 
 // deployCommitteeVerifiersOnChains deploys committee verifiers on every chain
-// in cfg and writes deployed addresses to ds. It returns the batch operations
-// the adapters deferred to MCMS. This is the shared core used by both
+// in cfg, writes deployed addresses to ds and hands the verifiers to the
+// timelock unless DeployerKeyOwned is set. This is the shared core used by both
 // DeployCommitteeVerifier and OnboardChain.
 func deployCommitteeVerifiersOnChains(
 	e deployment.Environment,
 	cfg DeployCommitteeVerifierInput,
 	ds datastore.MutableDataStore,
-) ([]operations.Report[any, any], []mcmstypes.BatchOperation, error) {
-	var allReports []operations.Report[any, any]
-	var allBatchOps []mcmstypes.BatchOperation
+) (deployResult, error) {
+	var res deployResult
 
 	for _, sel := range cfg.ChainSelectors {
 		deployer, err := adapters.GetCommitteeVerifierDeployRegistry().Get(sel)
 		if err != nil {
-			return allReports, nil, fmt.Errorf("chain %d: %w", sel, err)
+			return res, fmt.Errorf("chain %d: %w", sel, err)
 		}
 
+		chainCfg := cfg.resolveChainCfg(sel)
 		existingAddresses := e.DataStore.Addresses().Filter(
 			datastore.AddressRefByChainSelector(sel),
 		)
+		var toTransfer []datastore.AddressRef
 
 		for _, committee := range cfg.Committees {
 			input := adapters.CommitteeVerifierDeployInput{
 				ChainSelector:     sel,
-				DeployerContract:  cfg.resolveChainCfg(sel).DeployerContract,
+				DeployerContract:  chainCfg.DeployerContract,
 				ExistingAddresses: existingAddresses,
 				Params:            committee,
+				DeployerKeyOwned:  chainCfg.DeployerKeyOwned,
 			}
 
 			e.Logger.Infow("Deploying CommitteeVerifier",
@@ -286,22 +358,32 @@ func deployCommitteeVerifiersOnChains(
 				e.BlockChains,
 				input,
 			)
-			allReports = append(allReports, report.ExecutionReports...)
+			res.Reports = append(res.Reports, report.ExecutionReports...)
 			if err != nil {
-				return allReports, nil, fmt.Errorf("chain %d committee %q: deploy failed: %w", sel, committee.Qualifier, err)
+				return res, fmt.Errorf("chain %d committee %q: deploy failed: %w", sel, committee.Qualifier, err)
 			}
-			allBatchOps = append(allBatchOps, report.Output.BatchOps...)
+			res.BatchOps = append(res.BatchOps, report.Output.BatchOps...)
+			toTransfer = append(toTransfer, report.Output.RefsToTransferOwnership...)
 
 			for _, ref := range report.Output.Addresses {
 				if addErr := ds.Addresses().Add(ref); addErr != nil &&
 					!errors.Is(addErr, datastore.ErrAddressRefExists) {
-					return allReports, nil, fmt.Errorf("chain %d committee %q: failed to add %s %s at %s to datastore: %w",
+					return res, fmt.Errorf("chain %d committee %q: failed to add %s %s at %s to datastore: %w",
 						sel, committee.Qualifier, ref.Type, ref.Version, ref.Address, addErr)
 				}
 				existingAddresses = append(existingAddresses, ref)
 			}
 		}
+
+		if !chainCfg.DeployerKeyOwned {
+			handover, transferErr := transferToTimelocks(e, sel, cfg.mcmsInput(), toTransfer, nil)
+			res.Reports = append(res.Reports, handover.Reports...)
+			if transferErr != nil {
+				return res, fmt.Errorf("chain %d: %w", sel, transferErr)
+			}
+			res.BatchOps = append(res.BatchOps, handover.BatchOps...)
+		}
 	}
 
-	return allReports, allBatchOps, nil
+	return res, nil
 }

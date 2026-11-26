@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"slices"
 
+	ccipchangesets "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
+	ccipmcms "github.com/smartcontractkit/chainlink-ccip/deployment/utils/mcms"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 
@@ -17,6 +19,10 @@ import (
 // Committee-specific parameters come from DeployCommitteeVerifierInput.Committees.
 type DeployCommitteeVerifierPerChainCfg struct {
 	DeployerContract string
+	// DeployerKeyOwned when true keeps the verifiers with the deployer key.
+	// When false (the default), the changeset transfers them to the RBAC
+	// timelock and DeployCommitteeVerifierInput.MCMS is required.
+	DeployerKeyOwned bool
 }
 
 // DeployCommitteeVerifierInput is the imperative input for the chain-agnostic
@@ -39,6 +45,16 @@ type DeployCommitteeVerifierInput struct {
 	DefaultCfg DeployCommitteeVerifierPerChainCfg
 	// ChainCfgs overrides DefaultCfg for specific chains.
 	ChainCfgs map[uint64]DeployCommitteeVerifierPerChainCfg
+	// MCMS configures the timelock proposal for the ownership handover and the
+	// writes the adapter deferred to MCMS.
+	MCMS *ccipmcms.Input
+}
+
+func (c DeployCommitteeVerifierInput) mcmsInput() ccipmcms.Input {
+	if c.MCMS == nil {
+		return ccipmcms.Input{}
+	}
+	return *c.MCMS
 }
 
 func (c DeployCommitteeVerifierInput) resolveChainCfg(sel uint64) DeployCommitteeVerifierPerChainCfg {
@@ -56,8 +72,11 @@ func (c DeployCommitteeVerifierInput) resolveChainCfg(sel uint64) DeployCommitte
 // Adapters are expected to be idempotent: re-running on a chain where the
 // verifier already exists is a no-op (or reconciles any drifted dynamic config).
 //
-// Deployed contracts remain owned by the deployer key. Wiring up MCMS-based
-// ownership transfer is tracked as a follow-up (CCIP-11432).
+// For a chain with DeployerKeyOwned false, the timelock for MCMS.Qualifier must
+// be in the datastore. The output is the deployed address refs and one timelock
+// proposal with the ownership acceptance and the writes the adapter deferred to
+// MCMS. Once that proposal executes, a re-run proposes nothing. Rollback:
+// deploy.TransferOwnershipChangeset executed by the timelock.
 func DeployCommitteeVerifier() deployment.ChangeSetV2[DeployCommitteeVerifierInput] {
 	validate := func(e deployment.Environment, cfg DeployCommitteeVerifierInput) error {
 		return validateCommitteeVerifierDeploy(e, cfg)
@@ -65,10 +84,18 @@ func DeployCommitteeVerifier() deployment.ChangeSetV2[DeployCommitteeVerifierInp
 
 	apply := func(e deployment.Environment, cfg DeployCommitteeVerifierInput) (deployment.ChangesetOutput, error) {
 		ds := datastore.NewMemoryDataStore()
-		// Batch ops are not packaged here yet: this changeset has no MCMS input
-		// (CCIP-11432). OnboardChain does put them in its proposal.
-		reports, _, err := deployCommitteeVerifiersOnChains(e, cfg, ds)
-		return deployment.ChangesetOutput{Reports: reports, DataStore: ds}, err
+		res, err := deployCommitteeVerifiersOnChains(e, cfg, ds)
+		if err == nil {
+			err = requireMCMSForBatchOps(res.BatchOps, cfg.MCMS)
+		}
+		if err != nil {
+			return deployment.ChangesetOutput{Reports: res.Reports, DataStore: ds}, err
+		}
+		return ccipchangesets.NewOutputBuilder(e, mcmsReaders()).
+			WithReports(res.Reports).
+			WithBatchOps(res.BatchOps).
+			WithDataStore(ds).
+			Build(cfg.mcmsInput())
 	}
 
 	return deployment.CreateChangeSet(apply, validate)
@@ -93,8 +120,14 @@ func validateCommitteeVerifierDeploy(e deployment.Environment, cfg DeployCommitt
 		if !slices.Contains(envSelectors, sel) {
 			return fmt.Errorf("chain selector %d is not available in environment", sel)
 		}
-		if cfg.resolveChainCfg(sel).DeployerContract == "" {
+		chainCfg := cfg.resolveChainCfg(sel)
+		if chainCfg.DeployerContract == "" {
 			return fmt.Errorf("DeployerContract is required for chain %d", sel)
+		}
+		if !chainCfg.DeployerKeyOwned {
+			if err := validateTimelockHandover(e, sel, cfg.MCMS); err != nil {
+				return err
+			}
 		}
 		if _, err := adapters.GetCommitteeVerifierDeployRegistry().Get(sel); err != nil {
 			return fmt.Errorf("chain %d: %w", sel, err)

@@ -1,34 +1,49 @@
-# Protocol contract deploys hand ownership to the timelock
+# Topology-free deploys hand ownership to the timelock
 
 ## Executive Summary
 
-- `DeployProtocolContracts` and `OnboardChain` now transfer the deployed protocol contracts to the timelock when `DeployerKeyOwned` is false. The transfer and acceptance come back as an MCMS timelock proposal.
-- Before this change, both changesets saved only the deployed addresses. They dropped `RefsToTransferOwnership` and `BatchOps` from the family adapter. A default run left every contract owned by the deployer key and still reported success. Writes the adapter deferred to MCMS were also lost.
-- `DeployProtocolContractsInput` has a new `MCMS` field. It is required when any chain has `DeployerKeyOwned` false.
+- `DeployProtocolContracts`, `DeployCommitteeVerifier` and `OnboardChain` now transfer the deployed contracts to the timelock when `DeployerKeyOwned` is false. The transfer and acceptance come back as an MCMS timelock proposal.
+- Before this change, these changesets saved only the deployed addresses. They dropped the adapter's ownership refs and `BatchOps`. A default run left every contract owned by the deployer key and still reported success. Writes the adapter deferred to MCMS were also lost.
+- `DeployProtocolContractsInput` and `DeployCommitteeVerifierInput` have a new `MCMS` field. It is required when any chain has `DeployerKeyOwned` false.
 
 ## AI Adapter Index
 
 | Symbol | Kind | Search | Location | Section |
 |---|---|---|---|---|
 | `DeployProtocolContractsInput.MCMS` | added | `MCMS *ccipmcms.Input` | `deployment/changesets/deploy_protocol_contracts.go` | [#mcms-input-required](#mcms-input-required) |
+| `DeployCommitteeVerifierInput.MCMS` | added | `MCMS *ccipmcms.Input` | `deployment/changesets/deploy_committee_verifier.go` | [#mcms-input-required](#mcms-input-required) |
+| `DeployCommitteeVerifierPerChainCfg.DeployerKeyOwned` | added | `DeployerKeyOwned bool` | `deployment/changesets/deploy_committee_verifier.go` | [#committee-verifier-ownership](#committee-verifier-ownership) |
+| `CommitteeVerifierDeployInput.DeployerKeyOwned` | added | `DeployerKeyOwned bool` | `deployment/adapters/committee_verifier_deploy.go` | [#committee-verifier-ownership](#committee-verifier-ownership) |
+| `CommitteeVerifierDeployOutput.RefsToTransferOwnership` | added | `RefsToTransferOwnership` | `deployment/adapters/committee_verifier_deploy.go` | [#committee-verifier-ownership](#committee-verifier-ownership) |
 | `ProtocolContractsDeployOutput.RefsToTransferOwnershipRMN` | added | `RefsToTransferOwnershipRMN` | `deployment/adapters/chain_contracts_deploy.go` | [#rmn-timelock](#rmn-timelock) |
 | `DeployProtocolContracts` | behavior-changed | `func DeployProtocolContracts` | `deployment/changesets/deploy_protocol_contracts.go` | [#ownership-handover](#ownership-handover) |
+| `DeployCommitteeVerifier` | behavior-changed | `func DeployCommitteeVerifier` | `deployment/changesets/deploy_committee_verifier.go` | [#committee-verifier-ownership](#committee-verifier-ownership) |
 | `OnboardChain` | behavior-changed | `func OnboardChain` | `deployment/changesets/onboard_chain.go` | [#ownership-handover](#ownership-handover) |
 
 ## Breaking Changes
 
 ### MCMS input required
 
-- `DeployProtocolContracts` and `OnboardChain` fail validation when a chain has `DeployerKeyOwned` false and `DeployProtocolContractsInput.MCMS` is nil. `OnboardChain` reads it from `ProtocolContracts.MCMS`.
-- **Migration:** set `MCMS` to hand the contracts to the timelock, or set `DeployerKeyOwned` to true to keep the deployer key as owner. The devenv already sets `DeployerKeyOwned` to true and needs no change.
+- `DeployProtocolContracts`, `DeployCommitteeVerifier` and `OnboardChain` fail validation when a chain has `DeployerKeyOwned` false and `MCMS` is nil. `OnboardChain` reads it from `ProtocolContracts.MCMS` and rejects a separate `CommitteeVerifiers.MCMS`.
+- For those chains, validation also rejects an invalid MCMS input and a missing timelock for `MCMS.Qualifier`, before anything is deployed.
+- A run fails when an adapter returns MCMS batch operations and `MCMS` is nil, instead of dropping them.
+- `DeployCommitteeVerifierPerChainCfg.DeployerKeyOwned` is new and defaults to false, so a `DeployCommitteeVerifier` input that does not set it now needs `MCMS`.
+- **Migration:** set `MCMS` to hand the contracts to the timelock, or set `DeployerKeyOwned` to true to keep the deployer key as owner. The devenv sets `DeployerKeyOwned` to true for both protocol contracts and committee verifiers.
 
 ## New Features / Additions
 
 ### Ownership handover
 
 - When `DeployerKeyOwned` is false, the changeset calls `deploy.TransferToTimelock` with the adapter's `RefsToTransferOwnership`. This is the same call the chainlink-ccip `DeployChainContracts` changeset makes.
-- The adapter's `BatchOps`, the transfer and the acceptance go into one timelock proposal. `OnboardChain` also adds the committee verifier batch operations to that proposal.
-- If the handover fails, the run fails.
+- The adapter's `BatchOps`, the transfer and the acceptance go into one timelock proposal. `OnboardChain` puts both phases in one proposal.
+- If the handover fails, the run fails. The deployed address refs are still returned, so a retry finds the contracts instead of redeploying them.
+- After the proposal executes, a re-run proposes nothing: adapters only return refs the timelock does not own yet.
+- Rollback: `deploy.TransferOwnershipChangeset`, executed by the timelock.
+
+### Committee verifier ownership
+
+- The changeset passes `DeployerKeyOwned` to the family adapter. When it is false, the adapter returns the deployed contracts the RBAC timelock does not own yet.
+- The EVM adapter reads each contract's owner on chain and compares it with the CLLCCIP timelock in `ExistingAddresses`. It fails when that timelock is missing.
 
 ### RMN timelock
 
@@ -36,8 +51,9 @@
 
 ## Compatibility & Requirements
 
-- Runs with `DeployerKeyOwned` true do not change.
-- The standalone `DeployCommitteeVerifier` still has no MCMS input and does not put its batch operations in a proposal (CCIP-11432).
+- Runs with `DeployerKeyOwned` true and no deferred MCMS writes do not change.
+- Family adapters outside this repository must fill `CommitteeVerifierDeployOutput.RefsToTransferOwnership` when `DeployerKeyOwned` is false. An adapter that leaves it empty keeps its verifiers with the deployer key.
+- Callers of `DeployCommitteeVerifier` that keep the deployer as owner must set `DeployerKeyOwned` to true.
 
 ## References
 
