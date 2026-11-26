@@ -159,10 +159,20 @@ func validateProtocolContractsDeploy(e deployment.Environment, cfg DeployProtoco
 }
 
 // requireMCMSForBatchOps fails a run whose adapters deferred writes to MCMS
-// when there is no MCMS input to propose them with.
+// when there is no MCMS input to propose them with. Batch ops without
+// transactions are ignored, as OutputBuilder drops them.
 func requireMCMSForBatchOps(batchOps []mcmstypes.BatchOperation, mcmsInput *ccipmcms.Input) error {
-	if len(batchOps) > 0 && mcmsInput == nil {
-		return fmt.Errorf("adapters returned %d MCMS batch operations but no MCMS input is set", len(batchOps))
+	if mcmsInput != nil {
+		return nil
+	}
+	pending := 0
+	for _, op := range batchOps {
+		if len(op.Transactions) > 0 {
+			pending++
+		}
+	}
+	if pending > 0 {
+		return fmt.Errorf("adapters returned %d MCMS batch operations but no MCMS input is set", pending)
 	}
 	return nil
 }
@@ -193,6 +203,12 @@ func validateTimelockHandover(e deployment.Environment, sel uint64, mcmsInput *c
 	qualifier := proposal.Qualifier
 	if qualifier == "" {
 		qualifier = ccipcommon.CLLQualifier
+	}
+	// Adapters skip contracts the CLLCCIP timelock already owns. Handing them to
+	// another timelock would be proposed again on every run.
+	if qualifier != ccipcommon.CLLQualifier {
+		return fmt.Errorf("chain %d: ownership can only be handed to the %s timelock, got MCMS qualifier %q",
+			sel, ccipcommon.CLLQualifier, qualifier)
 	}
 	timelock, err := reader.GetTimelockRef(e, sel, proposal)
 	if err != nil {
@@ -254,8 +270,6 @@ func deployProtocolContractsOnChains(
 		if err != nil {
 			return res, fmt.Errorf("chain %d: deploy failed: %w", sel, err)
 		}
-		res.BatchOps = append(res.BatchOps, report.Output.BatchOps...)
-
 		// Record the deployed refs before the handover so a failed handover can be retried
 		// without redeploying.
 		for _, ref := range report.Output.Addresses {
@@ -275,6 +289,8 @@ func deployProtocolContractsOnChains(
 			}
 			res.BatchOps = append(res.BatchOps, handover.BatchOps...)
 		}
+		// The timelock accepts ownership before running the writes deferred to it.
+		res.BatchOps = append(res.BatchOps, report.Output.BatchOps...)
 	}
 
 	return res, nil
@@ -337,6 +353,7 @@ func deployCommitteeVerifiersOnChains(
 			datastore.AddressRefByChainSelector(sel),
 		)
 		var toTransfer []datastore.AddressRef
+		var deferred []mcmstypes.BatchOperation
 
 		for _, committee := range cfg.Committees {
 			input := adapters.CommitteeVerifierDeployInput{
@@ -362,7 +379,7 @@ func deployCommitteeVerifiersOnChains(
 			if err != nil {
 				return res, fmt.Errorf("chain %d committee %q: deploy failed: %w", sel, committee.Qualifier, err)
 			}
-			res.BatchOps = append(res.BatchOps, report.Output.BatchOps...)
+			deferred = append(deferred, report.Output.BatchOps...)
 			toTransfer = append(toTransfer, report.Output.RefsToTransferOwnership...)
 
 			for _, ref := range report.Output.Addresses {
@@ -383,6 +400,7 @@ func deployCommitteeVerifiersOnChains(
 			}
 			res.BatchOps = append(res.BatchOps, handover.BatchOps...)
 		}
+		res.BatchOps = append(res.BatchOps, deferred...)
 	}
 
 	return res, nil

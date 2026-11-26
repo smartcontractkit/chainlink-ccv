@@ -15,7 +15,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/create2_factory"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/versioned_verifier_resolver"
-	common_utils "github.com/smartcontractkit/chainlink-ccip/deployment/utils"
+	cciputils "github.com/smartcontractkit/chainlink-ccip/deployment/utils"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/operations/contract"
 
 	ccvdeploymentadapters "github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
@@ -297,8 +297,8 @@ func TestEVMCommitteeVerifierDeployAdapter_ListsContractsForHandover(t *testing.
 			rmnProxyRef(sel),
 			{
 				ChainSelector: sel,
-				Type:          datastore.ContractType(common_utils.RBACTimelock),
-				Qualifier:     common_utils.CLLQualifier,
+				Type:          datastore.ContractType(cciputils.RBACTimelock),
+				Qualifier:     cciputils.CLLQualifier,
 				Address:       "0x00000000000000000000000000000000000071C0",
 			},
 		}

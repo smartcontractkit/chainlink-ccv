@@ -25,8 +25,8 @@
 ### MCMS input required
 
 - `DeployProtocolContracts`, `DeployCommitteeVerifier` and `OnboardChain` fail validation when a chain has `DeployerKeyOwned` false and `MCMS` is nil. `OnboardChain` reads it from `ProtocolContracts.MCMS` and rejects a separate `CommitteeVerifiers.MCMS`.
-- For those chains, validation also rejects an invalid MCMS input and a missing timelock for `MCMS.Qualifier`, before anything is deployed.
-- A run fails when an adapter returns MCMS batch operations and `MCMS` is nil, instead of dropping them.
+- For those chains, validation also rejects an invalid MCMS input, a missing timelock for `MCMS.Qualifier`, and a qualifier other than `CLLCCIP` (adapters only skip contracts the CLLCCIP timelock already owns), before anything is deployed.
+- A run fails when an adapter returns MCMS batch operations with transactions and `MCMS` is nil, instead of dropping them. Batch operations without transactions are ignored.
 - `DeployCommitteeVerifierPerChainCfg.DeployerKeyOwned` is new and defaults to false, so a `DeployCommitteeVerifier` input that does not set it now needs `MCMS`.
 - **Migration:** set `MCMS` to hand the contracts to the timelock, or set `DeployerKeyOwned` to true to keep the deployer key as owner. The devenv sets `DeployerKeyOwned` to true for both protocol contracts and committee verifiers.
 
@@ -35,7 +35,7 @@
 ### Ownership handover
 
 - When `DeployerKeyOwned` is false, the changeset calls `deploy.TransferToTimelock` with the adapter's `RefsToTransferOwnership`. This is the same call the chainlink-ccip `DeployChainContracts` changeset makes.
-- The adapter's `BatchOps`, the transfer and the acceptance go into one timelock proposal. `OnboardChain` puts both phases in one proposal.
+- The transfer, the acceptance and the adapter's `BatchOps` go into one timelock proposal, in that order, so the timelock owns the contracts before it runs the deferred writes. `OnboardChain` puts both phases in one proposal.
 - If the handover fails, the run fails. The deployed address refs are still returned, so a retry finds the contracts instead of redeploying them.
 - After the proposal executes, a re-run proposes nothing: adapters only return refs the timelock does not own yet.
 - Rollback: `deploy.TransferOwnershipChangeset`, executed by the timelock.

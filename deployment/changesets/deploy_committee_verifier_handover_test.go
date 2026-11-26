@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+	mcmstypes "github.com/smartcontractkit/mcms/types"
 
 	cldf_chain "github.com/smartcontractkit/chainlink-deployments-framework/chain"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -77,9 +78,10 @@ func TestDeployCommitteeVerifier_Apply_TransfersOwnershipToTimelock(t *testing.T
 	require.Len(t, *calls, 1)
 	require.Empty(t, (*calls)[0].qualifier)
 	require.Equal(t, handoverVerifierAddr, (*calls)[0].refs[0].Address)
-	require.ElementsMatch(t,
-		[]string{handoverDeferredAddr, handoverTransferAddr},
-		proposalTargets(t, out))
+	require.Equal(t,
+		[]string{handoverTransferAddr, handoverDeferredAddr},
+		proposalTargets(t, out),
+		"the timelock accepts ownership before the deferred write")
 }
 
 func TestDeployCommitteeVerifier_Apply_RunTwiceProposesNothing(t *testing.T) {
@@ -203,5 +205,22 @@ func TestOnboardChain_DeployerKeyOwnedWithoutMCMS(t *testing.T) {
 	out, err := OnboardChain().Apply(env, input)
 	require.NoError(t, err)
 	require.Empty(t, *calls, "refs returned by the adapter are ignored when the deployer keeps ownership")
+	require.Empty(t, out.MCMSTimelockProposals)
+}
+
+// EVM sequences return a batch op per chain even when every write went out with the
+// deployer key; it has no transactions and needs no MCMS input.
+func TestDeployProtocolContracts_EmptyBatchOpsNeedNoMCMS(t *testing.T) {
+	sel := chainsel.TEST_90000001.Selector
+	deployOut := handoverDeployOutput(sel)
+	deployOut.BatchOps = []mcmstypes.BatchOperation{{ChainSelector: mcmstypes.ChainSelector(sel)}}
+	registerOutputAdapter(t, deployOut)
+	stubTransferToTimelock(t, nil)
+
+	input := validProtocolDeployInput([]uint64{sel})
+	input.DefaultCfg.DeployerKeyOwned = true
+	input.MCMS = nil
+	out, err := DeployProtocolContracts().Apply(newTestEnvForApply(t, "nop", []uint64{sel}), input)
+	require.NoError(t, err)
 	require.Empty(t, out.MCMSTimelockProposals)
 }

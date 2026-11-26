@@ -11,9 +11,9 @@ import (
 	cldfops "github.com/smartcontractkit/chainlink-deployments-framework/operations"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/rmn_proxy"
-	mcms_seq "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/sequences"
+	mcmsseq "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/sequences"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/sequences"
-	common_utils "github.com/smartcontractkit/chainlink-ccip/deployment/utils"
+	cciputils "github.com/smartcontractkit/chainlink-ccip/deployment/utils"
 
 	ccvdeploymentadapters "github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 )
@@ -99,7 +99,7 @@ var evmDeployCommitteeVerifier = cldfops.NewSequence(
 				return ccvdeploymentadapters.CommitteeVerifierDeployOutput{}, err
 			}
 			for _, ref := range report.Output.Addresses {
-				owner, _, err := mcms_seq.LoadOwnableContract(common.HexToAddress(ref.Address), evmChain.Client)
+				owner, _, err := mcmsseq.LoadOwnableContract(common.HexToAddress(ref.Address), evmChain.Client)
 				if err != nil {
 					return ccvdeploymentadapters.CommitteeVerifierDeployOutput{},
 						fmt.Errorf("failed to load owner of %s at %s: %w", ref.Type, ref.Address, err)
@@ -146,14 +146,14 @@ func resolveCLLTimelockAddress(existingAddresses []datastore.AddressRef, chainSe
 	var found []string
 	for _, ref := range existingAddresses {
 		if ref.ChainSelector == chainSelector &&
-			ref.Type == datastore.ContractType(common_utils.RBACTimelock) &&
-			ref.Qualifier == common_utils.CLLQualifier {
+			ref.Type == datastore.ContractType(cciputils.RBACTimelock) &&
+			ref.Qualifier == cciputils.CLLQualifier {
 			found = append(found, ref.Address)
 		}
 	}
 	if len(found) != 1 {
 		return common.Address{}, fmt.Errorf("expected one %s RBACTimelock on chain %d, found %d: deploy MCMS first, or set DeployerKeyOwned",
-			common_utils.CLLQualifier, chainSelector, len(found))
+			cciputils.CLLQualifier, chainSelector, len(found))
 	}
 	if !common.IsHexAddress(found[0]) {
 		return common.Address{}, fmt.Errorf("RBACTimelock address %q on chain %d is not a valid hex address", found[0], chainSelector)

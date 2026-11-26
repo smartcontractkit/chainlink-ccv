@@ -195,10 +195,10 @@ func TestDeployProtocolContracts_Apply_TransfersOwnershipToTimelocks(t *testing.
 	require.Equal(t, ccipcommon.RMNTimelockQualifier, (*calls)[1].qualifier)
 	require.Equal(t, handoverRMNAddr, (*calls)[1].refs[0].Address)
 
-	require.ElementsMatch(t,
-		[]string{handoverDeferredAddr, handoverTransferAddr, handoverTransferAddr},
+	require.Equal(t,
+		[]string{handoverTransferAddr, handoverTransferAddr, handoverDeferredAddr},
 		proposalTargets(t, out),
-		"the proposal holds the deferred write and both handovers, nothing else")
+		"the timelock accepts ownership before the deferred write, and nothing else is proposed")
 
 	refs, err := out.DataStore.Addresses().Fetch()
 	require.NoError(t, err)
@@ -250,4 +250,13 @@ func TestDeployProtocolContracts_Apply_RunTwiceProposesNothing(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, *calls)
 	require.Empty(t, out.MCMSTimelockProposals)
+}
+
+func TestDeployProtocolContracts_Validation_RejectsNonCLLQualifier(t *testing.T) {
+	sel := chainsel.TEST_90000001.Selector
+	registerProtocolContractsDeployAdapter()
+	input := timelockOwnedDeployInput(sel)
+	input.MCMS.Qualifier = "ccvOwner"
+	err := DeployProtocolContracts().VerifyPreconditions(newProtocolDeployTestEnv([]uint64{sel}), input)
+	require.ErrorContains(t, err, `got MCMS qualifier "ccvOwner"`)
 }
