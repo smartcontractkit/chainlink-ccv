@@ -45,9 +45,13 @@ type ProtocolContractsDeployOutput struct {
 	Addresses []datastore.AddressRef
 	// BatchOps are MCMS batch operations (e.g. ownership transfer).
 	BatchOps []mcmstypes.BatchOperation
-	// RefsToTransferOwnership are addresses whose ownership should be
-	// transferred to the RBAC timelock in a follow-up step.
+	// RefsToTransferOwnership are addresses whose ownership the changeset
+	// transfers to the RBAC timelock when DeployerKeyOwned is false.
 	RefsToTransferOwnership []datastore.AddressRef
+	// RefsToTransferOwnershipRMN are addresses owned by the RMN timelock
+	// (qualifier RMNMCMS) rather than the RBAC timelock. The changeset transfers
+	// them separately when DeployerKeyOwned is false.
+	RefsToTransferOwnershipRMN []datastore.AddressRef
 }
 
 // ProtocolContractsDeployAdapter deploys CCIP protocol contracts on a single

@@ -63,6 +63,7 @@ func newCommitteeVerifierEnv(t *testing.T, deployerIsAllowlistAdmin bool) (deplo
 			ChainSelector:     testChainSelector,
 			DeployerContract:  factoryRef.Address,
 			ExistingAddresses: []datastore.AddressRef{rmnProxyRef(testChainSelector)},
+			DeployerKeyOwned:  true,
 			Params: ccvdeploymentadapters.CommitteeVerifierDeployParams{
 				Version:          committee_verifier.Version,
 				FeeAggregator:    testFeeAggregator,

@@ -413,6 +413,7 @@ func deployCommitteeVerifiersAndReceivers(inputs phase3Inputs, localEnv *deploym
 			Committees:     committees,
 			DefaultCfg: ccvchangesets.DeployCommitteeVerifierPerChainCfg{
 				DeployerContract: *chainCfg.DeployerContract,
+				DeployerKeyOwned: true,
 			},
 		})
 		if err != nil {

@@ -7,6 +7,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+	mcmstypes "github.com/smartcontractkit/mcms/types"
+
+	ccipchangesets "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
+	mcmsutil "github.com/smartcontractkit/chainlink-ccip/deployment/utils/mcms"
 	cldf_chain "github.com/smartcontractkit/chainlink-deployments-framework/chain"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -36,6 +40,7 @@ func (s *stubProtocolContractsDeployAdapter) DeployProtocolContracts() *operatio
 
 func registerProtocolContractsDeployAdapter() {
 	adapters.GetProtocolContractsDeployRegistry().Register(chainsel.FamilyEVM, &stubProtocolContractsDeployAdapter{})
+	ccipchangesets.GetRegistry().RegisterMCMSReader(chainsel.FamilyEVM, stubMCMSReader{})
 }
 
 func newProtocolDeployTestEnv(selectors []uint64) deployment.Environment {
@@ -51,6 +56,7 @@ func validProtocolDeployInput(selectors []uint64) DeployProtocolContractsInput {
 		DefaultCfg: DeployProtocolContractsPerChainCfg{
 			DeployerContract: "0x0000000000000000000000000000000000000FAC",
 		},
+		MCMS: &mcmsutil.Input{TimelockAction: mcmstypes.TimelockActionSchedule},
 	}
 }
 

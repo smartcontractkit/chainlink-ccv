@@ -30,14 +30,17 @@ type CommitteeVerifierDeployParams struct {
 // address on EVM) and for looking up family-specific dependencies (such as
 // the RMNProxy) from ExistingAddresses.
 //
-// Deployed contracts remain owned by the deployer key. Transferring
-// ownership to a timelock/MCMS is composed by a separate changeset on top
-// (see CCIP-11432).
+// The adapter does not transfer ownership itself: when DeployerKeyOwned is
+// false it lists the contracts to hand over and the changeset transfers them.
 type CommitteeVerifierDeployInput struct {
 	ChainSelector     uint64
 	DeployerContract  string
 	ExistingAddresses []datastore.AddressRef
 	Params            CommitteeVerifierDeployParams
+	// DeployerKeyOwned when true keeps the deployed contracts with the deployer
+	// key. When false, the adapter returns in RefsToTransferOwnership the
+	// contracts the RBAC timelock does not own yet.
+	DeployerKeyOwned bool
 }
 
 // CommitteeVerifierDeployOutput is the chain-agnostic output of a
@@ -46,6 +49,9 @@ type CommitteeVerifierDeployInput struct {
 type CommitteeVerifierDeployOutput struct {
 	Addresses []datastore.AddressRef
 	BatchOps  []mcmstypes.BatchOperation
+	// RefsToTransferOwnership are the contracts the changeset transfers to the
+	// RBAC timelock when DeployerKeyOwned is false.
+	RefsToTransferOwnership []datastore.AddressRef
 }
 
 // CommitteeVerifierDeployAdapter is the chain-family-specific entry point

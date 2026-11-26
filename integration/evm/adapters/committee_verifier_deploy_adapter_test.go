@@ -15,6 +15,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/create2_factory"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/versioned_verifier_resolver"
+	cciputils "github.com/smartcontractkit/chainlink-ccip/deployment/utils"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/operations/contract"
 
 	ccvdeploymentadapters "github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
@@ -42,6 +43,7 @@ func baseInput(selector uint64) ccvdeploymentadapters.CommitteeVerifierDeployInp
 		ChainSelector:     selector,
 		DeployerContract:  "0x0000000000000000000000000000000000000FAC",
 		ExistingAddresses: []datastore.AddressRef{rmnProxyRef(selector)},
+		DeployerKeyOwned:  true,
 		Params: ccvdeploymentadapters.CommitteeVerifierDeployParams{
 			Version:       committee_verifier.Version,
 			FeeAggregator: testFeeAggregator,
@@ -174,6 +176,7 @@ func TestEVMCommitteeVerifierDeployAdapter_HappyPath(t *testing.T) {
 		ChainSelector:     testChainSelector,
 		DeployerContract:  create2FactoryRef.Address,
 		ExistingAddresses: []datastore.AddressRef{rmnProxyRef(testChainSelector)},
+		DeployerKeyOwned:  true,
 		Params: ccvdeploymentadapters.CommitteeVerifierDeployParams{
 			Version:          committee_verifier.Version,
 			FeeAggregator:    testFeeAggregator,
@@ -234,6 +237,7 @@ func TestEVMCommitteeVerifierDeployAdapter_AllowlistAdminOptional(t *testing.T) 
 		ChainSelector:     testChainSelector,
 		DeployerContract:  create2FactoryRef.Address,
 		ExistingAddresses: []datastore.AddressRef{rmnProxyRef(testChainSelector)},
+		DeployerKeyOwned:  true,
 		Params: ccvdeploymentadapters.CommitteeVerifierDeployParams{
 			Version:       committee_verifier.Version,
 			FeeAggregator: testFeeAggregator,
@@ -246,4 +250,68 @@ func TestEVMCommitteeVerifierDeployAdapter_AllowlistAdminOptional(t *testing.T) 
 		e.OperationsBundle, adapter.DeployCommitteeVerifier(), e.BlockChains, in,
 	)
 	require.NoError(t, err)
+}
+
+// deployVerifierForHandover deploys a committee verifier with DeployerKeyOwned
+// false on a simulated chain whose existing addresses are existing.
+func deployVerifierForHandover(t *testing.T, existing func(sel uint64) []datastore.AddressRef) (ccvdeploymentadapters.CommitteeVerifierDeployOutput, error) {
+	t.Helper()
+	e, err := environment.New(t.Context(),
+		environment.WithEVMSimulated(t, []uint64{testChainSelector}),
+	)
+	require.NoError(t, err)
+	e.DataStore = datastore.NewMemoryDataStore().Seal()
+
+	evmChain := e.BlockChains.EVMChains()[testChainSelector]
+	create2FactoryRef, err := contract.MaybeDeployContract(
+		e.OperationsBundle, create2_factory.Deploy, evmChain,
+		contract.DeployInput[create2_factory.ConstructorArgs]{
+			TypeAndVersion: deployment.NewTypeAndVersion(create2_factory.ContractType, *create2_factory.Version),
+			ChainSelector:  testChainSelector,
+			Args:           create2_factory.ConstructorArgs{AllowList: []common.Address{evmChain.DeployerKey.From}},
+		}, nil,
+	)
+	require.NoError(t, err)
+
+	adapter := &adapters.EVMCommitteeVerifierDeployAdapter{}
+	report, err := cldf_ops.ExecuteSequence(e.OperationsBundle, adapter.DeployCommitteeVerifier(), e.BlockChains,
+		ccvdeploymentadapters.CommitteeVerifierDeployInput{
+			ChainSelector:     testChainSelector,
+			DeployerContract:  create2FactoryRef.Address,
+			ExistingAddresses: existing(testChainSelector),
+			Params: ccvdeploymentadapters.CommitteeVerifierDeployParams{
+				Version:       committee_verifier.Version,
+				FeeAggregator: testFeeAggregator,
+				Qualifier:     "alpha",
+			},
+		})
+	return report.Output, err
+}
+
+// TestEVMCommitteeVerifierDeployAdapter_ListsContractsForHandover checks that,
+// with DeployerKeyOwned false, every deployed contract the timelock does not
+// own yet is returned for the ownership handover.
+func TestEVMCommitteeVerifierDeployAdapter_ListsContractsForHandover(t *testing.T) {
+	out, err := deployVerifierForHandover(t, func(sel uint64) []datastore.AddressRef {
+		return []datastore.AddressRef{
+			rmnProxyRef(sel),
+			{
+				ChainSelector: sel,
+				Type:          datastore.ContractType(cciputils.RBACTimelock),
+				Qualifier:     cciputils.CLLQualifier,
+				Address:       "0x00000000000000000000000000000000000071C0",
+			},
+		}
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, out.Addresses)
+	require.ElementsMatch(t, out.Addresses, out.RefsToTransferOwnership,
+		"the deployer still owns every contract, so all of them go to the timelock")
+}
+
+func TestEVMCommitteeVerifierDeployAdapter_HandoverRequiresTimelock(t *testing.T) {
+	_, err := deployVerifierForHandover(t, func(sel uint64) []datastore.AddressRef {
+		return []datastore.AddressRef{rmnProxyRef(sel)}
+	})
+	require.ErrorContains(t, err, "deploy MCMS first, or set DeployerKeyOwned")
 }

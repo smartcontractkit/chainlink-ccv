@@ -11,7 +11,9 @@ import (
 	cldfops "github.com/smartcontractkit/chainlink-deployments-framework/operations"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/rmn_proxy"
+	mcmsseq "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/sequences"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/sequences"
+	cciputils "github.com/smartcontractkit/chainlink-ccip/deployment/utils"
 
 	ccvdeploymentadapters "github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 )
@@ -87,10 +89,27 @@ var evmDeployCommitteeVerifier = cldfops.NewSequence(
 				fmt.Errorf("EVM DeployCommitteeVerifier failed: %w", err)
 		}
 
-		return ccvdeploymentadapters.CommitteeVerifierDeployOutput{
+		out := ccvdeploymentadapters.CommitteeVerifierDeployOutput{
 			Addresses: report.Output.Addresses,
 			BatchOps:  report.Output.BatchOps,
-		}, nil
+		}
+		if !input.DeployerKeyOwned {
+			timelock, err := resolveCLLTimelockAddress(input.ExistingAddresses, input.ChainSelector)
+			if err != nil {
+				return ccvdeploymentadapters.CommitteeVerifierDeployOutput{}, err
+			}
+			for _, ref := range report.Output.Addresses {
+				owner, _, err := mcmsseq.LoadOwnableContract(common.HexToAddress(ref.Address), evmChain.Client)
+				if err != nil {
+					return ccvdeploymentadapters.CommitteeVerifierDeployOutput{},
+						fmt.Errorf("failed to load owner of %s at %s: %w", ref.Type, ref.Address, err)
+				}
+				if owner != timelock {
+					out.RefsToTransferOwnership = append(out.RefsToTransferOwnership, ref)
+				}
+			}
+		}
+		return out, nil
 	},
 )
 
@@ -119,4 +138,25 @@ func resolveRMNProxyAddress(existingAddresses []datastore.AddressRef, chainSelec
 		return common.HexToAddress(ref.Address), nil
 	}
 	return common.Address{}, fmt.Errorf("RMNProxy (type=%s version=%s) not found in ExistingAddresses for chain %d", rmn_proxy.ContractType, rmn_proxy.Version, chainSelector)
+}
+
+// resolveCLLTimelockAddress returns the CLLCCIP RBAC timelock on chainSelector,
+// the owner committee verifiers are handed to.
+func resolveCLLTimelockAddress(existingAddresses []datastore.AddressRef, chainSelector uint64) (common.Address, error) {
+	var found []string
+	for _, ref := range existingAddresses {
+		if ref.ChainSelector == chainSelector &&
+			ref.Type == datastore.ContractType(cciputils.RBACTimelock) &&
+			ref.Qualifier == cciputils.CLLQualifier {
+			found = append(found, ref.Address)
+		}
+	}
+	if len(found) != 1 {
+		return common.Address{}, fmt.Errorf("expected one %s RBACTimelock on chain %d, found %d: deploy MCMS first, or set DeployerKeyOwned",
+			cciputils.CLLQualifier, chainSelector, len(found))
+	}
+	if !common.IsHexAddress(found[0]) {
+		return common.Address{}, fmt.Errorf("RBACTimelock address %q on chain %d is not a valid hex address", found[0], chainSelector)
+	}
+	return common.HexToAddress(found[0]), nil
 }
