@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.3.0](https://github.com/smartcontractkit/chainlink-ccv/compare/deployment/v0.2.0...deployment/v0.3.0) (2026-11-26)
+
+
+### ⚠ BREAKING CHANGES
+
+* **deployment:** clarify verifier job scopes and group committees ([#1649](https://github.com/smartcontractkit/chainlink-ccv/issues/1649))
+
+### Features
+
+* **deployment:** clarify verifier job scopes and group committees ([#1649](https://github.com/smartcontractkit/chainlink-ccv/issues/1649)) ([29a6f0d](https://github.com/smartcontractkit/chainlink-ccv/commit/29a6f0d80e8d415ff2522bc98cbb2a5005025a79))
+
+
+### Bug Fixes
+
+* **deps:** bump chain-selectors ([#1645](https://github.com/smartcontractkit/chainlink-ccv/issues/1645)) ([4e53d83](https://github.com/smartcontractkit/chainlink-ccv/commit/4e53d832e3093d09d5689361530944003d952c05))
+
 ## [0.2.0](https://github.com/smartcontractkit/chainlink-ccv/compare/deployment/v0.1.0...deployment/v0.2.0) (2026-11-25)
 
 
