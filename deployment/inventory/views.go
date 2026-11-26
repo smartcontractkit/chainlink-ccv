@@ -84,7 +84,9 @@ func (inv *Inventory) ByChain() map[ChainSelector]ChainView {
 	for _, c := range inv.Committees {
 		update(c.SourceChain, func(v *ChainView) { v.Committees = append(v.Committees, c) })
 		if c.Source == SourceOnchain {
-			update(c.VerifierChain, func(v *ChainView) { v.VerifierSignerSets = append(v.VerifierSignerSets, c) })
+			for _, observed := range expandOnchainCommittee(c) {
+				update(observed.VerifierChain, func(v *ChainView) { v.VerifierSignerSets = append(v.VerifierSignerSets, observed) })
+			}
 		}
 	}
 	for _, v := range inv.Verifiers {
@@ -126,15 +128,21 @@ func (inv *Inventory) Rows() []Row {
 	}
 	nodes := inv.nodeIndex()
 	var rows []Row
-	for _, c := range inv.Committees {
-		for _, m := range c.Members {
-			rows = append(rows, Row{
-				Role: RoleVerifier, Source: c.Source, Scope: c.Qualifier, Aggregators: strings.Join(c.Aggregators, ","),
-				Chain: c.SourceChain, ChainName: chains[c.SourceChain].Name, ChainFamily: chains[c.SourceChain].Family,
-				VerifierChain: c.VerifierChain, Threshold: c.Threshold,
-				NOPAlias: m.NOPAlias, NodeID: m.NodeID, NodeName: nodes[m.NodeID].Name, CSAKey: m.CSAKey,
-				SignerAddress: m.SignerAddress, SignerPubKey: m.SignerPubKey,
-			})
+	for _, stored := range inv.Committees {
+		committees := []Committee{stored}
+		if stored.Source == SourceOnchain {
+			committees = expandOnchainCommittee(stored)
+		}
+		for _, c := range committees {
+			for _, m := range c.Members {
+				rows = append(rows, Row{
+					Role: RoleVerifier, Source: c.Source, Scope: c.Qualifier, Aggregators: strings.Join(c.Aggregators, ","),
+					Chain: c.SourceChain, ChainName: chains[c.SourceChain].Name, ChainFamily: chains[c.SourceChain].Family,
+					VerifierChain: c.VerifierChain, Threshold: c.Threshold,
+					NOPAlias: m.NOPAlias, NodeID: m.NodeID, NodeName: nodes[m.NodeID].Name, CSAKey: m.CSAKey,
+					SignerAddress: m.SignerAddress, SignerPubKey: m.SignerPubKey,
+				})
+			}
 		}
 	}
 	for _, p := range inv.ExecutorPools {

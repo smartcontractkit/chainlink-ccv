@@ -10,7 +10,8 @@ import (
 )
 
 // SchemaVersion changes whenever the JSON shape of Inventory changes incompatibly.
-const SchemaVersion = 1
+// Version 2 groups identical onchain committees across their verifier deployments.
+const SchemaVersion = 2
 
 // ChainSelector encodes as a decimal string in JSON: selectors exceed the integers JSON numbers
 // carry exactly, and CCV env metadata already stores them as strings.
@@ -83,12 +84,17 @@ const (
 	RoleExecutor Role = "executor"
 )
 
-// VerifierScope is one verifier job's scope: its committee qualifier and the source chains it
-// covers. Qualifier is empty when no known qualifier matches the job. Scopes stay per job so a
-// node is only eligible for a qualifier+source combination one of its jobs actually has.
+// VerifierScope pairs one verifier job's committee qualifier with its source chains, keeping the
+// two dimensions attached to the job. Qualifier is empty when no known qualifier matches.
+// Proposal fields describe the last persisted JD sync, not live process health.
 type VerifierScope struct {
-	Qualifier    string          `json:"qualifier,omitempty"`
-	SourceChains []ChainSelector `json:"sourceChains,omitempty"`
+	JobID                string          `json:"jobId"`
+	JDJobID              string          `json:"jdJobId,omitempty"`
+	HasActiveProposal    bool            `json:"hasActiveProposal"`
+	ActiveProposalID     string          `json:"activeProposalId,omitempty"`
+	LatestProposalStatus string          `json:"latestProposalStatus,omitempty"`
+	Qualifier            string          `json:"qualifier,omitempty"`
+	SourceChains         []ChainSelector `json:"sourceChains,omitempty"`
 }
 
 // Node is a Job Distributor node and the CCV roles it runs.
@@ -109,18 +115,26 @@ const (
 	SourceOnchain    = "onchain"
 )
 
-// Committee is one committee's signer set for messages from one source chain. Aggregator sets come
-// from the persisted aggregator configs; onchain sets from one destination's CommitteeVerifier.
+// VerifierDeployment identifies one deployed CommitteeVerifier holding an onchain signer set.
+type VerifierDeployment struct {
+	Chain   ChainSelector `json:"chainSelector"`
+	Address string        `json:"address"`
+}
+
+// Committee is one signer set and quorum for a source chain, from aggregator configs or onchain reads.
+// Identical onchain sets share VerifierDeployments; different sets remain separate.
+// Singular verifier fields hold schema-v1 snapshots and live scans.
 type Committee struct {
-	Source          string        `json:"source"`
-	Aggregators     []string      `json:"aggregators,omitempty"`
-	VerifierChain   ChainSelector `json:"verifierChainSelector,omitempty"`
-	VerifierAddress string        `json:"verifierAddress,omitempty"`
-	Qualifier       string        `json:"qualifier,omitempty"`
-	SourceChain     ChainSelector `json:"sourceChainSelector"`
-	SourceVerifier  string        `json:"sourceVerifierAddress,omitempty"`
-	Threshold       uint8         `json:"threshold"`
-	Members         []Member      `json:"members"`
+	Source              string               `json:"source"`
+	Aggregators         []string             `json:"aggregators,omitempty"`
+	VerifierChain       ChainSelector        `json:"verifierChainSelector,omitempty"`
+	VerifierAddress     string               `json:"verifierAddress,omitempty"`
+	VerifierDeployments []VerifierDeployment `json:"verifierDeployments,omitempty"`
+	Qualifier           string               `json:"qualifier,omitempty"`
+	SourceChain         ChainSelector        `json:"sourceChainSelector"`
+	SourceVerifier      string               `json:"sourceVerifierAddress,omitempty"`
+	Threshold           uint8                `json:"threshold"`
+	Members             []Member             `json:"members"`
 }
 
 // Member is one committee signer, resolved to its NOP and signing node when the data allows.

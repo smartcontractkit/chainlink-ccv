@@ -375,6 +375,43 @@ func TestBuild_QualifierAndSourceChainStayPairedPerJob(t *testing.T) {
 	assert.Equal(t, "csa-multi", solSecondary.CSAKey)
 }
 
+func TestBuild_VerifierScopesIdentifyJobsAndPersistedProposalState(t *testing.T) {
+	t.Parallel()
+
+	inv := Build(Inputs{
+		AggregatorQualifiers: map[string]string{"aggregator-1": "default", "aggregator-2": "secondary"},
+		Nodes:                map[string]NodeRecord{"node-multi": {Name: "verifier-multi", CSAKey: "csa-multi"}},
+		Jobs: shared.NOPJobs{"nop": {
+			"nop-default-verifier": {
+				JobID: "nop-default-verifier", JDJobID: "jd-default", NOPAlias: "nop", NodeID: "node-multi",
+				Spec: verifierSpec(), ActiveProposalID: "proposal-active",
+				Proposals: map[string]shared.ProposalRevision{
+					"proposal-active":  {ProposalID: "proposal-active", Revision: 1, Status: shared.JobProposalStatusApproved},
+					"proposal-pending": {ProposalID: "proposal-pending", Revision: 2, Status: shared.JobProposalStatusPending},
+				},
+			},
+			"nop-secondary-verifier": {
+				JobID: "nop-secondary-verifier", JDJobID: "jd-secondary", NOPAlias: "nop", NodeID: "node-multi",
+				Spec: verifierSpec(),
+				Proposals: map[string]shared.ProposalRevision{
+					"proposal-secondary": {ProposalID: "proposal-secondary", Revision: 1, Status: shared.JobProposalStatusPending},
+				},
+			},
+		}},
+	})
+
+	assert.Equal(t, []VerifierScope{
+		{
+			JobID: "nop-default-verifier", JDJobID: "jd-default", HasActiveProposal: true,
+			ActiveProposalID: "proposal-active", LatestProposalStatus: "pending", Qualifier: "default",
+		},
+		{
+			JobID: "nop-secondary-verifier", JDJobID: "jd-secondary", HasActiveProposal: false,
+			LatestProposalStatus: "pending", Qualifier: "secondary",
+		},
+	}, nodeFor(t, inv, "node-multi").VerifierScopes)
+}
+
 func TestBuild_EmptyInputs(t *testing.T) {
 	t.Parallel()
 

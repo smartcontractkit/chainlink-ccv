@@ -274,7 +274,8 @@ func TestApplyVerifierExecutorConfigPublishesObservedCommittees(t *testing.T) {
 		}
 	}
 	require.Len(t, onchain, 1, "a normal run publishes the observed committee on the first run")
-	assert.Equal(t, inventory.ChainSelector(sel), onchain[0].VerifierChain)
+	require.Len(t, onchain[0].VerifierDeployments, 1)
+	assert.Equal(t, inventory.ChainSelector(sel), onchain[0].VerifierDeployments[0].Chain)
 	assert.Equal(t, inventory.ChainSelector(sel), onchain[0].SourceChain)
 	assert.Equal(t, uint8(2), onchain[0].Threshold)
 	require.Len(t, onchain[0].Members, 1)
