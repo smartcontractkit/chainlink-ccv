@@ -170,7 +170,14 @@ func jobRole(spec string) (Role, error) {
 // verifierScope pairs a verifier job's committee qualifier with its source-chain coverage, so
 // the two dimensions are never matched across different jobs on the same node.
 func (b *builder) verifierScope(job shared.JobInfo, jobID shared.JobID, qualifiers []string) VerifierScope {
-	scope := VerifierScope{Qualifier: jobCommitteeQualifier(jobID, qualifiers)}
+	scope := VerifierScope{
+		JobID:                string(jobID),
+		JDJobID:              job.JDJobID,
+		HasActiveProposal:    job.IsRunning(),
+		ActiveProposalID:     job.ActiveProposalID,
+		LatestProposalStatus: string(job.LatestStatus()),
+		Qualifier:            jobCommitteeQualifier(jobID, qualifiers),
+	}
 	chains, err := shared.VerifierSourceChains(job.Spec)
 	if err != nil {
 		b.issue(IssueUnreadableJob, string(jobID), err.Error())
@@ -388,6 +395,114 @@ func memberAddresses(members []Member) []string {
 	return out
 }
 
+type onchainGroupKey struct {
+	source         ChainSelector
+	qualifier      string
+	sourceVerifier string
+	signers        string
+	threshold      uint8
+}
+
+// groupOnchainCommittees stores one copy of each observed signer set with all its deployments.
+// Incompatible member attribution stays in a separate row rather than being hidden by the merge.
+func (inv *Inventory) groupOnchainCommittees() {
+	groups := make(map[onchainGroupKey][]int)
+	out := make([]Committee, 0, len(inv.Committees))
+	for _, c := range inv.Committees {
+		if c.Source != SourceOnchain {
+			out = append(out, c)
+			continue
+		}
+		deployments := committeeVerifierDeployments(c)
+		if len(deployments) == 0 {
+			out = append(out, c)
+			continue
+		}
+		key := onchainGroupKey{
+			source: c.SourceChain, qualifier: c.Qualifier, sourceVerifier: c.SourceVerifier,
+			signers: strings.Join(memberAddresses(c.Members), "\x00"), threshold: c.Threshold,
+		}
+		group := -1
+		for _, i := range groups[key] {
+			if compatibleMembers(out[i].Members, c.Members) {
+				group = i
+				break
+			}
+		}
+		if group < 0 {
+			grouped := c
+			grouped.VerifierChain = 0
+			grouped.VerifierAddress = ""
+			grouped.VerifierDeployments = nil
+			grouped.Members = nil
+			out = append(out, grouped)
+			group = len(out) - 1
+			groups[key] = append(groups[key], group)
+		}
+		out[group].Members = mergeCompatibleMembers(out[group].Members, c.Members)
+		for _, d := range deployments {
+			if !slices.Contains(out[group].VerifierDeployments, d) {
+				out[group].VerifierDeployments = append(out[group].VerifierDeployments, d)
+			}
+		}
+	}
+	for i := range out {
+		if out[i].Source != SourceOnchain {
+			continue
+		}
+		slices.SortFunc(out[i].VerifierDeployments, func(a, b VerifierDeployment) int {
+			return cmp.Or(cmp.Compare(a.Chain, b.Chain), cmp.Compare(a.Address, b.Address))
+		})
+	}
+	inv.Committees = out
+}
+
+func compatibleMembers(a, b []Member) bool {
+	for _, x := range a {
+		for _, y := range b {
+			if x.SignerAddress == y.SignerAddress && !compatibleMember(x, y) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func compatibleMember(a, b Member) bool {
+	return compatibleValue(a.SignerPubKey, b.SignerPubKey) &&
+		compatibleValue(a.NOPAlias, b.NOPAlias) &&
+		compatibleValue(a.NodeID, b.NodeID) &&
+		compatibleValue(a.CSAKey, b.CSAKey)
+}
+
+func compatibleValue(a, b string) bool {
+	return a == "" || b == "" || a == b
+}
+
+func mergeCompatibleMembers(dst, src []Member) []Member {
+	for _, m := range src {
+		i := slices.IndexFunc(dst, func(existing Member) bool { return existing.SignerAddress == m.SignerAddress })
+		if i < 0 {
+			dst = append(dst, m)
+			continue
+		}
+		if dst[i].SignerPubKey == "" {
+			dst[i].SignerPubKey = m.SignerPubKey
+		}
+		if dst[i].NOPAlias == "" {
+			dst[i].NOPAlias = m.NOPAlias
+		}
+		if dst[i].NodeID == "" {
+			dst[i].NodeID = m.NodeID
+		}
+		if dst[i].CSAKey == "" {
+			dst[i].CSAKey = m.CSAKey
+		}
+	}
+	slices.SortFunc(dst, func(a, b Member) int { return cmp.Compare(a.SignerAddress, b.SignerAddress) })
+	return dst
+}
+
 // memberPubKeys carries stored signer public keys across reconciliation, keyed by signer address.
 func memberPubKeys(members []Member) map[string]string {
 	var out map[string]string
@@ -497,11 +612,12 @@ func executorPoolName(alias, jobID string) string {
 
 // normalize derives the chain table and sorts every table so the output is stable.
 func (inv *Inventory) normalize() {
+	inv.groupOnchainCommittees()
 	selectors := make(map[ChainSelector]struct{})
 	for _, c := range inv.Committees {
 		selectors[c.SourceChain] = struct{}{}
-		if c.VerifierChain != 0 {
-			selectors[c.VerifierChain] = struct{}{}
+		for _, d := range committeeVerifierDeployments(c) {
+			selectors[d.Chain] = struct{}{}
 		}
 	}
 	for _, v := range inv.Verifiers {
@@ -517,14 +633,17 @@ func (inv *Inventory) normalize() {
 	for i := range inv.Nodes {
 		slices.Sort(inv.Nodes[i].Roles)
 		inv.Nodes[i].Roles = slices.Compact(inv.Nodes[i].Roles)
+		slices.SortFunc(inv.Nodes[i].VerifierScopes, func(a, b VerifierScope) int { return cmp.Compare(a.JobID, b.JobID) })
 	}
 	slices.SortStableFunc(inv.Committees, func(a, b Committee) int {
 		return cmp.Or(
 			cmp.Compare(a.SourceChain, b.SourceChain),
 			cmp.Compare(a.Source, b.Source),
-			cmp.Compare(a.VerifierChain, b.VerifierChain),
+			cmp.Compare(verifierChainForSort(a), verifierChainForSort(b)),
 			cmp.Compare(a.Qualifier, b.Qualifier),
 			cmp.Compare(strings.Join(a.Aggregators, ","), strings.Join(b.Aggregators, ",")),
+			cmp.Compare(a.Threshold, b.Threshold),
+			cmp.Compare(strings.Join(memberAddresses(a.Members), ","), strings.Join(memberAddresses(b.Members), ",")),
 		)
 	})
 	slices.SortFunc(inv.Issues, func(a, b Issue) int {
@@ -532,6 +651,14 @@ func (inv *Inventory) normalize() {
 	})
 	inv.Issues = slices.Compact(inv.Issues)
 	slices.SortFunc(inv.Refreshes, func(a, b OnchainRefresh) int { return cmp.Compare(a.Chain, b.Chain) })
+}
+
+func verifierChainForSort(c Committee) ChainSelector {
+	deployments := committeeVerifierDeployments(c)
+	if len(deployments) == 0 {
+		return 0
+	}
+	return deployments[0].Chain
 }
 
 func familyOf(selector uint64) string {

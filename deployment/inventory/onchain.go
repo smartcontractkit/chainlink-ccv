@@ -134,15 +134,44 @@ func (inv *Inventory) clearOnchainState() {
 	})
 }
 
-// onchainSnapshot groups the previously observed onchain rows by their verifier chain.
+// onchainSnapshot expands grouped rows and groups the observations by verifier chain.
 func onchainSnapshot(committees []Committee) map[uint64][]Committee {
 	out := make(map[uint64][]Committee)
 	for _, c := range committees {
-		if c.Source == SourceOnchain {
-			out[uint64(c.VerifierChain)] = append(out[uint64(c.VerifierChain)], c)
+		if c.Source != SourceOnchain {
+			continue
+		}
+		for _, observed := range expandOnchainCommittee(c) {
+			out[uint64(observed.VerifierChain)] = append(out[uint64(observed.VerifierChain)], observed)
 		}
 	}
 	return out
+}
+
+func expandOnchainCommittee(c Committee) []Committee {
+	deployments := committeeVerifierDeployments(c)
+	if len(deployments) == 0 {
+		return []Committee{c}
+	}
+	out := make([]Committee, 0, len(deployments))
+	for _, d := range deployments {
+		observed := c
+		observed.VerifierChain = d.Chain
+		observed.VerifierAddress = d.Address
+		observed.VerifierDeployments = nil
+		out = append(out, observed)
+	}
+	return out
+}
+
+func committeeVerifierDeployments(c Committee) []VerifierDeployment {
+	if len(c.VerifierDeployments) > 0 {
+		return c.VerifierDeployments
+	}
+	if c.VerifierChain != 0 || c.VerifierAddress != "" {
+		return []VerifierDeployment{{Chain: c.VerifierChain, Address: c.VerifierAddress}}
+	}
+	return nil
 }
 
 // scanChains lists the chains to scan: aggregator-configured destinations, chains where a family
@@ -194,7 +223,7 @@ func (inv *Inventory) ReconcileOnchainCommittees(snapshot []Committee, refreshes
 		if c.Source != SourceOnchain {
 			continue
 		}
-		inv.recordSnapshot(b, r, recorded, []Committee{c})
+		inv.recordSnapshot(b, r, recorded, expandOnchainCommittee(c))
 	}
 	for _, refresh := range inv.Refreshes {
 		if refresh.LastError != "" {

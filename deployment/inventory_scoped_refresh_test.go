@@ -87,8 +87,10 @@ func TestRefreshInventoryChainsKeepsUnscannedFailureAlerts(t *testing.T) {
 	assert.Contains(t, stored.Issues, failure, "an unscanned chain keeps its read-failure alert")
 	var cantonRows int
 	for _, c := range stored.Committees {
-		if c.Source == inventory.SourceOnchain && c.VerifierChain == inventory.ChainSelector(scopedCantonSelector) {
-			cantonRows++
+		for _, d := range c.VerifierDeployments {
+			if c.Source == inventory.SourceOnchain && d.Chain == inventory.ChainSelector(scopedCantonSelector) {
+				cantonRows++
+			}
 		}
 	}
 	assert.Equal(t, 1, cantonRows, "the unscanned chain's committee is retained")
