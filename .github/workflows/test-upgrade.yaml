@@ -49,6 +49,11 @@ jobs:
             recipe: upgrade-test
           - test: TestE2ERollback_HappyPath
             recipe: rollback-test
+          # Service-level tests; each recipe skips when the `services` input does not name its service.
+          - test: TestIndexer_UpgradeRollbackInFlight
+            recipe: indexer-swap-test
+          - test: TestAggregator_UpgradeRollbackWithPendingJob
+            recipe: aggregator-swap-test
     permissions:
       id-token: write
       contents: read
