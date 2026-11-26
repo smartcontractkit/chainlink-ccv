@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.24.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.23.0...v0.24.0) (2026-11-26)
+
+
+### Features
+
+* **indexer:** keep the worker state on each message ([#1635](https://github.com/smartcontractkit/chainlink-ccv/issues/1635)) ([433f5ac](https://github.com/smartcontractkit/chainlink-ccv/commit/433f5acc3bfd78e02e12d7dca6a324805755ed78))
+* **indexer:** lock database migrations across replicas ([#1631](https://github.com/smartcontractkit/chainlink-ccv/issues/1631)) ([3929116](https://github.com/smartcontractkit/chainlink-ccv/commit/39291167326c1c9e35ba1a3bbb24b4b80dfe61ac))
+* **indexer:** message replay puts messages back in the worker queue ([#1637](https://github.com/smartcontractkit/chainlink-ccv/issues/1637)) ([c6797d2](https://github.com/smartcontractkit/chainlink-ccv/commit/c6797d201b87e72e5aec995798e1bac4eb44b3b5))
+* **indexer:** workers claim messages from Postgres on all replicas ([#1636](https://github.com/smartcontractkit/chainlink-ccv/issues/1636)) ([71a6dac](https://github.com/smartcontractkit/chainlink-ccv/commit/71a6dac181c86adab673d9cea6e10f1347143c74))
+* **pricer:** Add CCIP API Accessor for Address Decoding ([#1629](https://github.com/smartcontractkit/chainlink-ccv/issues/1629)) ([6661002](https://github.com/smartcontractkit/chainlink-ccv/commit/66610021d16fb06f12959adcc94c3b8dc0893cdf))
+
+
+### Bug Fixes
+
+* **aggregator:** Serialize seq_num increment for aggregator report ([#1643](https://github.com/smartcontractkit/chainlink-ccv/issues/1643)) ([b11e4a9](https://github.com/smartcontractkit/chainlink-ccv/commit/b11e4a9966572c9d340cb6f34ac5273d397862e8))
+* **deps:** bump chain-selectors ([#1645](https://github.com/smartcontractkit/chainlink-ccv/issues/1645)) ([4e53d83](https://github.com/smartcontractkit/chainlink-ccv/commit/4e53d832e3093d09d5689361530944003d952c05))
+* **indexer:** retry a message when a configured verifier did not start ([#1634](https://github.com/smartcontractkit/chainlink-ccv/issues/1634)) ([ec509c1](https://github.com/smartcontractkit/chainlink-ccv/commit/ec509c19793fb0ae67d1b6fae934614c535dc440))
+
 ## [0.23.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.22.1...v0.23.0) (2026-11-23)
 
 
