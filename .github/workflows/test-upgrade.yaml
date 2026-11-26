@@ -4,8 +4,8 @@ name: E2E Upgrade Test
 # one at a time, and sends a message after each step. The rollback job then goes back to the first images.
 # On a PR: from the target branch commit to the PR code. The label upgrade-breaking-change skips the PR jobs.
 # On the Release Please PR of the services: from the latest release tag to the PR code, which becomes the release.
-# In the merge queue: only the upgrade-then-rollback test, for all services, from the latest release tag to the
-# merge queue commit.
+# In the merge queue of the services Release Please PR: only the upgrade-then-rollback test, for all services,
+# from the latest release tag to the merge queue commit.
 # On a release tag vX.Y.Z: from the previous release tag to the new tag.
 # On a manual run: from the `from` input to the `to` input.
 run-name: ${{ inputs.from && format('E2E Upgrade Test {0} -> {1}', inputs.from, inputs.to || github.ref_name) || '' }}
@@ -88,7 +88,7 @@ jobs:
           # Highest vX.Y.Z tag: the latest release of the services.
           latest_release() { git tag --list 'v[0-9]*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1; }
           # The services release PR; module release PRs use release-please--branches--main--components--<module>.
-          # The merge queue also tests from the latest release, the version that the queued code replaces.
+          # The merge queue runs only for the services release PR (see release-pr), so it compares to the latest release too.
           if [ "${GITHUB_EVENT_NAME}" = "merge_group" ] || { [ "${GITHUB_EVENT_NAME}" = "pull_request" ] && [ "${PR_HEAD_REF}" = "release-please--branches--main" ]; }; then
             prev="$(latest_release)"
             if [ -z "${prev}" ]; then
@@ -195,11 +195,33 @@ jobs:
           path: build/devenv/tests/e2e/logs
           retention-days: 1
 
-  # The upgrade-then-rollback test runs only in the merge queue, for all services, and on a manual run,
-  # for example a dispatch from chainlink-ccv-deploy for an image bump.
+  # Finds the services Release Please PR in the merge queue by its title, "chore: release  X.Y.Z (#N)".
+  # Module release PRs have the module name before the version, so they do not match.
+  release-pr:
+    name: Detect services release PR
+    if: github.event_name == 'merge_group'
+    runs-on: ubuntu-latest
+    outputs:
+      is-release: ${{ steps.detect.outputs.is-release }}
+    steps:
+      - name: Detect services release PR
+        id: detect
+        working-directory: .
+        env:
+          TITLE: ${{ github.event.merge_group.head_commit.message }}
+        run: |
+          if [[ "${TITLE%%$'\n'*}" =~ ^chore:\ release\ +v?[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            echo "is-release=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  # The upgrade-then-rollback test runs, for all services, in the merge queue of the services Release Please PR.
+  # It also runs on a manual run, for example a dispatch from chainlink-ccv-deploy for an image bump.
   e2e-upgrade-then-rollback:
     name: ${{ matrix.test }}
-    if: github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch'
+    needs: release-pr
+    if: >-
+      !cancelled() &&
+      (github.event_name == 'workflow_dispatch' || needs.release-pr.outputs.is-release == 'true')
     strategy:
       fail-fast: false
       matrix:
