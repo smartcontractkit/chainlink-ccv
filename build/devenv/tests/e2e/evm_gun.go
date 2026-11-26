@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 
@@ -37,6 +38,12 @@ import (
 type NonceKey struct {
 	Selector uint64
 	Address  string
+}
+
+type GasKey struct {
+	Selector     uint64
+	DestSelector uint64
+	DataLen      int
 }
 
 // Compile time interface conformance check.
@@ -70,8 +77,10 @@ type EVMTXGun struct {
 	// workers poll receipts and push SentMessage with block-timestamp SentTime.
 	fireAndForget bool
 	router        map[uint64]*routerwrapper.Router
+	routerAddr    map[uint64]common.Address
 	onRampFilter  map[uint64]*onramp.OnRampFilterer
 	evmBackend    map[uint64]evmChainBackend
+	gasLimit      sync.Map // map[GasKey]uint64
 	ccipSentTopic common.Hash
 	pendingCh     chan pendingTx
 	fafWg         sync.WaitGroup
@@ -246,6 +255,7 @@ func NewEVMTransactionGunFromTestConfig(cfg *ccv.Cfg, testProfile *load.TestProf
 		sentMsgSet:      make(map[load.SentMessage]struct{}),
 		sentMsgCh:       make(chan load.SentMessage, load.SentMessageChannelBufferSize),
 		shutdownCh:      make(chan struct{}),
+		abandonCh:       make(chan struct{}),
 		srcSelectors:    srcSelectors,
 		destSelectors:   destSelectors,
 		messageProfiles: messageProfiles,
@@ -270,6 +280,7 @@ func NewEVMTransactionGunFromTestConfig(cfg *ccv.Cfg, testProfile *load.TestProf
 func (g *EVMTXGun) initFireAndForget(e *deployment.Environment, srcSelectors []uint64) error {
 	evmChains := e.BlockChains.EVMChains()
 	g.router = make(map[uint64]*routerwrapper.Router, len(srcSelectors))
+	g.routerAddr = make(map[uint64]common.Address, len(srcSelectors))
 	g.onRampFilter = make(map[uint64]*onramp.OnRampFilterer, len(srcSelectors))
 	g.evmBackend = make(map[uint64]evmChainBackend, len(srcSelectors))
 	g.pendingCh = make(chan pendingTx, load.PendingMessageChannelBufferSize)
@@ -286,6 +297,7 @@ func (g *EVMTXGun) initFireAndForget(e *deployment.Environment, srcSelectors []u
 		if err != nil {
 			return fmt.Errorf("resolve router for %d: %w", selector, err)
 		}
+		g.routerAddr[selector] = routerAddr
 		r, err := routerwrapper.NewRouter(routerAddr, srcChain.Client)
 		if err != nil {
 			return fmt.Errorf("create router wrapper for %d: %w", selector, err)
@@ -334,6 +346,34 @@ func (m *EVMTXGun) initNonce(key NonceKey, userAddress common.Address) error {
 	*ptr = n
 	m.nonce.LoadOrStore(key, ptr)
 	return nil
+}
+
+// gasLimitFor caches one ccipSend estimate per (chain, dest, payload size) so abigen skips its per-send eth_estimateGas RPC.
+func (m *EVMTXGun) gasLimitFor(srcSelector, destSelector uint64, evmMsg routerwrapper.ClientEVM2AnyMessage, from common.Address) (uint64, error) {
+	key := GasKey{Selector: srcSelector, DestSelector: destSelector, DataLen: len(evmMsg.Data)}
+	if v, ok := m.gasLimit.Load(key); ok {
+		return v.(uint64), nil
+	}
+	routerABI, err := routerwrapper.RouterMetaData.GetAbi()
+	if err != nil {
+		return 0, fmt.Errorf("router abi: %w", err)
+	}
+	calldata, err := routerABI.Pack("ccipSend", destSelector, evmMsg)
+	if err != nil {
+		return 0, fmt.Errorf("pack ccipSend: %w", err)
+	}
+	routerAddr := m.routerAddr[srcSelector]
+	est, err := m.evmBackend[srcSelector].EstimateGas(context.Background(), ethereum.CallMsg{
+		From: from,
+		To:   &routerAddr,
+		Data: calldata,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("estimate gas for selector %d: %w", srcSelector, err)
+	}
+	gl := est + est/5 // 20% headroom
+	m.gasLimit.Store(key, gl)
+	return gl, nil
 }
 
 // Call implements example gun call, assertions on response bodies should be done here.
@@ -404,9 +444,14 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 		if !ok {
 			return &wasp.Response{Error: "message is not ClientEVM2AnyMessage", Failed: true}
 		}
+		gasLimit, err := m.gasLimitFor(srcSelector, destSelector, evmMsg, sender.From)
+		if err != nil {
+			return &wasp.Response{Error: fmt.Errorf("gas limit: %w", err).Error(), Failed: true}
+		}
 		txOpts := *sender
 		txOpts.Value = big.NewInt(0)
 		txOpts.Nonce = new(big.Int).SetUint64(currentNonce)
+		txOpts.GasLimit = gasLimit
 		tx, err := m.router[srcSelector].CcipSend(&txOpts, destSelector, evmMsg)
 		if err != nil {
 			return &wasp.Response{Error: fmt.Errorf("ccip send: %w", err).Error(), Failed: true}
