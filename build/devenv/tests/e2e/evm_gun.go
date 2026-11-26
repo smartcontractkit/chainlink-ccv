@@ -58,6 +58,7 @@ type EVMTXGun struct {
 	closeMu             sync.RWMutex
 	closed              bool
 	shutdownCh          chan struct{} // wakes senders parked on full channels during teardown
+	abandonCh           chan struct{} // stops receipt workers when the drain budget expires
 	nonce               sync.Map      // map[NonceKey]*uint64
 	messageProfiles     []load.MessageProfileConfig
 	userSelector        map[uint64]func() *bind.TransactOpts
@@ -76,18 +77,32 @@ type EVMTXGun struct {
 	fafWg         sync.WaitGroup
 }
 
+// receiptDrainBudget bounds the FAF receipt wait at close so a stuck fetch can't stall teardown.
+var receiptDrainBudget = 30 * time.Second
+
 // CloseSentChannel closes the sent messages channel to signal no more messages will be sent.
 func (m *EVMTXGun) CloseSentChannel() {
 	m.closeOnce.Do(func() {
 		// close(shutdownCh) first: parked Call senders hold closeMu.RLock.
 		close(m.shutdownCh)
 		m.closeMu.Lock()
-		defer m.closeMu.Unlock()
 		m.closed = true
+		m.closeMu.Unlock()
 		if m.fireAndForget {
 			close(m.pendingCh)
-			m.fafWg.Wait()
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				m.fafWg.Wait()
+			}()
+			select {
+			case <-done:
+			case <-time.After(receiptDrainBudget):
+				close(m.abandonCh) // stuck fetches: workers stop, late receipts drop
+			}
 		}
+		m.closeMu.Lock()
+		defer m.closeMu.Unlock()
 		close(m.sentMsgCh)
 	})
 }
@@ -113,10 +128,17 @@ func sendIfOpen[T any](m *EVMTXGun, ch chan T, v T) {
 	}
 }
 
-// No closeMu: sentMsgCh closes only after fafWg.Wait, so a worker send cannot
-// race the close. Try non-blocking first: once shutdownCh closes, a plain
-// select drops publishes at random even with buffer space.
+// closeMu held through the send: close(sentMsgCh) can't race a mid-fetch worker.
+// Abandon checked first so drops are deterministic; non-blocking send first so the
+// parked select doesn't drop randomly once shutdownCh closes.
 func (m *EVMTXGun) publishSent(msg load.SentMessage) {
+	m.closeMu.RLock()
+	defer m.closeMu.RUnlock()
+	select {
+	case <-m.abandonCh:
+		return
+	default:
+	}
 	select {
 	case m.sentMsgCh <- msg:
 		return
@@ -125,7 +147,6 @@ func (m *EVMTXGun) publishSent(msg load.SentMessage) {
 	select {
 	case m.sentMsgCh <- msg:
 	case <-m.shutdownCh:
-		// drop: wasp already counted the timeout.
 	}
 }
 
@@ -151,6 +172,7 @@ func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, selectors []u
 		sentMsgSet:    make(map[load.SentMessage]struct{}),
 		sentMsgCh:     make(chan load.SentMessage, load.SentMessageChannelBufferSize),
 		shutdownCh:    make(chan struct{}),
+		abandonCh:     make(chan struct{}),
 		srcSelectors:  srcSelectors,
 		destSelectors: destSelectors,
 		userSelector:  userSelector,
@@ -601,15 +623,23 @@ type pendingTx struct {
 func (g *EVMTXGun) receiptWorker() {
 	defer g.fafWg.Done()
 
-	for p := range g.pendingCh {
-		func() {
-			defer func() {
-				if r := recover(); r != nil {
-					g.sendFailed(p, time.Now())
-				}
+	for {
+		select {
+		case <-g.abandonCh:
+			return
+		case p, ok := <-g.pendingCh:
+			if !ok {
+				return
+			}
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						g.sendFailed(p, time.Now())
+					}
+				}()
+				g.processReceipt(p)
 			}()
-			g.processReceipt(p)
-		}()
+		}
 	}
 }
 
@@ -624,6 +654,11 @@ func (g *EVMTXGun) processReceipt(p pendingTx) {
 	defer ticker.Stop()
 
 	for {
+		select {
+		case <-g.abandonCh:
+			return
+		default:
+		}
 		receipt, err := backend.TransactionReceipt(ctx, p.txHash)
 		if err != nil {
 			select {

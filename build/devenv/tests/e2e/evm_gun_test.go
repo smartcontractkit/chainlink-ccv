@@ -16,6 +16,7 @@ func newTestEVMTXGun(fireAndForget bool, buf int) *EVMTXGun {
 		fireAndForget: fireAndForget,
 		pendingCh:     make(chan pendingTx, buf),
 		shutdownCh:    make(chan struct{}),
+		abandonCh:     make(chan struct{}),
 	}
 }
 
@@ -96,6 +97,31 @@ func TestEVMTXGun_WorkerPublishDuringShutdown(t *testing.T) {
 	require.Equal(t, uint64(1), msg.SeqNo)
 	_, ok = <-g.SentMessages()
 	require.False(t, ok)
+}
+
+func TestEVMTXGun_DrainBudgetExpires(t *testing.T) {
+	old := receiptDrainBudget
+	receiptDrainBudget = 50 * time.Millisecond
+	defer func() { receiptDrainBudget = old }()
+	g := newTestEVMTXGun(true, 1)
+	g.fafWg.Go(func() {
+		<-g.abandonCh // simulate a receipt fetch stuck past the budget
+	})
+
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		g.CloseSentChannel()
+	}()
+	select {
+	case <-finished:
+	case <-time.After(10 * time.Second):
+		t.Fatal("CloseSentChannel ignored the drain budget")
+	}
+
+	// Late publishes must drop, not panic on the closed channel.
+	g.publishSent(load.SentMessage{SeqNo: 1})
+	require.Len(t, g.sentMsgCh, 0)
 }
 
 func TestEVMTXGun_SendAfterClose(t *testing.T) {
