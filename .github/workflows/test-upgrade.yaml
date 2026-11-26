@@ -53,7 +53,7 @@ jobs:
       id-token: write
       contents: read
     runs-on: runs-on=${{ github.run_id }}/family=c6i/cpu=32+48/ram=64+96/spot=false/image=ubuntu24-full-x64/extras=s3-cache+tmpfs
-    steps:
+    steps: &upgrade-test-steps
       - name: Enable S3 Cache for Self-Hosted Runners
         uses: runs-on/action@cd2b598b0515d39d78c38a02d529db87d2196d1e # v2.0.3
 
@@ -171,7 +171,7 @@ jobs:
           DOCKER_BUILDKIT: 1
           JD_IMAGE: ${{ secrets.JD_IMAGE }}
           CCV_UPGRADE_SERVICES: ${{ inputs.services }}
-        run: just ${{ matrix.recipe }} "${{ steps.refs.outputs.from }}" "${{ steps.refs.outputs.to }}" standard.profile 30m
+        run: just ${{ matrix.recipe }} "${{ steps.refs.outputs.from }}" "${{ steps.refs.outputs.to }}" standard.profile ${{ matrix.timeout || '30m' }}
 
       - name: Dump logs
         if: always()
@@ -188,3 +188,25 @@ jobs:
           name: container-logs-${{ matrix.test }}
           path: build/devenv/tests/e2e/logs
           retention-days: 1
+
+  # The upgrade-then-rollback test runs only on the services Release Please PR and on a manual run,
+  # for example a dispatch from chainlink-ccv-deploy for an image bump.
+  e2e-upgrade-then-rollback:
+    name: ${{ matrix.test }}
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.head.ref == 'release-please--branches--main' &&
+       !contains(github.event.pull_request.labels.*.name, 'upgrade-breaking-change'))
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - test: TestE2EUpgradeThenRollback_HappyPath
+            recipe: upgrade-rollback-test
+            timeout: 45m
+    permissions:
+      id-token: write
+      contents: read
+    runs-on: runs-on=${{ github.run_id }}/family=c6i/cpu=32+48/ram=64+96/spot=false/image=ubuntu24-full-x64/extras=s3-cache+tmpfs
+    steps: *upgrade-test-steps
