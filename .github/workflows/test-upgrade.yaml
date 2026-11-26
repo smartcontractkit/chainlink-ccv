@@ -4,10 +4,13 @@ name: E2E Upgrade Test
 # one at a time, and sends a message after each step. The rollback job then goes back to the first images.
 # On a PR: from the target branch commit to the PR code. The label upgrade-breaking-change skips the PR jobs.
 # On the Release Please PR of the services: from the latest release tag to the PR code, which becomes the release.
+# In the merge queue: only the upgrade-then-rollback test, for all services, from the latest release tag to the
+# merge queue commit.
 # On a release tag vX.Y.Z: from the previous release tag to the new tag.
 # On a manual run: from the `from` input to the `to` input.
 run-name: ${{ inputs.from && format('E2E Upgrade Test {0} -> {1}', inputs.from, inputs.to || github.ref_name) || '' }}
 on:
+  merge_group:
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled]
   push:
@@ -40,7 +43,9 @@ concurrency:
 jobs:
   e2e-upgrade:
     name: ${{ matrix.test }}
-    if: github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'upgrade-breaking-change')
+    if: >-
+      github.event_name != 'merge_group' &&
+      (github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'upgrade-breaking-change'))
     strategy:
       fail-fast: false
       matrix:
@@ -83,7 +88,8 @@ jobs:
           # Highest vX.Y.Z tag: the latest release of the services.
           latest_release() { git tag --list 'v[0-9]*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1; }
           # The services release PR; module release PRs use release-please--branches--main--components--<module>.
-          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ] && [ "${PR_HEAD_REF}" = "release-please--branches--main" ]; then
+          # The merge queue also tests from the latest release, the version that the queued code replaces.
+          if [ "${GITHUB_EVENT_NAME}" = "merge_group" ] || { [ "${GITHUB_EVENT_NAME}" = "pull_request" ] && [ "${PR_HEAD_REF}" = "release-please--branches--main" ]; }; then
             prev="$(latest_release)"
             if [ -z "${prev}" ]; then
               echo "No release tag found" >&2
@@ -189,15 +195,11 @@ jobs:
           path: build/devenv/tests/e2e/logs
           retention-days: 1
 
-  # The upgrade-then-rollback test runs only on the services Release Please PR and on a manual run,
+  # The upgrade-then-rollback test runs only in the merge queue, for all services, and on a manual run,
   # for example a dispatch from chainlink-ccv-deploy for an image bump.
   e2e-upgrade-then-rollback:
     name: ${{ matrix.test }}
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'pull_request' &&
-       github.event.pull_request.head.ref == 'release-please--branches--main' &&
-       !contains(github.event.pull_request.labels.*.name, 'upgrade-breaking-change'))
+    if: github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
       matrix:
