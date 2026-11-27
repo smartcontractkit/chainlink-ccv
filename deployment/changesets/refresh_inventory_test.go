@@ -81,7 +81,7 @@ func TestRefreshInventorySyncsJDAndPersistsOnchainCommittees(t *testing.T) {
 	lggr := logger.Test(t)
 	out, err := RefreshInventory().Apply(deployment.Environment{
 		Name: "test", Logger: lggr, DataStore: ds.Seal(), GetContext: t.Context,
-		Offchain: client, NodeIDs: []string{"node-a"},
+		Offchain: client, NodeIDs: []string{"legacy-node"},
 		OperationsBundle: operations.NewBundle(t.Context, lggr, operations.NewMemoryReporter()),
 	}, RefreshInventoryInput{})
 	require.NoError(t, err)

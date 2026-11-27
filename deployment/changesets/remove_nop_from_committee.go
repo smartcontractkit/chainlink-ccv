@@ -175,12 +175,12 @@ func RemoveNOPOffchain() deployment.ChangeSetV2[RemoveNOPOffchainInput] {
 			return deployment.ChangesetOutput{}, err
 		}
 
-		if err := revokeVerifierJobsForNOP(e, cfg.NOPAlias, cfg.CommitteeQualifier, outputDS); err != nil {
-			return deployment.ChangesetOutput{}, err
-		}
 		outputDS, err = syncjobproposals.SyncDatastore(e.OperationsBundle, e, outputDS)
 		if err != nil {
-			return deployment.ChangesetOutput{}, fmt.Errorf("failed to sync JD metadata: %w", err)
+			return deployment.ChangesetOutput{}, fmt.Errorf("failed to sync JD before revoking jobs: %w", err)
+		}
+		if err := revokeVerifierJobsForNOP(e, cfg.NOPAlias, cfg.CommitteeQualifier, outputDS); err != nil {
+			return deployment.ChangesetOutput{}, err
 		}
 
 		return deployment.ChangesetOutput{DataStore: outputDS}, nil

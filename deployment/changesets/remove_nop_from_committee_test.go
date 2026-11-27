@@ -2,6 +2,7 @@ package changesets
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -532,4 +533,43 @@ func TestRemoveNOPOffchain_Apply_MultipleServiceIdentifiers(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotNil(t, out.DataStore)
+}
+
+func TestRemoveNOPOffchainSyncFailureDoesNotRevoke(t *testing.T) {
+	sel1 := chainsel.TEST_90000001.Selector
+	verifierAddr := testVerifierAddr
+	adapter := &stubFullAdapter{
+		states: map[uint64][]*adapters.CommitteeState{
+			sel1: {{
+				Qualifier: testQualifier, ChainSelector: sel1, Address: verifierAddr,
+				SignatureConfigs: []adapters.SignatureConfig{
+					{SourceChainSelector: sel1, Signers: []string{"0xBBB", "0xCCC"}, Threshold: 2},
+				},
+			}},
+		},
+		verifierAddrs: map[uint64]string{sel1: verifierAddr},
+	}
+	registerFullEVMAdapters(adapter)
+	env := newTestEnvForApply(t, testNOPAlias, []uint64{sel1})
+	verifierSpec := "type = \"ccvcommitteeverifier\"\n"
+	ds := datastore.NewMemoryDataStore()
+	require.NoError(t, ccvdeployment.SaveJob(ds, shared.JobInfo{
+		JobID: "nop1-default-verifier", JDJobID: "jd-remove", NOPAlias: shared.NOPAlias(testNOPAlias),
+		NodeID: "node-nop1", Spec: verifierSpec,
+		Proposals: map[string]shared.ProposalRevision{
+			"stale": {ProposalID: "stale", Revision: 1, Status: shared.JobProposalStatusPending},
+		},
+	}))
+	env.DataStore = ds.Seal()
+	client := env.Offchain.(*stubOffchainClient)
+	client.proposalErr = errors.New("unavailable")
+
+	_, err := RemoveNOPOffchain().Apply(env, RemoveNOPOffchainInput{
+		CommitteeQualifier:   testQualifier,
+		SourceChainSelectors: []uint64{sel1},
+		ServiceIdentifiers:   []string{"my-aggregator"},
+		NOPAlias:             shared.NOPAlias(testNOPAlias),
+	})
+	require.ErrorContains(t, err, "failed to sync JD before revoking jobs")
+	require.Zero(t, client.revokeCalls)
 }

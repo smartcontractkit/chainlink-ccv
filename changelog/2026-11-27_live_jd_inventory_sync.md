@@ -54,14 +54,15 @@ No Solana or Canton adapter changes are required. Other ordinary offchain regist
 
 ### Normal offchain operations
 
-- `ManageJobProposals` synchronizes every saved job after proposing or revoking jobs, covering normal verifier/executor apply, add-NOP, and orphan-cleanup paths.
+- `ManageJobProposals` synchronizes every saved job before proposing or revoking jobs, so an unrelated read failure cannot strand a JD mutation without its datastore output.
 - Aggregator, indexer, and token-verifier generation synchronize JD when available.
-- Increase/decrease-threshold and remove-NOP offchain operations synchronize JD in their final output.
+- Increase/decrease-threshold operations synchronize JD in their final output; remove-NOP synchronizes before revoking jobs.
+- The sync unions the freshly fetched JD roster with the legacy node allowlist and saves all updated jobs in one batch.
 - Existing behavior already rebuilds the chain-agnostic inventory on every CCV metadata write, so the refreshed job state is reflected without a separate reconcile step.
 
 `latestProposalStatus` remains the highest revision's status. `hasActiveProposal` independently records whether an approved revision exists, so an older approved revision and a newer pending revision can coexist.
 
 ## Compatibility & Requirements
 
-- JD-enabled production environments must provide the environment node IDs already required by `SyncJobProposals`.
+- The proposal sync unions `e.NodeIDs` with the freshly fetched JD roster, so native registrations do not require a legacy `nodes.json` update.
 - No dependency or chain-adapter changes are required.

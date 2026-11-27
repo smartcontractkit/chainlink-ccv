@@ -57,6 +57,7 @@ type SyncError struct {
 type SyncJobProposalsDeps struct {
 	Env      deployment.Environment
 	JDClient shared.JDClient
+	saveJobs func(datastore.MutableDataStore, []shared.JobInfo) error
 }
 
 // SyncDatastore refreshes all saved JD nodes and job proposals into a cloned datastore.
@@ -108,6 +109,10 @@ var SyncJobProposals = operations.NewOperation(
 			}
 			jdClient = e.Offchain
 		}
+		saveJobs := deps.saveJobs
+		if saveJobs == nil {
+			saveJobs = ccvdeployment.SaveJobs
+		}
 
 		if _, err := ccvdeployment.SyncJDNodes(ctx, ds, jdClient, ccvdeployment.JDProduct, e.Name); err != nil {
 			output.DataStore = nil
@@ -124,7 +129,17 @@ var SyncJobProposals = operations.NewOperation(
 
 		allowedNodeIDs := shared.NodeIDsToSet(e.NodeIDs)
 		if allowedNodeIDs == nil {
-			return SyncJobProposalsOutput{}, fmt.Errorf("NodeIDs must be specified")
+			allowedNodeIDs = make(map[string]bool)
+		}
+		jdNodes, err := ccvdeployment.GetJDNodes(ds.Seal())
+		if err != nil {
+			return SyncJobProposalsOutput{}, fmt.Errorf("failed to load synced JD node inventory: %w", err)
+		}
+		for nodeID := range jdNodes {
+			allowedNodeIDs[nodeID] = true
+		}
+		if len(allowedNodeIDs) == 0 {
+			return SyncJobProposalsOutput{}, fmt.Errorf("no JD nodes available for proposal sync")
 		}
 
 		for nopAlias, nopJobs := range allJobs {
@@ -144,6 +159,7 @@ var SyncJobProposals = operations.NewOperation(
 			}
 		}
 
+		var updatedJobs []shared.JobInfo
 		for nopAlias, nopJobs := range allJobs {
 			if len(nopFilter) > 0 && !nopFilter[nopAlias] {
 				continue
@@ -239,17 +255,12 @@ var SyncJobProposals = operations.NewOperation(
 					})
 				}
 
-				if err := ccvdeployment.SaveJob(ds, localJob); err != nil {
-					e.Logger.Errorw("Failed to save job",
-						"jdJobId", localJob.JDJobID,
-						"error", err)
-					output.Errors = append(output.Errors, SyncError{
-						NOPAlias: nopAlias,
-						JobID:    jobID,
-						Error:    fmt.Sprintf("failed to save job: %s", err.Error()),
-					})
-				}
+				updatedJobs = append(updatedJobs, localJob)
 			}
+		}
+		if err := saveJobs(ds, updatedJobs); err != nil {
+			e.Logger.Errorw("Failed to save synced jobs", "error", err)
+			output.Errors = append(output.Errors, SyncError{Error: fmt.Sprintf("failed to batch save jobs: %s", err.Error())})
 		}
 
 		e.Logger.Infow("Job proposals sync completed",

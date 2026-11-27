@@ -59,12 +59,18 @@ var ManageJobProposals = operations.NewSequence(
 	func(b operations.Bundle, deps ManageJobProposalsDeps, input ManageJobProposalsInput) (ManageJobProposalsOutput, error) {
 		e := deps.Env
 
-		ds := datastore.NewMemoryDataStore()
+		var ds datastore.MutableDataStore = datastore.NewMemoryDataStore()
 		if e.DataStore != nil {
 			if err := ds.Merge(e.DataStore); err != nil {
 				return ManageJobProposalsOutput{}, fmt.Errorf("failed to merge datastore: %w", err)
 			}
 		}
+		syncedDS, err := syncjobproposals.SyncDatastore(b, e, ds)
+		if err != nil {
+			return ManageJobProposalsOutput{}, fmt.Errorf("failed to sync JD before managing jobs: %w", err)
+		}
+		ds = syncedDS
+		e.DataStore = ds.Seal()
 
 		existingJobs, err := ccvdeployment.GetAllJobs(ds.Seal())
 		if err != nil {
@@ -87,10 +93,6 @@ var ManageJobProposals = operations.NewSequence(
 				return ManageJobProposalsOutput{}, fmt.Errorf("failed to save jobs: %w", err)
 			}
 			return ManageJobProposalsOutput{Jobs: jobs, DataStore: ds}, nil
-		}
-
-		if _, err := ccvdeployment.SyncJDNodes(b.GetContext(), ds, e.Offchain, ccvdeployment.JDProduct, e.Name); err != nil {
-			return ManageJobProposalsOutput{}, fmt.Errorf("failed to sync JD node inventory: %w", err)
 		}
 
 		superseded, err := retargetJobs(b.GetContext(), e.Offchain, jobs, input.StandaloneExecutorNodeIDs)
@@ -199,16 +201,10 @@ var ManageJobProposals = operations.NewSequence(
 			}
 		}
 
-		syncedDS, err := syncjobproposals.SyncDatastore(b, e, ds)
-		if err != nil {
-			return ManageJobProposalsOutput{Jobs: jobs, RevokedJobs: revokedJobs, DataStore: ds},
-				fmt.Errorf("failed to sync all JD job proposals: %w", err)
-		}
-
 		return ManageJobProposalsOutput{
 			Jobs:        jobs,
 			RevokedJobs: revokedJobs,
-			DataStore:   syncedDS,
+			DataStore:   ds,
 		}, nil
 	},
 )

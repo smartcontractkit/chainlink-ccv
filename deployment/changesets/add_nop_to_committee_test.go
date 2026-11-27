@@ -626,6 +626,8 @@ type stubOffchainClient struct {
 	chainConfigs     []*nodev1.ChainConfig
 	proposals        map[string][]*jobv1.Proposal
 	proposalRequests []*jobv1.ListProposalsRequest
+	proposalErr      error
+	revokeCalls      int
 }
 
 func (s *stubOffchainClient) ListNodes(_ context.Context, in *nodev1.ListNodesRequest, _ ...grpc.CallOption) (*nodev1.ListNodesResponse, error) {
@@ -658,9 +660,17 @@ func (s *stubOffchainClient) ProposeJob(_ context.Context, _ *jobv1.ProposeJobRe
 	}, nil
 }
 
+func (s *stubOffchainClient) RevokeJob(_ context.Context, _ *jobv1.RevokeJobRequest, _ ...grpc.CallOption) (*jobv1.RevokeJobResponse, error) {
+	s.revokeCalls++
+	return &jobv1.RevokeJobResponse{}, nil
+}
+
 // ListProposals returns configured proposals, or the legacy proposal without a spec.
 func (s *stubOffchainClient) ListProposals(_ context.Context, in *jobv1.ListProposalsRequest, _ ...grpc.CallOption) (*jobv1.ListProposalsResponse, error) {
 	s.proposalRequests = append(s.proposalRequests, in)
+	if s.proposalErr != nil {
+		return nil, s.proposalErr
+	}
 	if s.proposals != nil {
 		var proposals []*jobv1.Proposal
 		for _, jobID := range in.GetFilter().GetJobIds() {

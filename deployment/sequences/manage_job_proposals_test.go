@@ -168,16 +168,29 @@ type proposalsJDClient struct {
 	proposals        map[string][]*jobv1.Proposal
 	nodes            []*nodev1.Node
 	proposalRequests []*jobv1.ListProposalsRequest
+	proposeCalls     int
+	revokeCalls      int
 	err              error
+	failJobID        string
 }
 
 func (c *proposalsJDClient) ListNodes(_ context.Context, _ *nodev1.ListNodesRequest, _ ...grpc.CallOption) (*nodev1.ListNodesResponse, error) {
 	return &nodev1.ListNodesResponse{Nodes: c.nodes, TotalCount: int32(len(c.nodes))}, nil
 }
 
+func (c *proposalsJDClient) ProposeJob(_ context.Context, _ *jobv1.ProposeJobRequest, _ ...grpc.CallOption) (*jobv1.ProposeJobResponse, error) {
+	c.proposeCalls++
+	return &jobv1.ProposeJobResponse{Proposal: &jobv1.Proposal{Id: "unexpected", JobId: "unexpected"}}, nil
+}
+
+func (c *proposalsJDClient) RevokeJob(_ context.Context, _ *jobv1.RevokeJobRequest, _ ...grpc.CallOption) (*jobv1.RevokeJobResponse, error) {
+	c.revokeCalls++
+	return &jobv1.RevokeJobResponse{}, nil
+}
+
 func (c *proposalsJDClient) ListProposals(_ context.Context, req *jobv1.ListProposalsRequest, _ ...grpc.CallOption) (*jobv1.ListProposalsResponse, error) {
 	c.proposalRequests = append(c.proposalRequests, req)
-	if c.err != nil {
+	if c.err != nil && (c.failJobID == "" || slices.Contains(req.GetFilter().GetJobIds(), c.failJobID)) {
 		return nil, c.err
 	}
 	var proposals []*jobv1.Proposal
@@ -281,4 +294,42 @@ func TestManageJobProposalsSyncsUntouchedJobsFromJD(t *testing.T) {
 	}
 	require.Equal(t, 2, calls["jd-managed"])
 	require.Equal(t, 1, calls["jd-other"])
+}
+
+func TestManageJobProposalsFailsBroadSyncBeforeMutations(t *testing.T) {
+	verifierSpec := "type = \"ccvcommitteeverifier\"\n"
+	ds := datastore.NewMemoryDataStore()
+	for _, job := range []shared.JobInfo{
+		{JobID: "managed-verifier", JDJobID: "jd-managed", NOPAlias: "nop-a", NodeID: "node-a", Spec: verifierSpec},
+		{JobID: "other-verifier", JDJobID: "jd-other", NOPAlias: "nop-a", NodeID: "node-a", Spec: verifierSpec},
+	} {
+		job.Proposals = map[string]shared.ProposalRevision{
+			"stale": {ProposalID: "stale", Revision: 1, Status: shared.JobProposalStatusPending},
+		}
+		require.NoError(t, ccvdeployment.SaveJob(ds, job))
+	}
+	client := &proposalsJDClient{
+		nodes:     []*nodev1.Node{{Id: "node-a", Name: "nop-a", PublicKey: "csa-a"}},
+		proposals: map[string][]*jobv1.Proposal{"jd-managed": {{Id: "p-managed", JobId: "jd-managed", Revision: 2, Status: jobv1.ProposalStatus_PROPOSAL_STATUS_APPROVED, Spec: verifierSpec}}},
+		err:       errors.New("unavailable"),
+		failJobID: "jd-other",
+	}
+	lggr := logger.Test(t)
+	bundle := operations.NewBundle(t.Context, lggr, operations.NewMemoryReporter())
+	env := deployment.Environment{
+		Name: "test", Logger: lggr, DataStore: ds.Seal(), Offchain: client,
+		NodeIDs: []string{"node-a"}, OperationsBundle: bundle,
+	}
+
+	_, err := operations.ExecuteSequence(bundle, ManageJobProposals, ManageJobProposalsDeps{Env: env}, ManageJobProposalsInput{
+		JobSpecs:           shared.NOPJobSpecs{"nop-a": {"managed-verifier": verifierSpec}},
+		RevokeOrphanedJobs: true,
+	})
+	require.ErrorContains(t, err, "failed to sync JD before managing jobs")
+	require.Zero(t, client.proposeCalls)
+	require.Zero(t, client.revokeCalls)
+
+	stored, err := ccvdeployment.GetJob(ds.Seal(), "nop-a", "managed-verifier")
+	require.NoError(t, err)
+	require.Equal(t, shared.JobProposalStatusPending, stored.LatestStatus())
 }
