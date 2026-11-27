@@ -117,6 +117,29 @@ upgrade-test from to="HEAD" profile="standard.profile" timeout="30m":
 rollback-test from to="HEAD" profile="standard.profile" timeout="30m":
     just _swap-test TestE2ERollback_HappyPath upgrade-to "{{ from }}" "{{ to }}" {{ profile }} {{ timeout }}
 
+# Build the images of one service at `from` and `to`, and run one service-level swap test on them.
+# It does nothing if CCV_UPGRADE_SERVICES is set and does not name the service.
+[private]
+_service-swap-test test service from to timeout:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    svcs="${CCV_UPGRADE_SERVICES:-}"; svcs="${svcs// /}"
+    if [ -n "$svcs" ] && [[ ",$svcs," != *",{{ service }},"* ]]; then
+        echo "CCV_UPGRADE_SERVICES=$svcs does not name {{ service }}: skip {{ test }}"
+        exit 0
+    fi
+    just build-images-at "{{ from }}" upgrade-from {{ service }}
+    just build-images-at "{{ to }}" upgrade-to {{ service }}
+    CCV_UPGRADE_FROM_IMAGE_TAG=upgrade-from CCV_UPGRADE_IMAGE_TAG=upgrade-to go test ./tests/services -run '^{{ test }}$' -count=1 -v -timeout {{ timeout }}
+
+# Indexer service test: messages wait for a held verification across an upgrade and a rollback. `profile` is not used.
+indexer-swap-test from to="HEAD" profile="" timeout="30m":
+    just _service-swap-test TestIndexer_UpgradeRollbackInFlight indexer "{{ from }}" "{{ to }}" {{ timeout }}
+
+# Aggregator service test: a persisted aggregation job stays pending across an upgrade and a rollback. `profile` is not used.
+aggregator-swap-test from to="HEAD" profile="" timeout="30m":
+    just _service-swap-test TestAggregator_UpgradeRollbackWithPendingJob aggregator "{{ from }}" "{{ to }}" {{ timeout }}
+
 # Rolling upgrade then rollback test: start devenv on the images of `from`, upgrade each service to `to`, then roll back.
 upgrade-rollback-test from to="HEAD" profile="standard.profile" timeout="45m":
     just _swap-test TestE2EUpgradeThenRollback_HappyPath upgrade-from "{{ from }}" "{{ to }}" {{ profile }} {{ timeout }}
