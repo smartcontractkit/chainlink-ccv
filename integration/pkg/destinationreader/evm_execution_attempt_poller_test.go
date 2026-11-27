@@ -37,6 +37,22 @@ type mockClient struct {
 	dynamicFunc           func(ctx context.Context, number *big.Int) (*types.Header, error) // Optional: dynamic function for complex scenarios
 	filterLogsFunc        func(ctx context.Context, q ethereum.FilterQuery) ([]types.Log, error)
 	subscribeFilterLogsFn func(ctx context.Context, q ethereum.FilterQuery, ch chan<- types.Log) (ethereum.Subscription, error)
+	blockByNumberFunc     func(ctx context.Context, number *big.Int) (*types.Block, error)
+	receiptFunc           func(ctx context.Context, txHash common.Hash) (*types.Receipt, error)
+}
+
+func (m *mockClient) BlockByNumber(ctx context.Context, number *big.Int) (*types.Block, error) {
+	if m.blockByNumberFunc == nil {
+		return nil, errors.New("BlockByNumber not configured")
+	}
+	return m.blockByNumberFunc(ctx, number)
+}
+
+func (m *mockClient) TransactionReceipt(ctx context.Context, txHash common.Hash) (*types.Receipt, error) {
+	if m.receiptFunc == nil {
+		return nil, errors.New("TransactionReceipt not configured")
+	}
+	return m.receiptFunc(ctx, txHash)
 }
 
 type testSubscription struct {
@@ -695,8 +711,8 @@ func TestProcessExecutionStateChanged_SkipsReplayedEvent(t *testing.T) {
 	sameTxDifferentLog.Raw.TxHash = event.Raw.TxHash
 	sameTxDifferentLog.Raw.Index = 4
 	sameTxDifferentLog.Raw.BlockNumber = 100
-	mockCli.On("TransactionByHash", mock.Anything, event.Raw.TxHash).Return(tx, nil).Once()
 
+	// The tx result is memoized, so the second log in the same tx costs no extra RPC.
 	require.NoError(t, poller.processExecutionStateChanged(context.Background(), sameTxDifferentLog))
 
 	attempts, ok = poller.attemptCache.Get(event.MessageId)
@@ -786,7 +802,7 @@ func TestProcessExecutionStateChanged_RemovedLogCanBeReincluded(t *testing.T) {
 	}
 	event.Raw.TxHash = common.HexToHash("0xreincluded")
 	event.Raw.Index = 9
-	mockCli.On("TransactionByHash", mock.Anything, event.Raw.TxHash).Return(tx, nil).Twice()
+	mockCli.On("TransactionByHash", mock.Anything, event.Raw.TxHash).Return(tx, nil).Once()
 
 	require.NoError(t, poller.processExecutionStateChanged(context.Background(), event))
 	removedEvent := *event
@@ -800,7 +816,8 @@ func TestProcessExecutionStateChanged_RemovedLogCanBeReincluded(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, attempts, 1)
 	assert.True(t, poller.seenEvents.Contains(eventKey(event)))
-	mockCli.AssertNumberOfCalls(t, "TransactionByHash", 2)
+	// A tx hash fixes its contents, so re-inclusion reuses the memoized result.
+	mockCli.AssertNumberOfCalls(t, "TransactionByHash", 1)
 	mockCli.AssertExpectations(t)
 }
 

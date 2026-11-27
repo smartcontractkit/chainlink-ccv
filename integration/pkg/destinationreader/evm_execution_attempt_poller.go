@@ -51,6 +51,10 @@ const (
 	baseReconnectBackoffDuration = 1 * time.Second
 	// eventKeyLength is the length of a replay-detection key: 32-byte tx hash plus 4-byte log index.
 	eventKeyLength = common.HashLength + 4
+	// executionStateChangedEventName is the OffRamp event the poller tracks.
+	executionStateChangedEventName = "ExecutionStateChanged"
+	// maxConcurrentTxFetches bounds parallel TransactionByHash calls per scanned range.
+	maxConcurrentTxFetches = 8
 	// seenEventsMaxEntries bounds the replay-detection set; its TTL matches the attempt cache.
 	seenEventsMaxEntries = 10_000
 )
@@ -63,6 +67,12 @@ var (
 	errNilLogger          = errors.New("logger cannot be nil")
 	ErrBackfillInProgress = errors.New("execution attempt poller backfill in progress")
 )
+
+// txResult memoizes the outcome of resolving a tx: a decoded attempt or a deterministic rejection.
+type txResult struct {
+	attempt protocol.ExecutionAttempt
+	err     error
+}
 
 type cachedExecutionAttempt struct {
 	attempt  protocol.ExecutionAttempt
@@ -84,6 +94,7 @@ type EvmExecutionAttemptPoller struct {
 	subscription     event.Subscription
 	attemptCache     *expirable.LRU[protocol.Bytes32, []cachedExecutionAttempt]
 	seenEvents       *expirable.LRU[[eventKeyLength]byte, struct{}]
+	txResults        *expirable.LRU[common.Hash, txResult]
 	cancelFunc       context.CancelFunc
 	runWg            sync.WaitGroup
 	pollInterval     time.Duration
@@ -110,7 +121,7 @@ func (p *EvmExecutionAttemptPoller) HealthReport() map[string]error {
 }
 
 // Ready returns nil after initial backfill, or errNotStarted before startup. It returns
-// ErrBackfillInProgress during startup and reports stale HTTP polling after the staleness threshold.
+// ErrBackfillInProgress during startup and reports HTTP polling that has made no progress for the staleness threshold.
 func (p *EvmExecutionAttemptPoller) Ready() error {
 	if err := p.StateMachine.Ready(); err != nil {
 		return err
@@ -170,6 +181,7 @@ func NewEVMExecutionAttemptPoller(
 		eventCh:            make(chan *offramp.OffRampExecutionStateChanged),
 		attemptCache:       attemptCache,
 		seenEvents:         expirable.NewLRU[[eventKeyLength]byte, struct{}](seenEventsMaxEntries, nil, attemptCacheExpiration),
+		txResults:          expirable.NewLRU[common.Hash, txResult](seenEventsMaxEntries, nil, attemptCacheExpiration),
 		pollInterval:       defaultPollInterval,
 		reconnectBackoff:   baseReconnectBackoffDuration,
 		stalenessThreshold: stalenessThreshold,
@@ -220,7 +232,10 @@ func (p *EvmExecutionAttemptPoller) runStartupSequence(ctx context.Context) {
 
 	if err := p.runBackfill(ctx); err != nil {
 		p.lggr.Errorw("Initial HTTP backfill failed, continuing without complete history", "error", err)
-		p.setLastPolledBlock(p.startBlock)
+		// Keep progress from completed sub-ranges; only fall back to startBlock if none was made.
+		if p.getLastPolledBlock() < p.startBlock {
+			p.setLastPolledBlock(p.startBlock)
+		}
 	}
 
 	p.backfillComplete.Store(true)
@@ -720,63 +735,20 @@ func (p *EvmExecutionAttemptPoller) pollForEvents(ctx context.Context) error {
 	for currentFrom <= toBlock {
 		// Calculate the end block for this batch
 		batchEnd := min(currentFrom+maxFilterBlockRange-1, toBlock)
-
-		batchEndPtr := batchEnd
 		p.lggr.Debugw("Querying events in batch",
 			"fromBlock", currentFrom,
 			"toBlock", batchEnd,
 			"batchSize", batchEnd-currentFrom+1)
 
-		// Query for events in this batch
-		filter, err := p.offRampFilterer.FilterExecutionStateChanged(&bind.FilterOpts{
-			Start:   currentFrom,
-			End:     &batchEndPtr,
-			Context: ctx,
-		}, nil, nil, nil)
+		// scanRange advances the cursor per completed sub-range.
+		n, err := p.scanRange(ctx, currentFrom, batchEnd)
+		totalEventCount += n
 		if err != nil {
-			return fmt.Errorf("failed to create filter for execution state changed events [%d, %d]: %w",
-				currentFrom, batchEnd, err)
+			return err
 		}
-
-		var batchEventCount int
-		for filter.Next() {
-			event := filter.Event
-			batchEventCount++
-			totalEventCount++
-
-			// Process the event (same as WebSocket mode)
-			if err := p.processExecutionStateChanged(ctx, event); err != nil {
-				p.lggr.Warnw("Failed to process execution state changed event from polling",
-					"error", err,
-					protocol.LogKeyMessageID, protocol.Bytes32(event.MessageId).String(),
-					"txHash", event.Raw.TxHash,
-					"blockNumber", event.Raw.BlockNumber)
-				// Continue processing other events even if one fails
-			}
-		}
-
-		if err := filter.Error(); err != nil {
-			_ = filter.Close()
-			return fmt.Errorf("filter iteration error for batch [%d, %d]: %w",
-				currentFrom, batchEnd, err)
-		}
-
-		if err := filter.Close(); err != nil {
-			p.lggr.Warnw("Failed to close filter", "error", err)
-		}
-
-		if batchEventCount > 0 {
-			p.lggr.Debugw("Processed batch events",
-				"fromBlock", currentFrom,
-				"toBlock", batchEnd,
-				"eventCount", batchEventCount)
-		}
-
-		// Move to the next batch
 		currentFrom = batchEnd + 1
 	}
 
-	// Update last polled block regardless of event count
 	p.setLastPolledBlock(toBlock)
 
 	if totalEventCount > 0 {
@@ -787,6 +759,172 @@ func (p *EvmExecutionAttemptPoller) pollForEvents(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// scanRange scans [from, to] and advances the cursor to the end of each completed sub-range.
+// A range the RPC rejects is bisected; a single block it rejects falls back to a direct block scan.
+func (p *EvmExecutionAttemptPoller) scanRange(ctx context.Context, from, to uint64) (int, error) {
+	events, err := p.queryRange(ctx, from, to)
+	if err == nil {
+		p.processBatch(ctx, events)
+		p.setLastPolledBlock(to)
+		p.markProgress()
+		return len(events), nil
+	}
+	if ctx.Err() != nil {
+		return 0, err
+	}
+
+	if from == to {
+		p.lggr.Warnw("Single block log query failed, scanning block directly", "block", from, "error", err)
+		n, scanErr := p.scanBlockDirect(ctx, from)
+		if scanErr != nil {
+			return 0, fmt.Errorf("block %d: log query failed (%w) and direct scan failed: %w", from, err, scanErr)
+		}
+		p.setLastPolledBlock(to)
+		p.markProgress()
+		return n, nil
+	}
+
+	mid := from + (to-from)/2
+	p.lggr.Warnw("Log query failed, splitting range", "fromBlock", from, "toBlock", to, "error", err)
+	n1, err := p.scanRange(ctx, from, mid)
+	if err != nil {
+		return n1, err
+	}
+	n2, err := p.scanRange(ctx, mid+1, to)
+	return n1 + n2, err
+}
+
+// queryRange returns all ExecutionStateChanged events in [from, to].
+func (p *EvmExecutionAttemptPoller) queryRange(ctx context.Context, from, to uint64) ([]*offramp.OffRampExecutionStateChanged, error) {
+	end := to
+	filter, err := p.offRampFilterer.FilterExecutionStateChanged(&bind.FilterOpts{
+		Start:   from,
+		End:     &end,
+		Context: ctx,
+	}, nil, nil, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create filter for execution state changed events [%d, %d]: %w", from, to, err)
+	}
+
+	var events []*offramp.OffRampExecutionStateChanged
+	for filter.Next() {
+		events = append(events, filter.Event)
+	}
+	if err := filter.Error(); err != nil {
+		_ = filter.Close()
+		return nil, fmt.Errorf("filter iteration error for batch [%d, %d]: %w", from, to, err)
+	}
+	if err := filter.Close(); err != nil {
+		p.lggr.Warnw("Failed to close filter", "error", err)
+	}
+	return events, nil
+}
+
+// scanBlockDirect reads one block's direct OffRamp txs and their receipts, bypassing eth_getLogs caps.
+// Txs not sent straight to the OffRamp would be rejected anyway, so they are skipped.
+func (p *EvmExecutionAttemptPoller) scanBlockDirect(ctx context.Context, block uint64) (int, error) {
+	b, err := p.client.BlockByNumber(ctx, new(big.Int).SetUint64(block))
+	if err != nil {
+		return 0, fmt.Errorf("failed to get block %d: %w", block, err)
+	}
+
+	blockHash := b.Hash()
+	eventID := offrampABI.Events[executionStateChangedEventName].ID
+	var events []*offramp.OffRampExecutionStateChanged
+	for _, tx := range b.Transactions() {
+		if to := tx.To(); to == nil || *to != p.offRampAddress {
+			continue
+		}
+		receipt, err := p.client.TransactionReceipt(ctx, tx.Hash())
+		if err != nil {
+			return 0, fmt.Errorf("failed to get receipt for tx %s: %w", tx.Hash().Hex(), err)
+		}
+		// Receipts are looked up by tx hash, so a reorg can return one from a different block.
+		if receipt.BlockHash != blockHash || receipt.BlockNumber == nil || receipt.BlockNumber.Uint64() != block {
+			return 0, fmt.Errorf("receipt for tx %s is not from block %d (%s), likely a reorg", tx.Hash().Hex(), block, blockHash.Hex())
+		}
+		for _, l := range receipt.Logs {
+			if l == nil || l.Address != p.offRampAddress || len(l.Topics) == 0 || l.Topics[0] != eventID {
+				continue
+			}
+			ev, err := p.offRampFilterer.ParseExecutionStateChanged(*l)
+			if err != nil {
+				p.lggr.Warnw("Failed to parse log from receipt", "txHash", tx.Hash().Hex(), "error", err)
+				continue
+			}
+			events = append(events, ev)
+		}
+	}
+
+	// Confirm the block is still canonical so a reorg mid-scan is retried, not marked complete.
+	current, err := p.client.HeaderByNumber(ctx, new(big.Int).SetUint64(block))
+	if err != nil {
+		return 0, fmt.Errorf("failed to recheck block %d: %w", block, err)
+	}
+	if current.Hash() != blockHash {
+		return 0, fmt.Errorf("block %d changed from %s to %s during scan, likely a reorg", block, blockHash.Hex(), current.Hash().Hex())
+	}
+
+	p.processBatch(ctx, events)
+	return len(events), nil
+}
+
+// processBatch prefetches each unique tx once with bounded concurrency, then processes events in order.
+func (p *EvmExecutionAttemptPoller) processBatch(ctx context.Context, events []*offramp.OffRampExecutionStateChanged) {
+	seen := make(map[common.Hash]struct{})
+	var toFetch []common.Hash
+	for _, ev := range events {
+		if ev.Raw.Removed || p.seenEvents.Contains(eventKey(ev)) {
+			continue
+		}
+		if _, dup := seen[ev.Raw.TxHash]; dup {
+			continue
+		}
+		seen[ev.Raw.TxHash] = struct{}{}
+		if _, cached := p.txResults.Peek(ev.Raw.TxHash); !cached {
+			toFetch = append(toFetch, ev.Raw.TxHash)
+		}
+	}
+
+	sem := make(chan struct{}, maxConcurrentTxFetches)
+	var wg sync.WaitGroup
+	for _, h := range toFetch {
+		sem <- struct{}{}
+		wg.Add(1)
+		go func(h common.Hash) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			_, _ = p.resolveTx(ctx, h) // result is memoized; errors resurface below
+		}(h)
+	}
+	wg.Wait()
+
+	var failed int
+	var firstErr error
+	var firstEvent *offramp.OffRampExecutionStateChanged
+	for _, ev := range events {
+		if err := p.processExecutionStateChanged(ctx, ev); err != nil {
+			failed++
+			if firstErr == nil {
+				firstErr, firstEvent = err, ev
+			}
+		}
+	}
+	if failed > 0 {
+		p.lggr.Warnw("Failed to process execution state changed events from polling",
+			"failedCount", failed,
+			"totalCount", len(events),
+			"firstError", firstErr,
+			protocol.LogKeyMessageID, protocol.Bytes32(firstEvent.MessageId).String(),
+			"txHash", firstEvent.Raw.TxHash)
+	}
+}
+
+// markProgress records forward progress so Ready() does not report a poller that is advancing as stale.
+func (p *EvmExecutionAttemptPoller) markProgress() {
+	p.lastSuccessfulPoll.Store(time.Now().Unix())
 }
 
 func (p *EvmExecutionAttemptPoller) getLastPolledBlock() uint64 {
@@ -864,21 +1002,11 @@ func (p *EvmExecutionAttemptPoller) processExecutionStateChanged(ctx context.Con
 		return nil
 	}
 
-	transaction, err := p.client.TransactionByHash(ctx, txHash)
+	cachedAttempt, err := p.resolveTx(ctx, txHash)
 	if err != nil {
-		return fmt.Errorf("failed to get transaction by hash %s: %w", txHash.Hex(), err)
+		return err
 	}
-
-	txTo := transaction.To()
-	if txTo == nil || *txTo != p.offRampAddress {
-		return fmt.Errorf("transaction %s destination %v does not match offramp address %s",
-			txHash.Hex(), txTo, p.offRampAddress.Hex())
-	}
-
-	executionAttempt, err := p.decodeCallDataToExecutionAttempt(transaction)
-	if err != nil {
-		return fmt.Errorf("failed to decode call data for transaction %s: %w", txHash.Hex(), err)
-	}
+	executionAttempt := &cachedAttempt
 
 	// Invariant check: assert that computed messageID matches on-chain event emission.
 	attemptMsgID := executionAttempt.Report.Message.MustMessageID()
@@ -904,6 +1032,37 @@ func (p *EvmExecutionAttemptPoller) processExecutionStateChanged(ctx context.Con
 		"gasLimit", executionAttempt.TransactionGasLimit)
 
 	return nil
+}
+
+// resolveTx fetches and decodes a tx once per hash. Deterministic rejections are memoized so a
+// multi-log tx or a retried range costs one RPC; transient RPC errors are not cached.
+func (p *EvmExecutionAttemptPoller) resolveTx(ctx context.Context, txHash common.Hash) (protocol.ExecutionAttempt, error) {
+	if r, ok := p.txResults.Get(txHash); ok {
+		if r.err != nil {
+			return protocol.ExecutionAttempt{}, r.err
+		}
+		return r.attempt, nil
+	}
+
+	transaction, err := p.client.TransactionByHash(ctx, txHash)
+	if err != nil {
+		return protocol.ExecutionAttempt{}, fmt.Errorf("failed to get transaction by hash %s: %w", txHash.Hex(), err)
+	}
+
+	var attempt *protocol.ExecutionAttempt
+	txTo := transaction.To()
+	if txTo == nil || *txTo != p.offRampAddress {
+		err = fmt.Errorf("transaction %s destination %v does not match offramp address %s",
+			txHash.Hex(), txTo, p.offRampAddress.Hex())
+	} else if attempt, err = p.decodeCallDataToExecutionAttempt(transaction); err != nil {
+		err = fmt.Errorf("failed to decode call data for transaction %s: %w", txHash.Hex(), err)
+	}
+	if err != nil {
+		p.txResults.Add(txHash, txResult{err: err})
+		return protocol.ExecutionAttempt{}, err
+	}
+	p.txResults.Add(txHash, txResult{attempt: *attempt})
+	return *attempt, nil
 }
 
 // decodeCallDataToExecutionAttempt decodes the transaction call data into an ExecutionAttempt.
