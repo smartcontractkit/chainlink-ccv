@@ -30,7 +30,6 @@ require (
 	github.com/go-playground/validator/v10 v10.30.3 // indirect
 	github.com/goccy/go-json v0.10.6 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/grafana/regexp v0.0.0-20240518133315-a468a5bfb3bc // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.30.0 // indirect
 	github.com/holiman/uint256 v1.3.2 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
@@ -48,12 +47,13 @@ require (
 	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee // indirect
 	github.com/mr-tron/base58 v1.3.0 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
+	github.com/pandatix/go-abnf v0.5.5 // indirect
 	github.com/pelletier/go-toml/v2 v2.4.3 // indirect
 	github.com/pressly/goose/v3 v3.26.0 // indirect
 	github.com/prometheus/client_golang v1.23.2 // indirect
-	github.com/prometheus/client_model v0.6.2 // indirect
-	github.com/prometheus/common v1.20.99 // indirect
-	github.com/prometheus/procfs v0.20.1 // indirect
+	github.com/prometheus/client_model v0.6.3 // indirect
+	github.com/prometheus/common v0.74.0 // indirect
+	github.com/prometheus/procfs v0.21.0 // indirect
 	github.com/scylladb/go-reflectx v1.0.1 // indirect
 	github.com/sethvargo/go-retry v0.3.0 // indirect
 	github.com/smartcontractkit/chain-selectors v1.0.113 // indirect
@@ -87,7 +87,7 @@ require (
 	golang.org/x/arch v0.17.0 // indirect
 	golang.org/x/crypto v0.58.0 // indirect
 	golang.org/x/exp v0.0.0-20260508232706-74f9aab9d74a // indirect
-	golang.org/x/net v0.61.0 // indirect
+	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
@@ -95,8 +95,12 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260819154853-08b0e4226688 // indirect
 	google.golang.org/grpc v1.83.2 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
-	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
 replace github.com/smartcontractkit/chainlink-ccv => ../../..
+
+// Exclude the fake tag prometheus/common created to retract its
+// accidental v1.x series (prometheus/common#831). Some smartcontractkit deps
+// still require it; without this, tidy re-selects it and breaks client_golang >= 1.25.0.
+exclude github.com/prometheus/common v1.20.99
