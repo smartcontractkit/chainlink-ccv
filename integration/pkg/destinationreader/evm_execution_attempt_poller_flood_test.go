@@ -80,42 +80,129 @@ func TestPollForEvents_CursorHeldAtUnscannableBlock(t *testing.T) {
 	assert.Equal(t, uint64(400), poller.getLastPolledBlock())
 }
 
-// One block over the log cap is read from the block's direct OffRamp txs; multicall txs are skipped.
-func TestPollForEvents_SingleBlockOverCapUsesBlockScan(t *testing.T) {
+// blockScanFixture is a poller whose block 250 exceeds the RPC log cap, with one multicall tx and one direct tx.
+type blockScanFixture struct {
+	mockCli    *mockClient
+	poller     *EvmExecutionAttemptPoller
+	msg        protocol.Message
+	direct     *types.Transaction
+	block      *types.Block
+	receiptFor func(h common.Hash) *types.Receipt
+}
+
+const floodedBlock = uint64(250)
+
+func newBlockScanFixture(t *testing.T) *blockScanFixture {
+	t.Helper()
 	mockCli := new(mockClient)
 	poller := setupTestPoller(t, mockCli, time.Hour)
 	msg := buildPollerTestMessage(t)
 	direct := buildExecuteTxForMessage(t, poller.offRampAddress, msg)
 	other := common.HexToAddress("0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
 	multicall := types.NewTx(&types.LegacyTx{To: &other, Gas: 1, Nonce: 7})
+	block := types.NewBlockWithHeader(&types.Header{Number: new(big.Int).SetUint64(floodedBlock)}).
+		WithBody(types.Body{Transactions: []*types.Transaction{multicall, direct}})
 
-	const flooded = uint64(250)
-	mockCli.dynamicFunc = floodTestHead(400)
+	head := floodTestHead(400)
+	mockCli.dynamicFunc = func(ctx context.Context, n *big.Int) (*types.Header, error) {
+		if n != nil && n.Uint64() == floodedBlock {
+			return block.Header(), nil
+		}
+		return head(ctx, n)
+	}
 	mockCli.filterLogsFunc = func(_ context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
-		if q.FromBlock.Uint64() <= flooded && flooded <= q.ToBlock.Uint64() {
+		if q.FromBlock.Uint64() <= floodedBlock && floodedBlock <= q.ToBlock.Uint64() {
 			return nil, errors.New("too many logs")
 		}
 		return nil, nil
 	}
 	mockCli.blockByNumberFunc = func(_ context.Context, n *big.Int) (*types.Block, error) {
-		require.Equal(t, flooded, n.Uint64())
-		return types.NewBlockWithHeader(&types.Header{Number: n}).
-			WithBody(types.Body{Transactions: []*types.Transaction{multicall, direct}}), nil
+		require.Equal(t, floodedBlock, n.Uint64())
+		return block, nil
 	}
-	lg := buildExecutionStateChangedLog(t, poller.offRampAddress, msg, executor.FAILURE, nil, direct.Hash(), flooded, 0)
-	var receiptCalls []common.Hash
-	mockCli.receiptFunc = func(_ context.Context, h common.Hash) (*types.Receipt, error) {
-		receiptCalls = append(receiptCalls, h)
-		return &types.Receipt{Logs: []*types.Log{&lg}}, nil
+	lg := buildExecutionStateChangedLog(t, poller.offRampAddress, msg, executor.FAILURE, nil, direct.Hash(), floodedBlock, 0)
+	f := &blockScanFixture{mockCli: mockCli, poller: poller, msg: msg, direct: direct, block: block}
+	f.receiptFor = func(common.Hash) *types.Receipt {
+		return &types.Receipt{BlockHash: block.Hash(), BlockNumber: new(big.Int).SetUint64(floodedBlock), Logs: []*types.Log{&lg}}
 	}
 	mockCli.On("TransactionByHash", mock.Anything, direct.Hash()).Return(direct, nil)
+	return f
+}
 
-	require.NoError(t, poller.pollForEvents(context.Background()))
-	assert.Equal(t, uint64(400), poller.getLastPolledBlock())
-	assert.Equal(t, []common.Hash{direct.Hash()}, receiptCalls, "only the direct OffRamp tx needs a receipt")
-	attempts, err := poller.GetExecutionAttempts(context.Background(), msg)
+// One block over the log cap is read from the block's direct OffRamp txs; multicall txs are skipped.
+func TestPollForEvents_SingleBlockOverCapUsesBlockScan(t *testing.T) {
+	f := newBlockScanFixture(t)
+	var receiptCalls []common.Hash
+	f.mockCli.receiptFunc = func(_ context.Context, h common.Hash) (*types.Receipt, error) {
+		receiptCalls = append(receiptCalls, h)
+		return f.receiptFor(h), nil
+	}
+
+	require.NoError(t, f.poller.pollForEvents(context.Background()))
+	assert.Equal(t, uint64(400), f.poller.getLastPolledBlock())
+	assert.Equal(t, []common.Hash{f.direct.Hash()}, receiptCalls, "only the direct OffRamp tx needs a receipt")
+	attempts, err := f.poller.GetExecutionAttempts(context.Background(), f.msg)
 	require.NoError(t, err)
 	assert.Len(t, attempts, 1)
+}
+
+// A reorg between the block fetch and the receipt or recheck holds the cursor and caches nothing.
+func TestPollForEvents_BlockScanDetectsReorg(t *testing.T) {
+	tests := []struct {
+		name      string
+		receipt   func(f *blockScanFixture, h common.Hash) *types.Receipt
+		reorgHead bool
+		wantErr   string
+	}{
+		{
+			name: "receipt from a different block hash",
+			receipt: func(f *blockScanFixture, h common.Hash) *types.Receipt {
+				r := f.receiptFor(h)
+				r.BlockHash = common.HexToHash("0xbad")
+				return r
+			},
+			wantErr: "likely a reorg",
+		},
+		{
+			name: "receipt from a different block number",
+			receipt: func(f *blockScanFixture, h common.Hash) *types.Receipt {
+				r := f.receiptFor(h)
+				r.BlockNumber = big.NewInt(int64(floodedBlock) + 1)
+				return r
+			},
+			wantErr: "likely a reorg",
+		},
+		{
+			name:      "canonical block changed after the scan",
+			receipt:   func(f *blockScanFixture, h common.Hash) *types.Receipt { return f.receiptFor(h) },
+			reorgHead: true,
+			wantErr:   "changed from",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newBlockScanFixture(t)
+			f.mockCli.receiptFunc = func(_ context.Context, h common.Hash) (*types.Receipt, error) {
+				return tc.receipt(f, h), nil
+			}
+			if tc.reorgHead {
+				prev := f.mockCli.dynamicFunc
+				f.mockCli.dynamicFunc = func(ctx context.Context, n *big.Int) (*types.Header, error) {
+					if n != nil && n.Uint64() == floodedBlock {
+						return &types.Header{Number: n, Extra: []byte("reorged")}, nil
+					}
+					return prev(ctx, n)
+				}
+			}
+
+			err := f.poller.pollForEvents(context.Background())
+			require.ErrorContains(t, err, tc.wantErr)
+			assert.Equal(t, floodedBlock-1, f.poller.getLastPolledBlock(), "cursor must stay before the block")
+			attempts, err := f.poller.GetExecutionAttempts(context.Background(), f.msg)
+			require.NoError(t, err)
+			assert.Empty(t, attempts, "nothing from a mismatched scan may be cached")
+		})
+	}
 }
 
 // If the fallback also fails, the cursor is held and the block is never skipped.
@@ -133,6 +220,26 @@ func TestPollForEvents_BlockScanFailureHoldsCursor(t *testing.T) {
 	err := poller.pollForEvents(context.Background())
 	require.ErrorContains(t, err, "block 50")
 	assert.Equal(t, uint64(49), poller.getLastPolledBlock())
+}
+
+// A backfill that fails after completing earlier sub-ranges keeps that progress through the startup handoff.
+func TestStartupSequence_BackfillFailureKeepsCompletedProgress(t *testing.T) {
+	mockCli := new(mockClient)
+	poller := setupTestPoller(t, mockCli, time.Hour)
+	mockCli.dynamicFunc = floodTestHead(400)
+	mockCli.filterLogsFunc = func(_ context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
+		if q.ToBlock.Uint64() >= 300 {
+			return nil, errors.New("too many logs")
+		}
+		return nil, nil
+	}
+
+	require.NoError(t, poller.Start(t.Context()))
+	t.Cleanup(func() { require.NoError(t, poller.Close()) })
+	require.Eventually(t, func() bool { return poller.backfillComplete.Load() }, 5*time.Second, 10*time.Millisecond)
+
+	assert.Equal(t, uint64(299), poller.getLastPolledBlock(),
+		"cursor must stay at the last completed sub-range, not reset to startBlock")
 }
 
 // Thousands of logs from one rejected multicall tx cost a single RPC, including across retries.

@@ -232,7 +232,10 @@ func (p *EvmExecutionAttemptPoller) runStartupSequence(ctx context.Context) {
 
 	if err := p.runBackfill(ctx); err != nil {
 		p.lggr.Errorw("Initial HTTP backfill failed, continuing without complete history", "error", err)
-		p.setLastPolledBlock(p.startBlock)
+		// Keep progress from completed sub-ranges; only fall back to startBlock if none was made.
+		if p.getLastPolledBlock() < p.startBlock {
+			p.setLastPolledBlock(p.startBlock)
+		}
 	}
 
 	p.backfillComplete.Store(true)
@@ -827,6 +830,7 @@ func (p *EvmExecutionAttemptPoller) scanBlockDirect(ctx context.Context, block u
 		return 0, fmt.Errorf("failed to get block %d: %w", block, err)
 	}
 
+	blockHash := b.Hash()
 	eventID := offrampABI.Events[executionStateChangedEventName].ID
 	var events []*offramp.OffRampExecutionStateChanged
 	for _, tx := range b.Transactions() {
@@ -836,6 +840,10 @@ func (p *EvmExecutionAttemptPoller) scanBlockDirect(ctx context.Context, block u
 		receipt, err := p.client.TransactionReceipt(ctx, tx.Hash())
 		if err != nil {
 			return 0, fmt.Errorf("failed to get receipt for tx %s: %w", tx.Hash().Hex(), err)
+		}
+		// Receipts are looked up by tx hash, so a reorg can return one from a different block.
+		if receipt.BlockHash != blockHash || receipt.BlockNumber == nil || receipt.BlockNumber.Uint64() != block {
+			return 0, fmt.Errorf("receipt for tx %s is not from block %d (%s), likely a reorg", tx.Hash().Hex(), block, blockHash.Hex())
 		}
 		for _, l := range receipt.Logs {
 			if l == nil || l.Address != p.offRampAddress || len(l.Topics) == 0 || l.Topics[0] != eventID {
@@ -848,6 +856,15 @@ func (p *EvmExecutionAttemptPoller) scanBlockDirect(ctx context.Context, block u
 			}
 			events = append(events, ev)
 		}
+	}
+
+	// Confirm the block is still canonical so a reorg mid-scan is retried, not marked complete.
+	current, err := p.client.HeaderByNumber(ctx, new(big.Int).SetUint64(block))
+	if err != nil {
+		return 0, fmt.Errorf("failed to recheck block %d: %w", block, err)
+	}
+	if current.Hash() != blockHash {
+		return 0, fmt.Errorf("block %d changed from %s to %s during scan, likely a reorg", block, blockHash.Hex(), current.Hash().Hex())
 	}
 
 	p.processBatch(ctx, events)
