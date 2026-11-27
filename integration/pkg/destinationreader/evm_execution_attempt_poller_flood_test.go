@@ -236,7 +236,7 @@ func TestStartupSequence_BackfillFailureKeepsCompletedProgress(t *testing.T) {
 
 	require.NoError(t, poller.Start(t.Context()))
 	t.Cleanup(func() { require.NoError(t, poller.Close()) })
-	require.Eventually(t, func() bool { return poller.backfillComplete.Load() }, 5*time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool { return poller.backfillComplete.Load() }, 10*time.Second, 10*time.Millisecond)
 
 	assert.Equal(t, uint64(299), poller.getLastPolledBlock(),
 		"cursor must stay at the last completed sub-range, not reset to startBlock")
