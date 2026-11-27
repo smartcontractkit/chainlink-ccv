@@ -15,6 +15,7 @@ import (
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/operations/propose_jobs"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/operations/revoke_jobs"
+	syncjobproposals "github.com/smartcontractkit/chainlink-ccv/deployment/operations/sync_job_proposals"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 )
 
@@ -54,7 +55,7 @@ type ManageJobProposalsDeps struct {
 var ManageJobProposals = operations.NewSequence(
 	"manage-job-proposals",
 	semver.MustParse("1.0.0"),
-	"Manages job proposals by proposing new jobs and optionally revoking orphaned ones via JD when RevokeOrphanedJobs is enabled",
+	"Manages job proposals and synchronizes all saved JD nodes and job proposals",
 	func(b operations.Bundle, deps ManageJobProposalsDeps, input ManageJobProposalsInput) (ManageJobProposalsOutput, error) {
 		e := deps.Env
 
@@ -198,10 +199,16 @@ var ManageJobProposals = operations.NewSequence(
 			}
 		}
 
+		syncedDS, err := syncjobproposals.SyncDatastore(b, e, ds)
+		if err != nil {
+			return ManageJobProposalsOutput{Jobs: jobs, RevokedJobs: revokedJobs, DataStore: ds},
+				fmt.Errorf("failed to sync all JD job proposals: %w", err)
+		}
+
 		return ManageJobProposalsOutput{
 			Jobs:        jobs,
 			RevokedJobs: revokedJobs,
-			DataStore:   ds,
+			DataStore:   syncedDS,
 		}, nil
 	},
 )

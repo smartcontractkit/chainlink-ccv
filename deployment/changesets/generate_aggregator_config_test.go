@@ -8,10 +8,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
+	jobv1 "github.com/smartcontractkit/chainlink-protos/job-distributor/v1/job"
 
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/inventory"
+	"github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 )
 
 const (
@@ -35,6 +38,19 @@ func TestGenerateAggregatorConfigPublishesObservedCommittees(t *testing.T) {
 	})
 	env := newTestEnvForApply(t, "nop1", []uint64{selA, selB})
 	env.GetContext = t.Context
+	verifierSpec := "type = \"ccvcommitteeverifier\"\n"
+	ds := datastore.NewMemoryDataStore()
+	require.NoError(t, ccvdeployment.SaveJob(ds, shared.JobInfo{
+		JobID: "live-verifier", JDJobID: "jd-live", NOPAlias: "nop1", NodeID: "node-nop1", Spec: verifierSpec,
+		Proposals: map[string]shared.ProposalRevision{
+			"stale": {ProposalID: "stale", Revision: 1, Status: shared.JobProposalStatusPending},
+		},
+	}))
+	env.DataStore = ds.Seal()
+	client := env.Offchain.(*stubOffchainClient)
+	client.proposals = map[string][]*jobv1.Proposal{
+		"jd-live": {{Id: "p-live", JobId: "jd-live", Revision: 2, Status: jobv1.ProposalStatus_PROPOSAL_STATUS_APPROVED, Spec: verifierSpec}},
+	}
 	override := uint8(5)
 
 	out, err := GenerateAggregatorConfig().Apply(env, GenerateAggregatorConfigInput{
@@ -74,4 +90,11 @@ func TestGenerateAggregatorConfigPublishesObservedCommittees(t *testing.T) {
 		assert.Empty(t, refresh.LastError)
 		assert.False(t, refresh.LastSuccessAt.IsZero())
 	}
+
+	require.Len(t, inv.Nodes, 1)
+	require.Len(t, inv.Nodes[0].VerifierScopes, 1)
+	assert.Equal(t, "live-verifier", inv.Nodes[0].VerifierScopes[0].JobID)
+	assert.Equal(t, "approved", inv.Nodes[0].VerifierScopes[0].LatestProposalStatus)
+	assert.True(t, inv.Nodes[0].VerifierScopes[0].HasActiveProposal)
+	assert.Len(t, client.proposalRequests, 1)
 }

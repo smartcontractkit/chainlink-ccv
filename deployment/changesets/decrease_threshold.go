@@ -8,6 +8,7 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 
 	"github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
+	syncjobproposals "github.com/smartcontractkit/chainlink-ccv/deployment/operations/sync_job_proposals"
 )
 
 // DecreaseThresholdInput is the input for step-1 of the DecreaseThreshold two-entry product.
@@ -161,6 +162,10 @@ func DecreaseThresholdOffchain() deployment.ChangeSetV2[DecreaseThresholdOffchai
 		outputDS, err := saveAggregatorRun(e, cfg.ServiceIdentifiers, committee, cfg.CommitteeQualifier, cfg.ChainSelectors, states)
 		if err != nil {
 			return deployment.ChangesetOutput{}, err
+		}
+		outputDS, err = syncjobproposals.SyncDatastore(e.OperationsBundle, e, outputDS)
+		if err != nil {
+			return deployment.ChangesetOutput{}, fmt.Errorf("failed to sync JD metadata: %w", err)
 		}
 
 		return deployment.ChangesetOutput{DataStore: outputDS}, nil

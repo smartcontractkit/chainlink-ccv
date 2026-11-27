@@ -12,6 +12,7 @@ import (
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/operations/revoke_jobs"
+	syncjobproposals "github.com/smartcontractkit/chainlink-ccv/deployment/operations/sync_job_proposals"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 )
 
@@ -176,6 +177,10 @@ func RemoveNOPOffchain() deployment.ChangeSetV2[RemoveNOPOffchainInput] {
 
 		if err := revokeVerifierJobsForNOP(e, cfg.NOPAlias, cfg.CommitteeQualifier, outputDS); err != nil {
 			return deployment.ChangesetOutput{}, err
+		}
+		outputDS, err = syncjobproposals.SyncDatastore(e.OperationsBundle, e, outputDS)
+		if err != nil {
+			return deployment.ChangesetOutput{}, fmt.Errorf("failed to sync JD metadata: %w", err)
 		}
 
 		return deployment.ChangesetOutput{DataStore: outputDS}, nil

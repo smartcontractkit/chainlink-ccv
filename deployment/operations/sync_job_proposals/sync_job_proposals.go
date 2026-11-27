@@ -59,6 +59,25 @@ type SyncJobProposalsDeps struct {
 	JDClient shared.JDClient
 }
 
+// SyncDatastore refreshes all saved JD nodes and job proposals into a cloned datastore.
+// A nil JD client preserves the input for no-JD local environments.
+func SyncDatastore(b operations.Bundle, e deployment.Environment, ds datastore.MutableDataStore) (datastore.MutableDataStore, error) {
+	if e.Offchain == nil {
+		return ds, nil
+	}
+	syncEnv := e
+	syncEnv.DataStore = ds.Seal()
+	report, err := operations.ExecuteOperation(b, SyncJobProposals, SyncJobProposalsDeps{Env: syncEnv}, SyncJobProposalsInput{})
+	if err != nil {
+		return nil, err
+	}
+	if len(report.Output.Errors) > 0 {
+		first := report.Output.Errors[0]
+		return nil, fmt.Errorf("%d proposal syncs failed; first: %s/%s: %s", len(report.Output.Errors), first.NOPAlias, first.JobID, first.Error)
+	}
+	return report.Output.DataStore, nil
+}
+
 var SyncJobProposals = operations.NewOperation(
 	"sync-job-proposals",
 	semver.MustParse("1.0.0"),
