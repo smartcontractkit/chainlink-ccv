@@ -740,7 +740,7 @@ func (p *EvmExecutionAttemptPoller) pollForEvents(ctx context.Context) error {
 			"toBlock", batchEnd,
 			"batchSize", batchEnd-currentFrom+1)
 
-		// scanRange advances the cursor per completed sub-range, so a failure leaves progress intact.
+		// scanRange advances the cursor per completed sub-range.
 		n, err := p.scanRange(ctx, currentFrom, batchEnd)
 		totalEventCount += n
 		if err != nil {

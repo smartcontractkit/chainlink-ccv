@@ -3,7 +3,6 @@
 ## Executive Summary
 
 - `EvmExecutionAttemptPoller` now splits RPC ranges that fail, advances its cursor per completed sub-range, and memoizes per-transaction lookups.
-- Previously a flood of cheap `OffRamp.execute` events could exceed the RPC `eth_getLogs` cap, pin the cursor, trip `Ready()`, and make the executor return "retry later" for the chain until messages expired.
 - Affects `integration/pkg/destinationreader` only; no exported symbols or config change.
 - Behavior change only: the poller keeps making progress under load, and `Ready()` tracks progress rather than full-poll success.
 
@@ -23,7 +22,7 @@
 
 ## Polling and readiness
 
-- **Range splitting:** `scanRange` bisects a range the RPC rejects. The cursor (`lastPolledBlock`) and `lastSuccessfulPoll` advance after each completed sub-range, so a later failure keeps earlier progress.
+- **Range splitting:** `scanRange` bisects a range the RPC rejects. The cursor (`lastPolledBlock`) and `lastSuccessfulPoll` advance after each completed sub-range.
 - **Single-block fallback:** if one block alone fails the log query, `scanBlockDirect` reads that block's transactions, keeps only those sent directly to the OffRamp, and parses their receipts. Each receipt must match the fetched block's hash and number, and the block is rechecked as canonical before events are processed; a mismatch (reorg) or any other failure holds the cursor at that block (never skipped) and `pollForEvents` returns an error.
 - **Readiness:** `Ready()` logic is unchanged, but `lastSuccessfulPoll` now refreshes whenever a range completes, so a poller that is advancing is not reported stale.
 - **Logging:** failures while processing a batch are logged once per batch with a count, not once per log.
