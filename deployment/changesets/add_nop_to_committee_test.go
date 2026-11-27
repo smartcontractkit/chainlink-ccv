@@ -622,11 +622,19 @@ type stubOffchainClient struct {
 	csav1.CSAServiceClient
 
 	// nodes maps nodeID → node name (NOP alias). Used by ListNodes and ProposeJob stubs.
-	nodes        map[string]string
-	chainConfigs []*nodev1.ChainConfig
+	nodes            map[string]string
+	chainConfigs     []*nodev1.ChainConfig
+	proposals        map[string][]*jobv1.Proposal
+	proposalRequests []*jobv1.ListProposalsRequest
+	proposalErr      error
+	revokeCalls      int
+	revokeErr        error
+	proposeCalls     int
+	nodeRequests     []*nodev1.ListNodesRequest
 }
 
 func (s *stubOffchainClient) ListNodes(_ context.Context, in *nodev1.ListNodesRequest, _ ...grpc.CallOption) (*nodev1.ListNodesResponse, error) {
+	s.nodeRequests = append(s.nodeRequests, in)
 	result := make([]*nodev1.Node, 0, len(s.nodes))
 	for id, name := range s.nodes {
 		if in.Filter != nil && len(in.Filter.Ids) > 0 {
@@ -651,13 +659,33 @@ func (s *stubOffchainClient) ListNodeChainConfigs(_ context.Context, in *nodev1.
 }
 
 func (s *stubOffchainClient) ProposeJob(_ context.Context, _ *jobv1.ProposeJobRequest, _ ...grpc.CallOption) (*jobv1.ProposeJobResponse, error) {
+	s.proposeCalls++
 	return &jobv1.ProposeJobResponse{
 		Proposal: &jobv1.Proposal{Id: "fake-proposal-id", JobId: "fake-jd-job-id"},
 	}, nil
 }
 
-// ListProposals returns the stub's one proposal without a spec, so change detection uses stored specs.
+func (s *stubOffchainClient) RevokeJob(_ context.Context, _ *jobv1.RevokeJobRequest, _ ...grpc.CallOption) (*jobv1.RevokeJobResponse, error) {
+	s.revokeCalls++
+	if s.revokeErr != nil {
+		return nil, s.revokeErr
+	}
+	return &jobv1.RevokeJobResponse{}, nil
+}
+
+// ListProposals returns configured proposals, or the legacy proposal without a spec.
 func (s *stubOffchainClient) ListProposals(_ context.Context, in *jobv1.ListProposalsRequest, _ ...grpc.CallOption) (*jobv1.ListProposalsResponse, error) {
+	s.proposalRequests = append(s.proposalRequests, in)
+	if s.proposalErr != nil {
+		return nil, s.proposalErr
+	}
+	if s.proposals != nil {
+		var proposals []*jobv1.Proposal
+		for _, jobID := range in.GetFilter().GetJobIds() {
+			proposals = append(proposals, s.proposals[jobID]...)
+		}
+		return &jobv1.ListProposalsResponse{Proposals: proposals}, nil
+	}
 	if !slices.Contains(in.GetFilter().GetJobIds(), "fake-jd-job-id") {
 		return &jobv1.ListProposalsResponse{}, nil
 	}

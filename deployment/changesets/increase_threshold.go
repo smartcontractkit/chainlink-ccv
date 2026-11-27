@@ -9,6 +9,7 @@ import (
 
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
+	syncjobproposals "github.com/smartcontractkit/chainlink-ccv/deployment/operations/sync_job_proposals"
 )
 
 // IncreaseThresholdOffchainInput is the input for step-1 of the IncreaseThreshold two-entry product.
@@ -92,6 +93,10 @@ func IncreaseThresholdOffchain() deployment.ChangeSetV2[IncreaseThresholdOffchai
 		outputDS, err := saveAggregatorRun(e, cfg.ServiceIdentifiers, committee, cfg.CommitteeQualifier, cfg.ChainSelectors, states)
 		if err != nil {
 			return deployment.ChangesetOutput{}, err
+		}
+		outputDS, err = syncjobproposals.SyncDatastore(e.OperationsBundle, e, outputDS)
+		if err != nil {
+			return deployment.ChangesetOutput{}, fmt.Errorf("failed to sync JD metadata: %w", err)
 		}
 
 		// No onchain output — the onchain change is deferred to step-2 (IncreaseThreshold),

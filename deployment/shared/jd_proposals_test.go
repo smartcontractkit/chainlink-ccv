@@ -30,8 +30,23 @@ func TestSetProposalsFromJD(t *testing.T) {
 	require.Equal(t, "p2", job.ActiveProposalID)
 	require.Equal(t, "s2", job.Proposals["p2"].Spec)
 	require.Equal(t, JobProposalStatusRevoked, job.LatestStatus())
+	require.True(t, job.NeedsRevocation(), "an approved revision still needs revocation after a newer cancellation")
+	job.ActiveProposalID = ""
+	require.False(t, job.NeedsRevocation())
 
 	job.SetProposalsFromJD(nil)
 	require.Empty(t, job.Proposals)
 	require.Empty(t, job.ActiveProposalID)
+}
+
+func TestNeedsRevocationNeverProposed(t *testing.T) {
+	t.Parallel()
+
+	job := JobInfo{JobID: "local-only", NOPAlias: "nop-a", NodeID: "node-a"}
+	require.False(t, job.NeedsRevocation(), "a record never submitted to JD only needs local cleanup")
+
+	job.Proposals = map[string]ProposalRevision{
+		"p1": {ProposalID: "p1", Revision: 1, Status: JobProposalStatusPending},
+	}
+	require.True(t, job.NeedsRevocation(), "proposal history must not be silently discarded without a JD ID")
 }

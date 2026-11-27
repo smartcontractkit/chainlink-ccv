@@ -18,6 +18,7 @@ import (
 
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
+	syncjobproposals "github.com/smartcontractkit/chainlink-ccv/deployment/operations/sync_job_proposals"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 )
 
@@ -203,9 +204,13 @@ func GenerateTokenVerifierConfig() deployment.ChangeSetV2[GenerateTokenVerifierC
 		if err := save(outputDS, cfg.ServiceIdentifier, tvConfig); err != nil {
 			return deployment.ChangesetOutput{}, fmt.Errorf("failed to save token verifier config: %w", err)
 		}
+		syncedDS, err := syncjobproposals.SyncDatastore(e.OperationsBundle, e, outputDS)
+		if err != nil {
+			return deployment.ChangesetOutput{}, fmt.Errorf("failed to sync JD metadata: %w", err)
+		}
 
 		return deployment.ChangesetOutput{
-			DataStore: outputDS,
+			DataStore: syncedDS,
 		}, nil
 	}
 

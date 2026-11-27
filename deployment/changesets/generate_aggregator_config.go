@@ -12,6 +12,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
+	syncjobproposals "github.com/smartcontractkit/chainlink-ccv/deployment/operations/sync_job_proposals"
 )
 
 // GenerateAggregatorConfigInput is the imperative input for the aggregator-config
@@ -83,7 +84,7 @@ func GenerateAggregatorConfig() deployment.ChangeSetV2[GenerateAggregatorConfigI
 			return deployment.ChangesetOutput{}, fmt.Errorf("failed to build aggregator config: %w", err)
 		}
 
-		outputDS := datastore.NewMemoryDataStore()
+		var outputDS datastore.MutableDataStore = datastore.NewMemoryDataStore()
 		if e.DataStore != nil {
 			if err := outputDS.Merge(e.DataStore); err != nil {
 				return deployment.ChangesetOutput{}, fmt.Errorf("failed to merge existing datastore: %w", err)
@@ -106,6 +107,10 @@ func GenerateAggregatorConfig() deployment.ChangeSetV2[GenerateAggregatorConfigI
 		// inventory in the same output, with no second scan and no threshold override applied.
 		if err := ccvdeployment.SaveScannedCommitteeStates(outputDS, cfg.ChainSelectors, states); err != nil {
 			return deployment.ChangesetOutput{}, fmt.Errorf("failed to save scanned committee states: %w", err)
+		}
+		outputDS, err = syncjobproposals.SyncDatastore(e.OperationsBundle, e, outputDS)
+		if err != nil {
+			return deployment.ChangesetOutput{}, fmt.Errorf("failed to sync JD metadata: %w", err)
 		}
 
 		return deployment.ChangesetOutput{DataStore: outputDS}, nil

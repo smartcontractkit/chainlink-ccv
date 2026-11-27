@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
+	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	nodev1 "github.com/smartcontractkit/chainlink-protos/job-distributor/v1/node"
 	"github.com/smartcontractkit/chainlink-protos/job-distributor/v1/shared/ptypes"
 
@@ -158,4 +160,32 @@ func SyncJDNodes(
 		return 0, fmt.Errorf("failed to save JD node inventory: %w", err)
 	}
 	return len(nodes), nil
+}
+
+// WithPersistedJDNodeIDs merges registration's durable inventory into the legacy nodes.json allowlist.
+func WithPersistedJDNodeIDs(e deployment.Environment) (deployment.Environment, error) {
+	if e.Offchain == nil || e.DataStore == nil {
+		return e, nil
+	}
+	nodes, err := GetJDNodes(e.DataStore)
+	if err != nil {
+		return e, fmt.Errorf("failed to load persisted JD node inventory: %w", err)
+	}
+	if len(nodes) == 0 {
+		return e, nil
+	}
+
+	seen := make(map[string]struct{}, len(e.NodeIDs)+len(nodes))
+	for _, nodeID := range e.NodeIDs {
+		seen[nodeID] = struct{}{}
+	}
+	missing := make([]string, 0, len(nodes))
+	for nodeID := range nodes {
+		if _, ok := seen[nodeID]; !ok {
+			missing = append(missing, nodeID)
+		}
+	}
+	slices.Sort(missing)
+	e.NodeIDs = append(e.NodeIDs, missing...)
+	return e, nil
 }

@@ -15,6 +15,7 @@ import (
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/operations/propose_jobs"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/operations/revoke_jobs"
+	syncjobproposals "github.com/smartcontractkit/chainlink-ccv/deployment/operations/sync_job_proposals"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 )
 
@@ -33,6 +34,8 @@ type ManageJobProposalsInput struct {
 	StandaloneExecutorNodeIDs map[shared.JobID]string
 	// RevokeOrphanedJobs when true runs orphan collection, JD revoke, and datastore cleanup; default false.
 	RevokeOrphanedJobs bool
+	// SkipFullSync uses the JD snapshot in e.DataStore; composite flows must synchronize it once first.
+	SkipFullSync bool
 	// AllowMissingJD permits running without a Job Distributor (e.Offchain == nil): the generated job
 	// specs are persisted to the datastore so callers can read them (e.g. devenv delivers them to
 	// services as mounted files in the no-JD local mode), and proposing/revoking — which require JD —
@@ -54,15 +57,28 @@ type ManageJobProposalsDeps struct {
 var ManageJobProposals = operations.NewSequence(
 	"manage-job-proposals",
 	semver.MustParse("1.0.0"),
-	"Manages job proposals by proposing new jobs and optionally revoking orphaned ones via JD when RevokeOrphanedJobs is enabled",
+	"Manages job proposals and synchronizes all saved JD nodes and job proposals",
 	func(b operations.Bundle, deps ManageJobProposalsDeps, input ManageJobProposalsInput) (ManageJobProposalsOutput, error) {
 		e := deps.Env
 
-		ds := datastore.NewMemoryDataStore()
+		var ds datastore.MutableDataStore = datastore.NewMemoryDataStore()
 		if e.DataStore != nil {
 			if err := ds.Merge(e.DataStore); err != nil {
 				return ManageJobProposalsOutput{}, fmt.Errorf("failed to merge datastore: %w", err)
 			}
+		}
+		var err error
+		if !input.SkipFullSync {
+			syncedDS, syncErr := syncjobproposals.SyncDatastore(b, e, ds)
+			if syncErr != nil {
+				return ManageJobProposalsOutput{}, fmt.Errorf("failed to sync JD before managing jobs: %w", syncErr)
+			}
+			ds = syncedDS
+		}
+		e.DataStore = ds.Seal()
+		e, err = ccvdeployment.WithPersistedJDNodeIDs(e)
+		if err != nil {
+			return ManageJobProposalsOutput{}, fmt.Errorf("failed to resolve JD node IDs: %w", err)
 		}
 
 		existingJobs, err := ccvdeployment.GetAllJobs(ds.Seal())
@@ -86,10 +102,6 @@ var ManageJobProposals = operations.NewSequence(
 				return ManageJobProposalsOutput{}, fmt.Errorf("failed to save jobs: %w", err)
 			}
 			return ManageJobProposalsOutput{Jobs: jobs, DataStore: ds}, nil
-		}
-
-		if _, err := ccvdeployment.SyncJDNodes(b.GetContext(), ds, e.Offchain, ccvdeployment.JDProduct, e.Name); err != nil {
-			return ManageJobProposalsOutput{}, fmt.Errorf("failed to sync JD node inventory: %w", err)
 		}
 
 		superseded, err := retargetJobs(b.GetContext(), e.Offchain, jobs, input.StandaloneExecutorNodeIDs)
@@ -184,6 +196,9 @@ var ManageJobProposals = operations.NewSequence(
 							Jobs:      jobs,
 							DataStore: ds,
 						}, fmt.Errorf("failed to revoke orphaned jobs: %w", revokeErr)
+					}
+					if err := revokeReport.Output.Err(); err != nil {
+						return ManageJobProposalsOutput{Jobs: jobs, DataStore: ds}, fmt.Errorf("failed to revoke orphaned jobs: %w", err)
 					}
 					e.Logger.Infow("Revoked orphaned jobs", "count", len(revokeReport.Output.RevokedJobs))
 				}
@@ -374,7 +389,7 @@ func carryForwardExistingJobMetadata(jobs []shared.JobInfo, existingJobs shared.
 func filterNonRevokedJobs(jobs []shared.JobInfo) []shared.JobInfo {
 	result := make([]shared.JobInfo, 0, len(jobs))
 	for _, j := range jobs {
-		if j.LatestStatus() != shared.JobProposalStatusRevoked {
+		if j.NeedsRevocation() {
 			result = append(result, j)
 		}
 	}

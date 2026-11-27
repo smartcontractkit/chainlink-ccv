@@ -42,6 +42,7 @@ type ApplyExecutorConfigInput struct {
 	TargetNOPs []shared.NOPAlias
 	// RevokeOrphanedJobs when true revokes and cleans up orphaned jobs; default false.
 	RevokeOrphanedJobs bool
+	skipFullSync       bool
 }
 
 // ApplyExecutorConfig publishes executor specs and persists their JD metadata.
@@ -194,6 +195,7 @@ func ApplyExecutorConfig() deployment.ChangeSetV2[ApplyExecutorConfigInput] {
 				},
 				StandaloneExecutorNodeIDs: standaloneExecutorJobNodeIDs(cfg.ExecutorQualifier, standaloneNodeIDs),
 				RevokeOrphanedJobs:        cfg.RevokeOrphanedJobs,
+				SkipFullSync:              cfg.skipFullSync,
 				// Without a JD (no-JD local devenv), persist the generated specs and skip proposing;
 				// the caller delivers them to the executor as a mounted file instead.
 				AllowMissingJD: e.Offchain == nil,

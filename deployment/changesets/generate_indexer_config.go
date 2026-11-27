@@ -10,6 +10,7 @@ import (
 
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
+	syncjobproposals "github.com/smartcontractkit/chainlink-ccv/deployment/operations/sync_job_proposals"
 	indexerconfig "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 )
 
@@ -64,9 +65,13 @@ func GenerateIndexerConfig() deployment.ChangeSetV2[GenerateIndexerConfigInput] 
 		if err := save(outputDS, cfg.ServiceIdentifier, idxCfg); err != nil {
 			return deployment.ChangesetOutput{}, fmt.Errorf("failed to save indexer config: %w", err)
 		}
+		syncedDS, err := syncjobproposals.SyncDatastore(e.OperationsBundle, e, outputDS)
+		if err != nil {
+			return deployment.ChangesetOutput{}, fmt.Errorf("failed to sync JD metadata: %w", err)
+		}
 
 		return deployment.ChangesetOutput{
-			DataStore: outputDS,
+			DataStore: syncedDS,
 		}, nil
 	}
 

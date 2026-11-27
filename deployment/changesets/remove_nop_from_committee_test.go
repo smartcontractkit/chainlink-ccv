@@ -2,6 +2,7 @@ package changesets
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -11,6 +12,7 @@ import (
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
+	jobv1 "github.com/smartcontractkit/chainlink-protos/job-distributor/v1/job"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
@@ -532,4 +534,122 @@ func TestRemoveNOPOffchain_Apply_MultipleServiceIdentifiers(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotNil(t, out.DataStore)
+}
+
+func TestRemoveNOPOffchainSyncFailureDoesNotRevoke(t *testing.T) {
+	sel1 := chainsel.TEST_90000001.Selector
+	verifierAddr := testVerifierAddr
+	adapter := &stubFullAdapter{
+		states: map[uint64][]*adapters.CommitteeState{
+			sel1: {{
+				Qualifier: testQualifier, ChainSelector: sel1, Address: verifierAddr,
+				SignatureConfigs: []adapters.SignatureConfig{
+					{SourceChainSelector: sel1, Signers: []string{"0xBBB", "0xCCC"}, Threshold: 2},
+				},
+			}},
+		},
+		verifierAddrs: map[uint64]string{sel1: verifierAddr},
+	}
+	registerFullEVMAdapters(adapter)
+	env := newTestEnvForApply(t, testNOPAlias, []uint64{sel1})
+	verifierSpec := "type = \"ccvcommitteeverifier\"\n"
+	ds := datastore.NewMemoryDataStore()
+	require.NoError(t, ccvdeployment.SaveJob(ds, shared.JobInfo{
+		JobID: "nop1-default-verifier", JDJobID: "jd-remove", NOPAlias: shared.NOPAlias(testNOPAlias),
+		NodeID: "node-nop1", Spec: verifierSpec,
+		Proposals: map[string]shared.ProposalRevision{
+			"stale": {ProposalID: "stale", Revision: 1, Status: shared.JobProposalStatusPending},
+		},
+	}))
+	env.DataStore = ds.Seal()
+	client := env.Offchain.(*stubOffchainClient)
+	client.proposalErr = errors.New("unavailable")
+
+	_, err := RemoveNOPOffchain().Apply(env, RemoveNOPOffchainInput{
+		CommitteeQualifier:   testQualifier,
+		SourceChainSelectors: []uint64{sel1},
+		ServiceIdentifiers:   []string{"my-aggregator"},
+		NOPAlias:             shared.NOPAlias(testNOPAlias),
+	})
+	require.ErrorContains(t, err, "failed to sync JD before revoking jobs")
+	require.Zero(t, client.revokeCalls)
+}
+
+func newRemoveNOPRevocationEnv(t *testing.T, revokeErr error) (deployment.Environment, *stubOffchainClient, datastore.MutableDataStore, RemoveNOPOffchainInput) {
+	t.Helper()
+	sel := chainsel.TEST_90000001.Selector
+	verifierAddr := testVerifierAddr
+	registerFullEVMAdapters(&stubFullAdapter{
+		states: map[uint64][]*adapters.CommitteeState{
+			sel: {{
+				Qualifier: testQualifier, ChainSelector: sel, Address: verifierAddr,
+				SignatureConfigs: []adapters.SignatureConfig{
+					{SourceChainSelector: sel, Signers: []string{genSignerA, genSignerB}, Threshold: 2},
+				},
+			}},
+		},
+		verifierAddrs: map[uint64]string{sel: verifierAddr},
+	})
+	env := newTestEnvForApply(t, testNOPAlias, []uint64{sel})
+	env.NodeIDs = nil
+	verifierSpec := "type = \"ccvcommitteeverifier\"\n"
+	ds := datastore.NewMemoryDataStore()
+	require.NoError(t, ccvdeployment.SaveJob(ds, shared.JobInfo{
+		JobID: "nop1-default-verifier", JDJobID: "jd-remove", NOPAlias: shared.NOPAlias(testNOPAlias),
+		NodeID: "node-nop1", Spec: verifierSpec, ActiveProposalID: "p-approved",
+		Proposals: map[string]shared.ProposalRevision{
+			"p-approved": {ProposalID: "p-approved", Revision: 1, Status: shared.JobProposalStatusApproved},
+			"p-canceled": {ProposalID: "p-canceled", Revision: 2, Status: shared.JobProposalStatusRevoked},
+		},
+	}))
+	env.DataStore = ds.Seal()
+	client := env.Offchain.(*stubOffchainClient)
+	client.revokeErr = revokeErr
+	client.proposals = map[string][]*jobv1.Proposal{
+		"jd-remove": {
+			{Id: "p-approved", JobId: "jd-remove", Revision: 1, Status: jobv1.ProposalStatus_PROPOSAL_STATUS_APPROVED, Spec: verifierSpec},
+			{Id: "p-canceled", JobId: "jd-remove", Revision: 2, Status: jobv1.ProposalStatus_PROPOSAL_STATUS_CANCELLED, Spec: verifierSpec},
+		},
+	}
+	return env, client, ds, RemoveNOPOffchainInput{
+		CommitteeQualifier: testQualifier, SourceChainSelectors: []uint64{sel},
+		ServiceIdentifiers: []string{"my-aggregator"}, NOPAlias: shared.NOPAlias(testNOPAlias),
+	}
+}
+
+func TestRemoveNOPOffchainRevokesActiveProposalWithNativeRoster(t *testing.T) {
+	env, client, _, input := newRemoveNOPRevocationEnv(t, nil)
+	out, err := RemoveNOPOffchain().Apply(env, input)
+	require.NoError(t, err)
+	require.Equal(t, 1, client.revokeCalls)
+	_, err = ccvdeployment.GetJob(out.DataStore.Seal(), shared.NOPAlias(testNOPAlias), "nop1-default-verifier")
+	require.Error(t, err)
+}
+
+func TestRemoveNOPOffchainRevokeErrorPreservesJob(t *testing.T) {
+	env, client, ds, _ := newRemoveNOPRevocationEnv(t, errors.New("revoke failed"))
+	env.NodeIDs = []string{"node-nop1"}
+	err := revokeVerifierJobsForNOP(env, shared.NOPAlias(testNOPAlias), testQualifier, ds)
+	require.ErrorContains(t, err, "revoke failed")
+	require.Equal(t, 1, client.revokeCalls)
+	job, err := ccvdeployment.GetJob(ds.Seal(), shared.NOPAlias(testNOPAlias), "nop1-default-verifier")
+	require.NoError(t, err)
+	require.Equal(t, "p-approved", job.ActiveProposalID)
+}
+
+func TestRemoveNOPOffchainCleansUpNeverProposedJob(t *testing.T) {
+	env, client, ds, input := newRemoveNOPRevocationEnv(t, nil)
+	job, err := ccvdeployment.GetJob(ds.Seal(), shared.NOPAlias(testNOPAlias), "nop1-default-verifier")
+	require.NoError(t, err)
+	job.JDJobID = ""
+	job.ActiveProposalID = ""
+	job.Proposals = nil
+	require.NoError(t, ccvdeployment.SaveJob(ds, *job))
+	env.DataStore = ds.Seal()
+
+	out, err := RemoveNOPOffchain().Apply(env, input)
+	require.NoError(t, err)
+	require.Zero(t, client.revokeCalls)
+	_, err = ccvdeployment.GetJob(out.DataStore.Seal(), shared.NOPAlias(testNOPAlias), "nop1-default-verifier")
+	require.Error(t, err)
 }
