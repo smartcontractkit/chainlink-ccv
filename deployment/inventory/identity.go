@@ -117,10 +117,9 @@ const (
 	nodeAmbiguous                // several eligible nodes, no exact match
 )
 
-// verifierFor returns the exact node signing for alias in committee qualifier for source.
-// A node is eligible only when one of its jobs pairs this qualifier with this source chain;
-// fallback nodes (no known-qualifier scope) are used only when no scoped match exists, and a
-// node scoped to another committee is never assigned by default.
+// verifierFor returns the recorded signing node for alias, qualifier, and source, using one job's
+// paired scope rather than combining jobs. Fallback nodes have no known-qualifier scope.
+// Saved proposal state is not treated as live process health.
 func (r *resolver) verifierFor(alias, qualifier string, source uint64) (*Node, nodeResolution) {
 	var scoped, fallback []*Node
 	for _, node := range r.verifierNode[alias] {

@@ -113,10 +113,14 @@ func newAggUpgradeEnv(t *testing.T, image string) *aggUpgradeEnv {
 			RedisDB:      "0",
 		},
 		APIClients: []*services.AggregatorClientConfig{
-			{ClientID: "upgrade-verifier-1", Enabled: true, Groups: []string{"service-tests-1"},
-				APIKeyPairs: []*services.AggregatorAPIKeyPair{{APIKey: creds1.APIKey, Secret: creds1.Secret}}},
-			{ClientID: "upgrade-verifier-2", Enabled: true, Groups: []string{"service-tests-1"},
-				APIKeyPairs: []*services.AggregatorAPIKeyPair{{APIKey: creds2.APIKey, Secret: creds2.Secret}}},
+			{
+				ClientID: "upgrade-verifier-1", Enabled: true, Groups: []string{"service-tests-1"},
+				APIKeyPairs: []*services.AggregatorAPIKeyPair{{APIKey: creds1.APIKey, Secret: creds1.Secret}},
+			},
+			{
+				ClientID: "upgrade-verifier-2", Enabled: true, Groups: []string{"service-tests-1"},
+				APIKeyPairs: []*services.AggregatorAPIKeyPair{{APIKey: creds2.APIKey, Secret: creds2.Secret}},
+			},
 		},
 		GeneratedCommittee: &model.Committee{
 			QuorumConfigs: map[string]*model.QuorumConfig{
@@ -154,7 +158,7 @@ func newAggUpgradeEnv(t *testing.T, image string) *aggUpgradeEnv {
 		services.DefaultAggregatorDBUsername, services.DefaultAggregatorDBPassword, aggUpgradeDBPort, services.DefaultAggregatorDBName))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, db.PingContext(t.Context()))
+	require.Eventually(t, func() bool { return db.PingContext(t.Context()) == nil }, time.Minute, time.Second)
 
 	return &aggUpgradeEnv{
 		aggregatorTestFixture: &aggregatorTestFixture{

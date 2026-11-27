@@ -64,6 +64,23 @@ func TestE2ERollback_HappyPath(t *testing.T) {
 	t.Run("after full rollback", env.happyPath)
 }
 
+// TestE2EUpgradeThenRollback_HappyPath starts on the images to upgrade from, upgrades each service in rollout
+// order, then rolls each service back in reverse rollout order. The databases stay for all the steps, so the old
+// images must run on the schema and data that the new images wrote.
+func TestE2EUpgradeThenRollback_HappyPath(t *testing.T) {
+	env := newUpgradeEnv(t, false)
+
+	t.Run("before upgrade", env.happyPath)
+	for _, s := range env.steps {
+		env.swap(t, "after upgrading "+s.name, s.name, s.toImage, s.repo, services.UpgradeContainer)
+	}
+	t.Run("after full upgrade", env.happyPath)
+	for _, s := range slices.Backward(env.steps) {
+		env.swap(t, "after rolling back "+s.name, s.name, s.fromImage, s.repo, services.RollbackContainer)
+	}
+	t.Run("after full rollback", env.happyPath)
+}
+
 // upgradeStep is one service container and the images it moves between.
 type upgradeStep struct{ name, repo, fromImage, toImage string }
 
@@ -135,7 +152,7 @@ func newUpgradeEnv(t *testing.T, onTo bool) *upgradeEnv {
 			}
 			runsStart, err := services.RunsImage(ctx, name, start)
 			require.NoError(t, err)
-			require.True(t, runsStart, "%s does not run %s: start the environment with 'just upgrade-test' or 'just rollback-test'", name, start)
+			require.True(t, runsStart, "%s does not run %s: start the environment with 'just upgrade-test', 'just rollback-test', or 'just upgrade-rollback-test'", name, start)
 			unchanged, err := services.SameImage(ctx, fromImage, image)
 			require.NoError(t, err)
 			if unchanged {

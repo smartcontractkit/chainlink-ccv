@@ -55,7 +55,7 @@ func TestAddOnchainCommittees(t *testing.T) {
 	inv.AddOnchainCommittees(t.Context(), deployment.Environment{}) // rerunning replaces, not duplicates
 
 	onchain := committeeFor(t, inv, SourceOnchain, ethereum)
-	assert.Equal(t, canton, onchain.VerifierChain)
+	assertSingleVerifierDeployment(t, onchain, canton, "canton-verifier")
 	assert.Equal(t, "default", onchain.Qualifier)
 	assert.Equal(t, Member{SignerAddress: alphaAddr, SignerPubKey: alphaKey, NOPAlias: "nop-alpha", NodeID: "node_alpha", CSAKey: "csa-alpha"},
 		memberFor(t, onchain, alphaAddr))
@@ -98,7 +98,7 @@ func TestAddOnchainCommitteesFailedScanKeepsSnapshot(t *testing.T) {
 	inv.AddOnchainCommittees(t.Context(), deployment.Environment{})
 
 	onchain := committeeFor(t, inv, SourceOnchain, ethereum)
-	assert.Equal(t, canton, onchain.VerifierChain, "a failed scan retains the last successful snapshot")
+	assertSingleVerifierDeployment(t, onchain, canton, "canton-verifier")
 	assert.Equal(t, Member{SignerAddress: alphaAddr, SignerPubKey: alphaKey, NOPAlias: "nop-alpha", NodeID: "node_alpha", CSAKey: "csa-alpha"},
 		memberFor(t, onchain, alphaAddr))
 	stale := refreshFor(t, inv, canton)
@@ -233,7 +233,7 @@ func TestAddOnchainCommitteesDiscoversNativeChainsAndCarriesPubKeys(t *testing.T
 	inv.AddOnchainCommittees(t.Context(), deployment.Environment{})
 
 	onchain := committeeFor(t, inv, SourceOnchain, ethereum)
-	assert.Equal(t, canton, onchain.VerifierChain)
+	assertSingleVerifierDeployment(t, onchain, canton, "canton-verifier")
 	assert.Equal(t, Member{SignerAddress: addr, SignerPubKey: pub, NOPAlias: "nop-delta", NodeID: "node_delta", CSAKey: "csa-delta"},
 		memberFor(t, onchain, addr), "the scanned key fills the pubkey the NOP identity lacks")
 	assert.Contains(t, inv.Issues, Issue{
@@ -246,6 +246,60 @@ func TestAddOnchainCommitteesDiscoversNativeChainsAndCarriesPubKeys(t *testing.T
 	assert.Equal(t, pub, memberFor(t, committeeFor(t, reconciled, SourceOnchain, ethereum), addr).SignerPubKey,
 		"reconciliation keeps the scanned public key")
 	assert.Equal(t, inv.Refreshes, reconciled.Refreshes, "reconciliation keeps the refresh outcomes")
+}
+
+func TestOnchainCommitteesGroupWithoutHidingVariants(t *testing.T) {
+	t.Parallel()
+
+	observed := func(chain ChainSelector, address string, threshold uint8, members ...Member) Committee {
+		return Committee{
+			Source: SourceOnchain, SourceChain: base, Qualifier: "default", Threshold: threshold,
+			VerifierChain: chain, VerifierAddress: address, Members: members,
+		}
+	}
+	inv := Build(Inputs{})
+	inv.Committees = []Committee{
+		{Source: SourceAggregator, SourceChain: base, Qualifier: "default", Threshold: 2, Members: []Member{{SignerAddress: alphaAddr}}},
+		observed(ethereum, "0x01", 2, Member{SignerAddress: alphaAddr}, Member{SignerAddress: betaAddr}),
+		observed(canton, "canton-verifier", 2, Member{SignerAddress: alphaAddr, SignerPubKey: alphaKey}, Member{SignerAddress: betaAddr}),
+		observed(base, "0x02", 2, Member{SignerAddress: alphaAddr}),
+		observed(base, "0x03", 1, Member{SignerAddress: alphaAddr}),
+	}
+	inv.normalize()
+
+	onchain := committeesFor(inv, base)
+	require.Len(t, onchain, 4, "one aggregator row and three distinct onchain configurations")
+	assert.Equal(t, SourceAggregator, onchain[0].Source)
+	full := onchain[1]
+	assert.Equal(t, []VerifierDeployment{{Chain: canton, Address: "canton-verifier"}, {Chain: ethereum, Address: "0x01"}}, full.VerifierDeployments)
+	assert.Equal(t, alphaKey, memberFor(t, full, alphaAddr).SignerPubKey, "compatible identity fields merge")
+	assert.Zero(t, full.VerifierChain)
+	assert.Empty(t, full.VerifierAddress)
+	assert.Equal(t, []VerifierDeployment{{Chain: base, Address: "0x03"}}, onchain[2].VerifierDeployments, "a different quorum stays separate")
+	assert.Equal(t, []VerifierDeployment{{Chain: base, Address: "0x02"}}, onchain[3].VerifierDeployments, "a different signer set stays separate")
+
+	before := slices.Clone(inv.Committees)
+	inv.normalize()
+	assert.Equal(t, before, inv.Committees, "normalizing an already grouped inventory is idempotent")
+	assert.Len(t, inv.Rows(), 7, "flat rows retain one member row per verifier deployment")
+	byChain := inv.ByChain()
+	assert.Len(t, byChain[canton].VerifierSignerSets, 1)
+	assert.Len(t, byChain[ethereum].VerifierSignerSets, 1)
+	assert.Len(t, byChain[base].VerifierSignerSets, 2, "per-chain views retain both distinct Base deployments")
+	reconciled := Build(Inputs{})
+	reconciled.ReconcileOnchainCommittees(inv.Committees, nil)
+	assert.Equal(t, onchain[1:], reconciled.Committees, "schema-v2 groups expand and restore without loss")
+
+	legacy := Build(Inputs{})
+	legacy.ReconcileOnchainCommittees([]Committee{observed(canton, "legacy-canton", 2, Member{SignerAddress: alphaAddr})}, nil)
+	assertSingleVerifierDeployment(t, committeeFor(t, legacy, SourceOnchain, base), canton, "legacy-canton")
+}
+
+func assertSingleVerifierDeployment(t *testing.T, c Committee, chain ChainSelector, address string) {
+	t.Helper()
+	assert.Equal(t, []VerifierDeployment{{Chain: chain, Address: address}}, c.VerifierDeployments)
+	assert.Zero(t, c.VerifierChain)
+	assert.Empty(t, c.VerifierAddress)
 }
 
 func refreshFor(t *testing.T, inv *Inventory, chain ChainSelector) OnchainRefresh {

@@ -76,7 +76,8 @@ func assertOnchainMember(t *testing.T, ds datastore.DataStore, csaKey string) {
 		}
 	}
 	require.Len(t, onchain, 1)
-	assert.Equal(t, inventory.ChainSelector(refreshCantonSelector), onchain[0].VerifierChain)
+	require.Len(t, onchain[0].VerifierDeployments, 1)
+	assert.Equal(t, inventory.ChainSelector(refreshCantonSelector), onchain[0].VerifierDeployments[0].Chain)
 	require.Len(t, onchain[0].Members, 1)
 	assert.Equal(t, inventory.Member{
 		SignerAddress: refreshSigner, NOPAlias: "nop-a", NodeID: "node-a", CSAKey: csaKey,

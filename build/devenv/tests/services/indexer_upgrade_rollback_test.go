@@ -123,7 +123,8 @@ func newIdxUpgradeEnv(t *testing.T, image string, fakes *fakeVerifiers) *idxUpgr
 		idxUpgradeName, idxUpgradeName, out.DBURL, idxUpgradeName))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, db.PingContext(t.Context()))
+	// The published DB port can reset connections for a short time after the start.
+	require.Eventually(t, func() bool { return db.PingContext(t.Context()) == nil }, time.Minute, time.Second)
 
 	ic, err := client.NewIndexerClient(out.ExternalHTTPURL, &http.Client{Timeout: 10 * time.Second})
 	require.NoError(t, err)
