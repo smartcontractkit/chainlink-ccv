@@ -75,7 +75,11 @@ func (j *JobInfo) IsRunning() bool {
 }
 
 // NeedsRevocation reports whether JD has a job or active proposal left to revoke.
+// Records never submitted to JD only need local cleanup.
 func (j *JobInfo) NeedsRevocation() bool {
+	if j.JDJobID == "" && j.ActiveProposalID == "" && len(j.Proposals) == 0 {
+		return false
+	}
 	return j.ActiveProposalID != "" || j.LatestStatus() != JobProposalStatusRevoked
 }
 

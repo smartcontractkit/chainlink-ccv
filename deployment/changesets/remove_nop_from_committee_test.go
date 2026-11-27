@@ -636,3 +636,20 @@ func TestRemoveNOPOffchainRevokeErrorPreservesJob(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "p-approved", job.ActiveProposalID)
 }
+
+func TestRemoveNOPOffchainCleansUpNeverProposedJob(t *testing.T) {
+	env, client, ds, input := newRemoveNOPRevocationEnv(t, nil)
+	job, err := ccvdeployment.GetJob(ds.Seal(), shared.NOPAlias(testNOPAlias), "nop1-default-verifier")
+	require.NoError(t, err)
+	job.JDJobID = ""
+	job.ActiveProposalID = ""
+	job.Proposals = nil
+	require.NoError(t, ccvdeployment.SaveJob(ds, *job))
+	env.DataStore = ds.Seal()
+
+	out, err := RemoveNOPOffchain().Apply(env, input)
+	require.NoError(t, err)
+	require.Zero(t, client.revokeCalls)
+	_, err = ccvdeployment.GetJob(out.DataStore.Seal(), shared.NOPAlias(testNOPAlias), "nop1-default-verifier")
+	require.Error(t, err)
+}

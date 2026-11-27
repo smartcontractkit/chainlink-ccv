@@ -69,7 +69,8 @@ No Solana or Canton adapter changes are required. Other ordinary offchain regist
 ### Revocation safety
 
 - `JobInfo.NeedsRevocation` returns true when an approved proposal remains active even if a newer revision is canceled or revoked. NOP removal and orphan cleanup use it instead of checking only the latest status.
-- `RevokeJobsOutput.Err` exposes per-job revocation failures. Both cleanup paths stop before deleting saved jobs when any revocation fails.
+- Saved records with no JD job ID, active proposal, or proposal history are cleaned up locally without a JD call.
+- `RevokeJobs` returns per-job revocation failures as operation errors, so a retry cannot reuse a failed report as successful. Both cleanup paths stop before deleting saved jobs when any revocation fails.
 
 `latestProposalStatus` remains the highest revision's status. `hasActiveProposal` independently records whether an approved revision exists, so an older approved revision and a newer pending revision can coexist.
 

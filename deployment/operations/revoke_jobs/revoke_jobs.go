@@ -116,6 +116,6 @@ var RevokeJobs = operations.NewOperation(
 			})
 		}
 
-		return output, nil
+		return output, output.Err()
 	},
 )
