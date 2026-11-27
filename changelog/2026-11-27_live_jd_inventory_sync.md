@@ -13,6 +13,11 @@
 |---|---|---|---|---|
 | `changesets.RefreshInventory` | behavior-changed | `RefreshInventory\(` | `deployment/changesets/refresh_inventory.go:17` | [#refreshinventory-requires-live-jd](#refreshinventory-requires-live-jd) |
 | `sequences.ManageJobProposals` | behavior-changed | `ManageJobProposals\b` | `deployment/sequences/manage_job_proposals.go:55` | [#normal-offchain-operations](#normal-offchain-operations) |
+| `changesets.ApplyVerifierExecutorConfig` | behavior-changed | `ApplyVerifierExecutorConfig\(` | `deployment/changesets/apply_verifier_executor_config.go:99` | [#normal-offchain-operations](#normal-offchain-operations) |
+| `deployment.WithPersistedJDNodeIDs` | added | `WithPersistedJDNodeIDs\(` | `deployment/jd_nodes.go:166` | [#shared-live-jd-sync](#shared-live-jd-sync) |
+| `sequences.ManageJobProposalsInput.SkipFullSync` | added | `SkipFullSync` | `deployment/sequences/manage_job_proposals.go:38` | [#normal-offchain-operations](#normal-offchain-operations) |
+| `shared.JobInfo.NeedsRevocation` | added | `NeedsRevocation\(` | `deployment/shared/types.go:78` | [#revocation-safety](#revocation-safety) |
+| `revoke_jobs.RevokeJobsOutput.Err` | added | `\.Err\(\)` | `deployment/operations/revoke_jobs/revoke_jobs.go:25` | [#revocation-safety](#revocation-safety) |
 | `sync_job_proposals.SyncDatastore` | added | `SyncDatastore\(` | `deployment/operations/sync_job_proposals/sync_job_proposals.go:64` | [#shared-live-jd-sync](#shared-live-jd-sync) |
 
 ## Breaking Changes
@@ -55,10 +60,16 @@ No Solana or Canton adapter changes are required. Other ordinary offchain regist
 ### Normal offchain operations
 
 - `ManageJobProposals` synchronizes every saved job before proposing or revoking jobs, so an unrelated read failure cannot strand a JD mutation without its datastore output.
+- `ApplyVerifierExecutorConfig` performs that broad sync once and sets `SkipFullSync` for both nested flows, preventing a second unrelated read failure after the verifier proposal.
 - Aggregator, indexer, and token-verifier generation synchronize JD when available.
 - Increase/decrease-threshold operations synchronize JD in their final output; remove-NOP synchronizes before revoking jobs.
-- The sync unions the freshly fetched JD roster with the legacy node allowlist and saves all updated jobs in one batch.
+- The sync unions the freshly fetched JD roster with the legacy node allowlist and saves all updated jobs in one batch. `WithPersistedJDNodeIDs` applies the same roster to proposal and revocation calls.
 - Existing behavior already rebuilds the chain-agnostic inventory on every CCV metadata write, so the refreshed job state is reflected without a separate reconcile step.
+
+### Revocation safety
+
+- `JobInfo.NeedsRevocation` returns true when an approved proposal remains active even if a newer revision is canceled or revoked. NOP removal and orphan cleanup use it instead of checking only the latest status.
+- `RevokeJobsOutput.Err` exposes per-job revocation failures. Both cleanup paths stop before deleting saved jobs when any revocation fails.
 
 `latestProposalStatus` remains the highest revision's status. `hasActiveProposal` independently records whether an approved revision exists, so an older approved revision and a newer pending revision can coexist.
 

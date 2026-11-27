@@ -34,6 +34,8 @@ type ManageJobProposalsInput struct {
 	StandaloneExecutorNodeIDs map[shared.JobID]string
 	// RevokeOrphanedJobs when true runs orphan collection, JD revoke, and datastore cleanup; default false.
 	RevokeOrphanedJobs bool
+	// SkipFullSync uses the JD snapshot in e.DataStore; composite flows must synchronize it once first.
+	SkipFullSync bool
 	// AllowMissingJD permits running without a Job Distributor (e.Offchain == nil): the generated job
 	// specs are persisted to the datastore so callers can read them (e.g. devenv delivers them to
 	// services as mounted files in the no-JD local mode), and proposing/revoking — which require JD —
@@ -65,12 +67,19 @@ var ManageJobProposals = operations.NewSequence(
 				return ManageJobProposalsOutput{}, fmt.Errorf("failed to merge datastore: %w", err)
 			}
 		}
-		syncedDS, err := syncjobproposals.SyncDatastore(b, e, ds)
-		if err != nil {
-			return ManageJobProposalsOutput{}, fmt.Errorf("failed to sync JD before managing jobs: %w", err)
+		var err error
+		if !input.SkipFullSync {
+			syncedDS, syncErr := syncjobproposals.SyncDatastore(b, e, ds)
+			if syncErr != nil {
+				return ManageJobProposalsOutput{}, fmt.Errorf("failed to sync JD before managing jobs: %w", syncErr)
+			}
+			ds = syncedDS
 		}
-		ds = syncedDS
 		e.DataStore = ds.Seal()
+		e, err = ccvdeployment.WithPersistedJDNodeIDs(e)
+		if err != nil {
+			return ManageJobProposalsOutput{}, fmt.Errorf("failed to resolve JD node IDs: %w", err)
+		}
 
 		existingJobs, err := ccvdeployment.GetAllJobs(ds.Seal())
 		if err != nil {
@@ -187,6 +196,9 @@ var ManageJobProposals = operations.NewSequence(
 							Jobs:      jobs,
 							DataStore: ds,
 						}, fmt.Errorf("failed to revoke orphaned jobs: %w", revokeErr)
+					}
+					if err := revokeReport.Output.Err(); err != nil {
+						return ManageJobProposalsOutput{Jobs: jobs, DataStore: ds}, fmt.Errorf("failed to revoke orphaned jobs: %w", err)
 					}
 					e.Logger.Infow("Revoked orphaned jobs", "count", len(revokeReport.Output.RevokedJobs))
 				}
@@ -377,7 +389,7 @@ func carryForwardExistingJobMetadata(jobs []shared.JobInfo, existingJobs shared.
 func filterNonRevokedJobs(jobs []shared.JobInfo) []shared.JobInfo {
 	result := make([]shared.JobInfo, 0, len(jobs))
 	for _, j := range jobs {
-		if j.LatestStatus() != shared.JobProposalStatusRevoked {
+		if j.NeedsRevocation() {
 			result = append(result, j)
 		}
 	}

@@ -54,6 +54,7 @@ type ApplyVerifierConfigInput struct {
 	// Standalone NOPs with multiple aggregators require true; false preserves legacy output otherwise.
 	// Switching an existing CL NOP changes its verifier_id and orphans the old per-aggregator jobs.
 	ConsolidateAggregators bool
+	skipFullSync           bool
 }
 
 // ApplyVerifierConfig is the offchain-only single-entry product for §5.9 / §5.10:
@@ -319,6 +320,7 @@ func createApplyVerifierConfigApplyFunc(opts ...ApplyVerifierConfigApplyOption) 
 					AllNOPs:    allNOPAliases(cfg.NOPs),
 				},
 				RevokeOrphanedJobs: cfg.RevokeOrphanedJobs,
+				SkipFullSync:       cfg.skipFullSync,
 				// Without a JD (no-JD local devenv), persist the generated specs and skip proposing;
 				// the caller delivers them to the verifier as a mounted file instead.
 				AllowMissingJD: e.Offchain == nil,

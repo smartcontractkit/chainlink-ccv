@@ -1,6 +1,7 @@
 package changesets
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -26,6 +27,16 @@ import (
 // intentionally not a JD/Offchain mock: it carries no behavior at all.
 type nopOffchainClient struct {
 	offchain.Client
+}
+
+func fullJDInventoryReads(client *stubOffchainClient) int {
+	count := 0
+	for _, req := range client.nodeRequests {
+		if len(req.GetFilter().GetSelectors()) > 0 {
+			count++
+		}
+	}
+	return count
 }
 
 func validCombinedVerifierExecutorInput(sel uint64) ApplyVerifierExecutorConfigInput {
@@ -219,6 +230,7 @@ func TestApplyVerifierExecutorConfigPreservesBothJobOutputs(t *testing.T) {
 	nodes, err := ccvdeployment.GetJDNodes(out.DataStore.Seal())
 	require.NoError(t, err)
 	require.Len(t, nodes, 1)
+	assert.Equal(t, 1, fullJDInventoryReads(env.Offchain.(*stubOffchainClient)), "both phases share one full JD sync")
 }
 
 func TestApplyVerifierExecutorConfigUsesPersistedJDNodeInventory(t *testing.T) {
@@ -323,4 +335,32 @@ func TestDeriveExecutorInput_MatchesHandBuiltStandaloneInput(t *testing.T) {
 	}
 
 	assert.Equal(t, want, deriveExecutorInput(cfg))
+}
+
+func TestApplyVerifierExecutorConfigSyncFailurePrecedesBothFlows(t *testing.T) {
+	sel := chainsel.TEST_90000001.Selector
+	registerEVMChainTypeForIdentities()
+	registerFullEVMAdapters(&stubFullAdapter{
+		states:        map[uint64][]*adapters.CommitteeState{sel: nil},
+		verifierAddrs: map[uint64]string{sel: "0xcommittee"},
+	})
+	env := newTestEnvForApply(t, "nop1", []uint64{sel})
+	env.GetContext = t.Context
+	addCCVTestEVMChainSupport(t, env, sel)
+	ds := datastore.NewMemoryDataStore()
+	verifierSpec := "type = \"ccvcommitteeverifier\"\n"
+	require.NoError(t, ccvdeployment.SaveJob(ds, shared.JobInfo{
+		JobID: "nop1-default-verifier", JDJobID: "jd-verifier", NOPAlias: "nop1", NodeID: "node-nop1", Spec: verifierSpec,
+		Proposals: map[string]shared.ProposalRevision{
+			"stale": {ProposalID: "stale", Revision: 1, Status: shared.JobProposalStatusPending},
+		},
+	}))
+	env.DataStore = ds.Seal()
+	client := env.Offchain.(*stubOffchainClient)
+	client.proposalErr = errors.New("unavailable")
+
+	_, err := ApplyVerifierExecutorConfig().Apply(env, validCombinedVerifierExecutorInput(sel))
+	require.ErrorContains(t, err, "failed to sync JD before verifier/executor flows")
+	require.Zero(t, client.proposeCalls)
+	require.Zero(t, client.revokeCalls)
 }

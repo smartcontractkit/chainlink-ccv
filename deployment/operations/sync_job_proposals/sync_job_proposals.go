@@ -127,18 +127,14 @@ var SyncJobProposals = operations.NewOperation(
 
 		nopFilter := shared.NOPAliasSliceToSet(input.NOPAliases)
 
-		allowedNodeIDs := shared.NodeIDsToSet(e.NodeIDs)
-		if allowedNodeIDs == nil {
-			allowedNodeIDs = make(map[string]bool)
-		}
-		jdNodes, err := ccvdeployment.GetJDNodes(ds.Seal())
+		syncEnv := e
+		syncEnv.DataStore = ds.Seal()
+		syncEnv, err = ccvdeployment.WithPersistedJDNodeIDs(syncEnv)
 		if err != nil {
-			return SyncJobProposalsOutput{}, fmt.Errorf("failed to load synced JD node inventory: %w", err)
+			return SyncJobProposalsOutput{}, fmt.Errorf("failed to resolve synced JD node IDs: %w", err)
 		}
-		for nodeID := range jdNodes {
-			allowedNodeIDs[nodeID] = true
-		}
-		if len(allowedNodeIDs) == 0 {
+		allowedNodeIDs := shared.NodeIDsToSet(syncEnv.NodeIDs)
+		if allowedNodeIDs == nil {
 			return SyncJobProposalsOutput{}, fmt.Errorf("no JD nodes available for proposal sync")
 		}
 

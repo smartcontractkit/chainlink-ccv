@@ -22,6 +22,7 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
+	syncjobproposals "github.com/smartcontractkit/chainlink-ccv/deployment/operations/sync_job_proposals"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 )
 
@@ -118,9 +119,29 @@ func ApplyVerifierExecutorConfig() deployment.ChangeSetV2[ApplyVerifierExecutorC
 	}
 
 	apply := func(e deployment.Environment, cfg ApplyVerifierExecutorConfigInput) (deployment.ChangesetOutput, error) {
+		var syncedDS datastore.MutableDataStore = datastore.NewMemoryDataStore()
+		if e.DataStore != nil {
+			if err := syncedDS.Merge(e.DataStore); err != nil {
+				return deployment.ChangesetOutput{}, fmt.Errorf("failed to clone datastore for JD sync: %w", err)
+			}
+		}
+		syncedDS, err := syncjobproposals.SyncDatastore(e.OperationsBundle, e, syncedDS)
+		if err != nil {
+			return deployment.ChangesetOutput{}, fmt.Errorf("failed to sync JD before verifier/executor flows: %w", err)
+		}
+		e.DataStore = syncedDS.Seal()
+		e, err = withPersistedJDNodeIDs(e)
+		if err != nil {
+			return deployment.ChangesetOutput{}, fmt.Errorf("failed to resolve JD node IDs: %w", err)
+		}
+		verifierInput := deriveVerifierInput(cfg)
+		verifierInput.skipFullSync = true
+		executorInput := deriveExecutorInput(cfg)
+		executorInput.skipFullSync = true
+
 		var reports []operations.Report[any, any]
 
-		verifierOutput, err := verifierChangeset.Apply(e, deriveVerifierInput(cfg))
+		verifierOutput, err := verifierChangeset.Apply(e, verifierInput)
 		reports = append(reports, verifierOutput.Reports...)
 		if err != nil {
 			return deployment.ChangesetOutput{
@@ -134,7 +155,7 @@ func ApplyVerifierExecutorConfig() deployment.ChangeSetV2[ApplyVerifierExecutorC
 		if verifierOutput.DataStore != nil {
 			executorEnv.DataStore = verifierOutput.DataStore.Seal()
 		}
-		executorOutput, err := executorChangeset.Apply(executorEnv, deriveExecutorInput(cfg))
+		executorOutput, err := executorChangeset.Apply(executorEnv, executorInput)
 		reports = append(reports, executorOutput.Reports...)
 
 		executorErr := err

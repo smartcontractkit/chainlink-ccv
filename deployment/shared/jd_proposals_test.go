@@ -30,6 +30,9 @@ func TestSetProposalsFromJD(t *testing.T) {
 	require.Equal(t, "p2", job.ActiveProposalID)
 	require.Equal(t, "s2", job.Proposals["p2"].Spec)
 	require.Equal(t, JobProposalStatusRevoked, job.LatestStatus())
+	require.True(t, job.NeedsRevocation(), "an approved revision still needs revocation after a newer cancellation")
+	job.ActiveProposalID = ""
+	require.False(t, job.NeedsRevocation())
 
 	job.SetProposalsFromJD(nil)
 	require.Empty(t, job.Proposals)

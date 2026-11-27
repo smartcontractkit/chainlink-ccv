@@ -21,6 +21,15 @@ type RevokeJobsOutput struct {
 	Errors      []RevokeError
 }
 
+// Err reports per-job revocation failures without hiding them in the output slices.
+func (o RevokeJobsOutput) Err() error {
+	if len(o.Errors) == 0 {
+		return nil
+	}
+	first := o.Errors[0]
+	return fmt.Errorf("%d job revocations failed; first: %s/%s: %s", len(o.Errors), first.NOPAlias, first.JobID, first.Error)
+}
+
 type RevokedJob struct {
 	JobID    shared.JobID
 	NOPAlias shared.NOPAlias

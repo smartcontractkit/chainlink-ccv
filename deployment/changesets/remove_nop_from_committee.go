@@ -179,6 +179,11 @@ func RemoveNOPOffchain() deployment.ChangeSetV2[RemoveNOPOffchainInput] {
 		if err != nil {
 			return deployment.ChangesetOutput{}, fmt.Errorf("failed to sync JD before revoking jobs: %w", err)
 		}
+		e.DataStore = outputDS.Seal()
+		e, err = withPersistedJDNodeIDs(e)
+		if err != nil {
+			return deployment.ChangesetOutput{}, fmt.Errorf("failed to resolve JD node IDs: %w", err)
+		}
 		if err := revokeVerifierJobsForNOP(e, cfg.NOPAlias, cfg.CommitteeQualifier, outputDS); err != nil {
 			return deployment.ChangesetOutput{}, err
 		}
@@ -219,7 +224,7 @@ func revokeVerifierJobsForNOP(
 	// Revoke jobs that haven't already been revoked, regardless of node mode.
 	jobsToRevoke := make([]shared.JobInfo, 0, len(orphanedJobs))
 	for _, j := range orphanedJobs {
-		if j.LatestStatus() != shared.JobProposalStatusRevoked {
+		if j.NeedsRevocation() {
 			jobsToRevoke = append(jobsToRevoke, j)
 		}
 	}
@@ -241,6 +246,9 @@ func revokeVerifierJobsForNOP(
 			},
 		)
 		if err != nil {
+			return fmt.Errorf("failed to revoke jobs for NOP %q: %w", nopAlias, err)
+		}
+		if err := revokeReport.Output.Err(); err != nil {
 			return fmt.Errorf("failed to revoke jobs for NOP %q: %w", nopAlias, err)
 		}
 		e.Logger.Infow("Verifier jobs revoked for NOP",
